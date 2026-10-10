@@ -3,3 +3,4 @@ naver_profile/
 __pycache__/
 .pytest_cache/
 subtitles/_audio/
+tools/
