@@ -2,3 +2,4 @@ naver_profile/
 *.xlsx
 __pycache__/
 .pytest_cache/
+subtitles/_audio/
