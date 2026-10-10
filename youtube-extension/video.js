@@ -1,5 +1,5 @@
-// 영상 파일 다운로드 - 화면 (common.js 다음에 넣는다)
-// 영상을 유튜브 탭에서 처음부터 재생하며 녹화하고(video-capture.js), 끝나면 그 탭이 파일을 저장한다.
+// 영상·음성 파일 다운로드 - 화면 (common.js 다음에 넣는다)
+// 영상을 유튜브 탭에서 처음부터 재생하며 녹화·녹음하고(video-capture.js), 끝나면 그 탭이 파일을 저장한다.
 // 탭을 닫기 전에 다운로드가 끝날 때까지 기다린다.
 
 let running = false;
@@ -32,7 +32,8 @@ function waitDownload(name, timeoutMs = 10 * 60 * 1000) {
   });
 }
 
-async function downloadVideo(url, row) {
+async function downloadVideo(url, row, kind) {
+  const verb = kind === "audio" ? "녹음" : "녹화";
   const videoId = parseYoutubeId(url);
   if (!videoId) throw new Error("유튜브 영상 주소가 아닙니다");
   let duration = 0;
@@ -42,9 +43,9 @@ async function downloadVideo(url, row) {
   setRowStatus(row, "유튜브 탭 여는 중…");
   await runInYoutubeTab({
     videoId,
-    files: ["video-capture.js"],
+    files: kind === "audio" ? ["lib/lame.min.js", "video-capture.js"] : ["video-capture.js"],
     portName: "video",
-    start: { baseName: `${today()}_${videoId}` },
+    start: { baseName: `${today()}_${videoId}`, kind },
     onMessage(m, port) {
       if (m.type === "info") {
         duration = m.duration;
@@ -56,12 +57,12 @@ async function downloadVideo(url, row) {
       } else if (m.type === "needplay") {
         setRowStatus(row, "유튜브 탭에서 재생 버튼(▶)을 한 번 눌러 주세요", "err");
       } else if (m.type === "playing") {
-        setRowStatus(row, "녹화 시작");
+        setRowStatus(row, `${verb} 시작`);
         // 다운로드 감시는 파일이 만들어지기 전에 걸어 둔다
         downloaded = waitDownload(videoId);
         downloaded.catch(() => {});
       } else if (m.type === "progress") {
-        setRowStatus(row, `녹화 중 ${fmtTime(m.t)} / ${fmtTime(duration)} · ${mb(m.size)}`);
+        setRowStatus(row, `${verb} 중 ${fmtTime(m.t)} / ${fmtTime(duration)} · ${mb(m.size)}`);
       } else if (m.type === "saved") {
         saved = m;
         setRowStatus(row, `파일 저장 중… ${mb(m.size)}`);
@@ -77,6 +78,7 @@ async function downloadVideo(url, row) {
 async function start() {
   const urls = readUrls();
   if (!urls.length) return setSummary("유튜브 영상 URL을 입력하세요.", "err");
+  const kind = $("#kind").value;
   running = true;
   $("#start").disabled = true;
   $("#stop").disabled = false;
@@ -85,9 +87,9 @@ async function start() {
 
   for (let i = 0; i < urls.length && running; i++) {
     const row = addProgressRow(i, urls[i]);
-    setSummary(`${i + 1} / ${urls.length}번째 영상 녹화 중…`);
+    setSummary(`${i + 1} / ${urls.length}번째 영상 ${kind === "audio" ? "녹음" : "녹화"} 중…`);
     try {
-      const r = await downloadVideo(urls[i], row);
+      const r = await downloadVideo(urls[i], row, kind);
       setRowStatus(row, `완료 · ${r.name} (${mb(r.size)})`, "ok");
       ok++;
     } catch (e) {
@@ -96,7 +98,9 @@ async function start() {
   }
 
   setSummary(
-    running ? `${ok} / ${urls.length}개 영상을 다운로드 폴더에 저장했습니다.` : "중지했습니다. 녹화 중이던 영상은 저장하지 않았습니다.",
+    running
+      ? `${ok} / ${urls.length}개 ${kind === "audio" ? "음성" : "영상"} 파일을 다운로드 폴더에 저장했습니다.`
+      : "중지했습니다. 진행 중이던 파일은 저장하지 않았습니다.",
     running ? "ok" : "",
   );
   running = false;
@@ -105,6 +109,14 @@ async function start() {
 }
 
 menu("video.html");
+try {
+  $("#kind").value = localStorage.getItem("downloadKind") || "video";
+} catch {}
+$("#kind").addEventListener("change", () => {
+  try {
+    localStorage.setItem("downloadKind", $("#kind").value);
+  } catch {}
+});
 $("#start").addEventListener("click", start);
 $("#stop").addEventListener("click", () => {
   running = false;

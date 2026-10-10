@@ -148,7 +148,7 @@ function menu(active) {
   nav.className = "menu";
   for (const [href, label] of [
     ["script.html", "스크립트 추출"],
-    ["video.html", "영상 파일 다운로드"],
+    ["video.html", "영상·음성 파일 다운로드"],
   ]) {
     const a = document.createElement("a");
     a.href = href;

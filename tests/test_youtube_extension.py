@@ -268,3 +268,36 @@ def test_video(tmp_path: Path):
     kinds = {s["codec_type"] for s in probe["streams"]}
     assert kinds == {"video", "audio"}
     assert 5.5 < float(probe["format"].get("duration", 0) or 0) < 7.5
+
+
+def test_audio(tmp_path: Path):
+    media = tmp_path / "audiovid001.webm"
+    make_media(media, 6)
+    server = start_fake_youtube(tmp_path, {media.name: media})
+    with sync_playwright() as p:
+        ctx = launch(p, tmp_path, EXT_DIR, server.server_address[1])
+        page = ext_page(ctx, "video.html")
+        assert page.locator(".menu a.active").inner_text() == "영상·음성 파일 다운로드"
+        page.select_option("#kind", "audio")
+        page.fill("#urls", "https://www.youtube.com/watch?v=audiovid001")
+        with ctx.expect_event("download", timeout=60000) as dl:
+            page.click("#start")
+        path = tmp_path / dl.value.suggested_filename
+        dl.value.save_as(path)
+        page.locator("#summary", has_text="음성 파일을 다운로드 폴더에 저장했습니다").wait_for(timeout=60000)
+        status = page.inner_text("#progress tbody")
+        ctx.close()
+    server.shutdown()
+
+    assert path.name == f"{date.today():%Y%m%d}_{SAFE_TITLE}.mp3", status
+    probe = json.loads(subprocess.run(
+        ["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)],
+        check=True, capture_output=True, text=True).stdout)
+    assert [s["codec_name"] for s in probe["streams"]] == ["mp3"]
+    assert probe["streams"][0]["channels"] == 2
+    assert 5.5 < float(probe["format"]["duration"]) < 7.5
+    # 440Hz 소리가 실제로 들어 있는지 (무음 파일이 아닌지)
+    vol = subprocess.run(["ffmpeg", "-i", str(path), "-af", "volumedetect", "-f", "null", "-"],
+                         capture_output=True, text=True).stderr
+    mean = float(vol.split("mean_volume:")[1].split("dB")[0])
+    assert mean > -40, vol
