@@ -301,3 +301,90 @@ def test_audio(tmp_path: Path):
                          capture_output=True, text=True).stderr
     mean = float(vol.split("mean_volume:")[1].split("dB")[0])
     assert mean > -40, vol
+
+
+HELPER_APP = Path(__file__).resolve().parent.parent / "유튜브 도우미 설치.app"
+EXT_ID = "pjmcafienhpdbpljglddhaknajaekhcm"
+
+
+def test_fast_audio_helper(tmp_path: Path):
+    """음성 빠른 다운로드: 확장 → (Native Messaging) → 도우미(ytdl_host.sh) → yt-dlp.
+    유튜브 대신 로컬 파일을 받도록 yt-dlp 만 바꿔 끼운다."""
+    import shutil as _sh
+    ytdlp = _sh.which("yt-dlp")
+    if not ytdlp:
+        pytest.skip("yt-dlp 없음")
+    media = tmp_path / "srv" / "test_audio.m4a"
+    media.parent.mkdir()
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=4",
+                    "-c:a", "aac", str(media)], check=True)
+    srv = subprocess.Popen(["python3", "-m", "http.server", "0", "--bind", "127.0.0.1"], cwd=media.parent,
+                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    port = int(srv.stdout.readline().split("port ")[1].split(" ")[0])
+    out = tmp_path / "Downloads"
+    out.mkdir()
+    fake = tmp_path / "fake_ytdlp.sh"
+    fake.write_text(
+        "#!/bin/bash\nargs=()\nfor a in \"$@\"; do case \"$a\" in\n"
+        f"  https://www.youtube.com/*) args+=(\"http://127.0.0.1:{port}/test_audio.m4a\") ;;\n"
+        "  -U) exit 0 ;;\n  *) args+=(\"$a\") ;;\nesac; done\n"
+        f"NO_PROXY=127.0.0.1 exec {ytdlp} \"${{args[@]}}\"\n")
+    wrapper = tmp_path / "host.sh"
+    wrapper.write_text(f"#!/bin/bash\nexport YTDLP='{fake}' OUT='{out}'\n"
+                       f"exec '{HELPER_APP / 'Contents/Resources/ytdl_host.sh'}'\n")
+    fake.chmod(0o755)
+    wrapper.chmod(0o755)
+    hosts = tmp_path / "profile" / "NativeMessagingHosts"
+    hosts.mkdir(parents=True)
+    (hosts / "com.khagu77.ytdl.json").write_text(json.dumps({
+        "name": "com.khagu77.ytdl", "description": "test", "path": str(wrapper), "type": "stdio",
+        "allowed_origins": [f"chrome-extension://{EXT_ID}/"]}))
+    try:
+        with sync_playwright() as p:
+            ctx = launch(p, tmp_path, EXT_DIR, 1)
+            page = ext_page(ctx, "video.html")
+            assert page.url.startswith(f"chrome-extension://{EXT_ID}/")  # manifest key 로 ID 고정
+            page.select_option("#kind", "fast")
+            page.locator("#helper", has_text="Mac 도우미가 연결되었습니다").wait_for(timeout=20000)
+            page.fill("#urls", "https://youtu.be/abcdefghijk\nhttps://www.youtube.com/watch?v=zyxwvutsrqp&t=10\n없는주소")
+            page.click("#start")
+            page.locator("#summary", has_text="2 / 3개 음성 파일을").wait_for(timeout=60000)
+            status = page.inner_text("#progress tbody")
+            ctx.close()
+    finally:
+        srv.terminate()
+    assert status.count("완료") == 2 and "유튜브 영상 주소가 아닙니다" in status, status
+    files = list(out.iterdir())
+    assert [f.name for f in files] == [f"{date.today():%Y%m%d}_test_audio.m4a"], files
+    assert "aac" in subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0",
+                                    str(files[0])], capture_output=True, text=True).stdout
+
+
+def test_fast_audio_helper_missing(tmp_path: Path):
+    with sync_playwright() as p:
+        ctx = launch(p, tmp_path, EXT_DIR, 1)
+        page = ext_page(ctx, "video.html")
+        page.select_option("#kind", "fast")
+        page.locator("#helper", has_text="Mac 도우미가 설치되어 있지 않습니다").wait_for(timeout=20000)
+        page.fill("#urls", "https://youtu.be/abcdefghijk")
+        page.click("#start")
+        page.locator("#progress tbody", has_text="도우미 설치").wait_for(timeout=20000)
+        ctx.close()
+
+
+def test_helper_installer(tmp_path: Path):
+    """설치 앱: 도우미·yt-dlp 를 두고 크롬(과 설치된 다른 브라우저)에 등록하는지. (osascript 는 Mac 에만 있어 무시됨)"""
+    home = tmp_path / "home"
+    (home / "Library/Application Support/Naver/Whale").mkdir(parents=True)
+    r = subprocess.run([str(HELPER_APP / "Contents/MacOS/install")], env={**{k: v for k, v in os.environ.items() if "proxy" in k.lower() or k.startswith("SSL") or k.startswith("CURL")},
+                            "HOME": str(home), "PATH": "/usr/bin:/bin"},
+                       capture_output=True, text=True, timeout=300)
+    assert r.returncode == 0, r.stderr
+    sup = home / "Library/Application Support"
+    dest = sup / "YTScriptHelper"
+    assert os.access(dest / "ytdl_host.sh", os.X_OK) and os.access(dest / "yt-dlp_macos", os.X_OK)
+    assert (dest / "yt-dlp_macos").stat().st_size > 1_000_000
+    for b in ("Google/Chrome", "Naver/Whale"):
+        m = json.loads((sup / b / "NativeMessagingHosts/com.khagu77.ytdl.json").read_text())
+        assert m["path"] == str(dest / "ytdl_host.sh") and m["allowed_origins"] == [f"chrome-extension://{EXT_ID}/"]
+    assert not (sup / "Microsoft Edge").exists()  # 없는 브라우저는 건드리지 않는다

@@ -75,6 +75,106 @@ async function downloadVideo(url, row, kind) {
   return saved;
 }
 
+// ---------------------------------------------------------------------------
+// 음성 빠른 다운로드: Mac 도우미(크롬 Native Messaging, '유튜브 도우미 설치' 앱으로 설치)가
+// yt-dlp 로 음성 파일만 바로 받는다. 영상을 재생하지 않는다.
+// ---------------------------------------------------------------------------
+
+const HELPER = "com.khagu77.ytdl";
+const HELPER_MISSING =
+  "Mac 도우미가 설치되어 있지 않습니다. 압축 푼 폴더의 '유튜브 도우미 설치' 앱을 한 번 실행한 뒤 이 화면을 새로고침하세요. " +
+  "(처음 열 때 '확인되지 않은 개발자' 안내가 나오면 앱을 오른쪽 클릭 → 열기, " +
+  "또는 시스템 설정 → 개인정보 보호 및 보안에서 '그래도 열기')";
+
+let stopFast = null; // 진행 중인 음성 빠른 다운로드를 멈추는 함수
+
+// → { ok, ext } 또는 null(설치 안 됨)
+function pingHelper() {
+  return new Promise((resolve) => {
+    let port;
+    try {
+      port = chrome.runtime.connectNative(HELPER);
+    } catch {
+      return resolve(null);
+    }
+    const timer = setTimeout(() => done(null), 8000);
+    function done(v) {
+      clearTimeout(timer);
+      try {
+        port.disconnect();
+      } catch {}
+      resolve(v);
+    }
+    port.onMessage.addListener((m) => m.type === "pong" && done(m));
+    port.onDisconnect.addListener(() => done(null));
+    port.postMessage({ type: "ping" });
+  });
+}
+
+async function showHelperStatus() {
+  const el = $("#helper");
+  el.hidden = $("#kind").value !== "fast";
+  if (el.hidden) return;
+  el.textContent = "Mac 도우미 확인 중…";
+  el.className = "hint";
+  const r = await pingHelper();
+  if (r && r.ok) {
+    el.textContent = `✔ Mac 도우미가 연결되었습니다. 다운로드 폴더에 날짜_제목.${r.ext} 로 저장합니다.`;
+    el.className = "hint ok";
+  } else {
+    el.textContent = HELPER_MISSING;
+    el.className = "hint err";
+  }
+}
+
+async function fastDownload(urls) {
+  const rows = urls.map((u, i) => addProgressRow(i, u));
+  const jobs = []; // 도우미에게 보낼 영상 (번호 → 줄)
+  urls.forEach((u, i) => {
+    const id = parseYoutubeId(u);
+    if (id) jobs.push({ row: rows[i], url: `https://www.youtube.com/watch?v=${id}`, ok: false });
+    else setRowStatus(rows[i], "유튜브 영상 주소가 아닙니다", "err");
+  });
+  if (!jobs.length) return 0;
+  setSummary(`${jobs.length}개 영상의 음성을 받는 중…`);
+  await new Promise((resolve) => {
+    let finished = false;
+    const port = chrome.runtime.connectNative(HELPER);
+    stopFast = () => {
+      finished = true;
+      port.disconnect(); // 도우미도 함께 끝난다
+      for (const j of jobs) if (!j.ok) setRowStatus(j.row, "중지됨", "err");
+      resolve();
+    };
+    port.onDisconnect.addListener(() => {
+      if (!finished) {
+        const why = (chrome.runtime.lastError && chrome.runtime.lastError.message) || "";
+        const msg = /not found|forbidden/i.test(why) ? HELPER_MISSING : `도우미 연결이 끊겼습니다 ${why}`;
+        for (const j of jobs) if (!j.ok) setRowStatus(j.row, msg, "err");
+      }
+      resolve();
+    });
+    port.onMessage.addListener((m) => {
+      const j = jobs[m.index];
+      if (m.type === "start") setRowStatus(j.row, "받는 중…");
+      else if (m.type === "title") setRowTitle(j.row, m.title);
+      else if (m.type === "progress") setRowStatus(j.row, `받는 중 ${Math.floor(m.percent)}%`);
+      else if (m.type === "saved") {
+        j.ok = true;
+        setRowStatus(j.row, `완료 · ${m.file.split("/").pop()}`, "ok");
+      } else if (m.type === "error") setRowStatus(j.row, `받지 못함: ${m.message}`, "err");
+      else if (m.type === "finished") {
+        finished = true;
+        port.disconnect();
+        resolve();
+      }
+    });
+    port.postMessage({ type: "download", urls: jobs.map((j) => j.url) });
+  });
+  stopFast = null;
+  return jobs.filter((j) => j.ok).length;
+}
+
 async function start() {
   const urls = readUrls();
   if (!urls.length) return setSummary("유튜브 영상 URL을 입력하세요.", "err");
@@ -84,6 +184,18 @@ async function start() {
   $("#stop").disabled = false;
   $("#progress tbody").innerHTML = "";
   let ok = 0;
+
+  if (kind === "fast") {
+    ok = await fastDownload(urls);
+    setSummary(
+      running ? `${ok} / ${urls.length}개 음성 파일을 다운로드 폴더에 저장했습니다.` : "중지했습니다.",
+      running && ok ? "ok" : "",
+    );
+    running = false;
+    $("#start").disabled = false;
+    $("#stop").disabled = true;
+    return;
+  }
 
   for (let i = 0; i < urls.length && running; i++) {
     const row = addProgressRow(i, urls[i]);
@@ -116,10 +228,13 @@ $("#kind").addEventListener("change", () => {
   try {
     localStorage.setItem("downloadKind", $("#kind").value);
   } catch {}
+  showHelperStatus();
 });
+showHelperStatus();
 $("#start").addEventListener("click", start);
 $("#stop").addEventListener("click", () => {
   running = false;
   $("#stop").disabled = true;
   if (runInYoutubeTab.abort) runInYoutubeTab.abort();
+  if (stopFast) stopFast();
 });

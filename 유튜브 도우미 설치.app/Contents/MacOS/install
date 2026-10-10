@@ -1,0 +1,56 @@
+#!/bin/bash
+# '유튜브 도우미 설치' 앱 - 더블클릭하면 터미널 없이 실행된다.
+# 'YouTube 스크립트 및 영상 파일 추출' 확장프로그램이 음성을 재생 없이 바로 받을 수 있게
+# 도우미(ytdl_host.sh)와 yt-dlp 를 설치하고, 크롬·웨일·엣지·브레이브에 도우미를 등록한다.
+
+HOST_NAME="com.khagu77.ytdl"
+EXT_ID="pjmcafienhpdbpljglddhaknajaekhcm" # 확장프로그램 manifest.json 의 key 로 고정된 ID
+RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
+DEST="$HOME/Library/Application Support/YTScriptHelper"
+SUPPORT="$HOME/Library/Application Support"
+
+dialog() {
+  osascript -e "display dialog \"$1\" with title \"유튜브 도우미 설치\" buttons {\"확인\"} default button 1 with icon $2" > /dev/null 2>&1
+  return 0
+}
+fail() {
+  dialog "설치하지 못했습니다.\n\n$1" stop
+  exit 1
+}
+
+osascript -e 'display notification "yt-dlp 를 내려받고 있습니다. 잠시만 기다려 주세요." with title "유튜브 도우미 설치"' > /dev/null 2>&1
+
+mkdir -p "$DEST" || fail "폴더를 만들 수 없습니다: $DEST"
+cat "$RES/ytdl_host.sh" > "$DEST/ytdl_host.sh" || fail "도우미 파일을 복사할 수 없습니다."
+chmod +x "$DEST/ytdl_host.sh"
+
+TMP="$DEST/yt-dlp_macos.download"
+if ! curl -L --fail -s -o "$TMP" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos"; then
+  rm -f "$TMP"
+  [ -x "$DEST/yt-dlp_macos" ] || fail "yt-dlp 를 내려받지 못했습니다. 인터넷 연결을 확인한 뒤 다시 실행해 주세요."
+else
+  mv -f "$TMP" "$DEST/yt-dlp_macos"
+  chmod +x "$DEST/yt-dlp_macos"
+fi
+
+MANIFEST="{
+  \"name\": \"$HOST_NAME\",
+  \"description\": \"YouTube 스크립트 및 영상 파일 추출 - 음성 빠른 다운로드 도우미\",
+  \"path\": \"$DEST/ytdl_host.sh\",
+  \"type\": \"stdio\",
+  \"allowed_origins\": [\"chrome-extension://$EXT_ID/\"]
+}"
+
+registered=""
+for b in "Google/Chrome" "Google/Chrome Beta" "Naver/Whale" "Microsoft Edge" "BraveSoftware/Brave-Browser" "Chromium"; do
+  # 크롬은 항상, 나머지 브라우저는 설치돼 있을 때만 등록
+  if [ "$b" = "Google/Chrome" ] || [ -d "$SUPPORT/$b" ]; then
+    mkdir -p "$SUPPORT/$b/NativeMessagingHosts" &&
+      printf '%s\n' "$MANIFEST" > "$SUPPORT/$b/NativeMessagingHosts/$HOST_NAME.json" &&
+      registered="$registered ${b##*/}"
+  fi
+done
+[ -n "$registered" ] || fail "브라우저에 도우미를 등록하지 못했습니다."
+
+dialog "설치를 마쳤습니다. (등록한 브라우저:$registered)\n\n확장프로그램의 '영상·음성 파일 다운로드' 화면을 새로고침한 뒤 저장 형식에서 '음성 빠른 다운로드'를 고르세요." note
+exit 0
