@@ -87,13 +87,14 @@ def make_template(path: Path):
     yt.append(headers)
     yt.append([1, "유튜브", "6개월 전", "남겨둘 영상 댓글", "https://www.youtube.com/watch?v=keepkeepkee"])
     yt.append([2, "유튜브", "6개월 전", "다시 수집될 영상의 옛 댓글", "https://www.youtube.com/watch?v=abcdefghijk"])
+    yt.append([3, "유튜브", "1년 전", "오늘 목록에 없는 영상", "https://www.youtube.com/watch?v=goneoldvid1"])
     car = wb.create_sheet("자동차 커뮤니티")
     car.append(headers)
     car.append([1, "뽐뿌", "2026.03.14", "커뮤니티 댓글", "https://www.ppomppu.co.kr/x"])
     wb.save(path)
 
 
-def run_extension(tmp_path: Path, urls, template=None, re_youtube=True, fail_video=None):
+def run_extension(tmp_path: Path, urls, template=None, fail_video=None):
     requested_tokens = []
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
@@ -137,8 +138,6 @@ def run_extension(tmp_path: Path, urls, template=None, re_youtube=True, fail_vid
         if template:
             page.set_input_files("#templateFile", str(template))
             page.locator("#templateInfo", has_text="✔").wait_for()
-        if not re_youtube:
-            page.uncheck("#reYt")
         page.fill("#urls", "\n".join(urls))
         with page.expect_download(timeout=60000) as dl:
             page.click("#start")
@@ -178,7 +177,8 @@ def test_blank_output(tmp_path: Path):
 def test_continue_template(tmp_path: Path):
     tpl = tmp_path / "20261008_현대차_raw_data_정리.xlsx"
     make_template(tpl)
-    path, summary, _ = run_extension(tmp_path, URLS, template=tpl, fail_video="keepkeepkee")
+    urls = URLS + ["https://www.youtube.com/watch?v=keepkeepkee"]
+    path, summary, _ = run_extension(tmp_path, urls, template=tpl, fail_video="keepkeepkee")
     assert path.name == f"{date.today():%Y%m%d}_현대차_raw_data_정리.xlsx"
     assert "동호회 5개 추가(연번 3~7)" in summary and "이미 있던 댓글 1개 제외" in summary
 
@@ -201,7 +201,8 @@ def test_continue_template(tmp_path: Path):
     assert cafe_ws.freeze_panes == "A2"
 
     yt = list(wb["유튜브"].values)
-    # 실패한 영상(keepkeepkee)은 기존 행 유지, 다시 수집한 영상은 새 댓글로 교체
-    assert [r[3] for r in yt[1:]] == ["남겨둘 영상 댓글", "좋아요", "답글이에요", "멋져요", "마지막"]
+    # 오늘 입력한 영상만 남는다: 수집한 영상은 새 댓글, 수집 실패한 영상(keepkeepkee)은 기존 행 유지,
+    # 오늘 목록에 없는 영상(goneoldvid1)은 빠진다.
+    assert [r[3] for r in yt[1:]] == ["좋아요", "답글이에요", "멋져요", "마지막", "남겨둘 영상 댓글"]
     assert [r[0] for r in yt[1:]] == [1, 2, 3, 4, 5]
-    assert "다시 수집될 영상의 옛 댓글" not in [r[3] for r in yt]
+    assert "수집 실패한 유튜브 영상 1개는 기존 댓글 유지" in summary

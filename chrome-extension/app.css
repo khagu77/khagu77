@@ -73,4 +73,3 @@ td.title { color: var(--muted); display: block; }
 .note { margin-top: 20px; color: var(--muted); font-size: 12px; }
 input[type="file"] { font-size: 14px; }
 #templateInfo { margin-top: 6px; font-size: 13px; }
-label.check { font-weight: 400; display: flex; gap: 6px; align-items: flex-start; font-size: 14px; }

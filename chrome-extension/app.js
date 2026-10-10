@@ -648,20 +648,17 @@ function buildRows(results, info) {
     }
   }
 
-  // 유튜브: 기존 영상 순서를 유지하고 새 영상은 뒤에 붙인다.
-  // 수집에 실패했거나 이번에 수집하지 않은 영상은 기존 행을 그대로 남긴다.
+  // 유튜브: 오늘 입력한 영상들의 댓글로 시트 전체를 교체한다(입력 순서대로).
+  // 수집에 실패한 영상이 파일에 있던 영상이면 그 영상의 기존 행만 남긴다.
   const ytResults = results.filter((x) => x.platform === "youtube");
-  const order = info ? [...info.ytVideos.keys()] : [];
-  for (const r of ytResults) if (!order.includes(r.articleId)) order.push(r.articleId);
   const yt = [];
   const keptOld = [];
-  for (const id of order) {
-    const r = ytResults.find((x) => x.articleId === id);
-    if (r && !r.error) {
-      for (const c of r.comments) yt.push(["유튜브", c.writtenAt, c.content, youtubeWatchUrl(id)]);
-    } else if (info?.ytVideos.has(id)) {
-      keptOld.push(id);
-      yt.push(...info.ytVideos.get(id));
+  for (const r of ytResults) {
+    if (!r.error) {
+      for (const c of r.comments) yt.push(["유튜브", c.writtenAt, c.content, youtubeWatchUrl(r.articleId)]);
+    } else if (info?.ytVideos.has(r.articleId)) {
+      keptOld.push(r.articleId);
+      yt.push(...info.ytVideos.get(r.articleId));
     }
   }
   return {
@@ -758,7 +755,7 @@ async function loadTemplate(file) {
     box.className = "hint ok";
     box.textContent =
       `✔ ${file.name} — 동호회 ${info.cafeCount.toLocaleString()}행(마지막 연번 ${info.cafeLastSerial.toLocaleString()}) 다음부터 이어 씁니다. ` +
-      `유튜브 시트에는 영상 ${info.ytVideos.size}개, 댓글 ${info.ytCount.toLocaleString()}행이 있습니다. ` +
+      `유튜브 시트(현재 ${info.ytCount.toLocaleString()}행)는 오늘 수집한 영상 댓글로 교체됩니다. ` +
       `저장 파일명: ${outputFileName(file.name)}`;
   } catch (e) {
     template = null;
@@ -870,18 +867,8 @@ async function collectOne(url, row) {
   return result;
 }
 
-// 입력한 URL + (선택 시) 파일에 있던 유튜브 영상들
-function urlsToCollect() {
-  const urls = readUrls();
-  if (template && $("#reYt").checked) {
-    const have = new Set(urls.map(parseYoutubeId).filter(Boolean));
-    for (const id of template.info.ytVideos.keys()) if (!have.has(id)) urls.push(youtubeWatchUrl(id));
-  }
-  return urls;
-}
-
 async function start() {
-  const urls = urlsToCollect();
+  const urls = readUrls();
   if (!urls.length) {
     $("#summary").textContent = "URL을 입력하세요.";
     return;
@@ -920,7 +907,7 @@ async function start() {
     }
     if (rows.duplicates) parts.push(`이미 있던 댓글 ${rows.duplicates.toLocaleString()}개 제외`);
     if (rows.ytTouched || !info) parts.push(`유튜브 ${rows.yt.length.toLocaleString()}개로 교체`);
-    if (rows.keptOld.length) parts.push(`유튜브 영상 ${rows.keptOld.length}개는 기존 댓글 유지`);
+    if (rows.keptOld.length) parts.push(`수집 실패한 유튜브 영상 ${rows.keptOld.length}개는 기존 댓글 유지`);
     $("#summary").textContent =
       `${stopRequested ? "중지됨 - " : ""}${parts.join(", ")}` +
       `${failed ? ` (실패 ${failed}건)` : ""} · ${name} 파일이 다운로드 폴더에 저장되었습니다.`;
