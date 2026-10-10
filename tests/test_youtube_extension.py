@@ -311,9 +311,16 @@ HELPER_APP = Path(__file__).resolve().parent.parent / "유튜브 도우미 설�
 EXT_ID = "pjmcafienhpdbpljglddhaknajaekhcm"
 
 
-def run_fast_helper(tmp_path: Path, kind: str, media_name: str, make_cmd, quality=None):
-    """빠른 다운로드: 확장 → (Native Messaging) → 도우미(ytdl_host.sh) → yt-dlp.
-    유튜브 대신 로컬 파일을 받도록 yt-dlp 만 바꿔 끼운다. → (상태 글, 받은 파일들)"""
+WIN_HOST = Path(__file__).resolve().parent.parent / "windows-helper" / "helper" / "ytdl_host.ps1"
+PWSH = os.environ.get("PWSH_PATH") or shutil.which("pwsh")
+
+
+def run_fast_helper(tmp_path: Path, kind: str, media_name: str, make_cmd, quality=None, windows=False):
+    """빠른 다운로드: 확장 → (Native Messaging) → 도우미(ytdl_host.sh 또는 윈도우용 ytdl_host.ps1) → yt-dlp.
+    유튜브 대신 로컬 파일을 받도록 yt-dlp 만 바꿔 끼운다. → (상태 글, 받은 파일들)
+    windows=True 면 윈도우 도우미(PowerShell)를 리눅스용 PowerShell(pwsh)로 실행해 같은 흐름을 확인한다."""
+    if windows and not PWSH:
+        pytest.skip("pwsh 없음")
     import shutil as _sh
     ytdlp = _sh.which("yt-dlp")
     if not ytdlp:
@@ -334,8 +341,10 @@ def run_fast_helper(tmp_path: Path, kind: str, media_name: str, make_cmd, qualit
         "  -U) exit 0 ;;\n  *) args+=(\"$a\") ;;\nesac; done\n"
         f"NO_PROXY=127.0.0.1 exec {ytdlp} \"${{args[@]}}\"\n")
     wrapper = tmp_path / "host.sh"
+    host_cmd = (f"'{PWSH}' -NoProfile -NonInteractive -File '{WIN_HOST}'" if windows
+                else f"'{HELPER_APP / 'Contents/Resources/ytdl_host.sh'}'")
     wrapper.write_text(f"#!/bin/bash\nexport YTDLP='{fake}' OUT='{out}' VFFMPEG='{_sh.which('ffmpeg')}'\n"
-                       f"exec '{HELPER_APP / 'Contents/Resources/ytdl_host.sh'}'\n")
+                       f"exec {host_cmd}\n")
     fake.chmod(0o755)
     wrapper.chmod(0o755)
     hosts = tmp_path / "profile" / "NativeMessagingHosts"
@@ -356,7 +365,8 @@ def run_fast_helper(tmp_path: Path, kind: str, media_name: str, make_cmd, qualit
                     page.select_option("#quality", quality)
             else:
                 assert page.is_hidden("#quality")
-            ext = "mp4" if kind == "fastvideo" else "m4a"
+            # 윈도우 도우미는 ffmpeg 를 함께 설치하므로 음성을 mp3 로 저장한다
+            ext = "mp4" if kind == "fastvideo" else ("mp3" if windows else "m4a")
             page.locator("#helper", has_text=f"Mac 도우미가 연결되었습니다. 다운로드 폴더에 날짜_제목.{ext}").wait_for(
                 timeout=20000)
             page.fill("#urls", "https://youtu.be/abcdefghijk\nhttps://www.youtube.com/watch?v=zyxwvutsrqp&t=10\n없는주소")
@@ -393,6 +403,40 @@ def test_fast_video_helper(tmp_path: Path):
     assert "height<=720" in args and "height<=1080" not in args and "--merge-output-format" in args, args
     assert [f.name for f in files] == [f"{date.today():%Y%m%d}_test_video.mp4"], files
     assert sorted(codecs(files[0])) == ["aac", "h264"]
+
+
+def test_fast_audio_windows_helper(tmp_path: Path):
+    _, files = run_fast_helper(tmp_path, "fast", "test_audio.m4a", lambda m: [
+        "ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=4",
+        "-c:a", "aac", str(m)], windows=True)
+    assert [f.name for f in files] == [f"{date.today():%Y%m%d}_test_audio.mp3"], files
+    assert codecs(files[0]) == ["mp3"]
+
+
+def test_fast_video_windows_helper(tmp_path: Path):
+    _, files = run_fast_helper(tmp_path, "fastvideo", "test_video.mp4", lambda m: [
+        "ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=4",
+        "-f", "lavfi", "-i", "sine=frequency=440:duration=4", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-shortest", str(m)], quality="1080", windows=True)
+    args = (tmp_path / "ytdlp_args.log").read_text()
+    assert "height<=1080" in args and "--merge-output-format" in args and "TITLE %(title)s" in args, args
+    assert [f.name for f in files] == [f"{date.today():%Y%m%d}_test_video.mp4"], files
+    assert sorted(codecs(files[0])) == ["aac", "h264"]
+
+
+def test_windows_helper_files():
+    """윈도우 도우미 파일: PowerShell 5.1 이 한글을 깨뜨리지 않게 UTF-8 BOM + CRLF, .bat 은 영문만."""
+    root = WIN_HOST.parent.parent
+    for ps1 in (root / "helper").glob("*.ps1"):
+        data = ps1.read_bytes()
+        assert data.startswith(b"\xef\xbb\xbf"), ps1
+        assert b"\r\n" in data and data.count(b"\n") == data.count(b"\r\n"), ps1
+    for bat in list(root.glob("*.bat")) + list((root / "helper").glob("*.bat")):
+        data = bat.read_bytes()
+        assert data.isascii(), bat  # 한글이 들어가면 윈도우 cmd 가 코드페이지에 따라 깨뜨림
+        assert data.count(b"\n") == data.count(b"\r\n"), bat
+    host_bat = (root / "helper" / "ytdl_host.bat").read_text()
+    assert "ytdl_host.ps1" in host_bat and "-ExecutionPolicy Bypass" in host_bat
 
 
 def test_fast_audio_helper_missing(tmp_path: Path):
