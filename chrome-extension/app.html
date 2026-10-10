@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>카페·유튜브 댓글 수집기</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <main>
+    <h1>카페·유튜브 댓글 수집기</h1>
+
+    <div id="login" class="login">로그인 상태 확인 중…</div>
+
+    <label for="urls">네이버 카페 게시글 / 유튜브 영상 URL <span class="hint">(한 줄에 하나씩, 섞어서 넣어도 됩니다)</span></label>
+    <textarea id="urls" rows="8" spellcheck="false"
+      placeholder="https://cafe.naver.com/카페주소/12345&#10;https://www.youtube.com/watch?v=xxxxxxxxxxx"></textarea>
+
+    <div class="buttons">
+      <button id="start" class="primary">수집 시작</button>
+      <button id="stop" disabled>중지</button>
+      <button id="download" disabled>엑셀 다시 받기</button>
+    </div>
+
+    <div id="summary" class="summary"></div>
+
+    <table id="progress" hidden>
+      <thead><tr><th>#</th><th>게시글</th><th>상태</th><th>댓글 수</th></tr></thead>
+      <tbody></tbody>
+    </table>
+
+    <p class="note">
+      네이버 카페는 내가 열람할 수 있는 글만 수집됩니다(로그인 필요). 유튜브는 로그인 없이 공개 댓글을 수집하며,
+      작성일은 유튜브가 보여주는 그대로(예: 3일 전) 저장됩니다. 수집한 닉네임·댓글은 개인정보일 수 있으니
+      네이버 이용약관과 개인정보보호법을 지켜 사용하세요.
+    </p>
+  </main>
+  <script src="xlsx.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
