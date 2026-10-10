@@ -1,7 +1,7 @@
 // 스크립트 추출(화면 자막 인식) - 화면 쪽
 // (common.js, caption-mask.js, lib/ocr/ort.wasm.min.js 다음, script.js 앞에 넣는다)
 // 유튜브 탭(screen-capture.js)이 보내 준 화면 아래쪽 그림에서 자막처럼 생긴 글자만 남기고(caption-mask.js),
-// 줄마다 한국어 글자 인식 모델(EasyOCR korean_g2, ONNX)로 읽어 "00:00 자막" 줄로 모은다.
+// 줄마다 한국어 글자 인식 모델(PaddleOCR PP-OCRv5 korean, ONNX)로 읽어 "00:00 자막" 줄로 모은다.
 // 효과 글자·댓글 캡처·사진 속 글자는 거르고, 한글이 없는 줄(영문 번역 줄 등)은 빼고 한글 줄만 남긴다.
 
 const OCR_BASE = new URL("lib/ocr/", location.href).href;
@@ -17,10 +17,13 @@ async function ensureOcr(onStatus) {
   onStatus("글자 인식 엔진 준비 중…");
   ort.env.wasm.wasmPaths = OCR_BASE;
   ort.env.wasm.numThreads = 1;
-  const [session, chars] = await Promise.all([
+  const [session, dict] = await Promise.all([
     ort.InferenceSession.create(`${OCR_BASE}korean_rec.onnx`, { executionProviders: ["wasm"] }),
-    fetch(`${OCR_BASE}korean_chars.json`).then((r) => r.json()),
+    fetch(`${OCR_BASE}korean_dict.txt`).then((r) => r.text()),
   ]);
+  // 사전 한 줄이 글자 하나: 0번(빈 줄)은 "글자 없음", 마지막은 띄어쓰기
+  const chars = dict.split("\n");
+  chars[chars.length - 1] = " ";
   ocr = { session, chars };
   return ocr;
 }
@@ -31,12 +34,46 @@ function loadImage(src) {
   return img.decode().then(() => img);
 }
 
+// 글자 줄 찾기: 글자 점이 있는 행을 묶는다. 빈 행이 하나라도 있으면 다른 줄로 본 뒤(한글·영문 두 줄이
+// 바짝 붙어 나와도 나뉘도록), 점·받침 조각처럼 너무 얇은 조각은 가까운 줄에 다시 붙인다. → [[y0, y1], ...]
+function findBands(mask, w, h) {
+  const rows = new Uint16Array(h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) rows[y] += mask[y * w + x] ? 1 : 0;
+  let bands = [];
+  let y0 = -1;
+  for (let y = 0; y <= h; y++) {
+    const on = y < h && rows[y] >= 2;
+    if (on && y0 < 0) y0 = y;
+    if (!on && y0 >= 0) {
+      bands.push([y0, y - 1]);
+      y0 = -1;
+    }
+  }
+  const tallest = Math.max(0, ...bands.map(([a, b]) => b - a + 1));
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (let i = 0; i < bands.length; i++) {
+      const [a, b] = bands[i];
+      if (b - a + 1 >= tallest * 0.45) continue;
+      const up = i > 0 ? a - bands[i - 1][1] : Infinity;
+      const down = i < bands.length - 1 ? bands[i + 1][0] - b : Infinity;
+      if (Math.min(up, down) > tallest * 0.35) continue;
+      const j = up <= down ? i - 1 : i + 1;
+      bands[j] = [Math.min(a, bands[j][0]), Math.max(b, bands[j][1])];
+      bands.splice(i, 1);
+      changed = true;
+      break;
+    }
+  }
+  return bands.filter(([a, b]) => b - a + 1 >= Math.max(6, tallest * 0.45));
+}
+
 // 그림을 키운 뒤 자막 글자 점만 골라 흰 바탕 검은 글씨 그림(masked)을 만들고, 글자 줄 위치를 찾는다.
 // region: 그림이 화면 높이에서 차지하는 비율 (글자 크기 짐작용)
-// → { masked, plain(키운 원래 그림), lines: [{x0,y0,x1,y1}], textPixels, area }
+// → { masked, plain(키운 원래 그림), soft(글자 주변만 남긴 반전 그림), lines: [{x0,y0,x1,y1}], textPixels, area }
 function prepareImage(img, region) {
-  const fontPx0 = (0.07 * img.height) / region; // 자막 글자 높이 짐작 (화면 높이의 7%)
-  const scale = Math.max(1, Math.min(4, 80 / fontPx0)); // 글자 높이 80px 정도로
+  const fontPx0 = (0.05 * img.height) / region; // 자막 글자 높이 짐작 (작은 자막 기준 화면 높이의 5%)
+  const scale = Math.max(1, Math.min(4, 64 / fontPx0)); // 글자 높이 64px 정도로
   const fontPx = fontPx0 * scale;
   const w = Math.round(img.width * scale);
   const h = Math.round(img.height * scale);
@@ -47,8 +84,18 @@ function prepareImage(img, region) {
   pctx.imageSmoothingQuality = "high";
   pctx.drawImage(img, 0, 0, w, h);
   const data = pctx.getImageData(0, 0, w, h);
-  const mask = captionMask(data.data, w, h, Math.max(2, Math.round(fontPx * 0.12)));
-  const textPixels = keepCenterBlock(mask, w, h, Math.round(fontPx * 1.2));
+  const mask = captionMask(data.data, w, h, Math.max(2, Math.round(fontPx * 0.15)));
+  const textPixels = keepCenterBlock(mask, w, h, Math.round(fontPx * 1.5));
+
+  // 줄을 대강 찾아 줄마다 한 가지 색만 남긴 뒤(글자 사이에 갇힌 배경 제거), 깨끗해진 그림에서 줄을 다시 찾는다.
+  const inBand = new Uint8Array(h);
+  for (const [a, b] of findBands(mask, w, h)) {
+    keepLineColor(mask, w, a, b);
+    inBand.fill(1, a, b + 1);
+  }
+  for (let y = 0; y < h; y++) if (!inBand[y]) mask.fill(0, y * w, (y + 1) * w);
+  for (let i = 0; i < mask.length; i++) if (mask[i]) mask[i] = 1;
+  const bands = findBands(mask, w, h);
 
   const masked = document.createElement("canvas");
   masked.width = w;
@@ -62,45 +109,51 @@ function prepareImage(img, region) {
   }
   mctx.putImageData(out, 0, 0);
 
-  // 글자 줄 찾기: 글자 점이 있는 행을 묶는다 (두 줄 자막은 두 줄로)
-  const rows = new Uint16Array(h);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) rows[y] += mask[y * w + x];
-  const bands = [];
-  const gap = Math.max(2, Math.round(fontPx * 0.25));
-  let y0 = -1;
-  let y1 = -1;
+  // 세 번째 그림: 원래 그림을 반전(밝은 글자 → 검은 글자)하되, 글자 점 가까이만 남기고 나머지는 흰색.
+  // 작은 글씨는 글자만 고른 그림에서 획이 끊기기 쉬워, 원래 획 모양을 살린 이 그림이 더 잘 읽힌다.
+  const near = new Uint8Array(mask.length);
+  const rad = Math.max(2, Math.round(fontPx * 0.08));
+  const tmp = new Uint8Array(mask.length);
   for (let y = 0; y < h; y++) {
-    if (rows[y] < 2) continue;
-    if (y0 >= 0 && y - y1 > gap) {
-      bands.push([y0, y1]);
-      y0 = -1;
+    let last = -1e9;
+    for (let x = 0; x < w; x++) {
+      if (mask[y * w + x]) last = x;
+      if (x - last <= rad) tmp[y * w + x] = 1;
     }
-    if (y0 < 0) y0 = y;
-    y1 = y;
-  }
-  if (y0 >= 0) bands.push([y0, y1]);
-  // 줄 사이가 좁아 두 줄이 한 덩어리로 잡히면, 가운데쯤에서 글자 점이 거의 없는 행을 찾아 나눈다
-  for (let i = 0; i < bands.length; i++) {
-    const [a, b] = bands[i];
-    if (b - a < fontPx * 1.4) continue;
-    let peak = 0;
-    for (let y = a; y <= b; y++) peak = Math.max(peak, rows[y]);
-    let cut = -1;
-    let low = Infinity;
-    for (let y = a + Math.round(fontPx * 0.5); y <= b - Math.round(fontPx * 0.3); y++) {
-      if (rows[y] < low) {
-        low = rows[y];
-        cut = y;
-      }
-    }
-    if (cut > 0 && low <= peak * 0.1) {
-      bands.splice(i, 1, [a, cut - 1], [cut + 1, b]);
-      i--; // 나눈 앞쪽을 다시 살펴본다 (세 줄 이상)
+    last = 1e9;
+    for (let x = w - 1; x >= 0; x--) {
+      if (mask[y * w + x]) last = x;
+      if (last - x <= rad) tmp[y * w + x] = 1;
     }
   }
+  for (let x = 0; x < w; x++) {
+    let last = -1e9;
+    for (let y = 0; y < h; y++) {
+      if (tmp[y * w + x]) last = y;
+      if (y - last <= rad) near[y * w + x] = 1;
+    }
+    last = 1e9;
+    for (let y = h - 1; y >= 0; y--) {
+      if (tmp[y * w + x]) last = y;
+      if (last - y <= rad) near[y * w + x] = 1;
+    }
+  }
+  const soft = document.createElement("canvas");
+  soft.width = w;
+  soft.height = h;
+  const sctx = soft.getContext("2d");
+  const so = sctx.createImageData(w, h);
+  const px = data.data;
+  for (let i = 0; i < mask.length; i++) {
+    const lum = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
+    const v = near[i] ? 255 - lum : 255;
+    so.data[i * 4] = so.data[i * 4 + 1] = so.data[i * 4 + 2] = v;
+    so.data[i * 4 + 3] = 255;
+  }
+  sctx.putImageData(so, 0, 0);
+
   const lines = [];
   for (const [a, b] of bands) {
-    if (b - a < fontPx * 0.35) continue; // 글자라기엔 너무 얇음
     let x0 = w;
     let x1 = -1;
     for (let y = a; y <= b; y++) {
@@ -114,30 +167,33 @@ function prepareImage(img, region) {
     const pad = Math.round((b - a) * 0.15);
     lines.push({ x0: Math.max(0, x0 - pad), y0: Math.max(0, a - pad), x1: Math.min(w - 1, x1 + pad), y1: Math.min(h - 1, b + pad) });
   }
-  return { masked, plain, lines, textPixels, area: w * h };
+  return { masked, plain, soft, lines, textPixels, area: w * h };
 }
 
-// 한 줄 그림을 모델 입력(높이 64, 흑백, -1~1)으로 바꿔 읽는다. → { text, conf }
+// 한 줄 그림을 모델 입력(높이 48, BGR, -1~1)으로 바꿔 읽는다. → { text, conf }
 async function readLine(canvas, box) {
   const bw = box.x1 - box.x0 + 1;
   const bh = box.y1 - box.y0 + 1;
-  const W = Math.max(32, Math.min(2000, Math.round((bw * 64) / bh)));
+  const W = Math.max(16, Math.min(1600, Math.ceil((bw * 48) / bh)));
   const c = document.createElement("canvas");
   c.width = W;
-  c.height = 64;
+  c.height = 48;
   const ctx = c.getContext("2d", { willReadFrequently: true });
   ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(canvas, box.x0, box.y0, bw, bh, 0, 0, W, 64);
-  const px = ctx.getImageData(0, 0, W, 64).data;
-  const input = new Float32Array(W * 64);
-  for (let i = 0; i < input.length; i++) {
-    const lum = 0.299 * px[i * 4] + 0.587 * px[i * 4 + 1] + 0.114 * px[i * 4 + 2];
-    input[i] = (lum / 255 - 0.5) / 0.5;
+  ctx.drawImage(canvas, box.x0, box.y0, bw, bh, 0, 0, W, 48);
+  const px = ctx.getImageData(0, 0, W, 48).data;
+  const plane = W * 48;
+  const input = new Float32Array(3 * plane);
+  for (let i = 0; i < plane; i++) {
+    input[i] = (px[i * 4 + 2] / 255 - 0.5) / 0.5; // B
+    input[plane + i] = (px[i * 4 + 1] / 255 - 0.5) / 0.5; // G
+    input[2 * plane + i] = (px[i * 4] / 255 - 0.5) / 0.5; // R
   }
-  const res = await ocr.session.run({ image: new ort.Tensor("float32", input, [1, 1, 64, W]) });
-  const logits = res.logits;
-  const [, steps, classes] = logits.dims;
-  const d = logits.data;
+  const { session, chars } = ocr;
+  const res = await session.run({ [session.inputNames[0]]: new ort.Tensor("float32", input, [1, 3, 48, W]) });
+  const probs = res[session.outputNames[0]];
+  const [, steps, classes] = probs.dims;
+  const d = probs.data;
   let text = "";
   let prev = 0;
   let confSum = 0;
@@ -153,11 +209,9 @@ async function readLine(canvas, box) {
       }
     }
     if (best !== 0 && best !== prev) {
-      let sum = 0;
-      for (let k = 0; k < classes; k++) sum += Math.exp(d[t * classes + k] - max);
-      confSum += 1 / sum; // 고른 글자의 확률
+      confSum += max; // 이미 확률(softmax)로 나온다
       confN++;
-      text += ocr.chars[best];
+      text += chars[best] || "";
     }
     prev = best;
   }
@@ -203,6 +257,7 @@ function similar(a, b) {
 }
 
 // 자막 그림 한 장 → { text, conf }. 줄마다 글자만 고른 그림과 원래 그림을 둘 다 읽어 더 자신 있는 쪽을 쓴다.
+// 자막 그림 한 장 → { text, conf }. 줄마다 세 가지로 손질한 그림을 읽어 가장 자신 있는 쪽을 쓴다.
 async function readCaption(src, region) {
   const img = await loadImage(src);
   const p = prepareImage(img, region);
@@ -210,10 +265,21 @@ async function readCaption(src, region) {
   const texts = [];
   let confSum = 0;
   for (const box of p.lines) {
-    const a = await readLine(p.masked, box);
-    const b = await readLine(p.plain, box);
-    const r = b.conf > a.conf ? b : a;
-    const text = cleanOcrText(r.text);
+    const reads = [];
+    for (const canvas of [p.soft, p.masked, p.plain]) reads.push(await readLine(canvas, box));
+    let r = reads.reduce((a, b) => (b.conf > a.conf ? b : a));
+    // 글자는 같고 띄어쓰기만 다르면, 띄어쓰기를 더 많이 찾은 쪽을 쓴다 (붙여 읽기 방지)
+    const spaces = (t) => (t.match(/ /g) || []).length;
+    for (const t of reads) {
+      if (t.text.replace(/ /g, "") === r.text.replace(/ /g, "") && spaces(t.text) > spaces(r.text)) r = t;
+    }
+    // 한글 줄 안에 섞여 읽힌 영어 단어(소문자가 든 조각)는 뺀다. 숫자·대문자 약어(SUV, 1.6)는 남긴다.
+    const text = cleanOcrText(
+      r.text
+        .split(/\s+/)
+        .filter((w) => !/[a-z]/.test(w))
+        .join(" "),
+    );
     // 한글이 없는 줄(영문 번역 등)은 빼고, 한글 줄만 남긴다
     if (r.conf < OCR_MIN_CONF || !HANGUL.test(text)) continue;
     texts.push(text);

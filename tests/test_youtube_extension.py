@@ -87,6 +87,13 @@ def make_captioned_media(path: Path, seconds: int):
         f",drawtext=fontfile={FONT}:text='상자 모양 자막도 읽습니다':fontsize=28:fontcolor=white:box=1"
         f":boxcolor=black@0.7:boxborderw=10:x=(w-text_w)/2:y=h-60:enable='between(t,12,16)'"
     )
+    # 작은 글씨로 한글 줄 바로 아래에 영문 줄이 붙어 나오는 자막 (실제 리뷰 영상 형태)
+    draws += (
+        f",drawtext=fontfile={FONT}:text='실내도 승차감도 좋아졌습니다':fontsize=19:fontcolor=white:borderw=2"
+        f":bordercolor=black:x=(w-text_w)/2:y=h-50:enable='between(t,17,21)'"
+        f",drawtext=fontfile={FONT}:text='The ride feels much softer too':fontsize=17:fontcolor=white:borderw=2"
+        f":bordercolor=black:x=(w-text_w)/2:y=h-29:enable='between(t,17,21)'"
+    )
     # 자막이 아닌 글자 (옮기면 안 됨): 아래 왼쪽 댓글 캡처(흰 바탕 검은 글씨), 아래 오른쪽 효과 글자, 화면 위쪽 글자
     draws += (
         f",drawbox=x=10:y=h-80:w=150:h=60:color=white:t=fill:enable='between(t,0,6)'"
@@ -94,7 +101,7 @@ def make_captioned_media(path: Path, seconds: int):
         f",drawtext=fontfile={FONT}:text='깜짝':fontsize=34:fontcolor=yellow:borderw=3:bordercolor=black"
         f":x=w-110:y=h-75:enable='between(t,9,11)'"
         f",drawtext=fontfile={FONT}:text='효과 문구':fontsize=40:fontcolor=white:borderw=3:bordercolor=black"
-        f":x=(w-text_w)/2:y=40:enable='between(t,0,16)'"
+        f":x=(w-text_w)/2:y=40:enable='between(t,0,22)'"
     )
     subprocess.run(
         ["ffmpeg", "-y", "-loglevel", "error",
@@ -200,7 +207,7 @@ def test_script(tmp_path: Path):
 @pytest.mark.skipif(not Path(FONT).exists(), reason="한글 글꼴 없음")
 def test_screen_captions(tmp_path: Path):
     media = tmp_path / "screenvid01.webm"
-    make_captioned_media(media, 18)
+    make_captioned_media(media, 23)
     server = start_fake_youtube(tmp_path, {media.name: media})
     with sync_playwright() as p:
         ctx = launch(p, tmp_path, EXT_DIR, server.server_address[1])
@@ -222,16 +229,17 @@ def test_screen_captions(tmp_path: Path):
     lines = path.read_bytes().decode("utf-8-sig").strip().split("\r\n")
     assert lines == output.split("\n")
     print("\n".join(lines))
-    assert len(lines) == 3, lines  # 같은 자막을 여러 번 적지 않고, 자막 없는 구간은 비운다
+    assert len(lines) == 4, lines  # 같은 자막을 여러 번 적지 않고, 자막 없는 구간은 비운다
     assert lines == [
         f"{lines[0][:5]} 안녕하세요 반갑습니다",
         f"{lines[1][:5]} 오늘은 날씨가 좋습니다",
         f"{lines[2][:5]} 상자 모양 자막도 읽습니다",
+        f"{lines[3][:5]} 실내도 승차감도 좋아졌습니다",
     ], lines
-    for line, times in zip(lines, [("00:00", "00:01"), ("00:07", "00:08"), ("00:11", "00:12")]):
+    for line, times in zip(lines, [("00:00", "00:01"), ("00:07", "00:08"), ("00:11", "00:12"), ("00:16", "00:17")]):
         assert line[:5] in times, lines
     # 하단 가운데 자막이 아닌 글자(댓글 캡처, 옆 효과 글자, 위쪽 글자)와 영문 번역 줄은 옮기지 않는다
-    for decoy in ("댓글", "인용", "깜짝", "효과", "문구", "weather"):
+    for decoy in ("댓글", "인용", "깜짝", "효과", "문구", "weather", "ride", "soft"):
         assert decoy not in "\n".join(lines), lines
 
 

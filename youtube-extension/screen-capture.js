@@ -28,8 +28,10 @@
     let x = 0;
     let u = 0;
     for (let i = 0; i < a.length; i++) {
-      x += a[i] ^ b[i];
-      u += a[i] | b[i];
+      const p = a[i] ? 1 : 0;
+      const q = b[i] ? 1 : 0;
+      x += p ^ q;
+      u += p | q;
     }
     return u ? x / u : 0;
   }

@@ -7,7 +7,7 @@
   if (g.captionMask) return;
 
   // data: ImageData 의 RGBA 배열. r: 어두운 점을 찾는 거리(px).
-  // → Uint8Array (1 = 자막 글자 점)
+  // → Uint8Array (0 = 아님, 1 = 흰 글자 점, 2 = 노란 글자 점)
   function captionMask(data, w, h, r) {
     const n = w * h;
     const text = new Uint8Array(n);
@@ -55,19 +55,7 @@
         if (up[i] && last - y <= r) mask[i] = 1;
       }
     }
-    // 자막은 한 가지 색이므로 더 많은 쪽 색(흰색 또는 노란색)만 남긴다 (글자 사이에 갇힌 배경 제거)
-    let white = 0;
-    let yellow = 0;
-    for (let i = 0; i < n; i++) {
-      if (!mask[i]) continue;
-      if (text[i] === 1) white++;
-      else if (text[i] === 2) yellow++;
-    }
-    const color = white >= yellow ? 1 : 2;
-    for (let i = 0; i < n; i++) {
-      if (text[i] !== color) text[i] = 0;
-      mask[i] &= text[i] ? 1 : 0;
-    }
+    for (let i = 0; i < n; i++) if (mask[i]) mask[i] = text[i]; // 1 = 흰색, 2 = 노란색
 
     // 영상 압축으로 테두리가 흐려져 끊긴 획을 잇는다: 남긴 점 사이의 r 이하 밝은 점 줄은 채운다.
     const bridge = (idx, len) => {
@@ -76,23 +64,38 @@
         const i = idx(k);
         if (!text[i]) {
           last = -1;
-        } else if (mask[i]) {
-          if (last >= 0 && k - last > 1 && k - last <= r) for (let j = last + 1; j < k; j++) mask[idx(j)] = 2;
+        } else if (mask[i] && mask[i] === text[i]) {
+          if (last >= 0 && k - last > 1 && k - last <= r) {
+            for (let j = last + 1; j < k; j++) if (text[idx(j)] === mask[i]) mask[idx(j)] = mask[i] + 2;
+          }
           last = k;
         }
       }
     };
     for (let y = 0; y < h; y++) bridge((k) => y * w + k, w);
     for (let x = 0; x < w; x++) bridge((k) => k * w + x, h);
-    for (let i = 0; i < n; i++) if (mask[i]) mask[i] = 1;
+    for (let i = 0; i < n; i++) if (mask[i] > 2) mask[i] -= 2;
     return mask;
+  }
+
+  // 자막 한 줄은 한 가지 색이다. y0~y1 행에서 더 많은 쪽 색(흰색 또는 노란색)만 남기고 0/1 로 바꾼다.
+  // (노란 배경이 글자 사이에 갇혀 글자로 잡히는 것 제거. 한글은 노란색·영문은 흰색처럼 줄마다 색이 달라도 된다)
+  function keepLineColor(mask, w, y0, y1) {
+    let white = 0;
+    let yellow = 0;
+    for (let i = y0 * w; i < (y1 + 1) * w; i++) {
+      if (mask[i] === 1) white++;
+      else if (mask[i] === 2) yellow++;
+    }
+    const color = white >= yellow ? 1 : 2;
+    for (let i = y0 * w; i < (y1 + 1) * w; i++) mask[i] = mask[i] === color ? 1 : 0;
   }
 
   // 가로로 이어진 글자 덩어리 가운데 화면 가운데를 지나는 것만 남긴다 (옆에 따로 떨어진 효과 글자 제거).
   // gap: 이보다 넓게 떨어지면 다른 덩어리로 본다(px). → 남긴 글자 점 수
   function keepCenterBlock(mask, w, h, gap) {
     const col = new Uint16Array(w);
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) col[x] += mask[y * w + x];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) col[x] += mask[y * w + x] ? 1 : 0;
     const spans = [];
     let start = -1;
     let end = -1;
@@ -114,7 +117,7 @@
       for (let x = 0; x < w; x++) {
         const i = y * w + x;
         if (!keep || x < keep[0] || x > keep[1]) mask[i] = 0;
-        count += mask[i];
+        if (mask[i]) count++;
       }
     }
     return count;
@@ -122,4 +125,5 @@
 
   g.captionMask = captionMask;
   g.keepCenterBlock = keepCenterBlock;
+  g.keepLineColor = keepLineColor;
 })();
