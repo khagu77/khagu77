@@ -432,7 +432,7 @@ function onModeChange() {
   speed.value = mode === "screen" ? "3" : "1";
   document.querySelectorAll("[data-mode]").forEach((el) => (el.hidden = el.dataset.mode !== mode));
   try {
-    localStorage.setItem("scriptMode", mode);
+    localStorage.setItem("scriptMode2", mode);
   } catch {}
 }
 
@@ -455,7 +455,7 @@ async function init() {
   $("#gpu").className = `hint ${gpu ? "ok" : ""}`;
 
   try {
-    $("#mode").value = localStorage.getItem("scriptMode") || "speech";
+    $("#mode").value = localStorage.getItem("scriptMode2") || "screen"; // 기본: 화면 자막 인식
   } catch {}
   $("#mode").addEventListener("change", onModeChange);
   onModeChange();

@@ -181,6 +181,8 @@ def test_script(tmp_path: Path):
         ctx = launch(p, tmp_path, ext, server.server_address[1])
         page = ext_page(ctx, "script.html")
         assert page.locator(".menu a.active").inner_text() == "스크립트 추출"
+        assert page.input_value("#mode") == "screen"  # 기본은 화면 자막 인식
+        page.select_option("#mode", "speech")
         page.fill("#urls", "https://youtu.be/scriptvid01")
         with page.expect_download(timeout=120000) as dl:
             page.click("#start")
@@ -250,6 +252,8 @@ def test_video(tmp_path: Path):
     with sync_playwright() as p:
         ctx = launch(p, tmp_path, EXT_DIR, server.server_address[1])
         page = ext_page(ctx, "video.html")
+        assert page.input_value("#kind") == "fastvideo"  # 기본은 영상 빠른 다운로드
+        page.select_option("#kind", "video")
         page.fill("#urls", "https://www.youtube.com/watch?v=videovid001")
         with ctx.expect_event("download", timeout=60000) as dl:
             page.click("#start")
@@ -307,17 +311,16 @@ HELPER_APP = Path(__file__).resolve().parent.parent / "유튜브 도우미 설�
 EXT_ID = "pjmcafienhpdbpljglddhaknajaekhcm"
 
 
-def test_fast_audio_helper(tmp_path: Path):
-    """음성 빠른 다운로드: 확장 → (Native Messaging) → 도우미(ytdl_host.sh) → yt-dlp.
-    유튜브 대신 로컬 파일을 받도록 yt-dlp 만 바꿔 끼운다."""
+def run_fast_helper(tmp_path: Path, kind: str, media_name: str, make_cmd):
+    """빠른 다운로드: 확장 → (Native Messaging) → 도우미(ytdl_host.sh) → yt-dlp.
+    유튜브 대신 로컬 파일을 받도록 yt-dlp 만 바꿔 끼운다. → (상태 글, 받은 파일들)"""
     import shutil as _sh
     ytdlp = _sh.which("yt-dlp")
     if not ytdlp:
         pytest.skip("yt-dlp 없음")
-    media = tmp_path / "srv" / "test_audio.m4a"
+    media = tmp_path / "srv" / media_name
     media.parent.mkdir()
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=4",
-                    "-c:a", "aac", str(media)], check=True)
+    subprocess.run(make_cmd(media), check=True)
     srv = subprocess.Popen(["python3", "-m", "http.server", "0", "--bind", "127.0.0.1"], cwd=media.parent,
                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     port = int(srv.stdout.readline().split("port ")[1].split(" ")[0])
@@ -326,11 +329,11 @@ def test_fast_audio_helper(tmp_path: Path):
     fake = tmp_path / "fake_ytdlp.sh"
     fake.write_text(
         "#!/bin/bash\nargs=()\nfor a in \"$@\"; do case \"$a\" in\n"
-        f"  https://www.youtube.com/*) args+=(\"http://127.0.0.1:{port}/test_audio.m4a\") ;;\n"
+        f"  https://www.youtube.com/*) args+=(\"http://127.0.0.1:{port}/{media_name}\") ;;\n"
         "  -U) exit 0 ;;\n  *) args+=(\"$a\") ;;\nesac; done\n"
         f"NO_PROXY=127.0.0.1 exec {ytdlp} \"${{args[@]}}\"\n")
     wrapper = tmp_path / "host.sh"
-    wrapper.write_text(f"#!/bin/bash\nexport YTDLP='{fake}' OUT='{out}'\n"
+    wrapper.write_text(f"#!/bin/bash\nexport YTDLP='{fake}' OUT='{out}' VFFMPEG='{_sh.which('ffmpeg')}'\n"
                        f"exec '{HELPER_APP / 'Contents/Resources/ytdl_host.sh'}'\n")
     fake.chmod(0o755)
     wrapper.chmod(0o755)
@@ -344,20 +347,42 @@ def test_fast_audio_helper(tmp_path: Path):
             ctx = launch(p, tmp_path, EXT_DIR, 1)
             page = ext_page(ctx, "video.html")
             assert page.url.startswith(f"chrome-extension://{EXT_ID}/")  # manifest key 로 ID 고정
-            page.select_option("#kind", "fast")
-            page.locator("#helper", has_text="Mac 도우미가 연결되었습니다").wait_for(timeout=20000)
+            page.select_option("#kind", kind)
+            ext = "mp4" if kind == "fastvideo" else "m4a"
+            page.locator("#helper", has_text=f"Mac 도우미가 연결되었습니다. 다운로드 폴더에 날짜_제목.{ext}").wait_for(
+                timeout=20000)
             page.fill("#urls", "https://youtu.be/abcdefghijk\nhttps://www.youtube.com/watch?v=zyxwvutsrqp&t=10\n없는주소")
             page.click("#start")
-            page.locator("#summary", has_text="2 / 3개 음성 파일을").wait_for(timeout=60000)
+            what = "영상" if kind == "fastvideo" else "음성"
+            page.locator("#summary", has_text=f"2 / 3개 {what} 파일을").wait_for(timeout=60000)
             status = page.inner_text("#progress tbody")
             ctx.close()
     finally:
         srv.terminate()
     assert status.count("완료") == 2 and "유튜브 영상 주소가 아닙니다" in status, status
-    files = list(out.iterdir())
+    return status, list(out.iterdir())
+
+
+def codecs(path: Path):
+    return subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0",
+                           str(path)], capture_output=True, text=True).stdout.split()
+
+
+def test_fast_audio_helper(tmp_path: Path):
+    _, files = run_fast_helper(tmp_path, "fast", "test_audio.m4a", lambda m: [
+        "ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=4",
+        "-c:a", "aac", str(m)])
     assert [f.name for f in files] == [f"{date.today():%Y%m%d}_test_audio.m4a"], files
-    assert "aac" in subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0",
-                                    str(files[0])], capture_output=True, text=True).stdout
+    assert codecs(files[0]) == ["aac"]
+
+
+def test_fast_video_helper(tmp_path: Path):
+    _, files = run_fast_helper(tmp_path, "fastvideo", "test_video.mp4", lambda m: [
+        "ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=4",
+        "-f", "lavfi", "-i", "sine=frequency=440:duration=4", "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-shortest", str(m)])
+    assert [f.name for f in files] == [f"{date.today():%Y%m%d}_test_video.mp4"], files
+    assert sorted(codecs(files[0])) == ["aac", "h264"]
 
 
 def test_fast_audio_helper_missing(tmp_path: Path):
@@ -388,6 +413,8 @@ def test_helper_installer(tmp_path: Path):
     assert (dest / "bin/yt-dlp/_internal/Python.framework").is_dir()
     assert os.access(dest / "bin/deno", os.X_OK) and (dest / "bin/deno").stat().st_size > 10_000_000
     assert (dest / "bin/.updated").exists() and not (dest / ".download").exists()
+    # 영상 합치기용 ffmpeg (Mac 용 실행 파일)
+    assert os.access(dest / "bin/ffmpeg", os.X_OK) and (dest / "bin/ffmpeg").read_bytes()[:4] == b"\xcf\xfa\xed\xfe"
     for b in ("Google/Chrome", "Naver/Whale"):
         m = json.loads((sup / b / "NativeMessagingHosts/com.khagu77.ytdl.json").read_text())
         assert m["path"] == str(dest / "ytdl_host.sh") and m["allowed_origins"] == [f"chrome-extension://{EXT_ID}/"]

@@ -1,18 +1,22 @@
 #!/bin/bash
 # 'YouTube 스크립트 및 영상 파일 추출' 확장프로그램의 Mac 도우미 (크롬 Native Messaging 호스트)
-# 확장프로그램이 보낸 유튜브 URL의 음성을 yt-dlp 로 바로 받아(재생·녹음 없이) 다운로드 폴더에 저장한다.
+# 확장프로그램이 보낸 유튜브 URL의 음성(.m4a) 또는 영상(.mp4)을 yt-dlp 로 바로 받아(재생·녹화 없이)
+# 다운로드 폴더에 저장한다.
 # 주고받는 메시지: 4바이트 길이(little-endian) + JSON
-#   받음: {"type":"ping"} / {"type":"download","urls":["https://..."]}
-#   보냄: pong / start / title / progress / saved / error / finished
+#   받음: {"type":"ping"} / {"type":"download","kind":"audio"|"video","urls":["https://..."]}
+#   보냄: pong / updating / start / title / progress / merging / saved / error / finished
 # 설치: '유튜브 도우미 설치.app' 이 이 파일을 ~/Library/Application Support/YTScriptHelper 에 두고
-#       `ytdl_host.sh --install` 로 yt-dlp(압축 해제형)와 Deno(유튜브 받을 때 yt-dlp 가 쓰는 JavaScript 실행기)를 받는다.
+#       `ytdl_host.sh --install` 로 yt-dlp(압축 해제형), Deno(유튜브 받을 때 yt-dlp 가 쓰는 JavaScript 실행기),
+#       ffmpeg(영상·소리를 한 .mp4 로 합칠 때 씀)를 받는다.
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 BIN="$DIR/bin"
 CUSTOM_YTDLP="${YTDLP:+1}" # 테스트에서 yt-dlp 를 바꿔 끼운 경우 자동 업데이트 안 함
 YTDLP="${YTDLP:-$BIN/yt-dlp/yt-dlp_macos}"
 DENO="$BIN/deno"
+VFFMPEG="${VFFMPEG:-$BIN/ffmpeg}" # 영상 합치기용 (테스트에서 바꿔 끼울 수 있음)
 OUT="${OUT:-$HOME/Downloads}"
+VERSION=2 # 2: 영상 빠른 다운로드 지원
 UPDATE_DAYS=3
 
 # ---- yt-dlp·Deno 설치/업데이트 ----
@@ -38,7 +42,22 @@ install_tools() {
   chmod +x "$tmp/yt-dlp/yt-dlp_macos" "$tmp/deno/deno" || { rm -rf "$tmp"; return 1; }
   rm -rf "$BIN/yt-dlp" && mv "$tmp/yt-dlp" "$BIN/yt-dlp" && mv -f "$tmp/deno/deno" "$DENO" || { rm -rf "$tmp"; return 1; }
   rm -rf "$tmp" "$DIR/yt-dlp_macos" # 예전 버전이 쓰던 한 파일짜리 yt-dlp 정리
+  install_ffmpeg
   touch "$BIN/.updated"
+}
+
+# ffmpeg 는 처음 한 번만 받는다 (영상·소리 합치기에만 쓰므로 자주 바꿀 필요 없음)
+install_ffmpeg() {
+  [ -x "$BIN/ffmpeg" ] && return 0
+  local arch
+  case "$(uname -m)" in arm64 | aarch64) arch=arm64 ;; *) arch=x64 ;; esac
+  curl -L --fail -s "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.0/ffmpeg-darwin-$arch.gz" |
+    gunzip > "$BIN/ffmpeg.download" || { rm -f "$BIN/ffmpeg.download"; return 1; }
+  xattr -c "$BIN/ffmpeg.download" 2> /dev/null
+  chmod +x "$BIN/ffmpeg.download"
+  # Apple 실리콘 Mac 은 서명 없는 프로그램을 실행하지 않으므로 이 PC 용 임시 서명을 붙인다
+  command -v codesign > /dev/null && codesign --force --sign - "$BIN/ffmpeg.download" > /dev/null 2>&1
+  mv -f "$BIN/ffmpeg.download" "$BIN/ffmpeg"
 }
 
 if [ "$1" = "--install" ]; then
@@ -86,12 +105,17 @@ else
   EXT="m4a"
 fi
 
+# 영상: 1080p 까지 H.264 영상 + AAC 소리를 받아 .mp4 하나로 합친다 (QuickTime·아이폰에서 바로 재생)
+VIDEO_FORMAT=(-f "bv*[vcodec^=avc1][height<=1080]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
+  --merge-output-format mp4 --ffmpeg-location "$VFFMPEG")
+
 download() {
-  local i=$1 url=$2 today line pct
+  local i=$1 url=$2 kind=$3 today line pct fmt
   today="$(date +%Y%m%d)"
+  if [ "$kind" = video ]; then fmt=("${VIDEO_FORMAT[@]}"); else fmt=("${FORMAT[@]}"); fi
   send "{\"type\":\"start\",\"index\":$i}"
   # 출력 줄을 읽어 진행 상황을 확장프로그램으로 보낸다
-  PYTHONIOENCODING=utf-8 "$YTDLP" "${FORMAT[@]}" "${JS[@]}" \
+  PYTHONIOENCODING=utf-8 "$YTDLP" "${fmt[@]}" "${JS[@]}" \
     --no-playlist --no-mtime --trim-filenames 150 --newline --no-simulate --progress \
     --progress-template "download:PROG %(progress._percent_str)s" \
     --print "before_dl:TITLE %(title)s" \
@@ -105,6 +129,7 @@ download() {
           ;;
         TITLE\ *) send "{\"type\":\"title\",\"index\":$i,\"title\":\"$(jstr "${line#TITLE }")\"}" ;;
         FILE\ *) send "{\"type\":\"saved\",\"index\":$i,\"file\":\"$(jstr "${line#FILE }")\"}" ;;
+        "[Merger]"*) send "{\"type\":\"merging\",\"index\":$i}" ;;
         ERROR:*) send "{\"type\":\"error\",\"index\":$i,\"message\":\"$(jstr "${line#ERROR: }")\"}" ;;
       esac
     done
@@ -115,7 +140,9 @@ while msg=$(read_msg); do
     *'"ping"'*)
       ok=false
       [ -x "$YTDLP" ] && ok=true
-      send "{\"type\":\"pong\",\"ok\":$ok,\"ext\":\"$EXT\"}"
+      video=false
+      [ -x "$VFFMPEG" ] && video=true
+      send "{\"type\":\"pong\",\"ok\":$ok,\"ext\":\"$EXT\",\"video\":$video,\"version\":$VERSION}"
       ;;
     *'"download"'*)
       # 유튜브가 바뀌어도 받을 수 있게 며칠마다 yt-dlp·Deno 를 최신으로 (실패하면 있던 것으로 계속)
@@ -124,9 +151,12 @@ while msg=$(read_msg); do
         install_tools
         [ -x "$DENO" ] && JS=(--js-runtimes "deno:$DENO")
       fi
+      kind=audio
+      case "$msg" in *'"kind":"video"'*) kind=video ;; esac
+      [ "$kind" = video ] && [ -z "$CUSTOM_YTDLP" ] && install_ffmpeg
       i=0
       for url in $(printf '%s' "$msg" | grep -o 'https\{0,1\}://[^"]*'); do
-        download "$i" "$url"
+        download "$i" "$url" "$kind"
         i=$((i + 1))
       done
       send '{"type":"finished"}'

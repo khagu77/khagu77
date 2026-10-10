@@ -76,11 +76,14 @@ async function downloadVideo(url, row, kind) {
 }
 
 // ---------------------------------------------------------------------------
-// 음성 빠른 다운로드: Mac 도우미(크롬 Native Messaging, '유튜브 도우미 설치' 앱으로 설치)가
-// yt-dlp 로 음성 파일만 바로 받는다. 영상을 재생하지 않는다.
+// 빠른 다운로드(영상 .mp4 / 음성 .m4a): Mac 도우미(크롬 Native Messaging, '유튜브 도우미 설치' 앱으로 설치)가
+// yt-dlp 로 파일을 바로 받는다. 영상을 재생하지 않는다.
 // ---------------------------------------------------------------------------
 
 const HELPER = "com.khagu77.ytdl";
+const HELPER_OLD =
+  "Mac 도우미가 예전 버전이라 영상 빠른 다운로드를 할 수 없습니다. 새로 받은 폴더의 '유튜브 도우미 설치' 앱을 한 번 더 실행한 뒤 이 화면을 새로고침하세요.";
+const isFast = (kind) => kind === "fast" || kind === "fastvideo";
 const HELPER_MISSING =
   "Mac 도우미가 설치되어 있지 않습니다. 압축 푼 폴더의 '유튜브 도우미 설치' 앱을 한 번 실행한 뒤 이 화면을 새로고침하세요. " +
   "(처음 열 때 '확인되지 않은 개발자' 안내가 나오면 앱을 오른쪽 클릭 → 열기, " +
@@ -113,21 +116,28 @@ function pingHelper() {
 
 async function showHelperStatus() {
   const el = $("#helper");
-  el.hidden = $("#kind").value !== "fast";
+  const kind = $("#kind").value;
+  el.hidden = !isFast(kind);
   if (el.hidden) return;
   el.textContent = "Mac 도우미 확인 중…";
   el.className = "hint";
   const r = await pingHelper();
-  if (r && r.ok) {
-    el.textContent = `✔ Mac 도우미가 연결되었습니다. 다운로드 폴더에 날짜_제목.${r.ext} 로 저장합니다.`;
-    el.className = "hint ok";
-  } else {
+  if (kind !== $("#kind").value) return; // 확인하는 사이 형식을 바꿈
+  if (!r || !r.ok) {
     el.textContent = HELPER_MISSING;
     el.className = "hint err";
+  } else if (kind === "fastvideo" && !r.video) {
+    el.textContent = HELPER_OLD;
+    el.className = "hint err";
+  } else {
+    const ext = kind === "fastvideo" ? "mp4" : r.ext;
+    el.textContent = `✔ Mac 도우미가 연결되었습니다. 다운로드 폴더에 날짜_제목.${ext} 로 저장합니다.`;
+    el.className = "hint ok";
   }
 }
 
-async function fastDownload(urls) {
+async function fastDownload(urls, kind) {
+  const what = kind === "fastvideo" ? "영상" : "음성";
   const rows = urls.map((u, i) => addProgressRow(i, u));
   const jobs = []; // 도우미에게 보낼 영상 (번호 → 줄)
   urls.forEach((u, i) => {
@@ -136,7 +146,7 @@ async function fastDownload(urls) {
     else setRowStatus(rows[i], "유튜브 영상 주소가 아닙니다", "err");
   });
   if (!jobs.length) return 0;
-  setSummary(`${jobs.length}개 영상의 음성을 받는 중…`);
+  setSummary(`${jobs.length}개 영상의 ${what}을 받는 중…`);
   await new Promise((resolve) => {
     let finished = false;
     const port = chrome.runtime.connectNative(HELPER);
@@ -158,10 +168,11 @@ async function fastDownload(urls) {
       const j = jobs[m.index];
       if (m.type === "updating") setSummary("유튜브 다운로드 도구(yt-dlp)를 최신으로 바꾸는 중… (며칠에 한 번, 1분 안쪽)");
       else if (m.type === "start") {
-        setSummary(`${jobs.length}개 영상의 음성을 받는 중…`);
+        setSummary(`${jobs.length}개 영상의 ${what}을 받는 중…`);
         setRowStatus(j.row, "받는 중…");
       } else if (m.type === "title") setRowTitle(j.row, m.title);
       else if (m.type === "progress") setRowStatus(j.row, `받는 중 ${Math.floor(m.percent)}%`);
+      else if (m.type === "merging") setRowStatus(j.row, "영상과 소리를 합치는 중…");
       else if (m.type === "saved") {
         j.ok = true;
         setRowStatus(j.row, `완료 · ${m.file.split("/").pop()}`, "ok");
@@ -172,7 +183,7 @@ async function fastDownload(urls) {
         resolve();
       }
     });
-    port.postMessage({ type: "download", urls: jobs.map((j) => j.url) });
+    port.postMessage({ type: "download", kind: kind === "fastvideo" ? "video" : "audio", urls: jobs.map((j) => j.url) });
   });
   stopFast = null;
   return jobs.filter((j) => j.ok).length;
@@ -188,10 +199,12 @@ async function start() {
   $("#progress tbody").innerHTML = "";
   let ok = 0;
 
-  if (kind === "fast") {
-    ok = await fastDownload(urls);
+  if (isFast(kind)) {
+    ok = await fastDownload(urls, kind);
     setSummary(
-      running ? `${ok} / ${urls.length}개 음성 파일을 다운로드 폴더에 저장했습니다.` : "중지했습니다.",
+      running
+        ? `${ok} / ${urls.length}개 ${kind === "fastvideo" ? "영상" : "음성"} 파일을 다운로드 폴더에 저장했습니다.`
+        : "중지했습니다.",
       running && ok ? "ok" : "",
     );
     running = false;
@@ -225,7 +238,7 @@ async function start() {
 
 menu("video.html");
 try {
-  $("#kind").value = localStorage.getItem("downloadKind") || "video";
+  $("#kind").value = localStorage.getItem("downloadKind") || "fastvideo";
 } catch {}
 $("#kind").addEventListener("change", () => {
   try {
