@@ -56,6 +56,12 @@ def srt_time(seconds):
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
+def script_time(seconds):
+    s = int(seconds)
+    h, m = divmod(s // 60, 60)
+    return f"{h}:{m:02d}:{s % 60:02d}" if h else f"{m:02d}:{s % 60:02d}"
+
+
 def safe_name(title):
     bad = '<>:"/\\|?*'
     return "".join("_" if c in bad else c for c in title).strip()[:80]
@@ -76,7 +82,7 @@ def transcribe(model, audio_path, info):
         if not text:
             continue
         srt_lines += [str(i), f"{srt_time(seg.start)} --> {srt_time(seg.end)}", text, ""]
-        txt_lines.append(f"[{srt_time(seg.start)[:8]}] {text}")
+        txt_lines.append(f"{script_time(seg.start)} {text}")
         if duration:
             print(f"\r  받아쓰는 중... {min(seg.end / duration, 1):.0%}", end="", flush=True)
     print()
@@ -107,9 +113,8 @@ def main():
             print(f"  실패: {e}")
             continue
         stem = f"{safe_name(info.get('title') or info['id'])} [{info['id']}]"
-        header = f"{info.get('title')}\n{info.get('webpage_url', url)}\n\n"
         (OUT_DIR / f"{stem}.srt").write_text(srt, encoding="utf-8-sig")
-        (OUT_DIR / f"{stem}.txt").write_text(header + txt, encoding="utf-8-sig")
+        (OUT_DIR / f"{stem}.txt").write_text(txt + "\n", encoding="utf-8-sig")
         audio_path.unlink(missing_ok=True)
         print(f"  저장: subtitles/{stem}.srt, .txt")
 
