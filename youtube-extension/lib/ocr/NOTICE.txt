@@ -1,0 +1,7 @@
+화면 자막 인식에 쓰는 파일
+
+- korean_rec.onnx, korean_chars.json
+  EasyOCR(https://github.com/JaidedAI/EasyOCR) 한국어 글자 인식 모델 korean_g2 를
+  브라우저에서 돌릴 수 있게 ONNX 로 바꾼 것. Apache License 2.0.
+- ort.wasm.min.js, ort-wasm-simd-threaded.mjs, ort-wasm-simd-threaded.wasm
+  ONNX Runtime Web 1.22.0 (https://github.com/microsoft/onnxruntime). MIT License.

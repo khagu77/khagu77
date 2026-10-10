@@ -3,7 +3,8 @@
 www.youtube.com 을 로컬 HTTPS 서버로 돌려 가짜 영상 화면(소리 나는 짧은 영상)을 보여주고,
 - 스크립트 추출: 영상 소리를 받아 구간으로 잘라 음성인식에 넘기고 "00:00 내용" 줄로 저장하는지
   (음성인식 모델은 내려받을 수 없으므로 작업자만 가짜로 바꿔 넣는다)
-- 화면 자막 인식: 화면 아래 한글 자막(움직이는 배경 위)을 읽어 "00:00 자막" 줄로 저장하는지
+- 화면 자막 인식: 화면 아래 한글 자막(움직이는 배경 위, 상자 모양, 영문 번역 줄 포함)을 읽어
+  한글 줄만 "00:00 자막" 줄로 저장하는지
 - 영상 파일 다운로드: "날짜_제목.mp4" 파일이 화면·소리를 담아 저장되는지
 를 확인한다. 확장 로딩에는 일반 Chromium 이 필요하므로 CHROMIUM_PATH 가 없으면 건너뛴다.
 """
@@ -66,7 +67,7 @@ def make_media(path: Path, seconds: int, gap=None):
 
 
 FONT = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
-CAPTIONS = [(0.5, 4, "안녕하세요 반갑습니다"), (8, 12, "오늘은 날씨가 좋습니다"), (12, 16, "SECOND LINE 2026")]
+CAPTIONS = [(0.5, 4, "안녕하세요 반갑습니다"), (8, 12, "오늘은 날씨가 좋습니다")]
 
 
 def make_captioned_media(path: Path, seconds: int):
@@ -75,6 +76,16 @@ def make_captioned_media(path: Path, seconds: int):
         f"drawtext=fontfile={FONT}:text='{text}':fontsize=30:fontcolor=white:borderw=3:bordercolor=black"
         f":x=(w-text_w)/2:y=h-60:enable='between(t,{a},{b})'"
         for a, b, text in CAPTIONS
+    )
+    # 한글 줄 아래 영문 번역 줄 (영문 줄은 빼고 한글만 옮겨야 함)
+    draws += (
+        f",drawtext=fontfile={FONT}:text='The weather is nice today':fontsize=24:fontcolor=white:borderw=3"
+        f":bordercolor=black:x=(w-text_w)/2:y=h-28:enable='between(t,8,12)'"
+    )
+    # 테두리 없이 어두운 반투명 상자 위에 나오는 자막
+    draws += (
+        f",drawtext=fontfile={FONT}:text='상자 모양 자막도 읽습니다':fontsize=28:fontcolor=white:box=1"
+        f":boxcolor=black@0.7:boxborderw=10:x=(w-text_w)/2:y=h-60:enable='between(t,12,16)'"
     )
     # 자막이 아닌 글자 (옮기면 안 됨): 아래 왼쪽 댓글 캡처(흰 바탕 검은 글씨), 아래 오른쪽 효과 글자, 화면 위쪽 글자
     draws += (
@@ -197,7 +208,7 @@ def test_screen_captions(tmp_path: Path):
         page.select_option("#mode", "screen")
         assert page.is_hidden("#model") and page.is_visible("#region")
         assert page.input_value("#speed") == "3"
-        page.select_option("#speed", "2")
+        page.select_option("#speed", "3")
         page.fill("#urls", "https://www.youtube.com/watch?v=screenvid01")
         with page.expect_download(timeout=120000) as dl:
             page.click("#start")
@@ -212,11 +223,15 @@ def test_screen_captions(tmp_path: Path):
     assert lines == output.split("\n")
     print("\n".join(lines))
     assert len(lines) == 3, lines  # 같은 자막을 여러 번 적지 않고, 자막 없는 구간은 비운다
-    expected = [("00:00", "00:01", "안녕하세요"), ("00:07", "00:08", "날씨가"), ("00:11", "00:12", "SECOND LINE")]
-    for line, (t1, t2, word) in zip(lines, expected):
-        assert line.split(" ")[0] in (t1, t2) and word in line, lines
-    # 하단 가운데 자막이 아닌 글자(댓글 캡처, 옆 효과 글자, 위쪽 글자)는 옮기지 않는다
-    for decoy in ("댓글", "인용", "깜짝", "효과", "문구"):
+    assert lines == [
+        f"{lines[0][:5]} 안녕하세요 반갑습니다",
+        f"{lines[1][:5]} 오늘은 날씨가 좋습니다",
+        f"{lines[2][:5]} 상자 모양 자막도 읽습니다",
+    ], lines
+    for line, times in zip(lines, [("00:00", "00:01"), ("00:07", "00:08"), ("00:11", "00:12")]):
+        assert line[:5] in times, lines
+    # 하단 가운데 자막이 아닌 글자(댓글 캡처, 옆 효과 글자, 위쪽 글자)와 영문 번역 줄은 옮기지 않는다
+    for decoy in ("댓글", "인용", "깜짝", "효과", "문구", "weather"):
         assert decoy not in "\n".join(lines), lines
 
 
