@@ -5,6 +5,7 @@
 """
 import json
 import os
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -61,13 +62,45 @@ YT_PAGES = {
 }
 
 
-def test_extension_end_to_end(tmp_path: Path):
+def make_template(path: Path):
+    """사용자 raw data 파일과 같은 구조의 가짜 양식."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    headers = ["연번", "채널", "작성일", "댓글", "url"]
+    press = wb.create_sheet("언론")
+    press.append(headers)
+    press.append([1, "언론", "2026.03.14. 06:48", "언론 댓글", "https://n.news.naver.com/a"])
+    cafe = wb.create_sheet("동호회")
+    cafe.append(headers)
+    cafe.append([1, "동호회", "2026.03.14. 10:42", "예전 댓글", "https://cafe.naver.com/old/1"])
+    cafe.append([2, "동호회", "2023.11.15. 07:13", "첫 댓글", "https://cafe.naver.com/mycafe/789"])  # 중복
+    cafe.cell(row=2, column=5).hyperlink = "https://cafe.naver.com/old/1"
+    for c in range(1, 6):
+        cafe.cell(row=3, column=c).font = Font(name="맑은 고딕", size=10)
+    cafe.cell(row=3, column=4).alignment = Alignment(wrap_text=True)
+    cafe.row_dimensions[3].height = 20
+    cafe.freeze_panes = "A2"
+    yt = wb.create_sheet("유튜브")
+    yt.append(headers)
+    yt.append([1, "유튜브", "6개월 전", "남겨둘 영상 댓글", "https://www.youtube.com/watch?v=keepkeepkee"])
+    yt.append([2, "유튜브", "6개월 전", "다시 수집될 영상의 옛 댓글", "https://www.youtube.com/watch?v=abcdefghijk"])
+    car = wb.create_sheet("자동차 커뮤니티")
+    car.append(headers)
+    car.append([1, "뽐뿌", "2026.03.14", "커뮤니티 댓글", "https://www.ppomppu.co.kr/x"])
+    wb.save(path)
+
+
+def run_extension(tmp_path: Path, urls, template=None, re_youtube=True, fail_video=None):
     requested_tokens = []
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
             str(tmp_path / "profile"),
             executable_path=CHROMIUM,
             headless=True,
+            timezone_id="Asia/Seoul",
             args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}"],
             accept_downloads=True,
         )
@@ -80,7 +113,8 @@ def test_extension_end_to_end(tmp_path: Path):
             elif "CafeGateInfo" in url:
                 body = {"message": {"result": {"cafeInfoView": {"cafeId": 777}}}}
             else:
-                body = {"result": {"article": {"subject": "카페 글 제목", "writer": {"nick": "글쓴이"}}}}
+                body = {"result": {"article": {"subject": "카페 글 제목", "writer": {"nick": "글쓴이"}},
+                                   "cafe": {"url": "testcafe"}}}
             route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
 
         def youtube(route):
@@ -88,6 +122,8 @@ def test_extension_end_to_end(tmp_path: Path):
                 token = json.loads(route.request.post_data)["continuation"]
                 requested_tokens.append(token)
                 route.fulfill(status=200, content_type="application/json", body=json.dumps(YT_PAGES.get(token, {})))
+            elif fail_video and fail_video in route.request.url:
+                route.fulfill(status=404, body="")
             else:
                 route.fulfill(status=200, content_type="text/html", body=YT_HTML)
 
@@ -98,33 +134,74 @@ def test_extension_end_to_end(tmp_path: Path):
         ext_id = sw.url.split("/")[2]
         page = ctx.new_page()
         page.goto(f"chrome-extension://{ext_id}/app.html")
-        page.fill("#urls", "\n".join([
-            "https://cafe.naver.com/ca-fe/cafes/123/articles/456",
-            "https://cafe.naver.com/mycafe/789",
-            "https://youtu.be/abcdefghijk",
-        ]))
+        if template:
+            page.set_input_files("#templateFile", str(template))
+            page.locator("#templateInfo", has_text="✔").wait_for()
+        if not re_youtube:
+            page.uncheck("#reYt")
+        page.fill("#urls", "\n".join(urls))
         with page.expect_download(timeout=60000) as dl:
             page.click("#start")
-        path = tmp_path / "out.xlsx"
+        path = tmp_path / dl.value.suggested_filename
         dl.value.save_as(path)
+        page.locator("#summary", has_text="저장되었습니다").wait_for()
         summary = page.inner_text("#summary")
         ctx.close()
+    return path, summary, requested_tokens
 
-    assert "댓글 10개" in summary
-    assert "SORT_NEW" not in requested_tokens
+
+URLS = [
+    "https://cafe.naver.com/ca-fe/cafes/123/articles/456",
+    "https://cafe.naver.com/mycafe/789",
+    "https://youtu.be/abcdefghijk",
+]
+
+
+def test_blank_output(tmp_path: Path):
+    path, summary, tokens = run_extension(tmp_path, URLS)
+    assert path.name == f"{date.today():%Y%m%d}_raw_data.xlsx"
+    assert "SORT_NEW" not in tokens
     wb = load_workbook(path)
-    assert wb.sheetnames == ["카페 댓글", "유튜브 댓글", "요약"]
+    assert wb.sheetnames == ["언론", "동호회", "유튜브", "자동차 커뮤니티"]
+    assert list(wb["언론"].values) == [("연번", "채널", "작성일", "댓글", "url")]
 
-    cafe = list(wb["카페 댓글"].values)
-    assert [r[9] for r in cafe[1:]] == ["철수", "영희", "민수", "철수", "영희", "민수"]
-    assert cafe[1][1] == "123" and cafe[4][1] == "777"  # 짧은 주소는 카페ID 조회
-    assert cafe[2][6] == "답글" and cafe[2][8] == "10"
-    assert cafe[1][3] == "카페 글 제목"
+    cafe = list(wb["동호회"].values)
+    assert cafe[1] == (1, "동호회", "2023.11.15. 07:13", "첫 댓글", "https://cafe.naver.com/testcafe/456")
+    assert [r[0] for r in cafe[1:]] == [1, 2, 3, 4, 5, 6]
+    assert cafe[4][4] == "https://cafe.naver.com/mycafe/789"
 
-    yt = list(wb["유튜브 댓글"].values)
-    assert [(r[8], r[5]) for r in yt[1:]] == [("앨리스", "댓글"), ("찰리", "답글"), ("밥", "댓글"), ("데이브", "댓글")]
-    assert yt[1][2] == "테스트 영상 {괄호}" and yt[1][3] == "채널A"
-    assert yt[2][7] == "A" and yt[1][12] == 3 and yt[4][12] == "1.2천"
+    yt = list(wb["유튜브"].values)
+    assert [r[3] for r in yt[1:]] == ["좋아요", "답글이에요", "멋져요", "마지막"]
+    assert yt[1] == (1, "유튜브", "1일 전", "좋아요", "https://www.youtube.com/watch?v=abcdefghijk")
 
-    summary_rows = list(wb["요약"].values)
-    assert [r[-1] for r in summary_rows[1:]] == ["성공", "성공", "성공"]
+
+def test_continue_template(tmp_path: Path):
+    tpl = tmp_path / "20261008_현대차_raw_data_정리.xlsx"
+    make_template(tpl)
+    path, summary, _ = run_extension(tmp_path, URLS, template=tpl, fail_video="keepkeepkee")
+    assert path.name == f"{date.today():%Y%m%d}_현대차_raw_data_정리.xlsx"
+    assert "동호회 5개 추가(연번 3~7)" in summary and "이미 있던 댓글 1개 제외" in summary
+
+    wb = load_workbook(path)
+    assert wb.sheetnames == ["언론", "동호회", "유튜브", "자동차 커뮤니티"]
+    assert list(wb["언론"].values)[1] == (1, "언론", "2026.03.14. 06:48", "언론 댓글", "https://n.news.naver.com/a")
+    assert list(wb["자동차 커뮤니티"].values)[1][3] == "커뮤니티 댓글"
+
+    cafe_ws = wb["동호회"]
+    cafe = list(cafe_ws.values)
+    assert [r[0] for r in cafe[1:]] == [1, 2, 3, 4, 5, 6, 7]
+    assert cafe[3] == (3, "동호회", "2023.11.15. 07:13", "첫 댓글", "https://cafe.naver.com/testcafe/456")
+    # mycafe/789 의 '첫 댓글'은 파일에 이미 있으므로 다시 넣지 않음
+    assert [(r[3], r[4]) for r in cafe[6:]] == [
+        ("답글", "https://cafe.naver.com/mycafe/789"), ("둘째 페이지", "https://cafe.naver.com/mycafe/789")]
+    assert cafe_ws.cell(row=4, column=1).font.name == "맑은 고딕"  # 마지막 행 서식 따라감
+    assert cafe_ws.cell(row=4, column=4).alignment.wrap_text
+    assert cafe_ws.row_dimensions[4].height == 20
+    assert cafe_ws.cell(row=2, column=5).hyperlink.target == "https://cafe.naver.com/old/1"
+    assert cafe_ws.freeze_panes == "A2"
+
+    yt = list(wb["유튜브"].values)
+    # 실패한 영상(keepkeepkee)은 기존 행 유지, 다시 수집한 영상은 새 댓글로 교체
+    assert [r[3] for r in yt[1:]] == ["남겨둘 영상 댓글", "좋아요", "답글이에요", "멋져요", "마지막"]
+    assert [r[0] for r in yt[1:]] == [1, 2, 3, 4, 5]
+    assert "다시 수집될 영상의 옛 댓글" not in [r[3] for r in yt]

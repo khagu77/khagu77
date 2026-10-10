@@ -12,6 +12,12 @@
 
     <div id="login" class="login">로그인 상태 확인 중…</div>
 
+    <label for="templateFile">기존 엑셀 파일 <span class="hint">(가장 최근에 받은 raw data 파일)</span></label>
+    <input type="file" id="templateFile" accept=".xlsx">
+    <div id="templateInfo" class="hint"></div>
+    <label class="check"><input type="checkbox" id="reYt" checked>
+      파일에 있는 유튜브 영상도 모두 다시 수집해서 유튜브 시트를 최신 댓글로 덮어쓰기</label>
+
     <label for="urls">네이버 카페 게시글 / 유튜브 영상 URL <span class="hint">(한 줄에 하나씩, 섞어서 넣어도 됩니다)</span></label>
     <textarea id="urls" rows="8" spellcheck="false"
       placeholder="https://cafe.naver.com/카페주소/12345&#10;https://www.youtube.com/watch?v=xxxxxxxxxxx"></textarea>
@@ -36,6 +42,7 @@
     </p>
   </main>
   <script src="xlsx.js"></script>
+  <script src="template.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

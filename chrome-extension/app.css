@@ -35,6 +35,8 @@ main {
 h1 { margin: 0 0 16px; font-size: 22px; }
 label { display: block; font-weight: 600; margin: 16px 0 6px; }
 .hint { font-weight: 400; color: var(--muted); }
+.hint.ok { color: var(--green); }
+.hint.err { color: var(--red); }
 textarea {
   width: 100%;
   padding: 10px;
@@ -69,3 +71,6 @@ td.title { color: var(--muted); display: block; }
 .ok { color: var(--green); }
 .err { color: var(--red); }
 .note { margin-top: 20px; color: var(--muted); font-size: 12px; }
+input[type="file"] { font-size: 14px; }
+#templateInfo { margin-top: 6px; font-size: 13px; }
+label.check { font-weight: 400; display: flex; gap: 6px; align-items: flex-start; font-size: 14px; }

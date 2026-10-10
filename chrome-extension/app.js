@@ -248,7 +248,8 @@ function formatTimestamp(v) {
     let ms = Number(v);
     if (ms < 1e11) ms *= 1000;
     const d = new Date(ms);
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    // 기존 엑셀과 같은 형식: 2026.03.14. 10:42
+    return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}. ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   }
   return String(v);
 }
@@ -290,6 +291,8 @@ async function collectViaApi(result, isStopped) {
     const article = art?.result?.article || {};
     result.title = String(article.subject || "");
     result.author = String(article.writer?.nick || "");
+    const cafeUrl = art?.result?.cafe?.url;
+    if (cafeUrl && !result.cafeUrl) result.cafeUrl = String(cafeUrl);
   } catch (e) {
     if (String(e.message).includes("권한")) throw e;
   }
@@ -574,76 +577,138 @@ async function collectYoutube(result, isStopped, onProgress) {
 }
 
 // ---------------------------------------------------------------------------
-// 엑셀
+// 엑셀 (raw data 양식: 언론 / 동호회 / 유튜브 / 자동차 커뮤니티 시트, 열: 연번·채널·작성일·댓글·url)
 // ---------------------------------------------------------------------------
 
-const COMMENT_HEADERS = [
-  "게시글URL", "카페ID", "게시글번호", "게시글제목", "게시글작성자",
-  "순번", "구분", "댓글ID", "부모댓글ID", "작성자닉네임", "작성자ID",
-  "댓글내용", "작성일시", "삭제여부", "첨부(이미지/스티커)",
-];
-const YOUTUBE_HEADERS = [
-  "영상URL", "영상ID", "영상제목", "채널명",
-  "순번", "구분", "댓글ID", "부모댓글ID", "작성자", "작성자채널ID",
-  "댓글내용", "작성시점", "좋아요", "답글수",
-];
-const SUMMARY_HEADERS = ["사이트", "URL", "카페ID", "게시글번호/영상ID", "제목", "작성자/채널", "댓글수", "수집방식", "상태"];
+const SHEET_CAFE = "동호회";
+const SHEET_YT = "유튜브";
+const BLANK_SHEETS = ["언론", "동호회", "유튜브", "자동차 커뮤니티"];
+const HEADERS = ["연번", "채널", "작성일", "댓글", "url"];
+const DEFAULT_FILE_NAME = "raw_data.xlsx";
 
-// 숫자로 바꿀 수 있는 값은 숫자로(엑셀에서 정렬/합계가 되도록)
-function num(v) {
-  return /^\d+$/.test(String(v)) ? Number(v) : v;
+const compact = (s) => String(s ?? "").replace(/\s+/g, "");
+
+// 같은 댓글인지 판단하는 키: 게시글번호 + 작성일 + 내용(공백 무시)
+function cafeKey(url, date, content) {
+  const { articleId } = parseArticleUrl(String(url || ""));
+  return `${articleId || compact(url)}|${compact(date)}|${compact(content)}`;
 }
 
-function buildWorkbook(results) {
-  const cafe = results.filter((r) => r.platform === "cafe");
-  const yt = results.filter((r) => r.platform === "youtube");
-  const sheets = [];
-
-  if (cafe.length) {
-    const rows = [COMMENT_HEADERS];
-    for (const r of cafe) {
-      r.comments.forEach((c, i) =>
-        rows.push([
-          r.url, r.cafeId, r.articleId, r.title, r.author,
-          i + 1, c.isReply ? "답글" : "댓글", c.commentId, c.parentId,
-          c.nickname, c.writerId, c.content, c.writtenAt,
-          c.isDeleted ? "Y" : "", c.attachment,
-        ])
-      );
-    }
-    sheets.push({ name: "카페 댓글", rows, widths: { 1: 45, 4: 30, 10: 16, 12: 60, 13: 20, 15: 30 }, wrapCols: [12] });
-  }
-
-  if (yt.length) {
-    const rows = [YOUTUBE_HEADERS];
-    for (const r of yt) {
-      r.comments.forEach((c, i) =>
-        rows.push([
-          r.url, r.articleId, r.title, r.author,
-          i + 1, c.isReply ? "답글" : "댓글", c.commentId, c.parentId,
-          c.nickname, c.channelId, c.content, c.writtenAt, num(c.likes), num(c.replyCount),
-        ])
-      );
-    }
-    sheets.push({ name: "유튜브 댓글", rows, widths: { 1: 45, 3: 30, 4: 16, 7: 28, 9: 18, 11: 60, 12: 12 }, wrapCols: [11] });
-  }
-
-  const summaryRows = [SUMMARY_HEADERS];
-  for (const r of results) {
-    summaryRows.push([
-      r.platform === "youtube" ? "유튜브" : "네이버카페",
-      r.url, r.cafeId, r.articleId, r.title, r.author, r.comments.length, r.method, r.error || "성공",
-    ]);
-  }
-  sheets.push({ name: "요약", rows: summaryRows, widths: { 2: 45, 4: 16, 5: 40, 9: 40 } });
-  return XlsxWriter.build(sheets);
+function rowHasData(row) {
+  return ["A", "B", "C", "D", "E"].some((c) => row.cells[c] !== undefined && row.cells[c] !== "");
 }
 
-function downloadWorkbook(bytes) {
+// 올린 엑셀에서 이어쓰기에 필요한 정보를 읽는다.
+async function analyzeTemplate(wb) {
+  const names = wb.sheetNames();
+  for (const need of [SHEET_CAFE, SHEET_YT]) {
+    if (!names.includes(need)) throw new Error(`'${need}' 시트가 없습니다. (시트 목록: ${names.join(", ")})`);
+  }
+  const cafeRows = (await wb.readRows(SHEET_CAFE)).filter((r) => r.r > 1 && rowHasData(r));
+  const cafeLastRow = cafeRows.reduce((m, r) => Math.max(m, r.r), 1);
+  let cafeLastSerial = 0;
+  const cafeKeys = new Set();
+  for (const r of cafeRows) {
+    const n = parseInt(r.cells.A, 10);
+    if (!isNaN(n)) cafeLastSerial = Math.max(cafeLastSerial, n);
+    cafeKeys.add(cafeKey(r.cells.E, r.cells.C, r.cells.D));
+  }
+
+  const ytRows = (await wb.readRows(SHEET_YT)).filter((r) => r.r > 1 && rowHasData(r));
+  const ytVideos = new Map(); // 영상ID → 기존 행들 [[채널, 작성일, 댓글, url]]
+  for (const r of ytRows) {
+    const id = parseYoutubeId(String(r.cells.E || ""));
+    if (!id) continue;
+    if (!ytVideos.has(id)) ytVideos.set(id, []);
+    ytVideos.get(id).push([r.cells.B ?? "유튜브", r.cells.C ?? "", r.cells.D ?? "", r.cells.E ?? ""]);
+  }
+  return { cafeLastRow, cafeLastSerial, cafeKeys, cafeCount: cafeRows.length, ytVideos, ytCount: ytRows.length };
+}
+
+function youtubeWatchUrl(id) {
+  return `https://www.youtube.com/watch?v=${id}`;
+}
+
+// 수집 결과 → 동호회/유튜브 시트에 들어갈 행
+function buildRows(results, info) {
+  const keys = new Set(info ? info.cafeKeys : []);
+  let serial = info ? info.cafeLastSerial : 0;
+  const cafe = [];
+  let duplicates = 0;
+  for (const r of results.filter((x) => x.platform === "cafe" && !x.error)) {
+    for (const c of r.comments) {
+      if (c.isDeleted || !c.content) continue;
+      const key = cafeKey(r.sheetUrl, c.writtenAt, c.content);
+      if (keys.has(key)) {
+        duplicates++;
+        continue;
+      }
+      keys.add(key);
+      cafe.push([++serial, "동호회", c.writtenAt, c.content, r.sheetUrl]);
+    }
+  }
+
+  // 유튜브: 기존 영상 순서를 유지하고 새 영상은 뒤에 붙인다.
+  // 수집에 실패했거나 이번에 수집하지 않은 영상은 기존 행을 그대로 남긴다.
+  const ytResults = results.filter((x) => x.platform === "youtube");
+  const order = info ? [...info.ytVideos.keys()] : [];
+  for (const r of ytResults) if (!order.includes(r.articleId)) order.push(r.articleId);
+  const yt = [];
+  const keptOld = [];
+  for (const id of order) {
+    const r = ytResults.find((x) => x.articleId === id);
+    if (r && !r.error) {
+      for (const c of r.comments) yt.push(["유튜브", c.writtenAt, c.content, youtubeWatchUrl(id)]);
+    } else if (info?.ytVideos.has(id)) {
+      keptOld.push(id);
+      yt.push(...info.ytVideos.get(id));
+    }
+  }
+  return {
+    cafe,
+    duplicates,
+    yt: yt.map((row, i) => [i + 1, ...row]),
+    ytTouched: ytResults.length > 0,
+    keptOld,
+  };
+}
+
+function today() {
   const d = new Date();
-  const name =
-    `네이버카페_댓글_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_` +
-    `${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}.xlsx`;
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+}
+
+// 파일명 맨 앞 날짜(YYYYMMDD)를 오늘 날짜로 바꾼다.
+function outputFileName(baseName) {
+  let name = (baseName || DEFAULT_FILE_NAME).replace(/\s*\(\d+\)(?=\.xlsx$)/i, ""); // "파일 (1).xlsx" 정리
+  if (!/\.xlsx$/i.test(name)) name += ".xlsx";
+  return /^\d{8}/.test(name) ? today() + name.slice(8) : `${today()}_${name}`;
+}
+
+async function buildOutput(results, tpl) {
+  if (tpl) {
+    const wb = await XlsxTemplate.Workbook.open(tpl.bytes);
+    const info = await analyzeTemplate(wb);
+    const rows = buildRows(results, info);
+    if (rows.cafe.length) {
+      await wb.replaceRowsAfter(SHEET_CAFE, info.cafeLastRow, rows.cafe, info.cafeLastRow, { focusFirstNew: true });
+    }
+    if (rows.ytTouched) await wb.replaceRowsAfter(SHEET_YT, 1, rows.yt, 2);
+    return { bytes: await wb.save(), rows, info };
+  }
+  const rows = buildRows(results, null);
+  const widths = { 1: 7, 2: 10, 3: 17, 4: 100, 5: 45 };
+  const bytes = XlsxWriter.build(
+    BLANK_SHEETS.map((name) => ({
+      name,
+      rows: [HEADERS, ...(name === SHEET_CAFE ? rows.cafe : name === SHEET_YT ? rows.yt : [])],
+      widths,
+    }))
+  );
+  return { bytes, rows, info: null };
+}
+
+function downloadWorkbook(bytes, name) {
   const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
@@ -659,7 +724,48 @@ function downloadWorkbook(bytes) {
 // ---------------------------------------------------------------------------
 
 let stopRequested = false;
-let lastWorkbook = null;
+let lastWorkbook = null; // { bytes, name }
+let template = null; // { name, bytes, info }
+
+function rememberedName() {
+  try {
+    return localStorage.getItem("templateName") || "";
+  } catch {
+    return "";
+  }
+}
+
+async function loadTemplate(file) {
+  const box = $("#templateInfo");
+  if (!file) {
+    template = null;
+    box.className = "hint";
+    box.textContent = "파일을 선택하지 않으면 같은 양식의 새 파일(그날 수집한 댓글만)로 저장됩니다.";
+    return;
+  }
+  box.className = "hint";
+  box.textContent = "파일 읽는 중…";
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const wb = await XlsxTemplate.Workbook.open(bytes);
+    const info = await analyzeTemplate(wb);
+    template = { name: file.name, bytes, info };
+    try {
+      localStorage.setItem("templateName", file.name);
+    } catch {
+      /* 무시 */
+    }
+    box.className = "hint ok";
+    box.textContent =
+      `✔ ${file.name} — 동호회 ${info.cafeCount.toLocaleString()}행(마지막 연번 ${info.cafeLastSerial.toLocaleString()}) 다음부터 이어 씁니다. ` +
+      `유튜브 시트에는 영상 ${info.ytVideos.size}개, 댓글 ${info.ytCount.toLocaleString()}행이 있습니다. ` +
+      `저장 파일명: ${outputFileName(file.name)}`;
+  } catch (e) {
+    template = null;
+    box.className = "hint err";
+    box.textContent = `파일을 읽지 못했습니다: ${e.message}`;
+  }
+}
 
 async function checkLogin() {
   const box = $("#login");
@@ -714,8 +820,13 @@ function addProgressRow(index, url) {
 
 async function collectOne(url, row) {
   const platform = isYoutubeUrl(url) ? "youtube" : "cafe";
-  const result = { platform, url, cafeId: "", articleId: "", title: "", author: "", comments: [], method: "", error: "" };
+  const result = {
+    platform, url, sheetUrl: url, cafeId: "", cafeUrl: "", articleId: "",
+    title: "", author: "", comments: [], method: "", error: "",
+  };
   if (platform === "youtube") {
+    result.articleId = parseYoutubeId(url);
+    result.sheetUrl = youtubeWatchUrl(result.articleId);
     try {
       row.status("유튜브 댓글 수집 중…");
       await collectYoutube(result, () => stopRequested, (n) => row.status(`유튜브 댓글 수집 중… ${n}개`));
@@ -738,6 +849,7 @@ async function collectOne(url, row) {
     if (!ids.cafeId || !ids.articleId) throw new CollectError("URL에서 카페ID/게시글번호를 찾지 못함");
     result.cafeId = ids.cafeId;
     result.articleId = ids.articleId;
+    if (ids.cafeUrl) result.cafeUrl = ids.cafeUrl;
 
     row.status("댓글 수집 중…");
     try {
@@ -752,14 +864,26 @@ async function collectOne(url, row) {
     result.error = e.message || String(e);
     row.status(`실패: ${result.error}`, "err");
   }
+  // 엑셀 url 칸은 기존처럼 https://cafe.naver.com/카페주소/글번호 형식으로
+  if (result.cafeUrl && result.articleId) result.sheetUrl = `https://cafe.naver.com/${result.cafeUrl}/${result.articleId}`;
   row.done(result);
   return result;
 }
 
-async function start() {
+// 입력한 URL + (선택 시) 파일에 있던 유튜브 영상들
+function urlsToCollect() {
   const urls = readUrls();
+  if (template && $("#reYt").checked) {
+    const have = new Set(urls.map(parseYoutubeId).filter(Boolean));
+    for (const id of template.info.ytVideos.keys()) if (!have.has(id)) urls.push(youtubeWatchUrl(id));
+  }
+  return urls;
+}
+
+async function start() {
+  const urls = urlsToCollect();
   if (!urls.length) {
-    $("#summary").textContent = "게시글 URL을 입력하세요.";
+    $("#summary").textContent = "URL을 입력하세요.";
     return;
   }
   await checkLogin();
@@ -778,13 +902,31 @@ async function start() {
     await sleep(REQUEST_DELAY);
   }
 
-  const total = results.reduce((s, r) => s + r.comments.length, 0);
   const failed = results.filter((r) => r.error).length;
-  lastWorkbook = buildWorkbook(results);
-  downloadWorkbook(lastWorkbook);
-  $("#summary").textContent =
-    `${stopRequested ? "중지됨 - " : ""}글 ${results.length}개, 댓글 ${total}개 수집` +
-    `${failed ? ` (실패 ${failed}건)` : ""} · 엑셀 파일이 다운로드 폴더에 저장되었습니다.`;
+  try {
+    $("#summary").textContent = "엑셀 만드는 중…";
+    const out = await buildOutput(results, template);
+    const name = outputFileName(template ? template.name : rememberedName());
+    lastWorkbook = { bytes: out.bytes, name };
+    downloadWorkbook(out.bytes, name);
+    const { rows, info } = out;
+    const parts = [];
+    if (rows.cafe.length) {
+      const from = rows.cafe[0][0];
+      const to = rows.cafe[rows.cafe.length - 1][0];
+      parts.push(`동호회 ${rows.cafe.length.toLocaleString()}개 추가(연번 ${from}~${to})`);
+    } else if (results.some((r) => r.platform === "cafe")) {
+      parts.push("동호회 추가된 댓글 없음");
+    }
+    if (rows.duplicates) parts.push(`이미 있던 댓글 ${rows.duplicates.toLocaleString()}개 제외`);
+    if (rows.ytTouched || !info) parts.push(`유튜브 ${rows.yt.length.toLocaleString()}개로 교체`);
+    if (rows.keptOld.length) parts.push(`유튜브 영상 ${rows.keptOld.length}개는 기존 댓글 유지`);
+    $("#summary").textContent =
+      `${stopRequested ? "중지됨 - " : ""}${parts.join(", ")}` +
+      `${failed ? ` (실패 ${failed}건)` : ""} · ${name} 파일이 다운로드 폴더에 저장되었습니다.`;
+  } catch (e) {
+    $("#summary").textContent = `엑셀 저장 실패: ${e.message}`;
+  }
   $("#start").disabled = false;
   $("#stop").disabled = true;
   $("#download").disabled = false;
@@ -809,7 +951,9 @@ document.addEventListener("DOMContentLoaded", () => {
     $("#stop").disabled = true;
     $("#summary").textContent = "중지하는 중… (현재 글까지 저장합니다)";
   });
-  $("#download").addEventListener("click", () => lastWorkbook && downloadWorkbook(lastWorkbook));
+  $("#download").addEventListener("click", () => lastWorkbook && downloadWorkbook(lastWorkbook.bytes, lastWorkbook.name));
+  $("#templateFile").addEventListener("change", (e) => loadTemplate(e.target.files[0]));
+  loadTemplate(null);
   window.addEventListener("focus", checkLogin);
   checkLogin();
 });
