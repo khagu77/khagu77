@@ -27,7 +27,16 @@
           <option value="audio">음성 녹음 (.mp3 · 재생하며 녹음)</option>
         </select>
       </label>
+      <label id="qualityBox">화질
+        <select id="quality">
+          <option value="360">360p (용량 가장 작음)</option>
+          <option value="480" selected>480p (기본 · 용량 작음)</option>
+          <option value="720">720p (HD)</option>
+          <option value="1080">1080p (Full HD · 용량 큼)</option>
+        </select>
+      </label>
     </div>
+    <div id="qualityHint" class="hint"></div>
     <div id="helper" class="hint" hidden></div>
 
     <div class="buttons">
@@ -44,7 +53,8 @@
 
     <p class="note">
       빠른 다운로드: 영상을 재생하지 않고 파일을 바로 받으므로 소리 없이 보통 수십 초~몇 분이면 끝납니다.
-      처음 한 번 '유튜브 도우미 설치' 앱을 실행해야 합니다. 영상은 1080p 까지의 화질로, QuickTime·아이폰에서 바로 열리는 .mp4 로 저장합니다.
+      처음 한 번 '유튜브 도우미 설치' 앱을 실행해야 합니다. 영상은 고른 화질(기본 480p) 이하로, QuickTime·아이폰에서 바로 열리는 .mp4 로 저장합니다.
+      영상에 그 화질이 없으면 가장 가까운 낮은 화질로 받습니다.
       녹화·녹음: 도우미 없이 쓸 수 있지만 영상을 처음부터 끝까지 재생하며 저장하므로 영상 길이만큼 걸리고 소리가 납니다.
       진행 중에는 열린 유튜브 탭을 닫거나 영상을 멈추지 마세요. 광고 구간은 파일에 들어가지 않습니다.
       영상 저작권은 영상 주인에게 있으니 개인 보관·업무 참고 용도로만 쓰고, 다시 올리거나 배포하지 마세요.

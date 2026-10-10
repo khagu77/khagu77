@@ -3,7 +3,7 @@
 # 확장프로그램이 보낸 유튜브 URL의 음성(.m4a) 또는 영상(.mp4)을 yt-dlp 로 바로 받아(재생·녹화 없이)
 # 다운로드 폴더에 저장한다.
 # 주고받는 메시지: 4바이트 길이(little-endian) + JSON
-#   받음: {"type":"ping"} / {"type":"download","kind":"audio"|"video","urls":["https://..."]}
+#   받음: {"type":"ping"} / {"type":"download","kind":"audio"|"video","height":480,"urls":["https://..."]}
 #   보냄: pong / updating / start / title / progress / merging / saved / error / finished
 # 설치: '유튜브 도우미 설치.app' 이 이 파일을 ~/Library/Application Support/YTScriptHelper 에 두고
 #       `ytdl_host.sh --install` 로 yt-dlp(압축 해제형), Deno(유튜브 받을 때 yt-dlp 가 쓰는 JavaScript 실행기),
@@ -16,7 +16,7 @@ YTDLP="${YTDLP:-$BIN/yt-dlp/yt-dlp_macos}"
 DENO="$BIN/deno"
 VFFMPEG="${VFFMPEG:-$BIN/ffmpeg}" # 영상 합치기용 (테스트에서 바꿔 끼울 수 있음)
 OUT="${OUT:-$HOME/Downloads}"
-VERSION=2 # 2: 영상 빠른 다운로드 지원
+VERSION=3 # 2: 영상 빠른 다운로드, 3: 영상 화질 선택
 UPDATE_DAYS=3
 
 # ---- yt-dlp·Deno 설치/업데이트 ----
@@ -105,14 +105,21 @@ else
   EXT="m4a"
 fi
 
-# 영상: 1080p 까지 H.264 영상 + AAC 소리를 받아 .mp4 하나로 합친다 (QuickTime·아이폰에서 바로 재생)
-VIDEO_FORMAT=(-f "bv*[vcodec^=avc1][height<=1080]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
-  --merge-output-format mp4 --ffmpeg-location "$VFFMPEG")
+# 영상: 고른 화질(세로 픽셀) 이하의 H.264 영상 + AAC 소리를 받아 .mp4 하나로 합친다 (QuickTime·아이폰에서 바로 재생)
+video_format() {
+  local h=$1
+  printf '%s\n' -f "bv*[vcodec^=avc1][height<=$h]+ba[ext=m4a]/b[ext=mp4][height<=$h]/bv*[height<=$h]+ba/b[height<=$h]/b" \
+    --merge-output-format mp4 --ffmpeg-location "$VFFMPEG"
+}
 
 download() {
-  local i=$1 url=$2 kind=$3 today line pct fmt
+  local i=$1 url=$2 kind=$3 height=$4 today line pct fmt=()
   today="$(date +%Y%m%d)"
-  if [ "$kind" = video ]; then fmt=("${VIDEO_FORMAT[@]}"); else fmt=("${FORMAT[@]}"); fi
+  if [ "$kind" = video ]; then
+    while IFS= read -r line; do fmt+=("$line"); done < <(video_format "$height")
+  else
+    fmt=("${FORMAT[@]}")
+  fi
   send "{\"type\":\"start\",\"index\":$i}"
   # 출력 줄을 읽어 진행 상황을 확장프로그램으로 보낸다
   PYTHONIOENCODING=utf-8 "$YTDLP" "${fmt[@]}" "${JS[@]}" \
@@ -153,10 +160,12 @@ while msg=$(read_msg); do
       fi
       kind=audio
       case "$msg" in *'"kind":"video"'*) kind=video ;; esac
+      height=$(printf '%s' "$msg" | grep -o '"height":[0-9]*' | tr -cd '0-9')
+      [ -n "$height" ] || height=480
       [ "$kind" = video ] && [ -z "$CUSTOM_YTDLP" ] && install_ffmpeg
       i=0
       for url in $(printf '%s' "$msg" | grep -o 'https\{0,1\}://[^"]*'); do
-        download "$i" "$url" "$kind"
+        download "$i" "$url" "$kind" "$height"
         i=$((i + 1))
       done
       send '{"type":"finished"}'

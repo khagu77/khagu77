@@ -311,7 +311,7 @@ HELPER_APP = Path(__file__).resolve().parent.parent / "유튜브 도우미 설�
 EXT_ID = "pjmcafienhpdbpljglddhaknajaekhcm"
 
 
-def run_fast_helper(tmp_path: Path, kind: str, media_name: str, make_cmd):
+def run_fast_helper(tmp_path: Path, kind: str, media_name: str, make_cmd, quality=None):
     """빠른 다운로드: 확장 → (Native Messaging) → 도우미(ytdl_host.sh) → yt-dlp.
     유튜브 대신 로컬 파일을 받도록 yt-dlp 만 바꿔 끼운다. → (상태 글, 받은 파일들)"""
     import shutil as _sh
@@ -328,7 +328,8 @@ def run_fast_helper(tmp_path: Path, kind: str, media_name: str, make_cmd):
     out.mkdir()
     fake = tmp_path / "fake_ytdlp.sh"
     fake.write_text(
-        "#!/bin/bash\nargs=()\nfor a in \"$@\"; do case \"$a\" in\n"
+        f"#!/bin/bash\nprintf '%s\\n' \"$@\" >> '{tmp_path / 'ytdlp_args.log'}'\n"
+        "args=()\nfor a in \"$@\"; do case \"$a\" in\n"
         f"  https://www.youtube.com/*) args+=(\"http://127.0.0.1:{port}/{media_name}\") ;;\n"
         "  -U) exit 0 ;;\n  *) args+=(\"$a\") ;;\nesac; done\n"
         f"NO_PROXY=127.0.0.1 exec {ytdlp} \"${{args[@]}}\"\n")
@@ -348,6 +349,13 @@ def run_fast_helper(tmp_path: Path, kind: str, media_name: str, make_cmd):
             page = ext_page(ctx, "video.html")
             assert page.url.startswith(f"chrome-extension://{EXT_ID}/")  # manifest key 로 ID 고정
             page.select_option("#kind", kind)
+            if kind == "fastvideo":
+                assert page.input_value("#quality") == "480" and page.is_visible("#quality")  # 기본 480p
+                assert "10분 영상 기준" in page.inner_text("#qualityHint")
+                if quality:
+                    page.select_option("#quality", quality)
+            else:
+                assert page.is_hidden("#quality")
             ext = "mp4" if kind == "fastvideo" else "m4a"
             page.locator("#helper", has_text=f"Mac 도우미가 연결되었습니다. 다운로드 폴더에 날짜_제목.{ext}").wait_for(
                 timeout=20000)
@@ -380,7 +388,9 @@ def test_fast_video_helper(tmp_path: Path):
     _, files = run_fast_helper(tmp_path, "fastvideo", "test_video.mp4", lambda m: [
         "ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=320x240:rate=25:duration=4",
         "-f", "lavfi", "-i", "sine=frequency=440:duration=4", "-c:v", "libx264", "-pix_fmt", "yuv420p",
-        "-c:a", "aac", "-shortest", str(m)])
+        "-c:a", "aac", "-shortest", str(m)], quality="720")
+    args = (tmp_path / "ytdlp_args.log").read_text()
+    assert "height<=720" in args and "height<=1080" not in args and "--merge-output-format" in args, args
     assert [f.name for f in files] == [f"{date.today():%Y%m%d}_test_video.mp4"], files
     assert sorted(codecs(files[0])) == ["aac", "h264"]
 

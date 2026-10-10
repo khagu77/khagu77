@@ -82,7 +82,10 @@ async function downloadVideo(url, row, kind) {
 
 const HELPER = "com.khagu77.ytdl";
 const HELPER_OLD =
-  "Mac 도우미가 예전 버전이라 영상 빠른 다운로드를 할 수 없습니다. 새로 받은 폴더의 '유튜브 도우미 설치' 앱을 한 번 더 실행한 뒤 이 화면을 새로고침하세요.";
+  "Mac 도우미가 예전 버전이라 영상 빠른 다운로드(화질 선택)를 할 수 없습니다. 새로 받은 폴더의 '유튜브 도우미 설치' 앱을 한 번 더 실행한 뒤 이 화면을 새로고침하세요.";
+const HELPER_VIDEO_VERSION = 3; // 화질 선택을 지원하는 도우미 버전
+// 10분 영상 기준 대략의 파일 크기
+const QUALITY_SIZE = { 360: "약 20~40MB", 480: "약 30~60MB", 720: "약 60~120MB", 1080: "약 120~250MB" };
 const isFast = (kind) => kind === "fast" || kind === "fastvideo";
 const HELPER_MISSING =
   "Mac 도우미가 설치되어 있지 않습니다. 압축 푼 폴더의 '유튜브 도우미 설치' 앱을 한 번 실행한 뒤 이 화면을 새로고침하세요. " +
@@ -126,7 +129,7 @@ async function showHelperStatus() {
   if (!r || !r.ok) {
     el.textContent = HELPER_MISSING;
     el.className = "hint err";
-  } else if (kind === "fastvideo" && !r.video) {
+  } else if (kind === "fastvideo" && (!r.video || (r.version || 0) < HELPER_VIDEO_VERSION)) {
     el.textContent = HELPER_OLD;
     el.className = "hint err";
   } else {
@@ -183,7 +186,12 @@ async function fastDownload(urls, kind) {
         resolve();
       }
     });
-    port.postMessage({ type: "download", kind: kind === "fastvideo" ? "video" : "audio", urls: jobs.map((j) => j.url) });
+    port.postMessage({
+      type: "download",
+      kind: kind === "fastvideo" ? "video" : "audio",
+      height: Number($("#quality").value),
+      urls: jobs.map((j) => j.url),
+    });
   });
   stopFast = null;
   return jobs.filter((j) => j.ok).length;
@@ -240,12 +248,27 @@ menu("video.html");
 try {
   $("#kind").value = localStorage.getItem("downloadKind") || "fastvideo";
 } catch {}
+function showQuality() {
+  $("#qualityBox").hidden = $("#qualityHint").hidden = $("#kind").value !== "fastvideo";
+  $("#qualityHint").textContent = `10분 영상 기준 ${QUALITY_SIZE[$("#quality").value]}`;
+}
+try {
+  $("#quality").value = localStorage.getItem("videoQuality") || "480";
+} catch {}
+$("#quality").addEventListener("change", () => {
+  try {
+    localStorage.setItem("videoQuality", $("#quality").value);
+  } catch {}
+  showQuality();
+});
 $("#kind").addEventListener("change", () => {
   try {
     localStorage.setItem("downloadKind", $("#kind").value);
   } catch {}
+  showQuality();
   showHelperStatus();
 });
+showQuality();
 showHelperStatus();
 $("#start").addEventListener("click", start);
 $("#stop").addEventListener("click", () => {
