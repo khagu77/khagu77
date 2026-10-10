@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "카페·유튜브 댓글 수집기",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "네이버 카페 게시글·유튜브 영상 URL을 입력하면 댓글/답글을 모두 모아 엑셀(.xlsx)로 저장합니다.",
   "action": {
     "default_title": "카페·유튜브 댓글 수집기"
@@ -15,7 +15,6 @@
     "cookies"
   ],
   "host_permissions": [
-    "https://apis.naver.com/*",
     "https://cafe.naver.com/*",
     "https://m.cafe.naver.com/*",
     "https://*.naver.com/*",

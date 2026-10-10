@@ -1,13 +1,17 @@
-// 네이버 카페 댓글 수집기 - 수집 화면
-// 크롬에 로그인된 네이버 세션(쿠키)으로 댓글 API를 호출하고,
-// API가 안 되면 게시글을 백그라운드 탭으로 열어 화면에서 댓글을 읽는다.
+// 카페·유튜브 댓글 수집기 - 수집 화면
+// 네이버 카페: 사람이 글을 보는 것과 같이 게시글을 탭으로 열어 화면에 보이는 댓글을 읽는다.
+//   (네이버 API 를 직접 반복 호출하면 계정 보호조치가 걸릴 수 있어 사용하지 않는다)
+// 유튜브: 로그인 없이 유튜브 웹페이지가 쓰는 내부 API 로 댓글을 가져온다.
 
-const API_BASE = "https://apis.naver.com/cafe-web/cafe-articleapi/v2.1";
-const REQUEST_DELAY = 500; // 요청 사이 대기(ms). 서버 부담을 줄이기 위해 너무 줄이지 마세요.
+// 네이버 카페는 사람처럼 천천히: 글과 글 사이, 댓글 페이지 사이를 무작위로 기다린다.
+const CAFE_ARTICLE_DELAY = [4000, 8000];
+const CAFE_PAGE_DELAY = [2000, 4000];
+const CAFE_WARN_COUNT = 30; // 한 번에 이보다 많은 카페 글을 넣으면 확인을 받는다
 const MAX_PAGES = 1000;
 
 const $ = (sel) => document.querySelector(sel);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const randomBetween = ([min, max]) => min + Math.floor(Math.random() * (max - min));
 
 class CollectError extends Error {}
 
@@ -47,50 +51,8 @@ function parseArticleUrl(url) {
   return { cafeId: club ? club[1] : null, articleId: art ? art[1] : null, cafeUrl: null };
 }
 
-async function fetchJson(url) {
-  let resp;
-  try {
-    resp = await fetch(url, { credentials: "include", headers: { Accept: "application/json, text/plain, */*" } });
-  } catch (e) {
-    throw new CollectError(`네트워크 오류: ${e.message}`);
-  }
-  if (resp.status === 401 || resp.status === 403) {
-    throw new CollectError(`접근 권한 없음(HTTP ${resp.status}) - 로그인 또는 카페 가입 여부를 확인하세요`);
-  }
-  if (!resp.ok) throw new CollectError(`HTTP ${resp.status}`);
-  try {
-    return await resp.json();
-  } catch (e) {
-    throw new CollectError("JSON 응답이 아님");
-  }
-}
-
-// 카페 주소(영문 이름)로 카페ID 찾기
-async function resolveCafeId(cafeUrl) {
-  try {
-    const data = await fetchJson(
-      `https://apis.naver.com/cafe-web/cafe2/CafeGateInfo.json?cluburl=${encodeURIComponent(cafeUrl)}`
-    );
-    const id = data?.message?.result?.cafeInfoView?.cafeId ?? data?.result?.cafeInfoView?.cafeId;
-    if (id) return String(id);
-  } catch {
-    /* 다음 방법 시도 */
-  }
-  try {
-    const resp = await fetch(`https://cafe.naver.com/${encodeURIComponent(cafeUrl)}`, { credentials: "include" });
-    const html = await resp.text();
-    for (const re of [/g_sClubId\s*=\s*["'](\d+)["']/, /"cafeId"\s*:\s*"?(\d+)/, /clubid=(\d+)/i]) {
-      const m = html.match(re);
-      if (m) return m[1];
-    }
-  } catch {
-    /* 다음 방법 시도 */
-  }
-  return null;
-}
-
 // ---------------------------------------------------------------------------
-// 백그라운드 탭 도우미 (API로 안 될 때 실제 화면을 열어서 확인)
+// 네이버 카페 수집 (게시글 화면을 열어서 읽기)
 // ---------------------------------------------------------------------------
 
 async function withTab(url, fn) {
@@ -108,53 +70,30 @@ async function withTab(url, fn) {
       }
       chrome.tabs.onUpdated.addListener(listener);
     });
-    await sleep(2500); // 카페 화면(iframe/스크립트)이 그려질 시간
+    await sleep(3000); // 카페 화면(iframe/스크립트)이 그려질 시간
     return await fn(tab.id);
   } finally {
     chrome.tabs.remove(tab.id).catch(() => {});
   }
 }
 
-// 각 프레임 안에서 실행: 현재 주소와 이 페이지가 호출한 게시글 API 주소를 돌려준다.
-function inspectFrame() {
-  const names = performance.getEntriesByType("resource").map((e) => e.name);
-  return { href: location.href, resources: names.filter((n) => /\/cafes\/\d+\/articles\/\d+/.test(n)) };
-}
-
-async function resolveIdsViaTab(url) {
-  return withTab(url, async (tabId) => {
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const results = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: inspectFrame });
-      for (const { result } of results) {
-        if (!result) continue;
-        for (const candidate of [result.href, ...result.resources]) {
-          const ids = parseArticleUrl(candidate);
-          if (ids.cafeId && ids.articleId) return ids;
-        }
-      }
-      await sleep(1000);
-    }
-    return { cafeId: null, articleId: null };
-  });
-}
-
-// 각 프레임 안에서 실행: 화면의 댓글을 읽고 댓글 페이지를 넘기며 모두 모은다.
-async function scrapeCommentsInFrame() {
-  if (!document.querySelector("li.CommentItem, .CommentBox")) return null;
+// 각 프레임 안에서 실행: 화면의 댓글을 읽고, 댓글 페이지 버튼을 사람처럼 천천히 눌러 가며 모두 모은다.
+// (확장 바깥 함수는 쓸 수 없으므로 필요한 값은 인자로 받는다)
+async function scrapeCommentsInFrame(pageDelay) {
+  if (!document.querySelector("li.CommentItem, .CommentBox")) return { found: false, href: location.href };
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const randomWait = () => wait(pageDelay[0] + Math.floor(Math.random() * (pageDelay[1] - pageDelay[0])));
   const titleEl = document.querySelector(".title_text");
   const authorEl = document.querySelector(".WriterInfo .nickname, .profile_info .nickname");
   const all = [];
   const seen = new Set();
   const visited = new Set();
   for (let guard = 0; guard < 500; guard++) {
-    await wait(800);
     let lastParent = "";
     for (const li of document.querySelectorAll("li.CommentItem")) {
       const q = (sel) => li.querySelector(sel)?.innerText.trim() || "";
       const isReply = li.classList.contains("CommentItem--reply");
       if (!isReply) lastParent = li.id || "";
-      const img = li.querySelector(".comment_image img, .CommentItemImage img, .comment_sticker img, .se-sticker-image");
       const row = {
         id: li.id || "",
         isReply,
@@ -163,7 +102,6 @@ async function scrapeCommentsInFrame() {
         content: q(".text_comment"),
         date: q(".comment_info_date"),
         deleted: !!li.querySelector(".comment_deleted, .comment_delete"),
-        attachment: img ? img.getAttribute("src") || "" : "",
       };
       const key = row.id || `${row.nickname}|${row.date}|${row.content}`;
       if (!seen.has(key)) {
@@ -184,141 +122,82 @@ async function scrapeCommentsInFrame() {
     }
     if (!next) break;
     next.click();
+    await randomWait();
   }
   return {
+    found: true,
+    href: location.href,
     title: titleEl ? titleEl.innerText.trim() : "",
     author: authorEl ? authorEl.innerText.trim() : "",
     rows: all,
   };
 }
 
-async function collectViaTab(result) {
-  const url =
-    result.cafeId && result.articleId
-      ? `https://cafe.naver.com/ca-fe/cafes/${result.cafeId}/articles/${result.articleId}`
-      : result.url;
-  const found = await withTab(url, async (tabId) => {
-    for (let attempt = 0; attempt < 10; attempt++) {
+// 각 프레임 안에서 실행: 페이지가 알려주는 대표 주소(https://cafe.naver.com/카페주소/글번호)
+function pageCanonicalUrls() {
+  const urls = [];
+  for (const sel of ['meta[property="og:url"]', 'link[rel="canonical"]']) {
+    const el = document.querySelector(sel);
+    const v = el && (el.getAttribute("content") || el.getAttribute("href"));
+    if (v) urls.push(v);
+  }
+  return urls;
+}
+
+async function collectCafe(result) {
+  const found = await withTab(result.url, async (tabId) => {
+    let hrefs = [];
+    for (let attempt = 0; attempt < 8; attempt++) {
       const results = await chrome.scripting.executeScript({
         target: { tabId, allFrames: true },
         func: scrapeCommentsInFrame,
+        args: [CAFE_PAGE_DELAY],
       });
-      const hit = results.map((r) => r.result).find((r) => r);
-      if (hit) return hit;
-      await sleep(1000);
+      const answers = results.map((r) => r.result).filter(Boolean);
+      const hit = answers.find((r) => r.found);
+      if (hit) {
+        const canon = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: pageCanonicalUrls });
+        hit.canonical = canon.flatMap((r) => r.result || []);
+        return hit;
+      }
+      hrefs = answers.map((r) => r.href);
+      if (hrefs.some((h) => h.includes("nid.naver.com"))) break; // 로그인 화면으로 넘어감
+      await sleep(1500);
     }
-    return null;
+    return { found: false, hrefs };
   });
-  if (!found) throw new CollectError("화면에서 댓글 영역을 찾지 못함 (권한이 없거나 댓글이 없는 글일 수 있음)");
-  result.title = result.title || found.title;
-  result.author = result.author || found.author;
+  if (!found.found) {
+    if ((found.hrefs || []).some((h) => h.includes("nid.naver.com"))) {
+      throw new CollectError("네이버 로그인이 필요합니다");
+    }
+    throw new CollectError("댓글 영역을 찾지 못함 (카페 가입이 필요하거나, 삭제됐거나, 댓글을 막은 글일 수 있음)");
+  }
+  if (!result.articleId) result.articleId = parseArticleUrl(found.href).articleId || "";
+  // 엑셀 url 칸을 기존처럼 짧은 주소로 쓰기 위해 카페주소(영문)를 알아낸다.
+  for (const u of found.canonical || []) {
+    const ids = parseArticleUrl(u);
+    if (ids.cafeUrl && (!result.articleId || ids.articleId === result.articleId)) {
+      result.cafeUrl = result.cafeUrl || ids.cafeUrl;
+      result.articleId = result.articleId || ids.articleId;
+      break;
+    }
+  }
+  result.title = found.title;
+  result.author = found.author;
   result.comments = found.rows.map((r) => ({
     commentId: r.id,
     isReply: r.isReply,
     parentId: r.parentId,
     nickname: r.nickname,
-    writerId: "",
     content: r.content,
     writtenAt: r.date,
     isDeleted: r.deleted,
-    attachment: r.attachment,
   }));
   result.method = "화면";
 }
 
-// ---------------------------------------------------------------------------
-// API 수집
-// ---------------------------------------------------------------------------
-
-function first(obj, ...keys) {
-  for (const k of keys) {
-    const v = obj?.[k];
-    if (v !== undefined && v !== null && v !== "") return v;
-  }
-  return "";
-}
-
 function pad(n) {
   return String(n).padStart(2, "0");
-}
-
-function formatTimestamp(v) {
-  if (v === "" || v === null || v === undefined) return "";
-  if (typeof v === "number" || /^\d+$/.test(String(v))) {
-    let ms = Number(v);
-    if (ms < 1e11) ms *= 1000;
-    const d = new Date(ms);
-    // 기존 엑셀과 같은 형식: 2026.03.14. 10:42
-    return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}. ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  }
-  return String(v);
-}
-
-function parseCommentItem(item) {
-  const writer = item.writer || {};
-  const id = String(first(item, "id", "commentId", "commentNo"));
-  const ref = String(first(item, "refId", "refCommentId", "parentCommentId"));
-  const isReply = !!item.isRef || !!item.isReply || (ref !== "" && ref !== id);
-  const attachments = [];
-  if (item.image?.url) attachments.push(item.image.url);
-  if (item.sticker?.url) attachments.push(item.sticker.url);
-  return {
-    commentId: id,
-    isReply,
-    parentId: isReply ? ref : "",
-    nickname: String(first(writer, "nick", "nickname") || first(item, "writerNickname", "nickname")),
-    writerId: String(first(writer, "id", "memberId") || first(item, "writerId", "memberId")),
-    content: String(item.content || ""),
-    writtenAt: formatTimestamp(first(item, "updateDate", "writeDate", "createDate")),
-    isDeleted: !!(item.isDeleted || item.deleted),
-    attachment: attachments.join(" "),
-  };
-}
-
-function extractCommentItems(payload) {
-  const result = payload?.result ?? payload;
-  const comments = result?.comments;
-  if (comments && Array.isArray(comments.items)) return comments.items;
-  if (Array.isArray(comments)) return comments;
-  if (Array.isArray(result?.items)) return result.items;
-  return null;
-}
-
-async function collectViaApi(result, isStopped) {
-  const { cafeId, articleId } = result;
-  try {
-    const art = await fetchJson(`${API_BASE}/cafes/${cafeId}/articles/${articleId}?useCafeId=true&requestFrom=A`);
-    const article = art?.result?.article || {};
-    result.title = String(article.subject || "");
-    result.author = String(article.writer?.nick || "");
-    const cafeUrl = art?.result?.cafe?.url;
-    if (cafeUrl && !result.cafeUrl) result.cafeUrl = String(cafeUrl);
-  } catch (e) {
-    if (String(e.message).includes("권한")) throw e;
-  }
-
-  const seen = new Set();
-  const comments = [];
-  for (let page = 1; page <= MAX_PAGES && !isStopped(); page++) {
-    const data = await fetchJson(
-      `${API_BASE}/cafes/${cafeId}/articles/${articleId}/comments/pages/${page}?requestFrom=A&orderBy=asc`
-    );
-    const items = extractCommentItems(data);
-    if (items === null) throw new CollectError("댓글 API 응답 형식을 인식하지 못함");
-    let added = 0;
-    for (const item of items) {
-      const c = parseCommentItem(item);
-      const key = c.commentId || `${c.nickname}|${c.writtenAt}|${c.content}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      comments.push(c);
-      added++;
-    }
-    if (items.length === 0 || added === 0) break;
-    await sleep(REQUEST_DELAY);
-  }
-  result.comments = comments;
-  result.method = "API";
 }
 
 // ---------------------------------------------------------------------------
@@ -836,27 +715,13 @@ async function collectOne(url, row) {
     return result;
   }
   try {
-    row.status("주소 확인 중…");
-    let ids = parseArticleUrl(url);
-    if (!ids.cafeId && ids.cafeUrl) {
-      const cafeId = await resolveCafeId(ids.cafeUrl);
-      if (cafeId) ids = { ...ids, cafeId };
-    }
-    if (!ids.cafeId || !ids.articleId) ids = await resolveIdsViaTab(url);
-    if (!ids.cafeId || !ids.articleId) throw new CollectError("URL에서 카페ID/게시글번호를 찾지 못함");
-    result.cafeId = ids.cafeId;
-    result.articleId = ids.articleId;
-    if (ids.cafeUrl) result.cafeUrl = ids.cafeUrl;
-
-    row.status("댓글 수집 중…");
-    try {
-      await collectViaApi(result, () => stopRequested);
-    } catch (apiErr) {
-      if (stopRequested) throw apiErr;
-      row.status("화면에서 수집 중…");
-      await collectViaTab(result);
-    }
-    row.status(`완료 (${result.method})`, "ok");
+    const ids = parseArticleUrl(url);
+    result.cafeId = ids.cafeId || "";
+    result.articleId = ids.articleId || "";
+    result.cafeUrl = ids.cafeUrl || "";
+    row.status("게시글 열어서 댓글 읽는 중…");
+    await collectCafe(result);
+    row.status("완료", "ok");
   } catch (e) {
     result.error = e.message || String(e);
     row.status(`실패: ${result.error}`, "err");
@@ -873,7 +738,15 @@ async function start() {
     $("#summary").textContent = "URL을 입력하세요.";
     return;
   }
-  await checkLogin();
+  const cafeCount = urls.filter((u) => !isYoutubeUrl(u)).length;
+  if (cafeCount > CAFE_WARN_COUNT) {
+    const ok = confirm(
+      `네이버 카페 글이 ${cafeCount}개입니다. 한 번에 많이 수집하면 네이버 계정 보호조치가 걸릴 수 있습니다.\n` +
+        `${CAFE_WARN_COUNT}개 이하로 나눠서, 시간 간격을 두고 수집하는 것을 권장합니다.\n\n그래도 계속할까요?`
+    );
+    if (!ok) return;
+  }
+  if (cafeCount) await checkLogin();
   stopRequested = false;
   $("#start").disabled = true;
   $("#stop").disabled = false;
@@ -885,8 +758,15 @@ async function start() {
   for (let i = 0; i < urls.length && !stopRequested; i++) {
     $("#summary").textContent = `수집 중… (${i + 1}/${urls.length})`;
     const row = addProgressRow(i + 1, urls[i]);
-    results.push(await collectOne(urls[i], row));
-    await sleep(REQUEST_DELAY);
+    const result = await collectOne(urls[i], row);
+    results.push(result);
+    const nextIsCafe = i + 1 < urls.length && !isYoutubeUrl(urls[i + 1]);
+    if (nextIsCafe) {
+      $("#summary").textContent = `다음 글을 열기 전에 잠시 기다리는 중… (${i + 1}/${urls.length} 완료)`;
+      await sleep(randomBetween(CAFE_ARTICLE_DELAY));
+    } else {
+      await sleep(300);
+    }
   }
 
   const failed = results.filter((r) => r.error).length;

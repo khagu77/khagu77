@@ -4,27 +4,12 @@ chrome.action.onClicked.addListener(() => {
   chrome.tabs.create({ url: chrome.runtime.getURL("app.html") });
 });
 
-// 이 확장에서 보내는 네이버/유튜브 요청에 해당 사이트 페이지와 같은 Referer/Origin 을 붙인다.
+// 이 확장에서 보내는 유튜브 요청에 유튜브 페이지와 같은 Referer/Origin 을 붙인다.
+// (예전 버전의 네이버용 규칙 1번은 지운다 - 네이버는 이제 화면을 열어서만 읽음)
 async function installHeaderRules() {
   await chrome.declarativeNetRequest.updateDynamicRules({
     removeRuleIds: [1, 2],
     addRules: [
-      {
-        id: 1,
-        priority: 1,
-        action: {
-          type: "modifyHeaders",
-          requestHeaders: [
-            { header: "Referer", operation: "set", value: "https://cafe.naver.com/" },
-            { header: "Origin", operation: "set", value: "https://cafe.naver.com" },
-          ],
-        },
-        condition: {
-          requestDomains: ["apis.naver.com", "cafe.naver.com"],
-          initiatorDomains: [chrome.runtime.id],
-          resourceTypes: ["xmlhttprequest"],
-        },
-      },
       {
         id: 2,
         priority: 1,
