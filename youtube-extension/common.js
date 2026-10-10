@@ -98,13 +98,28 @@ function waitTabComplete(tabId) {
 // 유튜브 영상을 새 탭으로 열고 영상 탭 안에 files 를 넣은 뒤 port 로 연결해 start 를 보낸다.
 // onMessage(m, port, tabId) 가 true 를 돌려주면 끝, error 메시지를 받으면 실패.
 // beforeClose 까지 기다린 뒤 탭을 닫는다. 진행 중에는 runInYoutubeTab.abort() 로 중지한다.
-async function runInYoutubeTab({ videoId, files, portName, start, mute, onMessage, beforeClose }) {
+async function runInYoutubeTab({ videoId, files, portName, start, mute, highQuality, onMessage, beforeClose }) {
   const tab = await chrome.tabs.create({ url: `https://www.youtube.com/watch?v=${videoId}`, active: true });
   let port = null;
   try {
     await waitTabComplete(tab.id);
     if (mute) await chrome.tabs.update(tab.id, { muted: true });
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["capture-common.js", ...files] });
+    if (highQuality) {
+      // 글자가 잘 보이도록 가능한 높은 화질로 재생해 달라고 유튜브 플레이어에 요청한다.
+      await chrome.scripting
+        .executeScript({
+          target: { tabId: tab.id },
+          world: "MAIN",
+          func: () => {
+            const p = document.getElementById("movie_player");
+            try {
+              if (p && p.setPlaybackQualityRange) p.setPlaybackQualityRange("hd1080", "hd1080");
+            } catch {}
+          },
+        })
+        .catch(() => {});
+    }
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["capture-common.js", "caption-mask.js", ...files] });
     await new Promise((resolve, reject) => {
       runInYoutubeTab.abort = () => reject(new Error("중지됨"));
       port = chrome.tabs.connect(tab.id, { name: portName });

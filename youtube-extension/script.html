@@ -10,8 +10,8 @@
   <main>
     <h1>YouTube 스크립트 및 영상 파일 추출</h1>
     <p class="hint">
-      유튜브에 올라온 자막은 쓰지 않고, 영상을 처음부터 끝까지 재생하면서 <b>들리는 말을 직접 받아써</b>
-      <code>00:00 스크립트 내용</code> 형식으로 만듭니다.
+      유튜브에 올라온 자막은 쓰지 않고, 영상을 처음부터 끝까지 재생하면서 스크립트를 새로 만듭니다.
+      결과는 <code>00:00 스크립트 내용</code> 형식으로 아래 출력칸에 나오고 메모장 파일(.txt)로 저장됩니다.
     </p>
 
     <label for="urls">유튜브 영상 URL <span class="hint">(한 줄에 하나씩)</span></label>
@@ -19,19 +19,29 @@
       placeholder="https://www.youtube.com/watch?v=xxxxxxxxxxx"></textarea>
 
     <div class="options">
-      <label>음성인식 모델
-        <select id="model"></select>
-      </label>
-      <label>재생 속도
-        <select id="speed">
-          <option value="1">1배 (가장 정확)</option>
-          <option value="1.5">1.5배</option>
-          <option value="2">2배 (빠르지만 덜 정확)</option>
+      <label>인식 방식
+        <select id="mode">
+          <option value="speech">음성 인식 (들리는 말을 받아씀)</option>
+          <option value="screen">화면 자막 인식 (화면에 나오는 자막 글자를 읽음)</option>
         </select>
       </label>
-      <label class="check"><input type="checkbox" id="mute" checked> 영상 소리 끄기</label>
+      <label data-mode="speech">음성인식 모델
+        <select id="model"></select>
+      </label>
+      <label data-mode="screen" hidden>자막 위치
+        <select id="region">
+          <option value="0.2">화면 아래 1/5</option>
+          <option value="0.25" selected>화면 아래 1/4 (일반 자막)</option>
+          <option value="0.33">화면 아래 1/3</option>
+        </select>
+      </label>
+      <label>재생 속도
+        <select id="speed"></select>
+      </label>
+      <label class="check" data-mode="speech"><input type="checkbox" id="mute" checked> 영상 소리 끄기</label>
     </div>
-    <div id="gpu" class="hint"></div>
+    <div id="gpu" class="hint" data-mode="speech"></div>
+    <div class="hint" data-mode="screen" hidden>화면 아래쪽 가운데에 나오는 자막(흰색·노란색 글자에 테두리나 어두운 바탕)만 읽고, 효과 글자·댓글 캡처·사진 속 글자는 거릅니다. 자막이 깔끔한 영상일수록 정확하고, 음성 인식보다 빠릅니다. 영상 소리는 자동으로 끕니다.</div>
 
     <div class="buttons">
       <button id="start" class="primary">스크립트 만들기</button>
@@ -53,13 +63,17 @@
     </div>
 
     <p class="note">
-      영상 길이만큼 시간이 걸립니다(1배 기준). 진행 중에는 열린 유튜브 탭을 닫거나 영상을 조작하지 마세요. 다른 탭에서 다른 일은 해도 됩니다.
-      처음 한 번은 음성인식 모델을 내려받느라 시간이 더 걸리고, 이후에는 저장된 모델을 씁니다.
-      모든 처리는 이 컴퓨터 안에서 하며 영상 소리를 외부로 보내지 않습니다.
-      음성인식 결과라 고유명사·전문용어는 틀릴 수 있으니 한 번 훑어보고 고쳐 쓰세요.
+      음성 인식은 영상 길이만큼(1배 기준), 화면 자막 인식은 그 1/3 정도(3배 기준) 시간이 걸립니다. 진행 중에는 열린 유튜브 탭을 닫거나 영상을 조작하지 마세요. 다른 탭에서 다른 일은 해도 됩니다.
+      음성 인식은 처음 한 번 음성인식 모델을 내려받느라 시간이 더 걸리고, 이후에는 저장된 모델을 씁니다.
+      모든 처리는 이 컴퓨터 안에서 하며 영상 소리·화면을 외부로 보내지 않습니다.
+      자동 인식 결과라 틀린 글자가 있을 수 있으니 한 번 훑어보고 고쳐 쓰세요.
+      화면 자막 인식은 자막과 비슷하게 생긴 글자(아래쪽 가운데의 흰 글자 등)는 자막으로 잘못 읽을 수 있습니다.
     </p>
   </main>
   <script src="common.js"></script>
+  <script src="caption-mask.js"></script>
+  <script src="lib/tesseract/tesseract.min.js"></script>
+  <script src="screen.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

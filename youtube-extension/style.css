@@ -94,3 +94,4 @@ select {
 td button { padding: 4px 10px; font-size: 12px; margin: 0 4px 4px 0; }
 tr.selected td { background: var(--bg); }
 code { font-size: 13px; }
+[hidden] { display: none !important; }

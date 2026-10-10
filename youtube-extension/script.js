@@ -1,6 +1,7 @@
-// 스크립트 추출 - 화면 (common.js 다음에 넣는다)
-// 영상을 유튜브 탭에서 재생하고(script-capture.js), 받은 소리를 30초 안쪽 구간으로 잘라
+// 스크립트 추출 - 화면 (common.js, screen.js 다음에 넣는다)
+// 음성 인식: 영상을 유튜브 탭에서 재생하고(script-capture.js), 받은 소리를 30초 안쪽 구간으로 잘라
 // 음성인식 작업자(script-worker.js)로 받아쓴 뒤 "00:00 스크립트 내용" 줄로 모은다.
+// 화면 자막 인식: screen.js 참고.
 
 const SR = 16000;
 const MIN_WIN = 18; // 구간은 18~28초 사이에서 가장 조용한 곳을 잘라 만든다 (Whisper 는 30초 단위)
@@ -284,6 +285,11 @@ async function transcribeVideo(url, row, index, opts) {
   results[index] = result;
   addRowActions(row, index);
 
+  if (opts.mode === "screen") {
+    await readScreenVideo(videoId, row, index, opts, result);
+    return result;
+  }
+
   await ensureModel(opts.model, (t) => setRowStatus(row, t));
 
   let duration = 0;
@@ -361,7 +367,13 @@ async function transcribeVideo(url, row, index, opts) {
 async function start() {
   const urls = readUrls();
   if (!urls.length) return setSummary("유튜브 영상 URL을 입력하세요.", "err");
-  const opts = { model: $("#model").value, speed: Number($("#speed").value), mute: $("#mute").checked };
+  const opts = {
+    mode: $("#mode").value,
+    model: $("#model").value,
+    speed: Number($("#speed").value),
+    region: Number($("#region").value),
+    mute: $("#mute").checked,
+  };
   running = true;
   $("#start").disabled = true;
   $("#stop").disabled = false;
@@ -398,6 +410,32 @@ async function start() {
   $("#stop").disabled = true;
 }
 
+const SPEEDS = {
+  speech: [
+    ["1", "1배 (가장 정확)"],
+    ["1.5", "1.5배"],
+    ["2", "2배 (빠르지만 덜 정확)"],
+  ],
+  screen: [
+    ["1", "1배 (짧은 자막도 놓치지 않음)"],
+    ["2", "2배"],
+    ["3", "3배 (권장)"],
+    ["4", "4배 (가장 빠름)"],
+  ],
+};
+
+function onModeChange() {
+  const mode = $("#mode").value;
+  const speed = $("#speed");
+  speed.innerHTML = "";
+  for (const [v, label] of SPEEDS[mode]) speed.add(new Option(label, v));
+  speed.value = mode === "screen" ? "3" : "1";
+  document.querySelectorAll("[data-mode]").forEach((el) => (el.hidden = el.dataset.mode !== mode));
+  try {
+    localStorage.setItem("scriptMode", mode);
+  } catch {}
+}
+
 async function init() {
   menu("script.html");
   gpu = await detectGpu();
@@ -415,6 +453,12 @@ async function init() {
     ? "✔ 그래픽 가속(WebGPU)을 사용합니다."
     : "그래픽 가속(WebGPU)을 쓸 수 없어 CPU 로 처리합니다. 받아쓰기가 영상보다 느릴 수 있습니다.";
   $("#gpu").className = `hint ${gpu ? "ok" : ""}`;
+
+  try {
+    $("#mode").value = localStorage.getItem("scriptMode") || "speech";
+  } catch {}
+  $("#mode").addEventListener("change", onModeChange);
+  onModeChange();
 
   $("#start").addEventListener("click", start);
   $("#stop").addEventListener("click", () => {

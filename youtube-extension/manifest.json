@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "YouTube 스크립트 및 영상 파일 추출",
-  "version": "1.0.0",
-  "description": "유튜브 영상 URL을 넣으면 들리는 말을 받아써 '00:00 스크립트' 텍스트로 만들거나, 영상을 .mp4 파일로 저장합니다.",
+  "version": "1.1.0",
+  "description": "유튜브 영상 URL을 넣으면 들리는 말(음성 인식)이나 화면 하단 자막(화면 자막 인식)으로 '00:00 스크립트' 텍스트를 만들거나, 영상을 .mp4 파일로 저장합니다.",
   "action": {
     "default_title": "YouTube 스크립트 및 영상 파일 추출"
   },

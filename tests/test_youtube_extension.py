@@ -3,6 +3,7 @@
 www.youtube.com 을 로컬 HTTPS 서버로 돌려 가짜 영상 화면(소리 나는 짧은 영상)을 보여주고,
 - 스크립트 추출: 영상 소리를 받아 구간으로 잘라 음성인식에 넘기고 "00:00 내용" 줄로 저장하는지
   (음성인식 모델은 내려받을 수 없으므로 작업자만 가짜로 바꿔 넣는다)
+- 화면 자막 인식: 화면 아래 한글 자막(움직이는 배경 위)을 읽어 "00:00 자막" 줄로 저장하는지
 - 영상 파일 다운로드: "날짜_제목.mp4" 파일이 화면·소리를 담아 저장되는지
 를 확인한다. 확장 로딩에는 일반 Chromium 이 필요하므로 CHROMIUM_PATH 가 없으면 건너뛴다.
 """
@@ -60,6 +61,35 @@ def make_media(path: Path, seconds: int, gap=None):
          "-f", "lavfi", "-i", f"testsrc=size=320x240:rate=25:duration={seconds}",
          "-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}",
          "-af", vol, "-c:v", "libvpx", "-b:v", "300k", "-c:a", "libopus", "-shortest", str(path)],
+        check=True,
+    )
+
+
+FONT = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
+CAPTIONS = [(0.5, 4, "안녕하세요 반갑습니다"), (8, 12, "오늘은 날씨가 좋습니다"), (12, 16, "SECOND LINE 2026")]
+
+
+def make_captioned_media(path: Path, seconds: int):
+    """움직이는 화면 아래쪽에 흰 글자·검은 테두리 자막을 박은 영상."""
+    draws = ",".join(
+        f"drawtext=fontfile={FONT}:text='{text}':fontsize=30:fontcolor=white:borderw=3:bordercolor=black"
+        f":x=(w-text_w)/2:y=h-60:enable='between(t,{a},{b})'"
+        for a, b, text in CAPTIONS
+    )
+    # 자막이 아닌 글자 (옮기면 안 됨): 아래 왼쪽 댓글 캡처(흰 바탕 검은 글씨), 아래 오른쪽 효과 글자, 화면 위쪽 글자
+    draws += (
+        f",drawbox=x=10:y=h-80:w=150:h=60:color=white:t=fill:enable='between(t,0,6)'"
+        f",drawtext=fontfile={FONT}:text='댓글 인용':fontsize=22:fontcolor=black:x=20:y=h-62:enable='between(t,0,6)'"
+        f",drawtext=fontfile={FONT}:text='깜짝':fontsize=34:fontcolor=yellow:borderw=3:bordercolor=black"
+        f":x=w-110:y=h-75:enable='between(t,9,11)'"
+        f",drawtext=fontfile={FONT}:text='효과 문구':fontsize=40:fontcolor=white:borderw=3:bordercolor=black"
+        f":x=(w-text_w)/2:y=40:enable='between(t,0,16)'"
+    )
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error",
+         "-f", "lavfi", "-i", f"testsrc2=size=640x360:rate=25:duration={seconds}",
+         "-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}",
+         "-vf", draws, "-c:v", "libvpx", "-b:v", "1M", "-c:a", "libopus", "-shortest", str(path)],
         check=True,
     )
 
@@ -154,6 +184,40 @@ def test_script(tmp_path: Path):
     t2 = lines[1].split(" ")[0]
     assert t2 in ("00:21", "00:22", "00:23"), lines  # 무음 구간에서 잘림
     assert lines[1].endswith("소리있음")
+
+
+@pytest.mark.skipif(not Path(FONT).exists(), reason="한글 글꼴 없음")
+def test_screen_captions(tmp_path: Path):
+    media = tmp_path / "screenvid01.webm"
+    make_captioned_media(media, 18)
+    server = start_fake_youtube(tmp_path, {media.name: media})
+    with sync_playwright() as p:
+        ctx = launch(p, tmp_path, EXT_DIR, server.server_address[1])
+        page = ext_page(ctx, "script.html")
+        page.select_option("#mode", "screen")
+        assert page.is_hidden("#model") and page.is_visible("#region")
+        assert page.input_value("#speed") == "3"
+        page.select_option("#speed", "2")
+        page.fill("#urls", "https://www.youtube.com/watch?v=screenvid01")
+        with page.expect_download(timeout=120000) as dl:
+            page.click("#start")
+        path = tmp_path / dl.value.suggested_filename
+        dl.value.save_as(path)
+        output = page.input_value("#output")
+        ctx.close()
+    server.shutdown()
+
+    assert path.name == f"{date.today():%Y%m%d}_{SAFE_TITLE}.txt"
+    lines = path.read_bytes().decode("utf-8-sig").strip().split("\r\n")
+    assert lines == output.split("\n")
+    print("\n".join(lines))
+    assert len(lines) == 3, lines  # 같은 자막을 여러 번 적지 않고, 자막 없는 구간은 비운다
+    expected = [("00:00", "00:01", "안녕하세요"), ("00:07", "00:08", "날씨가"), ("00:11", "00:12", "SECOND LINE")]
+    for line, (t1, t2, word) in zip(lines, expected):
+        assert line.split(" ")[0] in (t1, t2) and word in line, lines
+    # 하단 가운데 자막이 아닌 글자(댓글 캡처, 옆 효과 글자, 위쪽 글자)는 옮기지 않는다
+    for decoy in ("댓글", "인용", "깜짝", "효과", "문구"):
+        assert decoy not in "\n".join(lines), lines
 
 
 def test_video(tmp_path: Path):
