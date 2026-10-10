@@ -382,8 +382,12 @@ def test_helper_installer(tmp_path: Path):
     assert r.returncode == 0, r.stderr
     sup = home / "Library/Application Support"
     dest = sup / "YTScriptHelper"
-    assert os.access(dest / "ytdl_host.sh", os.X_OK) and os.access(dest / "yt-dlp_macos", os.X_OK)
-    assert (dest / "yt-dlp_macos").stat().st_size > 1_000_000
+    assert os.access(dest / "ytdl_host.sh", os.X_OK)
+    # 압축 해제형 yt-dlp (실행할 때 파이썬을 풀지 않음) + Deno
+    assert os.access(dest / "bin/yt-dlp/yt-dlp_macos", os.X_OK)
+    assert (dest / "bin/yt-dlp/_internal/Python.framework").is_dir()
+    assert os.access(dest / "bin/deno", os.X_OK) and (dest / "bin/deno").stat().st_size > 10_000_000
+    assert (dest / "bin/.updated").exists() and not (dest / ".download").exists()
     for b in ("Google/Chrome", "Naver/Whale"):
         m = json.loads((sup / b / "NativeMessagingHosts/com.khagu77.ytdl.json").read_text())
         assert m["path"] == str(dest / "ytdl_host.sh") and m["allowed_origins"] == [f"chrome-extension://{EXT_ID}/"]

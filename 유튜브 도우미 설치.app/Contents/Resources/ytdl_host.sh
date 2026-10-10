@@ -4,11 +4,47 @@
 # 주고받는 메시지: 4바이트 길이(little-endian) + JSON
 #   받음: {"type":"ping"} / {"type":"download","urls":["https://..."]}
 #   보냄: pong / start / title / progress / saved / error / finished
-# 설치: '유튜브 도우미 설치.app' 이 이 파일과 yt-dlp 를 ~/Library/Application Support/YTScriptHelper 에 둔다.
+# 설치: '유튜브 도우미 설치.app' 이 이 파일을 ~/Library/Application Support/YTScriptHelper 에 두고
+#       `ytdl_host.sh --install` 로 yt-dlp(압축 해제형)와 Deno(유튜브 받을 때 yt-dlp 가 쓰는 JavaScript 실행기)를 받는다.
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
-YTDLP="${YTDLP:-$DIR/yt-dlp_macos}"
+BIN="$DIR/bin"
+CUSTOM_YTDLP="${YTDLP:+1}" # 테스트에서 yt-dlp 를 바꿔 끼운 경우 자동 업데이트 안 함
+YTDLP="${YTDLP:-$BIN/yt-dlp/yt-dlp_macos}"
+DENO="$BIN/deno"
 OUT="${OUT:-$HOME/Downloads}"
+UPDATE_DAYS=3
+
+# ---- yt-dlp·Deno 설치/업데이트 ----
+# yt-dlp 는 한 파일짜리(yt-dlp_macos)가 아니라 압축 해제형(yt-dlp_macos.zip)을 쓴다. 한 파일짜리는 실행할 때마다
+# 파이썬을 임시 폴더에 푸는데, 크롬이 실행한 도우미가 만든 파일엔 '인터넷에서 받음' 표시가 붙어 Mac 이 막는다.
+unzip_to() {
+  mkdir -p "$2" || return 1
+  if command -v ditto > /dev/null; then ditto -x -k "$1" "$2"; else unzip -q -o "$1" -d "$2"; fi
+}
+
+install_tools() {
+  local tmp="$DIR/.download" arch
+  rm -rf "$tmp"
+  mkdir -p "$tmp" "$BIN" || return 1
+  curl -L --fail -s -o "$tmp/yt-dlp.zip" "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos.zip" &&
+    unzip_to "$tmp/yt-dlp.zip" "$tmp/yt-dlp" || { rm -rf "$tmp"; return 1; }
+  case "$(uname -m)" in arm64 | aarch64) arch=aarch64 ;; *) arch=x86_64 ;; esac
+  curl -L --fail -s -o "$tmp/deno.zip" "https://github.com/denoland/deno/releases/latest/download/deno-$arch-apple-darwin.zip" &&
+    unzip_to "$tmp/deno.zip" "$tmp/deno" || { rm -rf "$tmp"; return 1; }
+  rm -f "$tmp/yt-dlp.zip" "$tmp/deno.zip"
+  # 크롬이 실행한 도우미가 받은 파일에 붙는 '인터넷에서 받음' 표시를 지운다 (그대로 두면 Mac 이 실행을 막음)
+  xattr -cr "$tmp" 2> /dev/null
+  chmod +x "$tmp/yt-dlp/yt-dlp_macos" "$tmp/deno/deno" || { rm -rf "$tmp"; return 1; }
+  rm -rf "$BIN/yt-dlp" && mv "$tmp/yt-dlp" "$BIN/yt-dlp" && mv -f "$tmp/deno/deno" "$DENO" || { rm -rf "$tmp"; return 1; }
+  rm -rf "$tmp" "$DIR/yt-dlp_macos" # 예전 버전이 쓰던 한 파일짜리 yt-dlp 정리
+  touch "$BIN/.updated"
+}
+
+if [ "$1" = "--install" ]; then
+  install_tools
+  exit $?
+fi
 
 # ---- 메시지 주고받기 ----
 read_msg() {
@@ -40,6 +76,8 @@ for f in "$DIR/ffmpeg" /opt/homebrew/bin/ffmpeg /usr/local/bin/ffmpeg; do
     break
   fi
 done
+JS=()
+[ -x "$DENO" ] && JS=(--js-runtimes "deno:$DENO")
 if [ -n "$FFMPEG" ]; then
   FORMAT=(-x --audio-format mp3 --audio-quality 192K --ffmpeg-location "$FFMPEG")
   EXT="mp3"
@@ -53,7 +91,7 @@ download() {
   today="$(date +%Y%m%d)"
   send "{\"type\":\"start\",\"index\":$i}"
   # 출력 줄을 읽어 진행 상황을 확장프로그램으로 보낸다
-  PYTHONIOENCODING=utf-8 "$YTDLP" "${FORMAT[@]}" \
+  PYTHONIOENCODING=utf-8 "$YTDLP" "${FORMAT[@]}" "${JS[@]}" \
     --no-playlist --no-mtime --trim-filenames 150 --newline --no-simulate --progress \
     --progress-template "download:PROG %(progress._percent_str)s" \
     --print "before_dl:TITLE %(title)s" \
@@ -80,7 +118,12 @@ while msg=$(read_msg); do
       send "{\"type\":\"pong\",\"ok\":$ok,\"ext\":\"$EXT\"}"
       ;;
     *'"download"'*)
-      "$YTDLP" -U > /dev/null 2>&1 # 유튜브가 바뀌어도 받을 수 있게 매번 최신으로
+      # 유튜브가 바뀌어도 받을 수 있게 며칠마다 yt-dlp·Deno 를 최신으로 (실패하면 있던 것으로 계속)
+      if [ -z "$CUSTOM_YTDLP" ] && [ -z "$(find "$BIN/.updated" -mtime -"$UPDATE_DAYS" 2> /dev/null)" ]; then
+        send '{"type":"updating"}'
+        install_tools
+        [ -x "$DENO" ] && JS=(--js-runtimes "deno:$DENO")
+      fi
       i=0
       for url in $(printf '%s' "$msg" | grep -o 'https\{0,1\}://[^"]*'); do
         download "$i" "$url"

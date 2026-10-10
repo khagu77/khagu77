@@ -156,8 +156,11 @@ async function fastDownload(urls) {
     });
     port.onMessage.addListener((m) => {
       const j = jobs[m.index];
-      if (m.type === "start") setRowStatus(j.row, "받는 중…");
-      else if (m.type === "title") setRowTitle(j.row, m.title);
+      if (m.type === "updating") setSummary("유튜브 다운로드 도구(yt-dlp)를 최신으로 바꾸는 중… (며칠에 한 번, 1분 안쪽)");
+      else if (m.type === "start") {
+        setSummary(`${jobs.length}개 영상의 음성을 받는 중…`);
+        setRowStatus(j.row, "받는 중…");
+      } else if (m.type === "title") setRowTitle(j.row, m.title);
       else if (m.type === "progress") setRowStatus(j.row, `받는 중 ${Math.floor(m.percent)}%`);
       else if (m.type === "saved") {
         j.ok = true;
