@@ -295,6 +295,29 @@ function dayOffReason(d, s) {
   return days.includes(d.getDay()) ? "" : `${"일월화수목금토"[d.getDay()]}요일`;
 }
 
+// 주요 내용 용어 통일 ("A > B" = A 대신 B, 그 밖의 줄은 AI 에게 주는 표현 기준)
+const DEFAULT_TERMS = `크락션 > 클랙슨
+윈도우 > 윈도
+승용차는 트렁크, SUV 및 해치백은 테일게이트
+본넷 > 보닛
+프렁크 > 프론트 트렁크
+데루등 > 리어램프
+전조등 > 헤드램프
+천정 > 천장
+누수(물), 누유(오일·기름), 누출(냉매·가스·수소·냉각수 외 기체/액체) 표현을 구분해서 쓴다
+와이퍼 잔상 > 와이퍼 잔사
+서라운드뷰 > 어라운드뷰
+디사미 > 디지털 사이드 미러
+디센미 > 디지털 센터 미러
+도어 손잡이(외부) > 도어 외캐치
+도어 손잡이(내부) > 도어 내캐치
+네비게이션 > 내비게이션
+내비화면, 네비화면 > AVN 디스플레이
+디스플레이가 작동 이외에 화면이 까맣게 되거나 먹통 > 디스플레이 블랙아웃`;
+
+// 1인용 수집: 이 카페(ID)와 자동차 커뮤니티만 고른다 (수집 화면에서 지금 선택으로 바꿀 수 있음)
+const DEFAULT_SOLO_CAFES = ["allfm01", "cafeclip", "ioniq9owners", "optimusex119", "nexocafe", "nexoguarantee", "fmsn98", "steamgunz", "hmckorea", "truckerking"];
+
 // '주요 내용' 칸을 노란색으로 칠할 집중 관리 항목
 const DEFAULT_HIGHLIGHTS = [
   { car: "LX3", topic: "전동 시트(2열·3열 포함) 관련 불만·고장·작동 오류·끼임 사고, 전동 시트 리콜 불만, 시트 관련 업데이트 의견" },
@@ -320,6 +343,11 @@ const DEFAULT_SETTINGS = {
   collectOnHolidays: true, // 휴일에도 미리 수집해 둠 (근무일 아침 수집량이 줄어 빨리 끝남)
   workdays: "1,2,3,4,5", // 0=일 … 6=토
   holidays: DEFAULT_HOLIDAYS,
+  terms: DEFAULT_TERMS,
+  collectMode: "all", // all = 전체, solo = 1인용
+  soloCafes: DEFAULT_SOLO_CAFES,
+  soloCommunities: "all", // 1인용에서도 자동차 커뮤니티는 모두
+  soloPrefix: "",
   customPrompt: "",
   customPromptUpdatedAt: 0,
   promptHistory: [],
@@ -332,7 +360,7 @@ const MODELS = [
 ];
 
 // 예전 버전에서 저장한 설정에 새 기본값을 보태 준다
-const SETTINGS_VERSION = 9;
+const SETTINGS_VERSION = 10;
 function migrateSettings(s) {
   if ((s.settingsVersion || 1) < 2 && typeof s.keywords === "string") {
     const add = "출고 대기, 출고대기, 출고 기다, 검수 업체, 검수업체, 검수 대행, 검수대행, 광고, 홍보, 오일교환, 오일 교환".split(", ");
@@ -353,6 +381,9 @@ function migrateSettings(s) {
         return missing.length ? `${line}, ${missing.join(", ")}` : line;
       });
     }
+  }
+  if ((s.settingsVersion || 1) < 10) {
+    if (!s.terms) s.terms = DEFAULT_TERMS;
   }
   if ((s.settingsVersion || 1) < 9) {
     // 노란색: ME1·MX5·JX 전동 시트 끼임·멈춤·리콜 이슈 추가 (이미 같은 차종 항목이 있으면 그대로 둠)

@@ -111,7 +111,8 @@ function renderPickList() {
   box.append(el("div", { class: "group", text: "네이버 카페" }));
   s.cafes.forEach((c, i) => {
     if (!c.on || !c.id) return;
-    box.append(el("label", {}, el("input", { type: "checkbox", "data-kind": "cafe", "data-i": i, checked: true, onchange: updatePickCount }), c.name || c.id));
+    const on = s.collectMode !== "solo" || (s.soloCafes || []).includes(c.id);
+    box.append(el("label", {}, el("input", { type: "checkbox", "data-kind": "cafe", "data-i": i, checked: on, onchange: updatePickCount }), c.name || c.id));
   });
   box.append(el("div", { class: "group", text: "자동차 커뮤니티" }));
   s.communities.forEach((c, i) => {
@@ -120,6 +121,36 @@ function renderPickList() {
   });
   updatePickCount();
 }
+
+// 수집 모드: 전체 / 1인용
+function renderMode() {
+  const s = state.settings;
+  for (const r of document.querySelectorAll("input[name=collectMode]")) r.checked = r.value === (s.collectMode || "all");
+  $("#soloBox").hidden = s.collectMode !== "solo";
+  $("#soloPrefix").value = s.soloPrefix || "";
+}
+
+async function saveModeSettings(patch) {
+  const s = await loadSettings();
+  Object.assign(s, patch);
+  await saveSettings(s);
+  state.settings = s;
+  draft = structuredClone(s);
+}
+
+for (const r of document.querySelectorAll("input[name=collectMode]")) {
+  r.addEventListener("change", async () => {
+    await saveModeSettings({ collectMode: r.value });
+    renderMode();
+    renderPickList();
+  });
+}
+$("#soloPrefix").addEventListener("change", (e) => saveModeSettings({ soloPrefix: e.target.value.trim() }));
+$("#saveSolo").addEventListener("click", async () => {
+  const ids = pickedSources().cafes.map((c) => c.id);
+  await saveModeSettings({ soloCafes: ids });
+  $("#soloInfo").textContent = `1인용 카페 ${ids.length}곳을 저장했습니다.`;
+});
 
 function pickedSources() {
   const cafes = [];
@@ -496,10 +527,13 @@ async function loadLastResult() {
 function reportFilename(range, ascii = false) {
   const d = range ? range.end : new Date();
   const ymd = `${String(d.getFullYear()).slice(2)}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}`;
-  if (ascii) return `${ymd}_HMG_community_issues.xlsx`;
+  // 1인용: 파일 이름 앞에 입력한 문구 (예: "김" → 김_261012_…)
+  const s = state.settings || {};
+  const prefix = s.collectMode === "solo" && s.soloPrefix ? `${String(s.soloPrefix).replace(/[\\/:*?"<>|]/g, "_")}_` : "";
+  if (ascii) return `${prefix && /^[\x20-\x7e]+$/.test(prefix) ? prefix : ""}${ymd}_HMG_community_issues.xlsx`;
   const tpl = (state.settings && state.settings.fileName) || DEFAULT_SETTINGS.fileName;
   const name = tpl.replace(/\{날짜\}/g, ymd).replace(/[\\/:*?"<>|]/g, "_").replace(/\.xlsx$/i, "").trim();
-  return `${name || ymd}.xlsx`;
+  return `${prefix}${name || ymd}.xlsx`;
 }
 
 async function downloadReport(rows = state.rows, range = state.range) {
@@ -562,6 +596,8 @@ function finalizeRow(row, it, src) {
     if (!/\(마그마\)/.test(row.summary)) row.summary = `${row.summary} (마그마)`;
   }
   if (src.requireCar && (!row.car || row.car === "-")) return null;
+  // 용어 통일 (크락션 → 클랙슨 등)
+  row.summary = applyTerms(row.summary, state.termPairs || parseTermReplacements(state.settings.terms));
   // 퍼온 글: 주요 내용을 "… 관련 내용 공유" 로
   if (isRepost(it.title) && !/공유$/.test(row.summary)) {
     row.summary = `${String(row.summary).replace(/^\s*[\[(（【]?\s*펌\s*[\])）】]?\s*/, "").replace(/\s*(문의|후기|불만)$/, "")} 관련 내용 공유`;
@@ -851,6 +887,7 @@ async function runCollection() {
   }
   state.range = range;
   state.codeYears = codeStartYears(settings.carCodes);
+  state.termPairs = parseTermReplacements(settings.terms);
   renderResults();
   $("#start").disabled = true;
   $("#stop").disabled = false;
@@ -1128,6 +1165,7 @@ function renderSettings() {
   $("#speed").value = s.speed || "normal";
   $("#carCodes").value = s.carCodes || "";
   $("#keywords").value = s.keywords || "";
+  $("#terms").value = s.terms || "";
   $("#fileName").value = s.fileName || "";
   $("#priorityCars").value = s.priorityCars || "";
   renderCafeTable();
@@ -1213,6 +1251,7 @@ function readSettingsForm() {
   draft.speed = $("#speed").value;
   draft.carCodes = $("#carCodes").value;
   draft.keywords = $("#keywords").value;
+  draft.terms = $("#terms").value;
   draft.fileName = $("#fileName").value.trim() || DEFAULT_SETTINGS.fileName;
   draft.priorityCars = $("#priorityCars").value.trim();
   // 카페 ID 에 주소 전체를 붙여넣은 경우 ID 만 남긴다
@@ -1302,6 +1341,7 @@ $("#testKey").addEventListener("click", async () => {
   setIssueKeywords(state.settings.keywords);
   draft = structuredClone(state.settings);
   renderSettings();
+  renderMode();
   renderPickList();
   updateAiInfo();
   updateAutoInfo();

@@ -38,6 +38,18 @@
         <button id="range3h">최근 3시간 (시험용)</button>
       </div>
 
+      <div class="modebox">
+        <span class="modelabel">수집 모드</span>
+        <label class="radio"><input type="radio" name="collectMode" value="all"> 전체 <span class="hint">(모든 카페·자동차 커뮤니티)</span></label>
+        <label class="radio"><input type="radio" name="collectMode" value="solo"> 1인용 <span class="hint">(정해 둔 카페 + 자동차 커뮤니티)</span></label>
+        <span id="soloBox" hidden>
+          <label for="soloPrefix" class="inline-label">파일명 앞 문구</label>
+          <input type="text" id="soloPrefix" placeholder="예: 김" maxlength="20" style="width:90px">
+          <button id="saveSolo" class="small-btn" title="'이번에 수집할 곳 고르기'에서 지금 체크한 카페를 1인용 목록으로 저장">지금 선택을 1인용으로 저장</button>
+          <span id="soloInfo" class="hint"></span>
+        </span>
+      </div>
+
       <details id="sourcePick">
         <summary>이번에 수집할 곳 고르기 <span id="sourceCount" class="hint"></span></summary>
         <div class="buttons small">
@@ -197,6 +209,9 @@
       <h2>부정 이슈 키워드 <span class="hint">"구분: 단어, 단어" 한 줄에 하나 · 커뮤니티 은어도 넣어 주세요</span></h2>
       <textarea id="keywords" rows="6" spellcheck="false"></textarea>
       <p class="hint">AI 없이 수집할 때 이 키워드로 고르고, AI 를 쓸 때도 참고 자료로 함께 보냅니다. '제외:' 줄의 말이 제목에 있으면 키워드 모드에서 뺍니다.</p>
+
+      <h2>용어 통일 <span class="hint">"원래 말 > 바꿀 말" 한 줄에 하나 (주요 내용에 자동 적용). 괄호 조건이나 '>' 없는 줄은 AI 에게 주는 표현 기준</span></h2>
+      <textarea id="terms" rows="10" spellcheck="false"></textarea>
 
       <h2>차종 코드표 <span class="hint">"코드: 차종명, 별칭" 한 줄에 하나 (# 은 메모)</span></h2>
       <textarea id="carCodes" rows="14" spellcheck="false"></textarea>

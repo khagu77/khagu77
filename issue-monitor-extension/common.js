@@ -214,6 +214,26 @@ function parseBoardSpec(text) {
   return spec;
 }
 
+// 용어 통일 글 → 바꿀 단어 목록 [[원래, 바꿀]] (괄호로 조건을 붙인 줄은 AI 에게만 맡김), 긴 말부터
+function parseTermReplacements(text) {
+  const out = [];
+  for (const line of String(text || "").split("\n")) {
+    const m = line.match(/^(.+?)\s*>\s*(.+)$/);
+    if (!m || /[()]/.test(m[1])) continue;
+    for (const from of m[1].split(/[,，]/).map((x) => x.trim()).filter(Boolean)) out.push([from, m[2].trim()]);
+  }
+  return out.sort((a, b) => b[0].length - a[0].length);
+}
+
+function applyTerms(summary, pairs) {
+  let s = String(summary || "");
+  for (const [from, to] of pairs) {
+    if (from.length < 2 || !s.includes(from) || to.includes(from)) continue; // 바꿀 말이 원래 말을 품으면 반복 확장 방지
+    s = s.split(from).join(to);
+  }
+  return s;
+}
+
 // 같은 글인지 비교하기 위한 주소 열쇠 (카페 주소 형식이 달라도 같은 글이면 같은 열쇠)
 function urlKey(url) {
   const u = String(url || "").trim();
