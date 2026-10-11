@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+from openpyxl import load_workbook
 from playwright.sync_api import sync_playwright
 
 EXT_DIR = Path(__file__).resolve().parent.parent / "youtube-extension"
@@ -288,6 +289,10 @@ def get_transcript_response(vid):
         segs.append({"transcriptSegmentRenderer": {
             "startMs": str(sec * 1000), "endMs": str(sec * 1000 + 3000),
             "snippet": {"runs": [{"text": x}]}, "startTimeText": {"simpleText": t}}})
+    if vid == "transcrvid1":  # 챕터 머리글 (두 가지 형태)
+        segs.insert(0, {"transcriptSectionHeaderRenderer": {"startMs": "0", "snippet": {"simpleText": "오프닝"}}})
+        segs.insert(4, {"transcriptSectionHeaderRenderer": {"startMs": "3723000", "sectionHeader": {
+            "sectionHeaderViewModel": {"headline": {"content": "마무리"}}}}})
     return {"actions": [{"updateEngagementPanelAction": {"content": {"transcriptRenderer": {"content": {
         "transcriptSearchPanelRenderer": {"body": {"transcriptSegmentListRenderer": {"initialSegments": segs}}}}}}}}]}
 
@@ -411,7 +416,7 @@ def test_youtube_transcript(tmp_path: Path):
         assert downloads == [], [d.suggested_filename for d in downloads]  # 자동으로 받지 않음
         assert len(dialogs) == 1 and "스크립트 수집을 마쳤습니다" in dialogs[0] and "성공 4개 · 스크립트 없음 2개" in dialogs[0], dialogs
         rows = page.locator("#progress tbody tr")
-        assert "완료 · 4줄 · 교정 2곳" in rows.nth(0).inner_text()
+        assert "완료 · 6줄 · 교정 2곳" in rows.nth(0).inner_text()  # 챕터 2줄 포함
         for k in (1, 2):
             assert "스크립트를 찾지 못했습니다" in rows.nth(k).inner_text()
             assert rows.nth(k).locator("button", has_text="재시도").count() == 1
@@ -465,7 +470,19 @@ def test_youtube_transcript(tmp_path: Path):
             path = tmp_path / f"row{k}_{d.suggested_filename}"
             d.save_as(path)
             row_files.append((d.suggested_filename, path))
-        # [전체 스크립트 한 파일로 받기]
+        # [전체 스크립트 받기]: 기본은 엑셀(첨부 양식), 텍스트 묶음도 고를 수 있다
+        assert page.input_value("#saveFormat") == "xlsx"
+        note = page.locator("#xlsxNote")
+        assert note.is_visible() and "linesquare--monitor.web.app" in note.inner_text() and "일괄 등록이 가능한 파일" in note.inner_text()
+        assert note.evaluate("(el) => getComputedStyle(el).color") == "rgb(217, 48, 37)"  # 빨간 글씨
+        assert note.locator("a").get_attribute("target") == "_blank"
+        with page.expect_download(timeout=10000) as dl:
+            page.click("#saveAll")
+        xlsx_name = dl.value.suggested_filename
+        xlsx_path = tmp_path / "all.xlsx"
+        dl.value.save_as(xlsx_path)
+        page.select_option("#saveFormat", "txt")
+        assert page.is_hidden("#xlsxNote")  # 텍스트를 고르면 엑셀 안내는 숨김
         with page.expect_download(timeout=10000) as dl:
             page.click("#saveAll")
         all_name = dl.value.suggested_filename
@@ -477,12 +494,14 @@ def test_youtube_transcript(tmp_path: Path):
     read = lambda p: p.read_bytes().decode("utf-8-sig").strip().split("\r\n")
     base = f"{date.today():%Y%m%d}_{SAFE_TITLE}"
     assert [n for n, _ in row_files] == [f"{base}.txt", f"{base}_원본.txt"], row_files
-    fixed, original = read(row_files[0][1]), read(row_files[1][1])
+    fixed0, original = read(row_files[0][1]), read(row_files[1][1])
     # 교정본: 겹친 공백·줄바꿈 정리, 됬→됐, 할수있다→할 수 있다 / 원본: 패널 글자 그대로
-    assert fixed == ["00:00 안녕하세요 여러분", "00:05 오늘은 팰리세이드 시승기입니다",
-                     "00:09 이렇게 됐어요 할 수 있다", "1:02:03 끝까지 봐주셔서 감사합니다"], fixed
-    assert original[2] == "00:09 이렇게 됬어요 할수있다", original
-    assert output.split("\n") == fixed  # 화면 출력칸도 교정본
+    fixed = ["00:00 안녕하세요 여러분", "00:05 오늘은 팰리세이드 시승기입니다",
+             "00:09 이렇게 됐어요 할 수 있다", "1:02:03 끝까지 봐주셔서 감사합니다"]
+    # 1번 영상은 챕터가 있어 "챕터 N: 제목" 줄이 들어간다
+    assert fixed0 == ["챕터 1: 오프닝", *fixed[:3], "챕터 2: 마무리", fixed[3]], fixed0
+    assert original[3] == "00:09 이렇게 됬어요 할수있다", original
+    assert output.split("\n") == fixed0  # 화면 출력칸도 교정본
 
     assert all_name == f"{date.today():%Y%m%d}_유튜브스크립트_6개.txt"
     text = all_path.read_bytes().decode("utf-8-sig").replace("\r\n", "\n")
@@ -494,7 +513,7 @@ def test_youtube_transcript(tmp_path: Path):
         head = block.split("\n")
         assert head[0] == sep and head[3] == sep, block
         assert head[1] == f"[{k}/6] {TITLE}" and head[2] == f"https://www.youtube.com/watch?v={vid}", block
-    assert blocks[0].split("\n")[4:] == fixed
+    assert blocks[0].split("\n")[4:] == fixed0
     # 새 스크립트 화면: 줄 앞의 읽어주기용 시간 글자('9초', '1시간 2분 3초')는 빠진다
     assert blocks[1].split("\n")[4:] == fixed, blocks[1]
     assert blocks[3].split("\n")[4:] == ["00:00 자막 데이터로 받았어요", "01:05 두 번째 줄 할 수 있다"], blocks[3]
@@ -502,6 +521,19 @@ def test_youtube_transcript(tmp_path: Path):
     assert blocks[5].split("\n")[4:] == [
         "00:00 모바일 앱 방식으로 '받았어요'", "01:02 며칠 걸렸어요"], blocks[5]
     assert "안녕하세요 반갑습니다" in blocks[2] and "오늘은 날씨가 좋습니다" in blocks[2], blocks[2]
+
+    # 엑셀: 첨부 양식('스크립트 입력' 시트, A: URL / B: 스크립트) 그대로, 영상마다 한 줄
+    assert xlsx_name == f"{date.today():%Y%m%d}_유튜브스크립트_6개.xlsx"
+    ws = load_workbook(xlsx_path)["스크립트 입력"]
+    assert [c.value for c in ws[1]] == ["URL", "스크립트"]
+    assert ws["A1"].font.b and ws["A1"].fill.fgColor.rgb == "FF003082" and ws["A1"].font.color.rgb == "FFFFFFFF"
+    assert ws["B2"].font.name == "돋움" and ws["A2"].font.name == "맑은 고딕" and ws["B2"].border.left.style == "thin"
+    assert ws.column_dimensions["B"].width == 120 and ws.freeze_panes == "A2"
+    rows_x = [(r[0].value, r[1].value) for r in ws.iter_rows(min_row=2)]
+    assert [a for a, _ in rows_x] == [f"https://www.youtube.com/watch?v={v}" for v in vids]
+    for (_, b), block in zip(rows_x, blocks):  # B칸 = 텍스트 묶음의 해당 영상 내용과 같다
+        assert b == "\n".join(block.split("\n")[4:]), (b, block)
+    assert ws["B7"].border.left.style == "thin"  # 새로 넣은 줄도 양식 서식
 
 
 @pytest.mark.skipif(not Path(FONT).exists(), reason="한글 글꼴 없음")

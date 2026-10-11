@@ -33,8 +33,16 @@ const MODELS = {
   },
 };
 
+// 줄 → "00:00 내용", 챕터는 "챕터 N: 제목"
 function scriptText(lines) {
-  return lines.map((l) => `${fmtTime(l.t)} ${l.text}`).join("\n");
+  let ch = 0;
+  return lines
+    .map((l) => {
+      if (!l.chapter) return `${fmtTime(l.t)} ${l.text}`;
+      ch++;
+      return /^챕터\s*\d+/.test(l.text) ? l.text : `챕터 ${ch}: ${l.text}`;
+    })
+    .join("\n");
 }
 
 function decodePcm(b64) {
@@ -275,6 +283,7 @@ async function grabTranscriptInPage() {
   const getTitle = () => text(document.querySelector("h1.ytd-watch-metadata, #title h1")) || document.title.replace(/ - YouTube$/, "");
   const isShowTranscript = (el) => /스크립트\s*표시|show transcript/i.test(`${el.getAttribute("aria-label") || ""} ${text(el)}`);
   const SEGMENTS = "ytd-transcript-segment-renderer, transcript-segment-view-model";
+  const HEADERS = "ytd-transcript-section-header-renderer";
   // 새 스크립트 화면은 줄마다 읽어주기용 시간 글자('0초', '1분 9초', '1 minute, 9 seconds')가 붙어 있어 뺀다
   const clockSec = (t) => t.split(":").reduce((a, b) => a * 60 + Number(b), 0);
   const stripTimeLabel = (body, time) => {
@@ -340,7 +349,12 @@ async function grabTranscriptInPage() {
   }
   stopVideo();
   const lines = [];
-  for (const seg of segments()) {
+  for (const seg of document.querySelectorAll(`${SEGMENTS}, ${HEADERS}`)) {
+    if (seg.matches(HEADERS)) {
+      const head = text(seg).replace(/\s+/g, " ");
+      if (head) lines.push({ time: "", text: head, chapter: true });
+      continue;
+    }
     let time = text(seg.querySelector(".segment-timestamp, [class*='Timestamp'], [class*='timestamp']"));
     let body = text(seg.querySelector(".segment-text, [class*='SegmentText'], [class*='segment-text']"));
     if (!time || !body) {
@@ -398,10 +412,23 @@ function findTranscriptParams(data) {
   return params;
 }
 
+function headerText(h) {
+  const sn = h.snippet || {};
+  const vm = h.sectionHeader && h.sectionHeader.sectionHeaderViewModel;
+  return ((sn.runs || []).map((r) => r.text).join("") || sn.simpleText || (vm && vm.headline && vm.headline.content) || "")
+    .replace(/\s+/g, " ").trim();
+}
+
 function transcriptSegments(json) {
   const lines = [];
   (function walk(o) {
     if (!o || typeof o !== "object") return;
+    const head = o.transcriptSectionHeaderRenderer;
+    if (head) {
+      const text = headerText(head);
+      if (text) lines.push({ t: Number(head.startMs) / 1000 || 0, text, chapter: true });
+      return;
+    }
     const seg = o.transcriptSegmentRenderer;
     if (seg) {
       const sn = seg.snippet || {};
@@ -595,6 +622,15 @@ async function fetchTranscriptInPage() {
       const lines = [];
       (function walk(o) {
         if (!o || typeof o !== "object") return;
+        const head = o.transcriptSectionHeaderRenderer;
+        if (head) {
+          const hs = head.snippet || {};
+          const vm = head.sectionHeader && head.sectionHeader.sectionHeaderViewModel;
+          const text = ((hs.runs || []).map((r) => r.text).join("") || hs.simpleText || (vm && vm.headline && vm.headline.content) || "")
+            .replace(/\s+/g, " ").trim();
+          if (text) lines.push({ t: Number(head.startMs) / 1000 || 0, text, chapter: true });
+          return;
+        }
         const seg = o.transcriptSegmentRenderer;
         if (seg) {
           const sn = seg.snippet || {};
@@ -632,7 +668,9 @@ function addTranscriptLines(result, row, r) {
     result.title = r.title;
     setRowTitle(row, r.title);
   }
-  for (const l of r.lines) if (l.t !== null && Number.isFinite(l.t) && l.text) result.lines.push({ t: l.t, text: l.text });
+  for (const l of r.lines) {
+    if (l.t !== null && Number.isFinite(l.t) && l.text) result.lines.push(l.chapter ? { t: l.t, text: l.text, chapter: true } : { t: l.t, text: l.text });
+  }
 }
 
 // 수집 화면 안의 보이지 않는 틀(iframe)에 영상 페이지를 열고, 그 페이지 안에서 스크립트를 요청한다.
@@ -702,7 +740,7 @@ async function readYoutubeTranscript(videoId, row, result, visibleUi) {
         const [ui] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: grabTranscriptInPage });
         const u = ui && ui.result;
         if (u && u.lines.length) {
-          r = { title: u.title || r.title, lines: u.lines.map((l) => ({ t: parseClock(l.time), text: l.text })) };
+          r = { title: u.title || r.title, lines: u.lines.map((l) => (l.chapter ? { t: 0, text: l.text, chapter: true } : { t: parseClock(l.time), text: l.text })) };
           break;
         }
         if (u && u.title && !r.title) r.title = u.title;
@@ -749,7 +787,7 @@ function correctResult(r) {
   r.fixed = r.lines.map((l) => {
     const c = ScriptCorrect.correctText(l.text);
     r.fixes += c.fixes;
-    return { t: l.t, text: c.text };
+    return { ...l, text: c.text };
   });
 }
 
@@ -809,6 +847,44 @@ function combinedText() {
 // 수집 안 된(실패·스크립트 없음) 유튜브 영상 번호
 function failedIndexes() {
   return runUrls.map((u, i) => i).filter((i) => runState[i] && runState[i] !== "ok" && parseYoutubeId(runUrls[i]));
+}
+
+function downloadBytes(bytes, name, type) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([bytes], { type }));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+// 첨부 양식('스크립트 입력' 시트, A: URL / B: 스크립트)에 영상마다 한 줄씩 채운 엑셀
+async function scriptWorkbook() {
+  const resp = await fetch(chrome.runtime.getURL("script-template.xlsx"));
+  const wb = await XlsxTemplate.Workbook.open(new Uint8Array(await resp.arrayBuffer()));
+  const rows = runUrls.map((url, i) => {
+    const r = results[i];
+    const id = r ? r.videoId : parseYoutubeId(url);
+    const link = id ? `https://www.youtube.com/watch?v=${id}` : url;
+    return [link, r && r.lines.length ? scriptText(r.fixed || r.lines) : "(스크립트를 가져오지 못했습니다)"];
+  });
+  await wb.replaceRowsAfter(wb.sheetNames()[0], 1, rows, 2);
+  return wb.save();
+}
+
+async function saveAll() {
+  const n = results.filter((r) => r && r.lines.length).length;
+  if ($("#saveFormat").value === "txt") {
+    downloadText(combinedText(), `${today()}_유튜브스크립트_${n}개.txt`);
+    return;
+  }
+  try {
+    downloadBytes(await scriptWorkbook(), `${today()}_유튜브스크립트_${n}개.xlsx`,
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  } catch (e) {
+    setSummary(`엑셀 파일을 만들지 못했습니다: ${e.message}`, "err");
+  }
 }
 
 function updateSaveAll() {
@@ -991,7 +1067,7 @@ function finishAlert(title, count) {
     `${title}\n\n성공 ${count.ok}개` +
       (count.missing ? ` · 스크립트 없음 ${count.missing}개` : "") +
       (count.fail ? ` · 실패 ${count.fail}개` : "") +
-      `\n\n'전체 스크립트 한 파일로 받기' 버튼으로 모든 스크립트를 한 파일에 받을 수 있습니다.`,
+      `\n\n'전체 스크립트 받기' 버튼으로 모든 스크립트를 엑셀(.xlsx) 또는 텍스트(.txt) 파일 하나로 받을 수 있습니다.`,
   );
 }
 
@@ -1023,7 +1099,7 @@ async function retryWith(i, url, row, opts) {
   setSummary(`${i + 1}번 영상 다시 수집하는 중…`);
   const r = await runOne(i, url, row, { ...currentOpts(), ...opts });
   setSummary(
-    r === "ok" ? `${i + 1}번 영상 스크립트를 수집했습니다. '전체 스크립트 한 파일로 받기'로 내려받으세요.` : "이번에도 수집하지 못했습니다. 줄의 상태를 확인하세요.",
+    r === "ok" ? `${i + 1}번 영상 스크립트를 수집했습니다. '전체 스크립트 받기'로 내려받으세요.` : "이번에도 수집하지 못했습니다. 줄의 상태를 확인하세요.",
     r === "ok" ? "ok" : "err",
   );
   setRunning(false);
@@ -1051,7 +1127,7 @@ async function start() {
   if (running) {
     const failed = count.missing + count.fail;
     setSummary(
-      `${count.ok} / ${urls.length}개 영상 스크립트를 수집했습니다. '전체 스크립트 한 파일로 받기'로 내려받으세요.` +
+      `${count.ok} / ${urls.length}개 영상 스크립트를 수집했습니다. '전체 스크립트 받기'로 내려받으세요.` +
         (failed ? ` 수집하지 못한 ${failed}개는 [수집 안 된 영상 전체 다시 수집] 또는 줄 오른쪽 [재시도]를 누르세요.` : ""),
       failed ? "" : "ok",
     );
@@ -1127,9 +1203,19 @@ async function init() {
   });
   $("#save").addEventListener("click", () => saveResult(selected));
   $("#retryFailed").addEventListener("click", retryAllFailed);
-  $("#saveAll").addEventListener("click", () =>
-    downloadText(combinedText(), `${today()}_유튜브스크립트_${results.filter((r) => r && r.lines.length).length}개.txt`),
-  );
+  $("#saveAll").addEventListener("click", saveAll);
+  try {
+    $("#saveFormat").value = localStorage.getItem("saveFormat") || "xlsx";
+  } catch {}
+  // 엑셀을 고르면 '일괄 등록 가능' 안내(빨간 글씨)를 보인다
+  const showXlsxNote = () => ($("#xlsxNote").hidden = $("#saveFormat").value !== "xlsx");
+  showXlsxNote();
+  $("#saveFormat").addEventListener("change", () => {
+    showXlsxNote();
+    try {
+      localStorage.setItem("saveFormat", $("#saveFormat").value);
+    } catch {}
+  });
 }
 
 init();
