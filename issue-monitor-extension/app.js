@@ -755,8 +755,25 @@ async function processSource(src, posts, readBody, ctx) {
 }
 
 // 이어서 작성한 기존 행은 원래 순서 그대로 앞에, 이번 수집 행은 카페·커뮤니티 순서 → 게시 시각 순
+// 엑셀은 항상 카페별로: 설정의 카페 순서 → 자동차 커뮤니티 순서 → (설정에 없는 이름은 처음 나온 순서) → 게시일 순
+// 이어서 작성한 기존 행도 같은 카페 자리에 끼워 넣는다 (날짜별로 뒤에 붙이지 않음)
+const nameKey = (t) => String(t || "").replace(/\s+/g, "").toLowerCase();
 function sortRows() {
-  state.rows.sort((a, b) => (a.fromBase ? 0 : 1) - (b.fromBase ? 0 : 1) || (a.fromBase ? a.baseIdx - b.baseIdx : a.order - b.order || a.ts - b.ts));
+  const s = state.settings;
+  const cafeIdx = new Map(s.cafes.map((c, i) => [nameKey(c.name || c.id), i]));
+  const commIdx = new Map(s.communities.map((c, i) => [nameKey(c.name || c.url), 1000 + i]));
+  const unknown = new Map();
+  const orderOf = (r) => {
+    const k = nameKey(r.community);
+    if (cafeIdx.has(k)) return cafeIdx.get(k);
+    if (commIdx.has(k)) return commIdx.get(k);
+    if (!unknown.has(k)) unknown.set(k, 2000 + unknown.size);
+    return unknown.get(k);
+  };
+  const day = (r) => (r.date ? new Date(r.date.getFullYear(), r.date.getMonth(), r.date.getDate()).getTime() : 0);
+  const decorated = state.rows.map((r, i) => ({ r, i, o: orderOf(r) }));
+  decorated.sort((a, b) => a.o - b.o || day(a.r) - day(b.r) || (a.r.ts || 0) - (b.r.ts || 0) || a.i - b.i);
+  state.rows = decorated.map((x) => x.r);
 }
 
 // 같은 게시물(주소)이 이미 있으면 넣지 않는다 (처음 것만 남김)
@@ -817,7 +834,8 @@ $("#viewFile").addEventListener("change", async (ev) => {
   try {
     const rows = await ReportXlsx.read(new Uint8Array(await f.arrayBuffer()));
     if (!rows.length) throw new Error("이 파일에서 보고서 행을 찾지 못했습니다");
-    state.rows = rows.map((r, i) => ({ ...r, order: i, ts: r.date ? r.date.getTime() : 0, kind: /cafe\.naver\.com|naver\.me/.test(r.url) ? "cafe" : "community", fromBase: true, baseIdx: i }));
+    state.rows = rows.map((r, i) => ({ ...r, ts: r.date ? r.date.getTime() : 0, kind: /cafe\.naver\.com|naver\.me/.test(r.url) ? "cafe" : "community", fromBase: true, baseIdx: i }));
+    sortRows();
     const m = f.name.match(/^(\d{2})(\d{2})(\d{2})/);
     const end = m ? new Date(2000 + +m[1], +m[2] - 1, +m[3], 8, 0) : new Date();
     state.range = { start: new Date(end.getTime() - 86400000), end };
@@ -843,6 +861,7 @@ async function buildWorkdayReport(ai, settings) {
   state.range = { start: new Date(runs[0].range.start), end: new Date(runs[runs.length - 1].range.end) };
   log(`근무일 보고서: 자동 수집 ${runs.length}회 합본 (${fmtDateTime(state.range.start)} ~ ${fmtDateTime(state.range.end)}, ${state.rows.length}건)`);
   await pickReports(state.rows.filter(isCafeRow), ai, settings);
+  sortRows();
   renderResults();
   await saveLastResult();
   await dbSave({
@@ -882,7 +901,7 @@ async function runCollection() {
   state.rows = [];
   state.seenKeys = new Set();
   if (state.base) {
-    state.base.rows.forEach((r, i) => pushRow({ ...r, fromBase: true, baseIdx: i, kind: r.kind || "base", order: -1, ts: r.ts || 0 }));
+    state.base.rows.forEach((r, i) => pushRow({ ...r, fromBase: true, baseIdx: i, kind: r.kind && r.kind !== "base" ? r.kind : /cafe\.naver\.com|naver\.me/.test(r.url || "") ? "cafe" : "community", ts: r.ts || (r.date ? r.date.getTime() : 0) }));
     log(`이어서 작성: ${state.base.label} ${state.base.rows.length}건 → 중복 뺀 ${state.rows.length}건 뒤에 붙입니다`);
   }
   state.range = range;
