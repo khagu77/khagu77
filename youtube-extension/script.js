@@ -801,7 +801,7 @@ function showResult(i) {
   const atBottom = out.scrollTop + out.clientHeight >= out.scrollHeight - 20;
   out.value = r ? scriptText(r.fixed || r.lines) : "";
   if (atBottom) out.scrollTop = out.scrollHeight;
-  const fixNote = r && r.fixed ? ` · 교정 ${r.fixes}곳` : "";
+  const fixNote = r && r.fixed ? (r.ai ? " · AI 교정" : ` · 교정 ${r.fixes}곳`) : "";
   $("#outputTitle").textContent = r ? `— ${r.title || r.videoId} (${r.lines.length}줄${fixNote})` : "";
   $("#copy").disabled = $("#save").disabled = !(r && r.lines.length);
 }
@@ -1055,6 +1055,49 @@ function offerRetry(row, i, url, opts, missing) {
   }
 }
 
+// ---- AI 교정 (Claude) 설정: 이 PC 크롬(chrome.storage.local)에만 저장 ----
+function aiSettings() {
+  return { on: $("#aiOn").checked, key: $("#aiKey").value.trim(), model: $("#aiModel").value };
+}
+
+function saveAiSettings() {
+  const s = aiSettings();
+  $("#aiOpts").hidden = !s.on;
+  chrome.storage.local.set({ aiOn: s.on, aiKey: s.key, aiModel: s.model }).catch(() => {});
+}
+
+async function loadAiSettings() {
+  const sel = $("#aiModel");
+  for (const [id, label] of AI_MODELS) sel.add(new Option(label, id));
+  const saved = await chrome.storage.local.get(["aiOn", "aiKey", "aiModel"]).catch(() => ({}));
+  $("#aiOn").checked = !!saved.aiOn;
+  $("#aiKey").value = saved.aiKey || "";
+  if (saved.aiModel && AI_MODELS.some(([id]) => id === saved.aiModel)) sel.value = saved.aiModel;
+  $("#aiOpts").hidden = !$("#aiOn").checked;
+  for (const el of ["#aiOn", "#aiKey", "#aiModel"]) $(el).addEventListener("change", saveAiSettings);
+  $("#aiKey").addEventListener("input", saveAiSettings);
+}
+
+// 기본 규칙 교정본을 AI 로 한 번 더 고친다. → 상태 줄에 붙일 글
+async function applyAiCorrection(r, row) {
+  const s = aiSettings();
+  if (!s.on) return "";
+  if (!s.key) return " · AI 교정 안 함(API 키 없음)";
+  setRowStatus(row, "AI 교정 중…");
+  try {
+    const res = await aiCorrectLines(r.fixed.map((l) => l.text), {
+      apiKey: s.key,
+      model: s.model,
+      onProgress: (i, n) => setRowStatus(row, `AI 교정 중… (${i} / ${n}줄)`),
+    });
+    r.fixed = r.fixed.map((l, k) => ({ ...l, text: res.lines[k] }));
+    r.ai = true;
+    return res.failed ? ` · AI 교정(${res.failed}줄은 기본 교정: ${aiErrorMessage(res.lastError)})` : " · AI 교정";
+  } catch (e) {
+    return ` · AI 교정 실패: ${aiErrorMessage(e)} (기본 교정본 사용)`;
+  }
+}
+
 // 영상 하나 → 'ok' | 'missing'(스크립트 없음) | 'fail'  (파일은 자동으로 받지 않음)
 async function runOne(i, url, row, opts) {
   runRows[i] = row;
@@ -1069,7 +1112,8 @@ async function runOneInner(i, url, row, opts) {
   try {
     const r = await transcribeVideo(url, row, i, opts);
     correctResult(r);
-    setRowStatus(row, `완료 · ${r.lines.length}줄 · 교정 ${r.fixes}곳`, "ok");
+    const aiNote = await applyAiCorrection(r, row);
+    setRowStatus(row, `완료 · ${r.lines.length}줄 · ${r.ai ? "" : `교정 ${r.fixes}곳`}${r.ai ? aiNote.slice(3) : aiNote}`, "ok");
     addRowActions(row, i);
     showResult(i);
     return "ok";
@@ -1192,6 +1236,7 @@ function onModeChange() {
 
 async function init() {
   menu("script.html");
+  await loadAiSettings();
   gpu = await detectGpu();
   const sel = $("#model");
   for (const [key, m] of Object.entries(MODELS)) {

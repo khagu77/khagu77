@@ -544,6 +544,86 @@ def test_youtube_transcript(tmp_path: Path):
     assert ws["B7"].border.left.style == "thin"  # 새로 넣은 줄도 양식 서식
 
 
+def claude_sse(text):
+    """Claude API 스트리밍 응답(SSE) 흉내: text 하나를 돌려준다."""
+    events = [
+        ("message_start", {"type": "message_start", "message": {
+            "id": "msg_test", "type": "message", "role": "assistant", "model": "claude-opus-5-5", "content": [],
+            "stop_reason": None, "stop_sequence": None, "usage": {"input_tokens": 10, "output_tokens": 1}}}),
+        ("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
+        ("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}}),
+        ("content_block_stop", {"type": "content_block_stop", "index": 0}),
+        ("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+                           "usage": {"output_tokens": 20}}),
+        ("message_stop", {"type": "message_stop"}),
+    ]
+    return "".join(f"event: {e}\ndata: {json.dumps(d, ensure_ascii=False)}\n\n" for e, d in events)
+
+
+def test_ai_correction(tmp_path: Path):
+    """AI 교정(Claude API): 설정 저장, 요청 내용(모델·대체 모델·구조화된 출력·키), 결과 반영, 키 오류 시 기본 교정본."""
+    server = start_fake_youtube(tmp_path, {}, {"transcrvid1": transcript_page("transcrvid1", api=True)})
+    calls = []
+    mode = {"fail": False}
+
+    def claude(route):
+        req = route.request
+        calls.append({"headers": req.headers, "body": json.loads(req.post_data)})
+        if mode["fail"]:
+            route.fulfill(status=401, content_type="application/json", body=json.dumps(
+                {"type": "error", "error": {"type": "authentication_error", "message": "invalid x-api-key"}}))
+            return
+        lines = json.loads(calls[-1]["body"]["messages"][0]["content"].split("\n\n", 1)[1])["lines"]
+        route.fulfill(status=200, content_type="text/event-stream",
+                      body=claude_sse(json.dumps({"lines": [f"AI:{t}" for t in lines]}, ensure_ascii=False)))
+
+    with sync_playwright() as p:
+        ctx = launch(p, tmp_path, EXT_DIR, server.server_address[1])
+        ctx.route("https://api.anthropic.com/**", claude)
+        page = ext_page(ctx, "script.html")
+        page.on("dialog", lambda d: d.accept())
+        assert not page.is_checked("#aiOn") and page.is_hidden("#aiKey")  # 기본은 꺼짐
+        page.check("#aiOn")
+        page.fill("#aiKey", "sk-ant-test-key")
+        assert page.input_value("#aiModel") == "claude-opus-5-5"
+        page.fill("#urls", "https://www.youtube.com/watch?v=transcrvid1")
+        page.click("#start")
+        page.locator("#summary", has_text="수집했습니다").wait_for(timeout=60000)
+        row = page.locator("#progress tbody tr").nth(0)
+        assert "완료 · 6줄 · AI 교정" in row.inner_text(), row.inner_text()
+        output = page.input_value("#output").split("\n")
+        # 설정은 이 PC 크롬에 저장되어 다시 열어도 남아 있다
+        page.reload()
+        assert page.is_checked("#aiOn") and page.input_value("#aiKey") == "sk-ant-test-key"
+        # 키가 틀리면 기본 교정본으로
+        mode["fail"] = True
+        page.fill("#urls", "https://www.youtube.com/watch?v=transcrvid1")
+        page.click("#start")
+        page.locator("#summary", has_text="수집했습니다").wait_for(timeout=60000)
+        row = page.locator("#progress tbody tr").nth(0)
+        failed_status = row.inner_text()
+        failed_output = page.input_value("#output").split("\n")
+        ctx.close()
+    server.shutdown()
+
+    # AI 결과가 그대로 반영 (시간·챕터 줄 구성은 유지)
+    assert output == ["챕터 1: AI:오프닝", "00:00 AI:안녕하세요 여러분", "00:05 AI:오늘은 팰리세이드 시승기입니다",
+                      "00:09 AI:이렇게 됐어요 할 수 있다", "챕터 2: AI:마무리", "1:02:03 AI:끝까지 봐주셔서 감사합니다"], output
+    req = calls[0]
+    assert req["headers"]["x-api-key"] == "sk-ant-test-key"
+    assert "server-side-fallback-2026-07-01" in req["headers"].get("anthropic-beta", "")
+    assert req["headers"].get("anthropic-dangerous-direct-browser-access") == "true"
+    body = req["body"]
+    assert body["model"] == "claude-opus-5-5" and body["fallbacks"] == "default" and body["stream"] is True
+    assert body["output_config"]["effort"] == "low" and body["output_config"]["format"]["type"] == "json_schema"
+    assert "thinking" not in body and "temperature" not in body
+    assert "자동차" in body["system"]
+    sent = json.loads(body["messages"][0]["content"].split("\n\n", 1)[1])["lines"]
+    assert "이렇게 됐어요 할 수 있다" in sent  # 기본 규칙 교정본을 AI 에 보낸다
+    assert "API 키가 올바르지 않습니다" in failed_status and "기본 교정본 사용" in failed_status, failed_status
+    assert "00:09 이렇게 됐어요 할 수 있다" in failed_output and not any("AI:" in l for l in failed_output)
+
+
 @pytest.mark.skipif(not Path(FONT).exists(), reason="한글 글꼴 없음")
 def test_screen_captions(tmp_path: Path):
     media = tmp_path / "screenvid01.webm"

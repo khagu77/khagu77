@@ -51,6 +51,19 @@
       <label class="check" data-mode="speech"><input type="checkbox" id="mute" checked> 영상 소리 끄기</label>
     </div>
     <div id="gpu" class="hint" data-mode="speech"></div>
+    <fieldset class="ai">
+      <label class="check"><input type="checkbox" id="aiOn"> <b>AI 교정 (Claude)</b>
+        <span class="hint">— 띄어쓰기·오탈자·잘못 받아쓴 차량명까지 문맥에 맞게 고침 (유료 · Anthropic API 키 필요)</span></label>
+      <div class="ai-opts" id="aiOpts">
+        <label>API 키 <input type="password" id="aiKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false"></label>
+        <label>모델 <select id="aiModel"></select></label>
+        <div class="hint" id="aiHint">
+          API 키는 이 컴퓨터의 크롬에만 저장되고, 교정을 위해 스크립트 글자가 Anthropic(Claude)으로 보내집니다.
+          요금은 쓴 만큼 Anthropic 계정에 청구됩니다 — 대략 10분 영상 1개에 Opus 약 200~400원, Sonnet 그 절반, Haiku 10원 안팎(영상 길이에 따라 다른 대략적인 추정).
+          API 키는 <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> 에서 만들 수 있습니다.
+        </div>
+      </div>
+    </fieldset>
     <div class="hint" data-mode="transcript" hidden>유튜브 영상 설명란의 <b>…더보기 → 스크립트 표시</b>를 눌러 오른쪽에 나오는 스크립트를 그대로 가져옵니다. 영상을 재생하지 않아 영상 하나에 몇 초면 끝나고, 유튜브가 만든 글자 그대로라 가장 정확합니다. 업로더가 올린 자막이나 유튜브 자동 생성 자막이 있는 영상만 가능하며, 없으면 화면 자막 인식이나 음성 인식으로 수집할 수 있습니다.</div>
     <div class="hint" data-mode="screen" hidden>화면 아래쪽 가운데에 나오는 자막(흰색·노란색 글자에 테두리나 어두운 바탕)만 읽고, 효과 글자·댓글 캡처·사진 속 글자는 거릅니다. 한글·영문이 함께 나오면 한글 줄만 옮깁니다. 자막이 깔끔한 영상일수록 정확하고, 음성 인식보다 빠릅니다. 영상 소리는 자동으로 끕니다.</div>
 
@@ -95,6 +108,8 @@
   <script src="lib/ocr/ort.wasm.min.js"></script>
   <script src="screen.js"></script>
   <script src="correct.js"></script>
+  <script src="lib/anthropic-sdk.min.js"></script>
+  <script src="ai-correct.js"></script>
   <script src="template.js"></script>
   <script src="script.js"></script>
 </body>
