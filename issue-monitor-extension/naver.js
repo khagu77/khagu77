@@ -178,6 +178,38 @@ function listArticlesInFrame() {
   return out;
 }
 
+// 네이버 검색 결과에서 이 카페의 이 글 링크 찾기 → { index, href, snippet } 또는 null
+function findCafeLinkInSearch(cafeId, articleId, title) {
+  const anchors = [...document.querySelectorAll("a[href]")];
+  const norm = (x) => String(x || "").replace(/\s+/g, "").toLowerCase();
+  const want = norm(title).slice(0, 30);
+  let best = null;
+  anchors.forEach((a, index) => {
+    const href = a.href || "";
+    if (!/cafe\.naver\.com/.test(href)) return;
+    const sameArticle =
+      (cafeId && new RegExp(`cafe\\.naver\\.com/${cafeId}/${articleId}(?!\\d)`, "i").test(href)) ||
+      new RegExp(`(articles/|articleid=)${articleId}(?!\\d)`, "i").test(href);
+    const sameCafe = cafeId && new RegExp(`cafe\\.naver\\.com/${cafeId}(/|\\?|$)`, "i").test(href);
+    const titleHit = want && norm(a.innerText).includes(want.slice(0, 15));
+    const score = (sameArticle ? 10 : 0) + (sameCafe && titleHit ? 5 : 0);
+    if (score >= 5 && (!best || score > best.score)) {
+      const box = a.closest("li, .total_wrap, .detail_box, .view_wrap, [class*='item']") || a.parentElement;
+      best = { index, href, score, snippet: box ? box.innerText.replace(/\s+/g, " ").slice(0, 600) : "" };
+    }
+  });
+  return best;
+}
+
+// 검색 결과 링크를 같은 탭에서 열리게 해서 누른다
+function clickSearchResult(index) {
+  const a = [...document.querySelectorAll("a[href]")][index];
+  if (!a) return false;
+  a.setAttribute("target", "_self");
+  a.click();
+  return true;
+}
+
 // 진단용: 화면 상태 요약
 function diagInFrame() {
   const links = [...document.querySelectorAll("a[href]")].map((a) => a.getAttribute("href")).filter((h) => /articles?\/?\d|articleid=/i.test(h));
@@ -522,9 +554,8 @@ class NaverCollector {
   }
 
   // 게시글 본문 읽기 → { title, body, ts|null }
-  async readArticle(post) {
-    await this.openChecked(post.url);
-    let info = null;
+  // 지금 열린 게시글 화면에서 본문 읽기 → info 또는 null
+  async readOpenedArticle(post) {
     for (let attempt = 0; attempt < 6; attempt++) {
       const frames = await this.tab.run(readArticleInFrame);
       const hit = frames.find((f) => f.body);
@@ -532,20 +563,66 @@ class NaverCollector {
       const fromJson = articleBodyFromJson(datas, post.articleId);
       if (hit || fromJson) {
         const parsed = hit && hit.date ? parseKoreanDate(hit.date) : null;
-        info = {
+        return {
           title: (hit && hit.title) || (fromJson && htmlToText(fromJson.title)) || post.title,
           body: (hit && hit.body) || (fromJson ? htmlToText(fromJson.html) : ""),
           ts: fromJson && fromJson.ts ? fromJson.ts : parsed && parsed.exact ? parsed.date.getTime() : null,
         };
-        break;
       }
+      const signals = await this.tab.run(pageSignalsInFrame);
+      if (signals.some((x) => x.memberOnly) && attempt >= 1) return null; // 권한 없음 화면
       await sleep(1500);
     }
-    if (!info) {
-      const signals = await this.tab.run(pageSignalsInFrame);
-      if (signals.some((s) => s.memberOnly)) throw new Error("글을 볼 권한이 없음 (등급 제한 게시판일 수 있음)");
-      throw new Error("본문을 읽지 못함 (삭제됐거나 화면 구조가 바뀜)");
-    }
-    return info;
+    return null;
   }
+
+  // 게시글 본문 읽기 → { title, body, ts|null, via }
+  // 카페에서 바로 열면 안 보이는 글(넥쏘 카페·영운모 등)은 네이버 검색 카페 탭에서 제목으로 찾아 그 링크로 들어가 읽는다.
+  async readArticle(post, cafe = {}) {
+    if (!cafe.viaSearch) {
+      await this.openChecked(post.url);
+      const info = await this.readOpenedArticle(post);
+      if (info) return info;
+    }
+    const viaSearch = await this.readViaSearch(post, cafe);
+    if (viaSearch) return viaSearch;
+    throw new Error(cafe.viaSearch ? "네이버 검색으로도 글을 찾지 못함" : "글을 볼 수 없음 (권한 제한·삭제) → 네이버 검색으로도 찾지 못함");
+  }
+
+  async readViaSearch(post, cafe) {
+    const query = String(post.title || "").replace(/\s+/g, " ").trim().slice(0, 80);
+    if (!query) return null;
+    await this.wait(this.delays.article);
+    const urls = [
+      `https://search.naver.com/search.naver?ssc=tab.cafe.all&query=${encodeURIComponent(query)}`,
+      `https://search.naver.com/search.naver?where=article&query=${encodeURIComponent(query)}`,
+    ];
+    let snippet = "";
+    for (const url of urls) {
+      await this.openChecked(url);
+      let found = null;
+      for (let attempt = 0; attempt < 4 && !found; attempt++) {
+        found = await this.tab.runMain(findCafeLinkInSearch, [cafe.id || "", post.articleId, query]);
+        if (!found) await sleep(1200);
+      }
+      if (!found) continue;
+      snippet = found.snippet || snippet;
+      // 사람처럼 검색 결과의 링크를 눌러 들어간다 (검색을 거쳐 들어가야 보이는 글)
+      const loaded = waitForTabLoad(this.tab.tabId);
+      await this.tab.runMain(clickSearchResult, [found.index]);
+      await loaded;
+      await sleep(2500);
+      const tab = await chrome.tabs.get(this.tab.tabId);
+      if (/nid\.naver\.com/.test(tab.url || "")) throw new BlockedError("네이버 로그인이 풀렸습니다. 크롬에서 네이버에 다시 로그인해 주세요");
+      const signals = await this.tab.run(pageSignalsInFrame);
+      if (signals.some((x) => x.blocked)) throw new BlockedError("네이버 보호조치·자동입력 방지 화면이 보여 네이버 수집을 멈췄습니다");
+      const info = await this.readOpenedArticle(post);
+      if (info) return { ...info, via: "검색" };
+      break;
+    }
+    // 글에는 못 들어갔지만 검색 결과 요약 글이 있으면 그거라도 판정에 쓴다
+    if (snippet) return { title: post.title, body: `(검색 결과 요약) ${snippet}`, ts: null, via: "검색 요약" };
+    return null;
+  }
+
 }

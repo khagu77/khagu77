@@ -506,7 +506,7 @@ async function runCollection() {
         try {
           const posts = await naver.listCafe(src.cafe, range);
           log(`${src.name}: 기간 내 글 ${posts.length}개`);
-          await processSource(src, posts, (post) => naver.readArticle(post), ctx);
+          await processSource(src, posts, (post) => naver.readArticle(post, src.cafe), ctx);
         } catch (e) {
           if (e instanceof StopError || e instanceof BlockedError) throw e;
           updateSource(src.key, { status: `실패: ${e.message}`, error: true });
@@ -677,6 +677,7 @@ function renderCafeTable() {
         el("td", {}, textInput(c, "name", "예: 팰리세이드 피플")),
         el("td", {}, textInput(c, "id", "예: allumpc")),
         el("td", {}, textInput(c, "car", "예: LX3 (여러 차종이면 비움)")),
+        el("td", { style: "text-align:center" }, el("input", { type: "checkbox", checked: !!c.viaSearch, onchange: (e) => (c.viaSearch = e.target.checked) })),
         el("td", {}, delButton(draft.cafes, i, renderCafeTable))
       )
     );

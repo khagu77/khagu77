@@ -1,5 +1,8 @@
 // 처음 설치했을 때의 기본 설정. 설정 화면에서 모두 바꿀 수 있다.
 
+// 카페에서 바로 열면 안 보이는 글이 많아, 네이버 검색(카페 탭)을 거쳐 들어가 읽는 카페
+const VIA_SEARCH_CAFES = ["nexocafe", "truckerking"];
+
 const DEFAULT_CAFES = [
   ["그랜저 리더스 클럽", "suddenattackskincafe", "GN7 PE / GN7"],
   ["그랜저 GN7 매니아", "bestani", "GN7 / GN7 PE"],
@@ -24,9 +27,9 @@ const DEFAULT_CAFES = [
   ["올뉴투싼 매니아", "shiftouch", "NX4 PE / NX4"],
   ["코나 패밀리", "jsmusic", "SX2"],
   ["클럽 베뉴", "krzr", "QX"],
-  ["캐스퍼 매니아", "cafe2078", "AX1"],
-  ["캐스퍼 패밀리", "morningk", "AX1"],
-  ["캐스퍼 일렉트릭 클럽", "lastchaos2", "AX1 EV"],
+  ["캐스퍼 매니아", "cafe2078", "AX PE / AX"],
+  ["캐스퍼 패밀리", "morningk", "AX PE / AX"],
+  ["캐스퍼 일렉트릭 클럽", "lastchaos2", "AX EV"],
   ["스타리아 패밀리", "yhrhee9776", "US4 / US4 EV"],
   ["GV80 멤버스", "gruu", "JX PE / JX"],
   ["GV80 클럽", "dsdawdw", "JX PE / JX"],
@@ -50,7 +53,7 @@ const DEFAULT_CAFES = [
   ["현대모터클럽", "hmckorea", ""],
   ["영운모", "truckerking", "QZ / QV / WQ"],
   ["자동차 정비 공유 카페", "autowave21", ""],
-].map(([name, id, car]) => ({ name, id, car, on: true }));
+].map(([name, id, car]) => ({ name, id, car, on: true, viaSearch: VIA_SEARCH_CAFES.includes(id) }));
 
 const DEFAULT_COMMUNITIES = [
   { name: "보배드림", url: "https://www.bobaedream.co.kr/list?code=national", on: true },
@@ -77,7 +80,8 @@ LF: 쏘나타, 소나타, 쏘나타 디 엣지 (7세대, 2014~2019)
 YF: 쏘나타, 소나타, 쏘나타 디 엣지 (6세대, 2009~2014)
 NF: 쏘나타, 소나타, 쏘나타 디 엣지 (5세대, 2004~2009)
 # 현대 그랜저
-GN7: 그랜저, 그렌저 (7세대, 2022~현재)
+GN7 PE: 그랜저, 그렌저, 더 뉴 그랜저 (7세대 F/L, 현행)
+GN7: 그랜저, 그렌저 (7세대, 2022~)
 IG PE: 그랜저, 그렌저 (6세대 F/L, 2019~2022)
 IG: 그랜저, 그렌저 (6세대, 2016~2019)
 HG: 그랜저, 그렌저 (5세대, 2011~2016)
@@ -95,8 +99,9 @@ FS: 벨로스터 (1세대, 2011~2018)
 # 현대 아슬란
 AG: 아슬란 (단일 세대, 2014~2018)
 # 현대 캐스퍼
-AX1 EV: 캐스퍼 (전기차, 2024~현재)
-AX1: 캐스퍼 (1세대, 2021~현재)
+AX EV: 캐스퍼 일렉트릭, 캐스퍼EV, 캐스퍼 EV (전기차, 2024~현재)
+AX PE: 캐스퍼, 더 뉴 캐스퍼 (1세대 F/L, 현행)
+AX: 캐스퍼 (1세대, 2021~)
 # 현대 베뉴
 QX: 베뉴 (1세대, 2019~현재)
 # 현대 코나
@@ -146,7 +151,7 @@ ME1: 아이오닉9, 아이오닉 9, 아9 (대형 전기 SUV, 2025~현재)
 SX2 EV: 코나 일렉트릭, 코나EV, 코나 EV (2세대, 2023~현재)
 OS EV: 코나 일렉트릭, 코나EV, 코나 EV (1세대, 2018~2023)
 # 현대 캐스퍼 일렉트릭
-AX1 EV: 캐스퍼 일렉트릭, 캐스퍼EV, 캐스퍼 EV (전기차, 2024~현재)
+AX EV: 캐스퍼 일렉트릭, 캐스퍼EV, 캐스퍼 EV (전기차, 2024~현재)
 # 현대 넥쏘
 NH2: 넥쏘 (2세대, 2025~현재)
 FE: 넥쏘 (1세대, 2018~2025)
@@ -216,7 +221,6 @@ JX: GV80 (1세대, 2020~2023)
 JG: GV90 (대형 전기 SUV, 출시/양산 코드 확인 필요)
 
 # 지난 보고서에서 쓰였지만 정리표에 없는 코드
-GN7 PE: 그랜저, 디 올 뉴 그랜저 F/L (7세대 F/L, 지난 보고서 사용)
 CN8: 차세대 아반떼 (8세대)
 ST1: ST1, ST-1 (2024~현재)
 NX4 N: 투싼 N
@@ -254,7 +258,7 @@ const MODELS = [
 ];
 
 // 예전 버전에서 저장한 설정에 새 기본값을 보태 준다
-const SETTINGS_VERSION = 3;
+const SETTINGS_VERSION = 5;
 function migrateSettings(s) {
   if ((s.settingsVersion || 1) < 2 && typeof s.keywords === "string") {
     const add = "출고 대기, 출고대기, 출고 기다, 검수 업체, 검수업체, 검수 대행, 검수대행, 광고, 홍보, 오일교환, 오일 교환".split(", ");
@@ -264,10 +268,9 @@ function migrateSettings(s) {
     });
   }
   if ((s.settingsVersion || 1) < 3) {
-    // 차종 코드표를 연식 정리표 기준으로 교체, 캐스퍼 코드 AX → AX1, 출석·퇴근 도장 글 제외어 추가
+    // 차종 코드표를 연식 정리표 기준으로 교체, 출석·퇴근 도장 글 제외어 추가
     s.carCodes = DEFAULT_CAR_CODES;
     for (const c of s.cafes || []) {
-      if (c.car) c.car = c.car.replace(/\bAX( PE)?\b(?! ?\d)/g, "AX1").replace(/AX1 \/ AX1/g, "AX1");
     }
     if (typeof s.keywords === "string") {
       const add = "출석 도장, 출석도장, 출근 도장, 출근도장, 퇴근 도장, 퇴근도장, 출석체크, 출석 체크, 출첵, 출석부".split(", ");
@@ -276,6 +279,17 @@ function migrateSettings(s) {
         return missing.length ? `${line}, ${missing.join(", ")}` : line;
       });
     }
+  }
+  if ((s.settingsVersion || 1) < 5) {
+    // 캐스퍼는 AX / AX PE / AX EV, 그랜저 현행은 GN7 PE (1.3.0 의 AX1 표기 되돌림)
+    s.carCodes = DEFAULT_CAR_CODES;
+    for (const c of s.cafes || []) {
+      if (!c.car) continue;
+      c.car = c.car.replace(/AX1 EV/g, "AX EV").replace(/^AX1$/, "AX PE / AX").replace(/AX1/g, "AX");
+    }
+  }
+  if ((s.settingsVersion || 1) < 4) {
+    for (const c of s.cafes || []) if (VIA_SEARCH_CAFES.includes(c.id)) c.viaSearch = true;
   }
   s.settingsVersion = SETTINGS_VERSION;
   return s;
