@@ -562,6 +562,10 @@ function finalizeRow(row, it, src) {
     if (!/\(마그마\)/.test(row.summary)) row.summary = `${row.summary} (마그마)`;
   }
   if (src.requireCar && (!row.car || row.car === "-")) return null;
+  // 퍼온 글: 주요 내용을 "… 관련 내용 공유" 로
+  if (isRepost(it.title) && !/공유$/.test(row.summary)) {
+    row.summary = `${String(row.summary).replace(/^\s*[\[(（【]?\s*펌\s*[\])）】]?\s*/, "").replace(/\s*(문의|후기|불만)$/, "")} 관련 내용 공유`;
+  }
   // 키워드 모드: 2020년 이전 출시 세대는 화재·급발진·시동 꺼짐·사망사고·돌진 같은 매우 심각한 이슈만 (AI 모드는 AI 가 판단)
   if (row.byKeyword) {
     const start = state.codeYears && state.codeYears[String(row.car).replace(/ (EV|HEV|PHEV|N)$/, "")];

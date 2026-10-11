@@ -144,7 +144,14 @@ function setIssueKeywords(text) {
 setIssueKeywords(typeof DEFAULT_KEYWORDS !== "undefined" ? DEFAULT_KEYWORDS : "");
 
 // 자동차 커뮤니티의 단순 뉴스·해외 이슈 공유 글 (키워드 모드에서 뺀다. AI 모드는 AI 가 판단)
-const COMMUNITY_NEWS_RE = /뉴스|기사|외신|속보|단독|보도|\[펌\]|해외|미국|북미|유럽|독일|중국|일본|인도|호주|캐나다|NHTSA|IIHS/;
+const COMMUNITY_NEWS_RE = /뉴스|기사|외신|속보|단독|보도|해외|미국|북미|유럽|독일|중국|일본|인도|호주|캐나다|NHTSA|IIHS/;
+
+// 본인 이야기가 아니라 다른 곳의 글을 퍼온 글 ("[펌]", "(펌)", "퍼옴", "퍼왔습니다")
+const REPOST_RE = /[\[(（【]\s*펌\s*[\])）】]|(^|[^가-힣])펌(글|$|[^가-힣])|퍼옴|퍼온|퍼왔|퍼 왔/;
+
+function isRepost(text) {
+  return REPOST_RE.test(String(text || ""));
+}
 
 function communityNewsLike(text) {
   return COMMUNITY_NEWS_RE.test(String(text || ""));
