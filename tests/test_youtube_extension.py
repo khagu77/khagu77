@@ -127,10 +127,17 @@ def start_fake_youtube(tmp_path: Path, media: dict, pages=None):
             data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
             posts.append((self.path, data))
             params = data.get("params", "")
+            client = data.get("context", {}).get("client", {})
+            body, code = b"{}", 400
             if self.path.startswith("/youtubei/v1/get_transcript") and params.startswith("PARAMS_"):
-                body, code = json.dumps(get_transcript_response(params[7:]), ensure_ascii=False).encode(), 200
-            else:
-                body, code = b"{}", 400
+                if params != "PARAMS_pageonlyvid" or client.get("fromPage"):
+                    body, code = json.dumps(get_transcript_response(params[7:]), ensure_ascii=False).encode(), 200
+            elif self.path.startswith("/youtubei/v1/player"):
+                code = 200
+                if data.get("videoId") == "androidvid1" and client.get("clientName") == "ANDROID":
+                    body = json.dumps({"videoDetails": {"title": TITLE}, "captions": {"playerCaptionsTracklistRenderer": {
+                        "captionTracks": [{"languageCode": "ko", "kind": "asr",
+                                           "baseUrl": "https://www.youtube.com/api/timedtext?v=androidvid1&lang=ko&fmt=srv3"}]}}}).encode()
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -138,6 +145,18 @@ def start_fake_youtube(tmp_path: Path, media: dict, pages=None):
             self.wfile.write(body)
 
         def do_GET(self):
+            if self.path.startswith("/api/timedtext") and "androidvid1" in self.path:
+                # 예전 XML 형식 (json3 는 안 줌), 글자는 HTML 엔티티가 두 번 감싸져 있다
+                ok = "fmt=" not in self.path
+                body = ('<?xml version="1.0" encoding="utf-8" ?><transcript>'
+                        '<text start="0.5" dur="2">모바일 앱 방식으로 &amp;#39;받았어요&amp;#39;</text>'
+                        '<text start="62" dur="2">몇일 걸렸어요</text></transcript>').encode()
+                self.send_response(200 if ok else 404)
+                self.send_header("Content-Type", "text/xml")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if self.path.startswith("/api/timedtext"):
                 body = json.dumps({"events": [
                     {"tStartMs": 0, "segs": [{"utf8": "자막 데이터로"}, {"utf8": " 받았어요"}]},
@@ -161,6 +180,9 @@ def start_fake_youtube(tmp_path: Path, media: dict, pages=None):
                 ctype = "text/html; charset=utf-8"
             self.send_response(200)
             self.send_header("Content-Type", ctype)
+            if ctype.startswith("text/html"):  # 실제 유튜브처럼 다른 사이트 안에 넣지 못하게
+                self.send_header("X-Frame-Options", "SAMEORIGIN")
+                self.send_header("Content-Security-Policy", "frame-ancestors 'self'")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -275,7 +297,7 @@ def get_transcript_response(vid):
 # - 화면: 설명란 '…더보기'를 누르면 '스크립트 표시' 버튼이, 그것을 누르면 오른쪽 스크립트 패널이 그려진다.
 #   실제 유튜브처럼 화면 그리기는 requestAnimationFrame 으로 해서, 보이지 않는 뒤쪽 탭에서는 그려지지 않는다.
 # - transcript=False 면 '스크립트 표시' 버튼이 없다. captions=False 면 자막이 아예 없는 영상.
-def transcript_page(vid, transcript=True, api=False, captions=None, modern=False, timedtext=False):
+def transcript_page(vid, transcript=True, api=False, captions=None, modern=False, timedtext=False, page_only=False):
     """modern=True: 새 스크립트 화면처럼 줄에 클래스 이름이 없고 읽어주기용 시간 글자('9초')가 붙어 있다.
     timedtext=True: 자막 트랙 주소(baseUrl)가 있어 자막 데이터를 직접 받을 수 있다."""
     captions = transcript or timedtext if captions is None else captions
@@ -307,7 +329,10 @@ def transcript_page(vid, transcript=True, api=False, captions=None, modern=False
         if timedtext:
             track["baseUrl"] = f"https://www.youtube.com/api/timedtext?v={vid}&lang=ko"
         player["captions"] = {"playerCaptionsTracklistRenderer": {"captionTracks": [track]}}
-    cfg = {"INNERTUBE_API_KEY": "KEY", "INNERTUBE_CONTEXT": {"client": {"clientName": "WEB", "clientVersion": "2.0"}},
+    client = {"clientName": "WEB", "clientVersion": "2.0"}
+    if page_only:  # 페이지 안의 유튜브 설정으로 보낸 요청만 받아 주는 영상 (확장에서 바로 보낸 요청은 거절)
+        client["fromPage"] = True
+    cfg = {"INNERTUBE_API_KEY": "KEY", "INNERTUBE_CONTEXT": {"client": client},
            "INNERTUBE_CONTEXT_CLIENT_NAME": 1, "INNERTUBE_CLIENT_VERSION": "2.0"}
     return f"""<!doctype html><html><head><title>{TITLE} - YouTube</title>
 <script>
@@ -346,16 +371,20 @@ def test_youtube_transcript(tmp_path: Path):
     make_captioned_media(media, 23)
     flaky_hits = []
 
-    def flaky():  # 처음 세 번(바로 받기 + 탭 + 자동 새로고침)은 스크립트 버튼이 없고, 네 번째부터 보인다
+    def flaky():  # 처음 네 번(수집: 바로 받기 + 보이지 않는 틀, 전체 다시 수집: 같은 두 번)은 버튼이 없고, 다섯 번째부터 보인다
         flaky_hits.append(1)
-        return transcript_page("flakyvideo1", len(flaky_hits) > 3, captions=True, modern=True)
+        return transcript_page("flakyvideo1", len(flaky_hits) > 4, captions=True, modern=True)
 
     # transcrvid1: 데이터로 바로 받음(뒤쪽 탭) / flakyvideo1: 데이터가 없어 화면 버튼으로, 세 번째에야 버튼이 보임
     # notranscr01: 자막이 아예 없음 → 바로 '스크립트 없음'
     # captionvid1: 스크립트 버튼·요청 정보는 없지만 자막 데이터로 받음
     pages = {"transcrvid1": transcript_page("transcrvid1", api=True), "flakyvideo1": flaky,
              "notranscr01": transcript_page("notranscr01", False),
-             "captionvid1": transcript_page("captionvid1", False, timedtext=True)}
+             "captionvid1": transcript_page("captionvid1", False, timedtext=True),
+             # pageonlyvid: 확장에서 바로 보낸 요청은 거절 → 수집 화면 안 보이지 않는 틀의 페이지 안에서 받음
+             "pageonlyvid": transcript_page("pageonlyvid", False, api=True, captions=True, page_only=True),
+             # androidvid1: 모바일 앱 방식으로 받은 자막 목록의 자막 파일(XML)
+             "androidvid1": transcript_page("androidvid1", False, captions=True)}
     server = start_fake_youtube(tmp_path, {media.name: media}, pages)
     with sync_playwright() as p:
         ctx = launch(p, tmp_path, EXT_DIR, server.server_address[1])
@@ -368,22 +397,34 @@ def test_youtube_transcript(tmp_path: Path):
         page.on("download", lambda d: downloads.append(d))
         page.on("dialog", lambda d: (dialogs.append(d.message), d.accept()))
 
+        # 확장이 여는 탭(창 번호·앞에 보이는지)을 기록
+        page.evaluate("""() => { window.__created = [];
+          chrome.tabs.onCreated.addListener((t) => window.__created.push({ url: t.pendingUrl || t.url, windowId: t.windowId, active: t.active }));
+          chrome.tabs.onUpdated.addListener((id, info) => { if (info.url) window.__created.push({ url: info.url, tabId: id, update: true }); }); }""")
+        my_window = page.evaluate("chrome.windows.getCurrent().then((w) => w.id)")
         page.fill("#urls", "https://www.youtube.com/watch?v=transcrvid1\nhttps://youtu.be/flakyvideo1\n"
-                           "https://youtu.be/notranscr01\nhttps://youtu.be/captionvid1")
+                           "https://youtu.be/notranscr01\nhttps://youtu.be/captionvid1\n"
+                           "https://youtu.be/pageonlyvid\nhttps://youtu.be/androidvid1")
         page.click("#start")
         page.locator("#summary", has_text="수집했습니다").wait_for(timeout=120000)
         page.wait_for_timeout(1500)
         assert downloads == [], [d.suggested_filename for d in downloads]  # 자동으로 받지 않음
-        assert len(dialogs) == 1 and "스크립트 수집을 마쳤습니다" in dialogs[0] and "성공 2개 · 스크립트 없음 2개" in dialogs[0], dialogs
+        assert len(dialogs) == 1 and "스크립트 수집을 마쳤습니다" in dialogs[0] and "성공 4개 · 스크립트 없음 2개" in dialogs[0], dialogs
         rows = page.locator("#progress tbody tr")
         assert "완료 · 4줄 · 교정 2곳" in rows.nth(0).inner_text()
         for k in (1, 2):
             assert "스크립트를 찾지 못했습니다" in rows.nth(k).inner_text()
             assert rows.nth(k).locator("button", has_text="재시도").count() == 1
-        assert len(flaky_hits) == 3  # 바로 받기 → 탭에서 찾기 → 새로고침해서 한 번 더
-        # 바로 받을 수 있는 영상(1, 3, 4번)은 탭을 열지 않는다. 탭은 화면에서 찾아야 했던 2번만.
-        tab_urls = [pg.url for pg in opened]
-        assert tab_urls and all("flakyvideo1" in u for u in tab_urls), tab_urls
+            assert rows.nth(k).locator("button", has_text="화면에서 가져오기").count() == 1
+        assert len(flaky_hits) == 2  # 바로 받기 → 보이지 않는 틀 (화면 버튼은 누르지 않음)
+        # 자동 수집 중에는 탭·창을 하나도 띄우지 않는다 (다른 작업 방해 금지)
+        assert page.evaluate("window.__created") == []
+        assert page.evaluate("chrome.windows.getAll().then((ws) => ws.length)") == 1
+        assert page.locator("iframe").count() == 0  # 보이지 않는 틀은 쓰고 나면 지운다
+        # 5번은 바로 받기는 거절됐지만 보이지 않는 틀 안의 영상 페이지에서 받았다
+        assert "완료" in rows.nth(4).inner_text()
+        assert any(path.startswith("/youtubei/v1/get_transcript") and d["context"]["client"].get("fromPage")
+                   for path, d in server.posts), server.posts
         # 1번은 화면을 그리지 않고 get_transcript 로 받았다 (유튜브 화면과 같은 요청)
         tr = [d for path, d in server.posts if path.startswith("/youtubei/v1/get_transcript")]
         assert tr and tr[0]["params"] == "PARAMS_transcrvid1" and tr[0]["context"]["client"]["clientName"] == "WEB", server.posts
@@ -392,14 +433,20 @@ def test_youtube_transcript(tmp_path: Path):
         link = rows.nth(0).locator("a")
         assert link.get_attribute("href") == "https://www.youtube.com/watch?v=transcrvid1"
         assert link.get_attribute("target") == "_blank"
+        assert "완료" in rows.nth(3).inner_text() and "완료" in rows.nth(5).inner_text()
 
-        assert "완료" in rows.nth(3).inner_text()  # 자막 데이터로 받음
-        # [수집 안 된 영상 전체 다시 수집] → 2번은 이번엔 스크립트가 보여 수집되고, 3번은 여전히 없음
+        # [수집 안 된 영상 전체 다시 수집]: 이때도 탭을 띄우지 않는다 (2, 3번 모두 여전히 없음)
         assert page.inner_text("#retryFailed") == "수집 안 된 영상 전체 다시 수집 (2개)"
         page.click("#retryFailed")
-        page.locator("#summary", has_text="다시 수집: 1 / 2개 성공").wait_for(timeout=120000)
-        assert "완료" in rows.nth(1).inner_text() and "스크립트를 찾지 못했습니다" in rows.nth(2).inner_text()
+        page.locator("#summary", has_text="다시 수집: 0 / 2개 성공").wait_for(timeout=120000)
         assert len(dialogs) == 2 and "수집 안 된 영상 다시 수집을 마쳤습니다" in dialogs[1], dialogs
+        assert page.evaluate("window.__created") == [] and len(flaky_hits) == 4
+        # [화면에서 가져오기]: 사용자가 누른 경우에만 유튜브 탭을 띄워 버튼을 직접 누른다
+        rows.nth(1).locator("button", has_text="화면에서 가져오기").click()
+        rows.nth(1).locator(".status", has_text="완료").wait_for(timeout=60000)
+        created = page.evaluate("window.__created")
+        tabs = [c for c in created if not c.get("update")]
+        assert len(tabs) == 1 and "flakyvideo1" in tabs[0]["url"] and tabs[0]["windowId"] == my_window, created
         assert page.inner_text("#retryFailed") == "수집 안 된 영상 전체 다시 수집 (1개)"
         # 스크립트가 없는 영상: [화면 자막으로]
         rows.nth(2).locator("button", has_text="화면 자막으로").click()
@@ -437,19 +484,23 @@ def test_youtube_transcript(tmp_path: Path):
     assert original[2] == "00:09 이렇게 됬어요 할수있다", original
     assert output.split("\n") == fixed  # 화면 출력칸도 교정본
 
-    assert all_name == f"{date.today():%Y%m%d}_유튜브스크립트_4개.txt"
+    assert all_name == f"{date.today():%Y%m%d}_유튜브스크립트_6개.txt"
     text = all_path.read_bytes().decode("utf-8-sig").replace("\r\n", "\n")
     blocks = text.strip().split("\n\n\n")
-    assert len(blocks) == 4, text
+    assert len(blocks) == 6, text
     sep = "=" * 60
-    for k, (vid, block) in enumerate(zip(["transcrvid1", "flakyvideo1", "notranscr01", "captionvid1"], blocks), 1):
+    vids = ["transcrvid1", "flakyvideo1", "notranscr01", "captionvid1", "pageonlyvid", "androidvid1"]
+    for k, (vid, block) in enumerate(zip(vids, blocks), 1):
         head = block.split("\n")
         assert head[0] == sep and head[3] == sep, block
-        assert head[1] == f"[{k}/4] {TITLE}" and head[2] == f"https://www.youtube.com/watch?v={vid}", block
+        assert head[1] == f"[{k}/6] {TITLE}" and head[2] == f"https://www.youtube.com/watch?v={vid}", block
     assert blocks[0].split("\n")[4:] == fixed
     # 새 스크립트 화면: 줄 앞의 읽어주기용 시간 글자('9초', '1시간 2분 3초')는 빠진다
     assert blocks[1].split("\n")[4:] == fixed, blocks[1]
     assert blocks[3].split("\n")[4:] == ["00:00 자막 데이터로 받았어요", "01:05 두 번째 줄 할 수 있다"], blocks[3]
+    assert blocks[4].split("\n")[4:] == fixed, blocks[4]
+    assert blocks[5].split("\n")[4:] == [
+        "00:00 모바일 앱 방식으로 '받았어요'", "01:02 며칠 걸렸어요"], blocks[5]
     assert "안녕하세요 반갑습니다" in blocks[2] and "오늘은 날씨가 좋습니다" in blocks[2], blocks[2]
 
 

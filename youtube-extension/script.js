@@ -422,6 +422,46 @@ function captionLines(json) {
     .filter((l) => l.text);
 }
 
+function decodeHtml(s) {
+  return new DOMParser().parseFromString(`<!doctype html><body>${s}`, "text/html").body.textContent || "";
+}
+
+// 자막 파일 내용 → 줄. json3 / 예전 XML(<text start="초">) / srv3(<p t="ms">) 모두
+function parseCaptionText(txt) {
+  txt = (txt || "").trim();
+  if (!txt) return [];
+  if (txt.startsWith("{")) return captionLines(JSON.parse(txt));
+  const doc = new DOMParser().parseFromString(txt, "text/xml");
+  let out = [...doc.querySelectorAll("text")].map((el) => ({ t: Number(el.getAttribute("start")), text: decodeHtml(el.textContent) }));
+  if (!out.length) out = [...doc.querySelectorAll("p")].map((el) => ({ t: Number(el.getAttribute("t")) / 1000, text: decodeHtml(el.textContent) }));
+  return out.map((l) => ({ t: l.t, text: l.text.replace(/\s+/g, " ").trim() })).filter((l) => l.text && Number.isFinite(l.t));
+}
+
+// 직접 올린 한국어 자막 > 다른 직접 올린 자막 > 자동 생성 자막
+function pickTrack(tracks) {
+  return tracks.find((t) => t.kind !== "asr" && /^ko/.test(t.languageCode || "")) ||
+    tracks.find((t) => t.kind !== "asr") || tracks[0];
+}
+
+async function fetchCaptionTrack(baseUrl) {
+  const url = new URL(baseUrl, "https://www.youtube.com");
+  const tries = [];
+  const json3 = new URL(url.href);
+  json3.searchParams.set("fmt", "json3");
+  tries.push(json3.href);
+  const plain = new URL(url.href);
+  plain.searchParams.delete("fmt");
+  tries.push(plain.href, url.href);
+  for (const u of [...new Set(tries)]) {
+    try {
+      const resp = await fetch(u, { credentials: "omit" });
+      const lines = resp.ok ? parseCaptionText(await resp.text()) : [];
+      if (lines.length) return lines;
+    } catch {}
+  }
+  return [];
+}
+
 // 탭을 열지 않는 방법: 확장에서 영상 페이지 HTML 을 받아 '스크립트 표시'와 같은 get_transcript 요청을 직접 보낸다.
 // 안 되면 자막 데이터(timedtext). → { title, lines: [{ t, text }], reason }
 async function fetchTranscriptDirect(videoId) {
@@ -437,10 +477,10 @@ async function fetchTranscriptDirect(videoId) {
   const tracks = (player && player.captions && player.captions.playerCaptionsTracklistRenderer &&
     player.captions.playerCaptionsTracklistRenderer.captionTracks) || [];
   const params = data && findTranscriptParams(data);
-  if (!params && !tracks.length) return { title, lines: [], reason: player && !player.captions ? "none" : "noparams" };
+  if (player && player.videoDetails && !player.captions) return { title, lines: [], reason: "none" };
+  const apiKey = (html.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/) || [])[1];
 
   if (params) {
-    const apiKey = (html.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/) || [])[1];
     const clientVersion = (html.match(/"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"]+)"/) || [])[1] || "2.20250101.00.00";
     const visitorData = (html.match(/"VISITOR_DATA"\s*:\s*"([^"]+)"/) || [])[1];
     const client = { clientName: "WEB", clientVersion, hl: "ko", gl: "KR" };
@@ -459,17 +499,29 @@ async function fetchTranscriptDirect(videoId) {
     } catch {}
   }
 
-  const pick = tracks.find((t) => t.kind !== "asr" && /^ko/.test(t.languageCode || "")) ||
-    tracks.find((t) => t.kind !== "asr") || tracks[0];
+  // 유튜브 모바일 앱과 같은 방식으로 자막 목록을 받아 자막 파일을 읽는다
+  try {
+    const resp = await fetch(`https://www.youtube.com/youtubei/v1/player?prettyPrint=false${apiKey ? `&key=${apiKey}` : ""}`, {
+      method: "POST",
+      credentials: "omit",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context: { client: { clientName: "ANDROID", clientVersion: "20.10.38", hl: "ko", gl: "KR" } }, videoId }),
+    });
+    const p = resp.ok ? await resp.json() : null;
+    const atracks = (p && p.captions && p.captions.playerCaptionsTracklistRenderer &&
+      p.captions.playerCaptionsTracklistRenderer.captionTracks) || [];
+    const pick = pickTrack(atracks);
+    if (pick && pick.baseUrl) {
+      const lines = await fetchCaptionTrack(pick.baseUrl);
+      if (lines.length) return { title: title || (p.videoDetails && p.videoDetails.title) || "", lines };
+    }
+  } catch {}
+
+  // 페이지에 들어 있던 자막 목록으로
+  const pick = pickTrack(tracks);
   if (pick && pick.baseUrl) {
-    try {
-      const url = new URL(pick.baseUrl, "https://www.youtube.com");
-      url.searchParams.set("fmt", "json3");
-      const resp = await fetch(url.href, { credentials: "omit" });
-      const txt = resp.ok ? await resp.text() : "";
-      const lines = txt ? captionLines(JSON.parse(txt)) : [];
-      if (lines.length) return { title, lines };
-    } catch {}
+    const lines = await fetchCaptionTrack(pick.baseUrl);
+    if (lines.length) return { title, lines };
   }
   return { title, lines: [], reason: "apifail" };
 }
@@ -480,6 +532,15 @@ async function fetchTranscriptDirect(videoId) {
 async function fetchTranscriptInPage() {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   for (let i = 0; i < 60 && !(window.ytcfg && window.ytInitialData && window.ytInitialPlayerResponse); i++) await sleep(250);
+  // 영상은 소리 없이 멈춰 둔다 (스크립트만 읽으면 되므로)
+  const hush = () => document.querySelectorAll("video").forEach((v) => {
+    try {
+      v.muted = true;
+      v.pause();
+    } catch {}
+  });
+  hush();
+  setTimeout(hush, 1500);
   const player = window.ytInitialPlayerResponse;
   const title = (player && player.videoDetails && player.videoDetails.title) || document.title.replace(/ - YouTube$/, "");
   const data = window.ytInitialData;
@@ -574,34 +635,64 @@ function addTranscriptLines(result, row, r) {
   for (const l of r.lines) if (l.t !== null && Number.isFinite(l.t) && l.text) result.lines.push({ t: l.t, text: l.text });
 }
 
-// 1) 탭을 열지 않고 확장에서 바로 스크립트 데이터를 받는다 (대부분 여기서 끝남).
-// 2) 안 되면 영상 페이지를 뒤쪽 탭으로 열어 페이지 안에서 같은 요청을 보낸다 (로그인 상태로).
-// 3) 그래도 안 되면 유튜브 탭을 잠깐 앞으로 띄워 '…더보기' → '스크립트 표시'를 직접 누른다
-//    (뒤쪽 탭에서는 유튜브가 화면을 그리지 않아 버튼을 못 찾기 때문). 못 찾으면 새로고침해 한 번 더.
-async function readYoutubeTranscript(videoId, row, result) {
+// 수집 화면 안의 보이지 않는 틀(iframe)에 영상 페이지를 열고, 그 페이지 안에서 스크립트를 요청한다.
+// 새 탭·창을 띄우지 않으므로 다른 작업을 방해하지 않는다.
+async function readInHiddenFrame(videoId) {
+  const me = await chrome.tabs.getCurrent();
+  if (!me) return null;
+  const frame = document.createElement("iframe");
+  frame.style.cssText = "position:fixed;left:-10000px;top:0;width:800px;height:600px;border:0;visibility:hidden";
+  frame.setAttribute("aria-hidden", "true");
+  frame.tabIndex = -1;
+  frame.src = `https://www.youtube.com/watch?v=${videoId}&hl=ko`;
+  try {
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 25000);
+      frame.addEventListener("load", () => {
+        clearTimeout(timer);
+        resolve();
+      }, { once: true });
+      document.body.appendChild(frame);
+    });
+    const frames = await chrome.webNavigation.getAllFrames({ tabId: me.id });
+    const f = (frames || []).find((x) => x.frameId !== 0 && x.url.includes(`v=${videoId}`));
+    if (!f) return null;
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId: me.id, frameIds: [f.frameId] },
+      world: "MAIN",
+      func: fetchTranscriptInPage,
+    });
+    return res && res.result;
+  } catch {
+    return null;
+  } finally {
+    frame.remove();
+  }
+}
+
+// 1) 탭을 열지 않고 확장에서 바로 스크립트 데이터를 받는다.
+// 2) 안 되면 수집 화면 안의 보이지 않는 틀에서 영상 페이지를 열어 페이지 안에서 같은 요청을 보낸다.
+//    (1, 2 는 화면에 아무것도 띄우지 않는다)
+// 3) visibleUi(사용자가 [화면에서 가져오기]를 누른 경우)일 때만 유튜브 탭을 띄워 '…더보기' → '스크립트 표시'를
+//    직접 누른다 (화면이 그려져야 버튼이 생기기 때문). 못 찾으면 새로고침해 한 번 더.
+async function readYoutubeTranscript(videoId, row, result, visibleUi) {
+  const watch = `https://www.youtube.com/watch?v=${videoId}`;
   setRowStatus(row, "스크립트 가져오는 중…");
-  const direct = await fetchTranscriptDirect(videoId);
-  if (direct.lines.length || direct.reason === "none") {
-    addTranscriptLines(result, row, direct);
-    if (!result.lines.length) throw new NoTranscriptError("이 영상에는 유튜브 스크립트가 없습니다");
-    return;
+  let r = await fetchTranscriptDirect(videoId);
+
+  if (!r.lines.length && r.reason !== "none") {
+    setRowStatus(row, "스크립트 가져오는 중… (영상 페이지에서)");
+    const inPage = await readInHiddenFrame(videoId);
+    if (inPage) r = { ...inPage, title: inPage.title || r.title };
   }
 
-  setRowStatus(row, "유튜브 영상 페이지 여는 중… (뒤쪽 탭)");
-  const me = await chrome.tabs.getCurrent().catch(() => null);
-  const tab = await chrome.tabs.create({ url: `https://www.youtube.com/watch?v=${videoId}`, active: false });
-  let shown = false;
-  try {
-    await chrome.tabs.update(tab.id, { muted: true }).catch(() => {});
-    await waitTabComplete(tab.id);
-    setRowStatus(row, "스크립트 가져오는 중…");
-    const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: fetchTranscriptInPage });
-    let r = (res && res.result) || { title: "", lines: [], reason: "nodata" };
-
-    if (!r.lines.length && r.reason !== "none") {
-      setRowStatus(row, "화면에서 '스크립트 표시'를 눌러 가져오는 중… (유튜브 탭이 잠깐 보입니다)");
-      await chrome.tabs.update(tab.id, { active: true });
-      shown = true;
+  if (!r.lines.length && r.reason !== "none" && visibleUi) {
+    setRowStatus(row, "화면에서 '스크립트 표시'를 눌러 가져오는 중… (유튜브 탭이 잠깐 보입니다)");
+    const me = await chrome.tabs.getCurrent().catch(() => null);
+    const tab = await chrome.tabs.create({ url: watch, active: true });
+    try {
+      await chrome.tabs.update(tab.id, { muted: true }).catch(() => {});
+      await waitTabComplete(tab.id);
       for (let attempt = 1; attempt <= 2; attempt++) {
         if (attempt > 1) {
           setRowStatus(row, "스크립트를 찾지 못해 페이지를 새로고침해 다시 찾는 중…");
@@ -616,15 +707,14 @@ async function readYoutubeTranscript(videoId, row, result) {
         }
         if (u && u.title && !r.title) r.title = u.title;
       }
+    } finally {
+      chrome.tabs.remove(tab.id).catch(() => {});
+      if (me) chrome.tabs.update(me.id, { active: true }).catch(() => {});
     }
-
-    if (!r.title) r.title = direct.title;
-    addTranscriptLines(result, row, r);
-    if (!result.lines.length) throw new NoTranscriptError("이 영상에는 유튜브 스크립트가 없습니다");
-  } finally {
-    chrome.tabs.remove(tab.id).catch(() => {});
-    if (shown && me) chrome.tabs.update(me.id, { active: true }).catch(() => {});
   }
+
+  addTranscriptLines(result, row, r);
+  if (!result.lines.length) throw new NoTranscriptError("이 영상에는 유튜브 스크립트가 없습니다");
 }
 
 // ---------------------------------------------------------------------------
@@ -738,7 +828,7 @@ async function transcribeVideo(url, row, index, opts) {
 
   if (opts.mode === "transcript") {
     try {
-      await readYoutubeTranscript(videoId, row, result);
+      await readYoutubeTranscript(videoId, row, result, opts.visibleUi);
       return result;
     } catch (e) {
       if (!(e instanceof NoTranscriptError) || opts.fallback === "ask") throw e;
@@ -851,7 +941,12 @@ function setRunning(on) {
 function offerRetry(row, i, url, opts, missing) {
   const td = row.querySelector(".actions");
   td.innerHTML = "";
-  rowButton(td, "재시도", () => retryWith(i, url, row, opts), "retry");
+  const base = { ...opts, visibleUi: false };
+  rowButton(td, "재시도", () => retryWith(i, url, row, base), "retry");
+  if (opts.mode === "transcript") {
+    const b = rowButton(td, "화면에서 가져오기", () => retryWith(i, url, row, { ...base, visibleUi: true }), "retry");
+    b.title = "유튜브 탭을 잠깐 띄워 '…더보기 → 스크립트 표시'를 직접 눌러 가져옵니다";
+  }
   if (!missing) return;
   for (const [mode, label] of [["screen", "화면 자막으로"], ["speech", "음성으로"]]) {
     const b = rowButton(td, label, () => retryWith(i, url, row, { ...opts, mode, speed: DEFAULT_SPEED[mode] }), "retry");
@@ -879,7 +974,7 @@ async function runOneInner(i, url, row, opts) {
     return "ok";
   } catch (e) {
     if (e instanceof NoTranscriptError) {
-      setRowStatus(row, "유튜브 스크립트를 찾지 못했습니다 → [재시도] 또는 다른 방식을 고르세요", "err");
+      setRowStatus(row, "유튜브 스크립트를 찾지 못했습니다 → [화면에서 가져오기] 또는 다른 방식을 고르세요", "err");
       offerRetry(row, i, url, opts, true);
       return "missing";
     }
@@ -909,7 +1004,7 @@ async function retryAllFailed() {
   for (let k = 0; k < todo.length && running; k++) {
     const i = todo[k];
     setSummary(`수집 안 된 영상 다시 수집 중… (${k + 1} / ${todo.length}, ${i + 1}번 영상)`);
-    count[await runOne(i, runUrls[i], runRows[i], { ...currentOpts(), ...runOpts[i] })]++;
+    count[await runOne(i, runUrls[i], runRows[i], { ...currentOpts(), ...runOpts[i], visibleUi: false })]++;
   }
   const stopped = !running;
   setRunning(false);

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube 스크립트 및 영상 파일 추출",
-  "version": "1.12.0",
+  "version": "1.13.0",
   "description": "유튜브 영상 URL을 넣으면 들리는 말(음성 인식)이나 화면 하단 자막(화면 자막 인식)으로 '00:00 스크립트' 텍스트를 만들거나, 영상을 .mp4 영상 파일이나 .mp3 음성 파일로 저장합니다.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlQYIzf3fgfq8TIbd65UrNqADO8O2MNWP9PbzHTOz9TaPgT4lHSObUd1zN1LI3pTYBhLesSxgMqb82JCMouMuT7qyMgo8igIZY6FLhjvUQG+VoDVoluTNJkEikf75ZgXBkWnCXcMwKH8C2IsqxtcCk5EZtgPtqQ9zhAJs1g9k53tXh66R3Lh4WaZrVCq4PmS+H3wZIU/zLecNcaNpSBZ5UL46OABMNl++1/SuefMdcoy4Ymud9VppKXGKAyCAQJdveuiJtAXSjNZ+SOzk2dQz60Bczy746xESSURZsBET+aOc+mIiNgIKQZwxRDu2S/rgrZN8+DjmDwdJtmRzrbxAsQIDAQAB",
   "action": {
@@ -14,7 +14,8 @@
     "scripting",
     "downloads",
     "nativeMessaging",
-    "declarativeNetRequest"
+    "declarativeNetRequest",
+    "webNavigation"
   ],
   "host_permissions": [
     "https://www.youtube.com/*"
