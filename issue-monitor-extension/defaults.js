@@ -243,6 +243,58 @@ const DEFAULT_KEYWORDS = `품질: 고장, 불량, 메시지, 무상 수리, 무�
 결품: 결품, 재고, 부품, 수급, 부품 대기, 부품대기, 지연, 대기중, 입고 대기
 제외: 출고 후기, 출고기, 시승기, 가입인사, 등업, 이벤트, 공지, 판매합니다, 삽니다, 나눔, 출고 대기, 출고대기, 출고 기다, 검수 업체, 검수업체, 검수 대행, 검수대행, 광고, 홍보, 오일교환, 오일 교환, 출석 도장, 출석도장, 출근 도장, 출근도장, 퇴근 도장, 퇴근도장, 출석체크, 출석 체크, 출첵, 출석부`;
 
+// 공휴일·회사 휴무일: 이 날과 주말(근무 요일이 아닌 날)은 수집만 하고, 다음 근무일 보고서에 합친다
+// 음력 공휴일(설·부처님오신날·추석)과 대체공휴일은 정부 발표로 꼭 확인해서 고쳐 주세요.
+const DEFAULT_HOLIDAYS = `# YYYY-MM-DD 이름  (한 줄에 하루, # 은 메모)
+2026-12-25 성탄절
+2027-01-01 신정
+2027-02-05 설날 연휴
+2027-02-06 설날
+2027-02-07 설날 연휴
+2027-02-08 대체공휴일(설날)
+2027-03-01 삼일절
+2027-05-05 어린이날
+2027-05-13 부처님오신날
+2027-06-06 현충일
+2027-08-15 광복절
+2027-08-16 대체공휴일(광복절)
+2027-09-14 추석 연휴
+2027-09-15 추석
+2027-09-16 추석 연휴
+2027-10-03 개천절
+2027-10-04 대체공휴일(개천절)
+2027-10-09 한글날
+2027-10-11 대체공휴일(한글날)
+2027-12-25 성탄절
+2027-12-27 대체공휴일(성탄절)`;
+
+function ymdKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function holidayMap(text) {
+  const out = new Map();
+  for (const line of String(text || "").split("\n")) {
+    const m = line.trim().match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})\s*(.*)$/);
+    if (m) out.set(`${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`, m[4] || "휴일");
+  }
+  return out;
+}
+
+// 근무일인지: 근무 요일(기본 월~금)이고 휴일 목록에 없는 날
+function isWorkday(d, s) {
+  const days = String(s.workdays || "1,2,3,4,5").split(",").map((x) => +x);
+  return days.includes(d.getDay()) && !holidayMap(s.holidays).has(ymdKey(d));
+}
+
+// 그날이 휴일이면 이유("토요일", "한글날" 등), 근무일이면 ""
+function dayOffReason(d, s) {
+  const name = holidayMap(s.holidays).get(ymdKey(d));
+  if (name) return name;
+  const days = String(s.workdays || "1,2,3,4,5").split(",").map((x) => +x);
+  return days.includes(d.getDay()) ? "" : `${"일월화수목금토"[d.getDay()]}요일`;
+}
+
 // '주요 내용' 칸을 노란색으로 칠할 집중 관리 항목
 const DEFAULT_HIGHLIGHTS = [
   { car: "LX3", topic: "전동 시트(2열·3열 포함) 관련 불만·고장·작동 오류, 시트 관련 업데이트 의견" },
@@ -261,6 +313,10 @@ const DEFAULT_SETTINGS = {
   keywords: DEFAULT_KEYWORDS,
   fileName: "{날짜}_차종별 온라인 동향_통합",
   priorityCars: "ME1, NH2, CN8, NX5, GN7 PE, US4 EV, JW",
+  workdayReport: true, // 근무일 보고서: 근무일 아침에만 엑셀을 받고, 휴일 수집분은 다음 근무일에 합침
+  collectOnHolidays: true, // 휴일에도 미리 수집해 둠 (근무일 아침 수집량이 줄어 빨리 끝남)
+  workdays: "1,2,3,4,5", // 0=일 … 6=토
+  holidays: DEFAULT_HOLIDAYS,
   customPrompt: "",
   customPromptUpdatedAt: 0,
   promptHistory: [],

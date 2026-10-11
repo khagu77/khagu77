@@ -39,6 +39,8 @@ async function schedule() {
 async function startAutoRun() {
   const { lastAutoRun } = await chrome.storage.local.get("lastAutoRun");
   if (lastAutoRun === todayKey()) return; // 오늘 이미 함
+  const s = await loadSettings();
+  if (s.workdayReport && !s.collectOnHolidays && !isWorkday(new Date(), s)) return; // 휴일엔 쉬기로 함
   await chrome.storage.local.set({ lastAutoRun: todayKey() });
   await openApp(true);
 }
@@ -74,8 +76,12 @@ chrome.runtime.onMessage.addListener((msg) => {
     chrome.notifications.create({
       type: "basic",
       iconUrl: "icons/icon128.png",
-      title: "부정 이슈 모니터링 완료",
-      message: msg.blocked ? `${msg.count}건 저장 (주의: ${msg.blocked})` : `${msg.count}건을 엑셀로 다운로드 폴더에 저장했습니다.`,
+      title: msg.holiday ? "부정 이슈 모니터링: 휴일 수집 완료" : "부정 이슈 모니터링 완료",
+      message: msg.holiday
+        ? `${msg.count}건 수집 (${msg.holiday}) → 다음 근무일 아침 보고서에 합쳐집니다.`
+        : msg.blocked
+          ? `${msg.count}건 저장 (주의: ${msg.blocked})`
+          : `${msg.count}건을 엑셀로 다운로드 폴더에 저장했습니다.`,
     });
   }
 });

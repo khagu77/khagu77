@@ -163,7 +163,13 @@ function updateAiInfo() {
 
 function updateAutoInfo() {
   const s = state.settings;
-  $("#autoInfo").textContent = s.autoRun ? `자동 수집: 매일 ${s.autoRunTime} (설정에서 바꿀 수 있습니다)` : "자동 수집: 꺼짐";
+  if (!s.autoRun) {
+    $("#autoInfo").textContent = "자동 수집: 꺼짐";
+    return;
+  }
+  const off = dayOffReason(new Date(), s);
+  const mode = s.workdayReport ? ` · 근무일 보고서 모드${s.collectOnHolidays ? " (휴일엔 수집만, 다음 근무일에 합본)" : " (휴일엔 쉼)"}` : "";
+  $("#autoInfo").textContent = `자동 수집: 매일 ${s.autoRunTime}${mode} · 오늘은 ${off ? `휴일(${off})` : "근무일"}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -725,6 +731,36 @@ $("#viewFile").addEventListener("change", async (ev) => {
   }
 });
 
+// 근무일 보고서: 지난 보고서 이후 자동 수집한 회차(휴일 수집분 포함)를 하나로 합친다
+// (같은 게시물은 처음 것만, 보고 필요는 합친 전체에서 다시 4~6건)
+async function buildWorkdayReport(ai, settings) {
+  const { lastReportAt = 0 } = await chrome.storage.local.get("lastReportAt");
+  const since = Math.max(lastReportAt, Date.now() - 10 * 86400000); // 처음이거나 오래 비었으면 최근 10일까지만
+  const runs = (await dbList()).filter((e) => e.auto && !e.workdayReport && e.finishedAt > since).sort((a, b) => a.finishedAt - b.finishedAt);
+  if (runs.length <= 1) return; // 이번 회차뿐이면 그대로
+  state.rows = [];
+  state.seenKeys = new Set();
+  let idx = 0;
+  for (const e of runs) for (const r of deserializeRows(e.rows)) pushRow({ ...r, fromBase: true, baseIdx: idx++ });
+  state.range = { start: new Date(runs[0].range.start), end: new Date(runs[runs.length - 1].range.end) };
+  log(`근무일 보고서: 자동 수집 ${runs.length}회 합본 (${fmtDateTime(state.range.start)} ~ ${fmtDateTime(state.range.end)}, ${state.rows.length}건)`);
+  await pickReports(state.rows.filter(isCafeRow), ai, settings);
+  renderResults();
+  await saveLastResult();
+  await dbSave({
+    id: `report-${Date.now()}`,
+    startedAt: runs[0].startedAt,
+    finishedAt: Date.now(),
+    range: { start: state.range.start.getTime(), end: state.range.end.getTime() },
+    count: state.rows.length,
+    costUsd: runs.reduce((s, e) => s + (e.costUsd || 0), 0),
+    model: settings.model,
+    base: `근무일 합본 ${runs.length}회`,
+    workdayReport: true,
+    rows: serializeRows(state.rows),
+  });
+}
+
 async function runCollection() {
   if (state.running) return;
   const settings = state.settings;
@@ -885,6 +921,7 @@ async function runCollection() {
     base: state.base ? state.base.label : "",
     stopped: state.stopRequested,
     blocked: state.naverBlocked || "",
+    auto: AUTO,
     rows: serializeRows(state.rows),
   });
   await renderBaseOptions();
@@ -899,13 +936,22 @@ async function runCollection() {
 
   if (AUTO) {
     if (!state.stopRequested) await chrome.storage.local.set({ lastAutoRangeEnd: range.end.getTime() });
-    try {
-      await downloadReport();
-      log("엑셀을 다운로드 폴더에 저장했습니다");
-    } catch (e) {
-      log(`엑셀 저장 실패: ${e.message}`, "err");
+    const off = settings.workdayReport ? dayOffReason(new Date(), settings) : "";
+    if (off) {
+      // 휴일: 수집만 해 두고 다음 근무일 아침 보고서에 합친다
+      log(`오늘은 ${off} → 엑셀은 받지 않고 데일리 DB 에 저장했습니다. 다음 근무일 아침 보고서에 합쳐집니다.`);
+      chrome.runtime.sendMessage({ type: "autoRunDone", count: state.rows.length, holiday: off }).catch(() => {});
+    } else {
+      try {
+        if (settings.workdayReport) await buildWorkdayReport(ai, settings);
+        await downloadReport(state.rows, state.range);
+        await chrome.storage.local.set({ lastReportAt: finishedAt });
+        log("엑셀을 다운로드 폴더에 저장했습니다");
+      } catch (e) {
+        log(`엑셀 저장 실패: ${e.message}`, "err");
+      }
+      chrome.runtime.sendMessage({ type: "autoRunDone", count: state.rows.length, blocked: state.naverBlocked }).catch(() => {});
     }
-    chrome.runtime.sendMessage({ type: "autoRunDone", count: state.rows.length, blocked: state.naverBlocked }).catch(() => {});
   }
 }
 
@@ -1010,6 +1056,13 @@ function renderSettings() {
   for (const m of MODELS) sel.append(el("option", { value: m.id, text: `${m.label} — 100만 토큰당 입력 $${m.price[0]} / 출력 $${m.price[1]}`, selected: m.id === s.model }));
   $("#autoRun").checked = !!s.autoRun;
   $("#autoRunTime").value = s.autoRunTime || "06:00";
+  $("#workdayReport").checked = s.workdayReport !== false;
+  $("#collectOnHolidays").checked = s.collectOnHolidays !== false;
+  $("#holidays").value = s.holidays || "";
+  const days = String(s.workdays || "1,2,3,4,5").split(",").map((x) => +x);
+  const box = $("#workdayBoxes");
+  box.textContent = "";
+  [1, 2, 3, 4, 5, 6, 0].forEach((d) => box.append(el("label", { class: "check", style: "display:inline-flex;margin:0 8px 0 0" }, el("input", { type: "checkbox", "data-day": d, checked: days.includes(d) }), "일월화수목금토"[d])));
   $("#speed").value = s.speed || "normal";
   $("#carCodes").value = s.carCodes || "";
   $("#keywords").value = s.keywords || "";
@@ -1091,6 +1144,10 @@ function readSettingsForm() {
   draft.model = $("#model").value;
   draft.autoRun = $("#autoRun").checked;
   draft.autoRunTime = $("#autoRunTime").value || "06:00";
+  draft.workdayReport = $("#workdayReport").checked;
+  draft.collectOnHolidays = $("#collectOnHolidays").checked;
+  draft.holidays = $("#holidays").value;
+  draft.workdays = [...document.querySelectorAll("#workdayBoxes input:checked")].map((x) => x.dataset.day).join(",") || "1,2,3,4,5";
   draft.speed = $("#speed").value;
   draft.carCodes = $("#carCodes").value;
   draft.keywords = $("#keywords").value;
