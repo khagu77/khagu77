@@ -275,6 +275,21 @@ async function grabTranscriptInPage() {
   const getTitle = () => text(document.querySelector("h1.ytd-watch-metadata, #title h1")) || document.title.replace(/ - YouTube$/, "");
   const isShowTranscript = (el) => /스크립트\s*표시|show transcript/i.test(`${el.getAttribute("aria-label") || ""} ${text(el)}`);
   const SEGMENTS = "ytd-transcript-segment-renderer, transcript-segment-view-model";
+  // 새 스크립트 화면은 줄마다 읽어주기용 시간 글자('0초', '1분 9초', '1 minute, 9 seconds')가 붙어 있어 뺀다
+  const clockSec = (t) => t.split(":").reduce((a, b) => a * 60 + Number(b), 0);
+  const stripTimeLabel = (body, time) => {
+    for (const re of [
+      /^(?:(\d+)\s*시간\s*)?(?:(\d+)\s*분\s*)?(?:(\d+)\s*초)?/,
+      /^(?:(\d+)\s*hours?,?\s*)?(?:(\d+)\s*minutes?,?\s*)?(?:(\d+)\s*seconds?)?/i,
+    ]) {
+      const m = body.match(re);
+      if (m && m[0].trim()) {
+        const sec = Number(m[1] || 0) * 3600 + Number(m[2] || 0) * 60 + Number(m[3] || 0);
+        if (sec === clockSec(time)) return body.slice(m[0].length).trim();
+      }
+    }
+    return body;
+  };
   const segments = () => document.querySelectorAll(SEGMENTS);
 
   // 소리 없이, 영상은 멈춰 둔다 (스크립트만 읽으면 되므로)
@@ -333,42 +348,147 @@ async function grabTranscriptInPage() {
       time = time || parts.find((t) => /^\d+(:\d{2})+$/.test(t)) || "";
       body = body || parts.filter((t) => t !== time).join(" ");
     }
-    if (time && body) lines.push({ time, text: body.replace(/\s+/g, " ") });
+    if (time && body) lines.push({ time, text: stripTimeLabel(body.replace(/\s+/g, " ").trim(), time) });
   }
   return { title: getTitle(), lines };
 }
 
-// 영상 페이지를 백그라운드 탭(화면이 바뀌지 않음)으로 열어 스크립트를 읽는다.
-// 화면이 늦게 그려져 '스크립트 표시'를 못 찾는 경우가 있어, 못 찾으면 새로고침해서 한 번 더 시도한다.
+// 유튜브 탭 안(페이지 쪽, world: MAIN)에서 실행: 화면을 그리지 않아도 되는 방법.
+// '스크립트 표시' 버튼이 부르는 것과 같은 유튜브 요청(get_transcript)으로 스크립트 데이터를 바로 받는다.
+// → { title, lines: [{ t(초), text }], reason }   reason: "none"(자막이 아예 없는 영상) / "noparams" / "apifail" / "nodata"
+async function fetchTranscriptInPage() {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  for (let i = 0; i < 60 && !(window.ytcfg && window.ytInitialData && window.ytInitialPlayerResponse); i++) await sleep(250);
+  const player = window.ytInitialPlayerResponse;
+  const title = (player && player.videoDetails && player.videoDetails.title) || document.title.replace(/ - YouTube$/, "");
+  const data = window.ytInitialData;
+  const cfg = window.ytcfg;
+  if (!data || !cfg) return { title, lines: [], reason: "nodata" };
+
+  let params = null;
+  (function walk(o) {
+    if (params || !o || typeof o !== "object") return;
+    if (o.getTranscriptEndpoint && o.getTranscriptEndpoint.params) {
+      params = o.getTranscriptEndpoint.params;
+      return;
+    }
+    for (const v of Object.values(o)) walk(v);
+  })(data);
+  const tracks = (player && player.captions && player.captions.playerCaptionsTracklistRenderer &&
+    player.captions.playerCaptionsTracklistRenderer.captionTracks) || [];
+  if (!params && !tracks.length) return { title, lines: [], reason: player && !player.captions ? "none" : "noparams" };
+
+  const get = (k) => {
+    try {
+      return cfg.get(k);
+    } catch {
+      return undefined;
+    }
+  };
+  const key = get("INNERTUBE_API_KEY");
+  const url = `/youtubei/v1/get_transcript?prettyPrint=false${key ? `&key=${key}` : ""}`;
+  const body = JSON.stringify({ context: get("INNERTUBE_CONTEXT"), params });
+  const headers = { "Content-Type": "application/json" };
+  if (get("INNERTUBE_CONTEXT_CLIENT_NAME")) headers["X-Youtube-Client-Name"] = String(get("INNERTUBE_CONTEXT_CLIENT_NAME"));
+  if (get("INNERTUBE_CLIENT_VERSION")) headers["X-Youtube-Client-Version"] = String(get("INNERTUBE_CLIENT_VERSION"));
+
+  // 로그인한 상태면 유튜브 화면과 같은 인증 머리글을 붙인다 (없으면 로그인 없이)
+  let auth = null;
+  const sid = document.cookie.match(/(?:^|; )(?:SAPISID|__Secure-3PAPISID)=([^;]+)/);
+  if (sid && crypto.subtle) {
+    const ts = Math.floor(Date.now() / 1000);
+    const hash = await crypto.subtle.digest("SHA-1", new TextEncoder().encode(`${ts} ${sid[1]} ${location.origin}`));
+    const hex = [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    auth = `SAPISIDHASH ${ts}_${hex}`;
+  }
+  const attempts = [];
+  if (auth) attempts.push({ credentials: "include", headers: { ...headers, Authorization: auth, "X-Origin": location.origin, "X-Goog-AuthUser": "0" } });
+  attempts.push({ credentials: "include", headers }, { credentials: "omit", headers });
+
+  for (const a of params ? attempts : []) {
+    try {
+      const resp = await fetch(url, { method: "POST", body, ...a });
+      if (!resp.ok) continue;
+      const json = await resp.json();
+      const lines = [];
+      (function walk(o) {
+        if (!o || typeof o !== "object") return;
+        const seg = o.transcriptSegmentRenderer;
+        if (seg) {
+          const sn = seg.snippet || {};
+          const text = ((sn.runs || []).map((r) => r.text).join("") || sn.simpleText || "").replace(/\s+/g, " ").trim();
+          const ms = Number(seg.startMs);
+          if (text && Number.isFinite(ms)) lines.push({ t: ms / 1000, text });
+          return;
+        }
+        for (const v of Object.values(o)) walk(v);
+      })(json);
+      if (lines.length) return { title, lines };
+    } catch {}
+  }
+
+  // 그래도 안 되면 영상의 자막 데이터를 직접 받는다 (직접 올린 한국어 자막 > 다른 직접 올린 자막 > 자동 생성 자막)
+  const pick = tracks.find((t) => t.kind !== "asr" && /^ko/.test(t.languageCode || "")) ||
+    tracks.find((t) => t.kind !== "asr") || tracks[0];
+  if (pick && pick.baseUrl) {
+    try {
+      const resp = await fetch(`${pick.baseUrl}&fmt=json3`, { credentials: "include" });
+      const txt = resp.ok ? await resp.text() : "";
+      const json = txt ? JSON.parse(txt) : null;
+      const lines = ((json && json.events) || [])
+        .filter((e) => e.segs && Number.isFinite(Number(e.tStartMs)))
+        .map((e) => ({ t: Number(e.tStartMs) / 1000, text: e.segs.map((g) => g.utf8 || "").join("").replace(/\s+/g, " ").trim() }))
+        .filter((l) => l.text);
+      if (lines.length) return { title, lines };
+    } catch {}
+  }
+  return { title, lines: [], reason: "apifail" };
+}
+
+// 1) 영상 페이지를 보이지 않는 뒤쪽 탭으로 열어 스크립트 데이터를 바로 받는다 (화면이 바뀌지 않음).
+// 2) 그게 안 되면 유튜브 탭을 잠깐 앞으로 띄워 '…더보기' → '스크립트 표시'를 직접 누른다
+//    (뒤쪽 탭에서는 유튜브가 화면을 그리지 않아 버튼을 못 찾기 때문). 못 찾으면 새로고침해 한 번 더.
 async function readYoutubeTranscript(videoId, row, result) {
-  setRowStatus(row, "유튜브 영상 페이지 여는 중… (백그라운드)");
+  setRowStatus(row, "유튜브 영상 페이지 여는 중… (뒤쪽 탭)");
+  const me = await chrome.tabs.getCurrent().catch(() => null);
   const tab = await chrome.tabs.create({ url: `https://www.youtube.com/watch?v=${videoId}`, active: false });
+  let shown = false;
   try {
     await chrome.tabs.update(tab.id, { muted: true }).catch(() => {});
-    let r = null;
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      if (attempt > 1) {
-        setRowStatus(row, "스크립트를 찾지 못해 페이지를 새로고침해 다시 찾는 중…");
-        await chrome.tabs.reload(tab.id);
+    await waitTabComplete(tab.id);
+    setRowStatus(row, "스크립트 가져오는 중…");
+    const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: fetchTranscriptInPage });
+    let r = (res && res.result) || { title: "", lines: [], reason: "nodata" };
+
+    if (!r.lines.length && r.reason !== "none") {
+      setRowStatus(row, "화면에서 '스크립트 표시'를 눌러 가져오는 중… (유튜브 탭이 잠깐 보입니다)");
+      await chrome.tabs.update(tab.id, { active: true });
+      shown = true;
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        if (attempt > 1) {
+          setRowStatus(row, "스크립트를 찾지 못해 페이지를 새로고침해 다시 찾는 중…");
+          await chrome.tabs.reload(tab.id);
+          await waitTabComplete(tab.id);
+        }
+        const [ui] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: grabTranscriptInPage });
+        const u = ui && ui.result;
+        if (u && u.lines.length) {
+          r = { title: u.title || r.title, lines: u.lines.map((l) => ({ t: parseClock(l.time), text: l.text })) };
+          break;
+        }
+        if (u && u.title && !r.title) r.title = u.title;
       }
-      await waitTabComplete(tab.id);
-      setRowStatus(row, "'…더보기' → '스크립트 표시' 여는 중…");
-      const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: grabTranscriptInPage });
-      r = res && res.result;
-      if (r && r.lines.length) break;
     }
-    if (!r) throw new Error("유튜브 화면을 읽지 못했습니다");
+
     if (r.title) {
       result.title = r.title;
       setRowTitle(row, r.title);
     }
-    for (const l of r.lines) {
-      const t = parseClock(l.time);
-      if (t !== null && l.text) result.lines.push({ t, text: l.text });
-    }
+    for (const l of r.lines) if (l.t !== null && Number.isFinite(l.t) && l.text) result.lines.push({ t: l.t, text: l.text });
     if (!result.lines.length) throw new NoTranscriptError("이 영상에는 유튜브 스크립트가 없습니다");
   } finally {
     chrome.tabs.remove(tab.id).catch(() => {});
+    if (shown && me) chrome.tabs.update(me.id, { active: true }).catch(() => {});
   }
 }
 
@@ -380,6 +500,9 @@ let running = false;
 let abortDrain = null;
 const results = []; // { title, videoId, url, lines, fixed }
 let runUrls = []; // 이번에 수집한 URL (전체 파일 순서)
+const runRows = []; // 영상별 진행 줄
+const runOpts = []; // 영상별 마지막 수집 방식
+const runState = []; // 영상별 'ok' | 'missing' | 'fail'
 let selected = -1;
 
 function showResult(i) {
@@ -458,8 +581,17 @@ function combinedText() {
   return parts.join("\n\n\n");
 }
 
+// 수집 안 된(실패·스크립트 없음) 유튜브 영상 번호
+function failedIndexes() {
+  return runUrls.map((u, i) => i).filter((i) => runState[i] && runState[i] !== "ok" && parseYoutubeId(runUrls[i]));
+}
+
 function updateSaveAll() {
-  $("#saveAll").disabled = !results.some((r) => r && r.lines.length);
+  $("#saveAll").disabled = running || !results.some((r) => r && r.lines.length);
+  const n = failedIndexes().length;
+  $("#retryFailed").hidden = !n;
+  $("#retryFailed").disabled = running || !n;
+  $("#retryFailed").textContent = `수집 안 된 영상 전체 다시 수집 (${n}개)`;
 }
 
 async function transcribeVideo(url, row, index, opts) {
@@ -577,6 +709,7 @@ function setRunning(on) {
   $("#start").disabled = on;
   $("#stop").disabled = !on;
   document.querySelectorAll("button.retry").forEach((b) => (b.disabled = on));
+  updateSaveAll();
 }
 
 // 실패한 줄에는 [재시도], 스크립트가 없는 줄에는 [재시도] [화면 자막으로] [음성으로]
@@ -593,6 +726,14 @@ function offerRetry(row, i, url, opts, missing) {
 
 // 영상 하나 → 'ok' | 'missing'(스크립트 없음) | 'fail'  (파일은 자동으로 받지 않음)
 async function runOne(i, url, row, opts) {
+  runRows[i] = row;
+  runOpts[i] = opts;
+  runState[i] = await runOneInner(i, url, row, opts);
+  updateSaveAll();
+  return runState[i];
+}
+
+async function runOneInner(i, url, row, opts) {
   showResult(i);
   try {
     const r = await transcribeVideo(url, row, i, opts);
@@ -612,9 +753,38 @@ async function runOne(i, url, row, opts) {
     if (results[i]) showResult(i);
     if (parseYoutubeId(url)) offerRetry(row, i, url, opts, false);
     return "fail";
-  } finally {
-    updateSaveAll();
   }
+}
+
+function finishAlert(title, count) {
+  alert(
+    `${title}\n\n성공 ${count.ok}개` +
+      (count.missing ? ` · 스크립트 없음 ${count.missing}개` : "") +
+      (count.fail ? ` · 실패 ${count.fail}개` : "") +
+      `\n\n'전체 스크립트 한 파일로 받기' 버튼으로 모든 스크립트를 한 파일에 받을 수 있습니다.`,
+  );
+}
+
+// 수집 안 된 영상들을 각자 마지막 방식으로 차례대로 다시 수집
+async function retryAllFailed() {
+  const todo = failedIndexes();
+  if (running || !todo.length) return;
+  setRunning(true);
+  const count = { ok: 0, missing: 0, fail: 0 };
+  for (let k = 0; k < todo.length && running; k++) {
+    const i = todo[k];
+    setSummary(`수집 안 된 영상 다시 수집 중… (${k + 1} / ${todo.length}, ${i + 1}번 영상)`);
+    count[await runOne(i, runUrls[i], runRows[i], { ...currentOpts(), ...runOpts[i] })]++;
+  }
+  const stopped = !running;
+  setRunning(false);
+  if (stopped) return setSummary("중지했습니다.");
+  const left = failedIndexes().length;
+  setSummary(
+    `다시 수집: ${count.ok} / ${todo.length}개 성공.` + (left ? ` 아직 수집 안 된 영상 ${left}개.` : " 모든 영상을 수집했습니다."),
+    left ? "" : "ok",
+  );
+  finishAlert("수집 안 된 영상 다시 수집을 마쳤습니다.", count);
 }
 
 async function retryWith(i, url, row, opts) {
@@ -636,6 +806,7 @@ async function start() {
   setRunning(true);
   $("#progress tbody").innerHTML = "";
   results.length = 0;
+  runRows.length = runOpts.length = runState.length = 0;
   runUrls = urls;
   showResult(-1);
   updateSaveAll();
@@ -651,16 +822,11 @@ async function start() {
     const failed = count.missing + count.fail;
     setSummary(
       `${count.ok} / ${urls.length}개 영상 스크립트를 수집했습니다. '전체 스크립트 한 파일로 받기'로 내려받으세요.` +
-        (failed ? ` 수집하지 못한 ${failed}개는 줄 오른쪽 [재시도] 버튼을 누르세요.` : ""),
+        (failed ? ` 수집하지 못한 ${failed}개는 [수집 안 된 영상 전체 다시 수집] 또는 줄 오른쪽 [재시도]를 누르세요.` : ""),
       failed ? "" : "ok",
     );
     setRunning(false);
-    alert(
-      `스크립트 수집을 마쳤습니다.\n\n성공 ${count.ok}개` +
-        (count.missing ? ` · 스크립트 없음 ${count.missing}개` : "") +
-        (count.fail ? ` · 실패 ${count.fail}개` : "") +
-        `\n\n'전체 스크립트 한 파일로 받기' 버튼으로 모든 스크립트를 한 파일에 받을 수 있습니다.`,
-    );
+    finishAlert("스크립트 수집을 마쳤습니다.", count);
   } else {
     setSummary("중지했습니다. 그때까지 받아쓴 내용은 ‘보기’로 확인할 수 있습니다.");
     setRunning(false);
@@ -730,6 +896,7 @@ async function init() {
     setTimeout(() => ($("#copy").textContent = "복사"), 1500);
   });
   $("#save").addEventListener("click", () => saveResult(selected));
+  $("#retryFailed").addEventListener("click", retryAllFailed);
   $("#saveAll").addEventListener("click", () =>
     downloadText(combinedText(), `${today()}_유튜브스크립트_${results.filter((r) => r && r.lines.length).length}개.txt`),
   );

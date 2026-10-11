@@ -63,7 +63,9 @@ button:disabled { opacity: 0.45; cursor: default; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
 td.url { word-break: break-all; }
-td.title { color: var(--muted); display: block; }
+td.url .title { color: var(--muted); display: block; }
+td.url a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+td.url a:hover { color: var(--green, #2b7de9); }
 .ok { color: var(--green); }
 .err { color: var(--red); }
 .note { margin-top: 20px; color: var(--muted); font-size: 12px; }

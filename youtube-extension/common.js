@@ -58,7 +58,13 @@ function setSummary(text, cls = "") {
 function addProgressRow(index, url) {
   const tr = document.createElement("tr");
   tr.innerHTML = `<td>${index + 1}</td><td class="url"></td><td class="status">대기</td><td class="actions"></td>`;
-  tr.querySelector(".url").textContent = url;
+  // 주소는 눌러서 새 탭으로 열 수 있게
+  const link = document.createElement("a");
+  link.href = /^https?:\/\//i.test(url) ? url : "#";
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.textContent = url;
+  tr.querySelector(".url").appendChild(link);
   $("#progress tbody").appendChild(tr);
   $("#progress").hidden = false;
   return tr;

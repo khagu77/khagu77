@@ -120,8 +120,35 @@ def start_fake_youtube(tmp_path: Path, media: dict, pages=None):
         check=True, capture_output=True,
     )
 
+    posts = []
+
     class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            data = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            posts.append((self.path, data))
+            params = data.get("params", "")
+            if self.path.startswith("/youtubei/v1/get_transcript") and params.startswith("PARAMS_"):
+                body, code = json.dumps(get_transcript_response(params[7:]), ensure_ascii=False).encode(), 200
+            else:
+                body, code = b"{}", 400
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self):
+            if self.path.startswith("/api/timedtext"):
+                body = json.dumps({"events": [
+                    {"tStartMs": 0, "segs": [{"utf8": "자막 데이터로"}, {"utf8": " 받았어요"}]},
+                    {"tStartMs": 1500, "segs": [{"utf8": "\n"}]},
+                    {"tStartMs": 65000, "segs": [{"utf8": "두 번째 줄 할수있다"}]}]}, ensure_ascii=False).encode()
+                self.send_response(200 if "fmt=json3" in self.path else 404)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if self.path.startswith("/media/"):
                 body = media[self.path.split("/")[-1]].read_bytes()
                 ctype = "video/webm"
@@ -146,6 +173,7 @@ def start_fake_youtube(tmp_path: Path, media: dict, pages=None):
     tls.load_cert_chain(cert, key)
     server.socket = tls.wrap_socket(server.socket, server_side=True)
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    server.posts = posts
     return server
 
 
@@ -224,14 +252,69 @@ def test_script(tmp_path: Path):
 
 # 유튜브 영상 페이지 흉내: 설명란 '…더보기'를 누르면 '스크립트 표시' 버튼이 생기고,
 # 그것을 누르면 오른쪽에 스크립트 패널이 (조금 늦게) 그려진다. transcript=False 면 스크립트 버튼이 없다.
-def transcript_page(vid, transcript=True):
-    segs = [("0:00", "안녕하세요 여러분"), ("0:05", "오늘은   팰리세이드\n시승기입니다"),
-            ("0:09", "이렇게 됬어요 할수있다"), ("1:02:03", "끝까지 봐주셔서 감사합니다")]
-    segs_js = json.dumps(segs, ensure_ascii=False)
+TRANSCRIPT_SEGS = [("0:00", "안녕하세요 여러분"), ("0:05", "오늘은   팰리세이드\n시승기입니다"),
+                   ("0:09", "이렇게 됬어요 할수있다"), ("1:02:03", "끝까지 봐주셔서 감사합니다")]
+
+
+def get_transcript_response(vid):
+    """유튜브 get_transcript 응답 흉내 (transcriptSegmentRenderer 목록)."""
+    segs = []
+    for t, x in TRANSCRIPT_SEGS:
+        sec = 0
+        for part in t.split(":"):
+            sec = sec * 60 + int(part)
+        segs.append({"transcriptSegmentRenderer": {
+            "startMs": str(sec * 1000), "endMs": str(sec * 1000 + 3000),
+            "snippet": {"runs": [{"text": x}]}, "startTimeText": {"simpleText": t}}})
+    return {"actions": [{"updateEngagementPanelAction": {"content": {"transcriptRenderer": {"content": {
+        "transcriptSearchPanelRenderer": {"body": {"transcriptSegmentListRenderer": {"initialSegments": segs}}}}}}}}]}
+
+
+# 유튜브 영상 페이지 흉내.
+# - api=True: 페이지 데이터(ytInitialData)에 '스크립트 표시'용 요청 정보가 있어 get_transcript 로 바로 받을 수 있다.
+# - 화면: 설명란 '…더보기'를 누르면 '스크립트 표시' 버튼이, 그것을 누르면 오른쪽 스크립트 패널이 그려진다.
+#   실제 유튜브처럼 화면 그리기는 requestAnimationFrame 으로 해서, 보이지 않는 뒤쪽 탭에서는 그려지지 않는다.
+# - transcript=False 면 '스크립트 표시' 버튼이 없다. captions=False 면 자막이 아예 없는 영상.
+def transcript_page(vid, transcript=True, api=False, captions=None, modern=False, timedtext=False):
+    """modern=True: 새 스크립트 화면처럼 줄에 클래스 이름이 없고 읽어주기용 시간 글자('9초')가 붙어 있다.
+    timedtext=True: 자막 트랙 주소(baseUrl)가 있어 자막 데이터를 직접 받을 수 있다."""
+    captions = transcript or timedtext if captions is None else captions
+    segs_js = json.dumps(TRANSCRIPT_SEGS, ensure_ascii=False)
+    def label(t):
+        p = [int(x) for x in t.split(":")]
+        sec = p[-1] + (p[-2] * 60 if len(p) > 1 else 0) + (p[-3] * 3600 if len(p) > 2 else 0)
+        h, m, s = sec // 3600, sec % 3600 // 60, sec % 60
+        return " ".join(x for x in [f"{h}시간" if h else "", f"{m}분" if m else "", f"{s}초" if s or not (h or m) else ""] if x)
+    if modern:
+        seg_html = ("'<transcript-segment-view-model><div>' + t + '</div><div>' + "
+                    "{lab}[t] + '</div><span>' + x + '</span></transcript-segment-view-model>'").format(
+            lab=json.dumps({t: label(t) for t, _ in TRANSCRIPT_SEGS}, ensure_ascii=False))
+    else:
+        seg_html = ("'<ytd-transcript-segment-renderer><div class=\"segment-timestamp\">' + t + '</div>"
+                    "<yt-formatted-string class=\"segment-text\">' + x + '</yt-formatted-string></ytd-transcript-segment-renderer>'")
     section = ('<ytd-video-description-transcript-section-renderer><h2>스크립트</h2><ytd-button-renderer>'
                '<button aria-label="스크립트 표시">스크립트 표시</button></ytd-button-renderer>'
                '</ytd-video-description-transcript-section-renderer>') if transcript else ""
-    return f"""<!doctype html><html><head><title>{TITLE} - YouTube</title></head><body>
+    initial_data = {"contents": {}, "engagementPanels": []}
+    if api:
+        initial_data["engagementPanels"].append({"engagementPanelSectionListRenderer": {
+            "panelIdentifier": "engagement-panel-searchable-transcript",
+            "content": {"continuationItemRenderer": {"continuationEndpoint": {
+                "getTranscriptEndpoint": {"params": f"PARAMS_{vid}"}}}}}})
+    player = {"videoDetails": {"title": TITLE}}
+    if captions:
+        track = {"languageCode": "ko", "kind": "asr"}
+        if timedtext:
+            track["baseUrl"] = f"https://www.youtube.com/api/timedtext?v={vid}&lang=ko"
+        player["captions"] = {"playerCaptionsTracklistRenderer": {"captionTracks": [track]}}
+    cfg = {"INNERTUBE_API_KEY": "KEY", "INNERTUBE_CONTEXT": {"client": {"clientName": "WEB", "clientVersion": "2.0"}},
+           "INNERTUBE_CONTEXT_CLIENT_NAME": 1, "INNERTUBE_CLIENT_VERSION": "2.0"}
+    return f"""<!doctype html><html><head><title>{TITLE} - YouTube</title>
+<script>
+var ytcfg = {{ d: {json.dumps(cfg)}, get(k) {{ return this.d[k]; }} }};
+var ytInitialPlayerResponse = {json.dumps(player, ensure_ascii=False)};
+var ytInitialData = {json.dumps(initial_data)};
+</script></head><body>
 <ytd-watch-metadata><h1 class="ytd-watch-metadata">{TITLE}</h1>
 <div id="description"><ytd-text-inline-expander id="description-inline-expander">영상 설명입니다
 <tp-yt-paper-button id="expand">...더보기</tp-yt-paper-button><div id="more"></div></ytd-text-inline-expander></div>
@@ -239,20 +322,16 @@ def transcript_page(vid, transcript=True):
 <div id="movie_player"><video src="/media/{vid}.webm" autoplay></video></div>
 <div id="panels"></div>
 <script>
-document.getElementById("expand").addEventListener("click", () => {{
+document.getElementById("expand").addEventListener("click", () => requestAnimationFrame(() => {{
   document.getElementById("more").innerHTML = '{section}';
   const b = document.querySelector('button[aria-label="스크립트 표시"]');
-  if (b) b.addEventListener("click", () => setTimeout(() => {{
+  if (b) b.addEventListener("click", () => setTimeout(() => requestAnimationFrame(() => {{
     const panel = document.createElement("ytd-engagement-panel-section-list-renderer");
     panel.setAttribute("target-id", "engagement-panel-searchable-transcript");
-    for (const [t, x] of {segs_js}) {{
-      const seg = document.createElement("ytd-transcript-segment-renderer");
-      seg.innerHTML = '<div class="segment-timestamp">' + t + '</div><yt-formatted-string class="segment-text">' + x + '</yt-formatted-string>';
-      panel.appendChild(seg);
-    }}
+    for (const [t, x] of {segs_js}) panel.insertAdjacentHTML("beforeend", {seg_html});
     document.getElementById("panels").appendChild(panel);
-  }}, 700));
-}});
+  }}), 700));
+}}));
 </script></body></html>"""
 
 
@@ -269,10 +348,14 @@ def test_youtube_transcript(tmp_path: Path):
 
     def flaky():  # 처음 두 번(첫 시도 + 자동 새로고침)은 스크립트 버튼이 없고, 세 번째부터 보인다
         flaky_hits.append(1)
-        return transcript_page("flakyvideo1", len(flaky_hits) > 2)
+        return transcript_page("flakyvideo1", len(flaky_hits) > 2, captions=True, modern=True)
 
-    pages = {"transcrvid1": transcript_page("transcrvid1"), "flakyvideo1": flaky,
-             "notranscr01": transcript_page("notranscr01", False)}
+    # transcrvid1: 데이터로 바로 받음(뒤쪽 탭) / flakyvideo1: 데이터가 없어 화면 버튼으로, 세 번째에야 버튼이 보임
+    # notranscr01: 자막이 아예 없음 → 바로 '스크립트 없음'
+    # captionvid1: 스크립트 버튼·요청 정보는 없지만 자막 데이터로 받음
+    pages = {"transcrvid1": transcript_page("transcrvid1", api=True), "flakyvideo1": flaky,
+             "notranscr01": transcript_page("notranscr01", False),
+             "captionvid1": transcript_page("captionvid1", False, timedtext=True)}
     server = start_fake_youtube(tmp_path, {media.name: media}, pages)
     with sync_playwright() as p:
         ctx = launch(p, tmp_path, EXT_DIR, server.server_address[1])
@@ -285,30 +368,43 @@ def test_youtube_transcript(tmp_path: Path):
         page.on("dialog", lambda d: (dialogs.append(d.message), d.accept()))
 
         page.fill("#urls", "https://www.youtube.com/watch?v=transcrvid1\nhttps://youtu.be/flakyvideo1\n"
-                           "https://youtu.be/notranscr01")
+                           "https://youtu.be/notranscr01\nhttps://youtu.be/captionvid1")
         page.click("#start")
         # 영상 페이지는 백그라운드 탭으로 열려 수집 화면이 계속 앞에 있다
-        page.locator("#progress tbody", has_text="백그라운드").wait_for(timeout=20000)
+        page.locator("#progress tbody", has_text="뒤쪽 탭").wait_for(timeout=20000)
         assert page.evaluate("document.visibilityState") == "visible"
         page.locator("#summary", has_text="수집했습니다").wait_for(timeout=120000)
         page.wait_for_timeout(1500)
         assert downloads == [], [d.suggested_filename for d in downloads]  # 자동으로 받지 않음
-        assert len(dialogs) == 1 and "스크립트 수집을 마쳤습니다" in dialogs[0] and "성공 1개 · 스크립트 없음 2개" in dialogs[0], dialogs
+        assert len(dialogs) == 1 and "스크립트 수집을 마쳤습니다" in dialogs[0] and "성공 2개 · 스크립트 없음 2개" in dialogs[0], dialogs
         rows = page.locator("#progress tbody tr")
         assert "완료 · 4줄 · 교정 2곳" in rows.nth(0).inner_text()
         for k in (1, 2):
             assert "스크립트를 찾지 못했습니다" in rows.nth(k).inner_text()
             assert rows.nth(k).locator("button", has_text="재시도").count() == 1
         assert len(flaky_hits) == 2  # 못 찾으면 새로고침해서 한 번 더 찾아봤다
+        # 1번은 화면을 그리지 않고 get_transcript 로 받았다 (유튜브 화면과 같은 요청)
+        tr = [d for path, d in server.posts if path.startswith("/youtubei/v1/get_transcript")]
+        assert tr and tr[0]["params"] == "PARAMS_transcrvid1" and tr[0]["context"]["client"]["clientName"] == "WEB", server.posts
+        # 진행 목록의 주소는 새 탭으로 여는 링크
+        link = rows.nth(0).locator("a")
+        assert link.get_attribute("href") == "https://www.youtube.com/watch?v=transcrvid1"
+        assert link.get_attribute("target") == "_blank"
 
-        # [재시도] → 이번엔 스크립트가 보여 수집된다
-        rows.nth(1).locator("button", has_text="재시도").click()
-        rows.nth(1).locator(".status", has_text="완료").wait_for(timeout=60000)
+        assert "완료" in rows.nth(3).inner_text()  # 자막 데이터로 받음
+        # [수집 안 된 영상 전체 다시 수집] → 2번은 이번엔 스크립트가 보여 수집되고, 3번은 여전히 없음
+        assert page.inner_text("#retryFailed") == "수집 안 된 영상 전체 다시 수집 (2개)"
+        page.click("#retryFailed")
+        page.locator("#summary", has_text="다시 수집: 1 / 2개 성공").wait_for(timeout=120000)
+        assert "완료" in rows.nth(1).inner_text() and "스크립트를 찾지 못했습니다" in rows.nth(2).inner_text()
+        assert len(dialogs) == 2 and "수집 안 된 영상 다시 수집을 마쳤습니다" in dialogs[1], dialogs
+        assert page.inner_text("#retryFailed") == "수집 안 된 영상 전체 다시 수집 (1개)"
         # 스크립트가 없는 영상: [화면 자막으로]
         rows.nth(2).locator("button", has_text="화면 자막으로").click()
         rows.nth(2).locator(".status", has_text="완료").wait_for(timeout=120000)
         page.wait_for_timeout(1000)
-        assert downloads == [] and len(dialogs) == 1  # 재시도 때도 자동 다운로드·알림 없음
+        assert downloads == [] and len(dialogs) == 2  # 줄 버튼 재수집 때는 자동 다운로드·알림 없음
+        assert page.is_hidden("#retryFailed")  # 모두 수집함
 
         rows.nth(0).locator("button", has_text="보기").click()
         output = page.input_value("#output")
@@ -339,17 +435,19 @@ def test_youtube_transcript(tmp_path: Path):
     assert original[2] == "00:09 이렇게 됬어요 할수있다", original
     assert output.split("\n") == fixed  # 화면 출력칸도 교정본
 
-    assert all_name == f"{date.today():%Y%m%d}_유튜브스크립트_3개.txt"
+    assert all_name == f"{date.today():%Y%m%d}_유튜브스크립트_4개.txt"
     text = all_path.read_bytes().decode("utf-8-sig").replace("\r\n", "\n")
     blocks = text.strip().split("\n\n\n")
-    assert len(blocks) == 3, text
+    assert len(blocks) == 4, text
     sep = "=" * 60
-    for k, (vid, block) in enumerate(zip(["transcrvid1", "flakyvideo1", "notranscr01"], blocks), 1):
+    for k, (vid, block) in enumerate(zip(["transcrvid1", "flakyvideo1", "notranscr01", "captionvid1"], blocks), 1):
         head = block.split("\n")
         assert head[0] == sep and head[3] == sep, block
-        assert head[1] == f"[{k}/3] {TITLE}" and head[2] == f"https://www.youtube.com/watch?v={vid}", block
+        assert head[1] == f"[{k}/4] {TITLE}" and head[2] == f"https://www.youtube.com/watch?v={vid}", block
     assert blocks[0].split("\n")[4:] == fixed
-    assert "00:09 이렇게 됐어요 할 수 있다" in blocks[1]
+    # 새 스크립트 화면: 줄 앞의 읽어주기용 시간 글자('9초', '1시간 2분 3초')는 빠진다
+    assert blocks[1].split("\n")[4:] == fixed, blocks[1]
+    assert blocks[3].split("\n")[4:] == ["00:00 자막 데이터로 받았어요", "01:05 두 번째 줄 할 수 있다"], blocks[3]
     assert "안녕하세요 반갑습니다" in blocks[2] and "오늘은 날씨가 좋습니다" in blocks[2], blocks[2]
 
 
