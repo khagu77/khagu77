@@ -377,15 +377,30 @@ function showResult(i) {
   document.querySelectorAll("#progress tbody tr").forEach((tr, j) => tr.classList.toggle("selected", j === i));
   const out = $("#output");
   const atBottom = out.scrollTop + out.clientHeight >= out.scrollHeight - 20;
-  out.value = r ? scriptText(r.lines) : "";
+  out.value = r ? scriptText(r.fixed || r.lines) : "";
   if (atBottom) out.scrollTop = out.scrollHeight;
-  $("#outputTitle").textContent = r ? `— ${r.title || r.videoId} (${r.lines.length}줄)` : "";
+  const fixNote = r && r.fixed ? ` · 교정 ${r.fixes}곳` : "";
+  $("#outputTitle").textContent = r ? `— ${r.title || r.videoId} (${r.lines.length}줄${fixNote})` : "";
   $("#copy").disabled = $("#save").disabled = !(r && r.lines.length);
 }
 
+// 띄어쓰기·자주 틀리는 맞춤법을 기본 규칙으로 고친 교정본을 만든다 (correct.js)
+function correctResult(r) {
+  r.fixes = 0;
+  r.fixed = r.lines.map((l) => {
+    const c = ScriptCorrect.correctText(l.text);
+    r.fixes += c.fixes;
+    return { t: l.t, text: c.text };
+  });
+}
+
+// 교정본(날짜_제목.txt)과 원본(날짜_제목_원본.txt)을 함께 저장
 function saveResult(i) {
   const r = results[i];
-  if (r && r.lines.length) downloadText(scriptText(r.lines), `${today()}_${safeFileName(r.title) || r.videoId}.txt`);
+  if (!r || !r.lines.length) return;
+  const base = `${today()}_${safeFileName(r.title) || r.videoId}`;
+  downloadText(scriptText(r.fixed || r.lines), `${base}.txt`);
+  if (r.fixed) downloadText(scriptText(r.lines), `${base}_원본.txt`);
 }
 
 function addRowActions(row, i) {
@@ -537,7 +552,8 @@ async function runOne(i, url, row, opts) {
   showResult(i);
   try {
     const r = await transcribeVideo(url, row, i, opts);
-    setRowStatus(row, `완료 · ${r.lines.length}줄`, "ok");
+    correctResult(r);
+    setRowStatus(row, `완료 · ${r.lines.length}줄 · 교정 ${r.fixes}곳`, "ok");
     addRowActions(row, i);
     showResult(i);
     saveResult(i);

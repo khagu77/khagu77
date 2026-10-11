@@ -210,7 +210,8 @@ def test_script(tmp_path: Path):
 # 유튜브 영상 페이지 흉내: 설명란 '…더보기'를 누르면 '스크립트 표시' 버튼이 생기고,
 # 그것을 누르면 오른쪽에 스크립트 패널이 (조금 늦게) 그려진다. transcript=False 면 스크립트 버튼이 없다.
 def transcript_page(vid, transcript=True):
-    segs = [("0:00", "안녕하세요 여러분"), ("0:05", "오늘은   팰리세이드\n시승기입니다"), ("1:02:03", "끝까지 봐주셔서 감사합니다")]
+    segs = [("0:00", "안녕하세요 여러분"), ("0:05", "오늘은   팰리세이드\n시승기입니다"),
+            ("0:09", "이렇게 됬어요 할수있다"), ("1:02:03", "끝까지 봐주셔서 감사합니다")]
     segs_js = json.dumps(segs, ensure_ascii=False)
     section = ('<ytd-video-description-transcript-section-renderer><h2>스크립트</h2><ytd-button-renderer>'
                '<button aria-label="스크립트 표시">스크립트 표시</button></ytd-button-renderer>'
@@ -253,29 +254,46 @@ def test_youtube_transcript(tmp_path: Path):
         page = ext_page(ctx, "script.html")
         assert page.input_value("#mode") == "transcript" and page.input_value("#fallback") == "ask"
         assert page.is_hidden("#speed") and page.is_hidden("#model")
+        downloads = []  # 영상마다 교정본과 원본 두 개가 저장된다 (이벤트에서는 모으기만 하고 저장은 나중에)
+        page.on("download", downloads.append)
+
+        def save(ds):
+            out = []
+            for k, d in enumerate(ds):
+                path = tmp_path / f"{len(out)}_{k}_{d.suggested_filename}"
+                d.save_as(path)
+                out.append((d.suggested_filename, path))
+            return out
+
         page.fill("#urls", "https://www.youtube.com/watch?v=transcrvid1\nhttps://youtu.be/notranscr01")
-        with page.expect_download(timeout=60000) as dl:
-            page.click("#start")
-        first = tmp_path / "first.txt"
-        dl.value.save_as(first)
-        first_name = dl.value.suggested_filename
+        page.click("#start")
         page.locator("#summary", has_text="스크립트가 없는 영상 1개").wait_for(timeout=60000)
+        page.wait_for_timeout(1000)
+        first = save(list(downloads))
+        n_first = len(downloads)
+        output = page.input_value("#output")
         rows = page.locator("#progress tbody tr")
-        assert "완료 · 3줄" in rows.nth(0).inner_text()
+        assert "완료 · 4줄 · 교정 2곳" in rows.nth(0).inner_text()
         assert "유튜브 스크립트가 없습니다" in rows.nth(1).inner_text()
         # 스크립트가 없는 영상: [화면 자막으로] 버튼으로 다시
-        with page.expect_download(timeout=120000) as dl2:
-            rows.nth(1).locator("button", has_text="화면 자막으로").click()
-        second = tmp_path / "second.txt"
-        dl2.value.save_as(second)
-        page.locator("#summary", has_text="저장했습니다").wait_for()
+        rows.nth(1).locator("button", has_text="화면 자막으로").click()
+        page.locator("#summary", has_text="저장했습니다").wait_for(timeout=120000)
+        page.wait_for_timeout(1000)
+        second = save(downloads[n_first:])
         ctx.close()
     server.shutdown()
 
-    lines = first.read_bytes().decode("utf-8-sig").strip().split("\r\n")
-    assert first_name == f"{date.today():%Y%m%d}_{SAFE_TITLE}.txt"
-    assert lines == ["00:00 안녕하세요 여러분", "00:05 오늘은 팰리세이드 시승기입니다", "1:02:03 끝까지 봐주셔서 감사합니다"], lines
-    screen = second.read_bytes().decode("utf-8-sig")
+    read = lambda p: p.read_bytes().decode("utf-8-sig").strip().split("\r\n")
+    base = f"{date.today():%Y%m%d}_{SAFE_TITLE}"
+    assert [n for n, _ in first] == [f"{base}.txt", f"{base}_원본.txt"], first
+    fixed, original = read(first[0][1]), read(first[1][1])
+    # 교정본: 겹친 공백·줄바꿈 정리, 됬→됐, 할수있다→할 수 있다 / 원본: 패널 글자 그대로
+    assert fixed == ["00:00 안녕하세요 여러분", "00:05 오늘은 팰리세이드 시승기입니다",
+                     "00:09 이렇게 됐어요 할 수 있다", "1:02:03 끝까지 봐주셔서 감사합니다"], fixed
+    assert original[2] == "00:09 이렇게 됬어요 할수있다", original
+    assert output.split("\n") == fixed  # 화면 출력칸도 교정본
+    assert [n for n, _ in second] == [f"{base}.txt", f"{base}_원본.txt"], second
+    screen = second[0][1].read_bytes().decode("utf-8-sig")
     assert "안녕하세요 반갑습니다" in screen and "오늘은 날씨가 좋습니다" in screen, screen
 
 

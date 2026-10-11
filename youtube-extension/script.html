@@ -12,6 +12,7 @@
     <p class="hint">
       유튜브에 있는 스크립트를 그대로 가져오거나, 영상을 재생하면서 스크립트를 새로 만듭니다.
       결과는 <code>00:00 스크립트 내용</code> 형식으로 아래 출력칸에 나오고 메모장 파일(.txt)로 저장됩니다.
+      띄어쓰기·자주 틀리는 맞춤법(됬→됐, 할수있다→할 수 있다 등)을 기본 규칙으로 고친 <b>교정본</b>과 고치기 전 <b>원본</b>(<code>_원본.txt</code>)을 함께 저장합니다.
     </p>
 
     <label for="urls">유튜브 영상 URL <span class="hint">(한 줄에 하나씩)</span></label>
@@ -83,6 +84,7 @@
   <script src="caption-mask.js"></script>
   <script src="lib/ocr/ort.wasm.min.js"></script>
   <script src="screen.js"></script>
+  <script src="correct.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
