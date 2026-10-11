@@ -10,7 +10,7 @@
   <main>
     <h1>YouTube 스크립트 및 영상 파일 추출</h1>
     <p class="hint">
-      유튜브에 올라온 자막은 쓰지 않고, 영상을 처음부터 끝까지 재생하면서 스크립트를 새로 만듭니다.
+      유튜브에 있는 스크립트를 그대로 가져오거나, 영상을 재생하면서 스크립트를 새로 만듭니다.
       결과는 <code>00:00 스크립트 내용</code> 형식으로 아래 출력칸에 나오고 메모장 파일(.txt)로 저장됩니다.
     </p>
 
@@ -21,8 +21,16 @@
     <div class="options">
       <label>인식 방식
         <select id="mode">
+          <option value="transcript">유튜브 스크립트 가져오기 (가장 빠름 · 스크립트가 있는 영상만)</option>
           <option value="screen">화면 자막 인식 (화면에 나오는 자막 글자를 읽음)</option>
           <option value="speech">음성 인식 (들리는 말을 받아씀)</option>
+        </select>
+      </label>
+      <label data-mode="transcript">스크립트가 없을 때
+        <select id="fallback">
+          <option value="ask">물어보기 (영상별로 다른 방식을 고름)</option>
+          <option value="screen">화면 자막 인식으로 자동 수집</option>
+          <option value="speech">음성 인식으로 자동 수집</option>
         </select>
       </label>
       <label data-mode="speech">음성인식 모델
@@ -35,12 +43,13 @@
           <option value="0.33">화면 아래 1/3</option>
         </select>
       </label>
-      <label>재생 속도
+      <label data-mode="screen speech">재생 속도
         <select id="speed"></select>
       </label>
       <label class="check" data-mode="speech"><input type="checkbox" id="mute" checked> 영상 소리 끄기</label>
     </div>
     <div id="gpu" class="hint" data-mode="speech"></div>
+    <div class="hint" data-mode="transcript" hidden>유튜브 영상 설명란의 <b>…더보기 → 스크립트 표시</b>를 눌러 오른쪽에 나오는 스크립트를 그대로 가져옵니다. 영상을 재생하지 않아 영상 하나에 몇 초면 끝나고, 유튜브가 만든 글자 그대로라 가장 정확합니다. 업로더가 올린 자막이나 유튜브 자동 생성 자막이 있는 영상만 가능하며, 없으면 화면 자막 인식이나 음성 인식으로 수집할 수 있습니다.</div>
     <div class="hint" data-mode="screen" hidden>화면 아래쪽 가운데에 나오는 자막(흰색·노란색 글자에 테두리나 어두운 바탕)만 읽고, 효과 글자·댓글 캡처·사진 속 글자는 거릅니다. 한글·영문이 함께 나오면 한글 줄만 옮깁니다. 자막이 깔끔한 영상일수록 정확하고, 음성 인식보다 빠릅니다. 영상 소리는 자동으로 끕니다.</div>
 
     <div class="buttons">
@@ -63,7 +72,7 @@
     </div>
 
     <p class="note">
-      음성 인식은 영상 길이만큼(1배 기준), 화면 자막 인식은 그 1/3 정도(3배 기준) 시간이 걸립니다. 진행 중에는 열린 유튜브 탭을 닫거나 영상을 조작하지 마세요. 다른 탭에서 다른 일은 해도 됩니다.
+      유튜브 스크립트 가져오기는 영상 하나에 몇 초, 음성 인식은 영상 길이만큼(1배 기준), 화면 자막 인식은 그 1/3 정도(3배 기준) 시간이 걸립니다. 진행 중에는 열린 유튜브 탭을 닫거나 영상을 조작하지 마세요. 다른 탭에서 다른 일은 해도 됩니다.
       음성 인식은 처음 한 번 음성인식 모델을 내려받느라 시간이 더 걸리고, 이후에는 저장된 모델을 씁니다.
       모든 처리는 이 컴퓨터 안에서 하며 영상 소리·화면을 외부로 보내지 않습니다.
       자동 인식 결과라 틀린 글자가 있을 수 있으니 한 번 훑어보고 고쳐 쓰세요.

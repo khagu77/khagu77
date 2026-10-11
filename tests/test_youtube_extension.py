@@ -112,7 +112,7 @@ def make_captioned_media(path: Path, seconds: int):
     )
 
 
-def start_fake_youtube(tmp_path: Path, media: dict):
+def start_fake_youtube(tmp_path: Path, media: dict, pages=None):
     cert, key = tmp_path / "cert.pem", tmp_path / "key.pem"
     subprocess.run(
         ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=www.youtube.com",
@@ -127,7 +127,8 @@ def start_fake_youtube(tmp_path: Path, media: dict):
                 ctype = "video/webm"
             else:
                 vid = self.path.split("v=")[-1][:11]
-                body = WATCH_HTML.format(title=TITLE, name=f"{vid}.webm").encode()
+                html = (pages or {}).get(vid) or WATCH_HTML.format(title=TITLE, name=f"{vid}.webm")
+                body = html.encode()
                 ctype = "text/html; charset=utf-8"
             self.send_response(200)
             self.send_header("Content-Type", ctype)
@@ -181,7 +182,7 @@ def test_script(tmp_path: Path):
         ctx = launch(p, tmp_path, ext, server.server_address[1])
         page = ext_page(ctx, "script.html")
         assert page.locator(".menu a.active").inner_text() == "스크립트 추출"
-        assert page.input_value("#mode") == "screen"  # 기본은 화면 자막 인식
+        assert page.input_value("#mode") == "transcript"  # 기본은 유튜브 스크립트 가져오기
         page.select_option("#mode", "speech")
         page.fill("#urls", "https://youtu.be/scriptvid01")
         with page.expect_download(timeout=120000) as dl:
@@ -204,6 +205,78 @@ def test_script(tmp_path: Path):
     t2 = lines[1].split(" ")[0]
     assert t2 in ("00:21", "00:22", "00:23"), lines  # 무음 구간에서 잘림
     assert lines[1].endswith("소리있음")
+
+
+# 유튜브 영상 페이지 흉내: 설명란 '…더보기'를 누르면 '스크립트 표시' 버튼이 생기고,
+# 그것을 누르면 오른쪽에 스크립트 패널이 (조금 늦게) 그려진다. transcript=False 면 스크립트 버튼이 없다.
+def transcript_page(vid, transcript=True):
+    segs = [("0:00", "안녕하세요 여러분"), ("0:05", "오늘은   팰리세이드\n시승기입니다"), ("1:02:03", "끝까지 봐주셔서 감사합니다")]
+    segs_js = json.dumps(segs, ensure_ascii=False)
+    section = ('<ytd-video-description-transcript-section-renderer><h2>스크립트</h2><ytd-button-renderer>'
+               '<button aria-label="스크립트 표시">스크립트 표시</button></ytd-button-renderer>'
+               '</ytd-video-description-transcript-section-renderer>') if transcript else ""
+    return f"""<!doctype html><html><head><title>{TITLE} - YouTube</title></head><body>
+<ytd-watch-metadata><h1 class="ytd-watch-metadata">{TITLE}</h1>
+<div id="description"><ytd-text-inline-expander id="description-inline-expander">영상 설명입니다
+<tp-yt-paper-button id="expand">...더보기</tp-yt-paper-button><div id="more"></div></ytd-text-inline-expander></div>
+</ytd-watch-metadata>
+<div id="movie_player"><video src="/media/{vid}.webm" autoplay></video></div>
+<div id="panels"></div>
+<script>
+document.getElementById("expand").addEventListener("click", () => {{
+  document.getElementById("more").innerHTML = '{section}';
+  const b = document.querySelector('button[aria-label="스크립트 표시"]');
+  if (b) b.addEventListener("click", () => setTimeout(() => {{
+    const panel = document.createElement("ytd-engagement-panel-section-list-renderer");
+    panel.setAttribute("target-id", "engagement-panel-searchable-transcript");
+    for (const [t, x] of {segs_js}) {{
+      const seg = document.createElement("ytd-transcript-segment-renderer");
+      seg.innerHTML = '<div class="segment-timestamp">' + t + '</div><yt-formatted-string class="segment-text">' + x + '</yt-formatted-string>';
+      panel.appendChild(seg);
+    }}
+    document.getElementById("panels").appendChild(panel);
+  }}, 700));
+}});
+</script></body></html>"""
+
+
+@pytest.mark.skipif(not Path(FONT).exists(), reason="한글 글꼴 없음")
+def test_youtube_transcript(tmp_path: Path):
+    """유튜브 스크립트 가져오기: 스크립트가 있는 영상은 패널 내용을 그대로, 없는 영상은 다른 방식 버튼을 띄우고
+    [화면 자막으로]를 누르면 화면 자막 인식으로 만든다."""
+    media = tmp_path / "notranscr01.webm"
+    make_captioned_media(media, 23)
+    pages = {"transcrvid1": transcript_page("transcrvid1"), "notranscr01": transcript_page("notranscr01", False)}
+    server = start_fake_youtube(tmp_path, {media.name: media}, pages)
+    with sync_playwright() as p:
+        ctx = launch(p, tmp_path, EXT_DIR, server.server_address[1])
+        page = ext_page(ctx, "script.html")
+        assert page.input_value("#mode") == "transcript" and page.input_value("#fallback") == "ask"
+        assert page.is_hidden("#speed") and page.is_hidden("#model")
+        page.fill("#urls", "https://www.youtube.com/watch?v=transcrvid1\nhttps://youtu.be/notranscr01")
+        with page.expect_download(timeout=60000) as dl:
+            page.click("#start")
+        first = tmp_path / "first.txt"
+        dl.value.save_as(first)
+        first_name = dl.value.suggested_filename
+        page.locator("#summary", has_text="스크립트가 없는 영상 1개").wait_for(timeout=60000)
+        rows = page.locator("#progress tbody tr")
+        assert "완료 · 3줄" in rows.nth(0).inner_text()
+        assert "유튜브 스크립트가 없습니다" in rows.nth(1).inner_text()
+        # 스크립트가 없는 영상: [화면 자막으로] 버튼으로 다시
+        with page.expect_download(timeout=120000) as dl2:
+            rows.nth(1).locator("button", has_text="화면 자막으로").click()
+        second = tmp_path / "second.txt"
+        dl2.value.save_as(second)
+        page.locator("#summary", has_text="저장했습니다").wait_for()
+        ctx.close()
+    server.shutdown()
+
+    lines = first.read_bytes().decode("utf-8-sig").strip().split("\r\n")
+    assert first_name == f"{date.today():%Y%m%d}_{SAFE_TITLE}.txt"
+    assert lines == ["00:00 안녕하세요 여러분", "00:05 오늘은 팰리세이드 시승기입니다", "1:02:03 끝까지 봐주셔서 감사합니다"], lines
+    screen = second.read_bytes().decode("utf-8-sig")
+    assert "안녕하세요 반갑습니다" in screen and "오늘은 날씨가 좋습니다" in screen, screen
 
 
 @pytest.mark.skipif(not Path(FONT).exists(), reason="한글 글꼴 없음")
