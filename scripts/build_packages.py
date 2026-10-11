@@ -1,12 +1,13 @@
-"""윈도우용 배포 압축 파일 2개를 만든다.
+"""배포용 압축 파일을 만든다.
 
   dist/댓글수집기_윈도우용.zip
   dist/유튜브추출기_윈도우용.zip
+  dist/유튜브추출기_맥용.zip
 
-각 압축 파일 안에는 크롬에 올릴 확장프로그램 폴더와 설치안내서 PDF(docs/windows/*.html 을 변환)가 들어간다.
-유튜브추출기에는 빠른 다운로드용 윈도우 도우미(windows-helper)도 함께 넣는다.
+각 압축 파일 안에는 크롬에 올릴 확장프로그램 폴더와 설치안내서 PDF(docs/windows, docs/mac 의 html 을 변환)가 들어간다.
+유튜브추출기에는 빠른 다운로드 도우미(윈도우: windows-helper, 맥: '유튜브 도우미 설치.app')도 함께 넣는다.
 
-  python scripts/build_windows_packages.py
+  python scripts/build_packages.py
   (PDF 변환에 Playwright Chromium 사용. 기본 브라우저가 없으면 CHROMIUM_PATH 로 지정)
 """
 import os
@@ -22,17 +23,26 @@ SKIP = {".DS_Store", "__pycache__", "Thumbs.db"}
 PACKAGES = [
     {
         "zip": "댓글수집기_윈도우용",
-        "guide": ("guide_comments.html", "설치안내서_댓글수집기.pdf"),
+        "guide": ("windows/guide_comments.html", "설치안내서_댓글수집기_윈도우용.pdf"),
         "items": [(ROOT / "chrome-extension", "댓글수집기_확장프로그램")],
     },
     {
         "zip": "유튜브추출기_윈도우용",
-        "guide": ("guide_youtube.html", "설치안내서_유튜브추출기.pdf"),
+        "guide": ("windows/guide_youtube.html", "설치안내서_유튜브추출기_윈도우용.pdf"),
         "items": [
             (ROOT / "youtube-extension", "유튜브추출기_확장프로그램"),
             (ROOT / "windows-helper" / "빠른다운로드_도우미설치.bat", "빠른다운로드_도우미설치.bat"),
             (ROOT / "windows-helper" / "빠른다운로드_도우미제거.bat", "빠른다운로드_도우미제거.bat"),
             (ROOT / "windows-helper" / "helper", "helper"),
+        ],
+    },
+    {
+        # 맥: 도우미 설치 앱은 실행 권한을 그대로 담는다 (zipfile 이 파일 권한을 함께 기록)
+        "zip": "유튜브추출기_맥용",
+        "guide": ("mac/guide_youtube.html", "설치안내서_유튜브추출기_맥용.pdf"),
+        "items": [
+            (ROOT / "youtube-extension", "유튜브추출기_확장프로그램"),
+            (ROOT / "유튜브 도우미 설치.app", "빠른다운로드_도우미설치.app"),
         ],
     },
 ]
@@ -46,7 +56,7 @@ def render_pdfs():
         page = browser.new_page()
         for pkg in PACKAGES:
             src, out = pkg["guide"]
-            page.goto((ROOT / "docs" / "windows" / src).as_uri())
+            page.goto((ROOT / "docs" / src).as_uri())
             page.pdf(path=str(DIST / out), format="A4", print_background=True, prefer_css_page_size=True)
         browser.close()
 

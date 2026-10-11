@@ -77,14 +77,14 @@ async function downloadVideo(url, row, kind) {
 
 // ---------------------------------------------------------------------------
 // 빠른 다운로드(영상 .mp4 / 음성 .m4a): 도우미(크롬 Native Messaging)가
-// (Mac: '유튜브 도우미 설치' 앱, 윈도우: '빠른다운로드_도우미설치.bat' 으로 설치)
+// (Mac: '빠른다운로드_도우미설치' 앱, 윈도우: '빠른다운로드_도우미설치.bat' 으로 설치)
 // yt-dlp 로 파일을 바로 받는다. 영상을 재생하지 않는다.
 // ---------------------------------------------------------------------------
 
 const HELPER = "com.khagu77.ytdl";
 const IS_WINDOWS = /^win/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "");
 const HELPER_NAME = IS_WINDOWS ? "윈도우 도우미" : "Mac 도우미";
-const HELPER_INSTALLER = IS_WINDOWS ? "'빠른다운로드_도우미설치.bat' 파일" : "'유튜브 도우미 설치' 앱";
+const HELPER_INSTALLER = IS_WINDOWS ? "'빠른다운로드_도우미설치.bat' 파일" : "'빠른다운로드_도우미설치' 앱";
 const HELPER_OLD =
   `${HELPER_NAME}가 예전 버전이라 영상 빠른 다운로드(화질 선택)를 할 수 없습니다. 새로 받은 폴더의 ${HELPER_INSTALLER}을 한 번 더 실행한 뒤 이 화면을 새로고침하세요.`;
 const HELPER_VIDEO_VERSION = 3; // 화질 선택을 지원하는 도우미 버전
@@ -94,7 +94,7 @@ const isFast = (kind) => kind === "fast" || kind === "fastvideo";
 const HELPER_MISSING = IS_WINDOWS
   ? "윈도우 도우미가 설치되어 있지 않습니다. 압축 푼 폴더의 '빠른다운로드_도우미설치.bat' 파일을 더블클릭해 한 번 실행한 뒤 이 화면을 새로고침하세요. " +
     "(파란 'Windows의 PC 보호' 창이 뜨면 '추가 정보' → '실행')"
-  : "Mac 도우미가 설치되어 있지 않습니다. 압축 푼 폴더의 '유튜브 도우미 설치' 앱을 한 번 실행한 뒤 이 화면을 새로고침하세요. " +
+  : "Mac 도우미가 설치되어 있지 않습니다. 압축 푼 폴더의 '빠른다운로드_도우미설치' 앱을 한 번 실행한 뒤 이 화면을 새로고침하세요. " +
     "(처음 열 때 '확인되지 않은 개발자' 안내가 나오면 앱을 오른쪽 클릭 → 열기, " +
     "또는 시스템 설정 → 개인정보 보호 및 보안에서 '그래도 열기')";
 

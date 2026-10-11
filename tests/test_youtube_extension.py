@@ -255,12 +255,12 @@ def test_youtube_transcript(tmp_path: Path):
         assert page.input_value("#mode") == "transcript" and page.input_value("#fallback") == "ask"
         assert page.is_hidden("#speed") and page.is_hidden("#model")
         downloads = []  # 영상마다 교정본과 원본 두 개가 저장된다 (이벤트에서는 모으기만 하고 저장은 나중에)
-        page.on("download", downloads.append)
+        page.on("download", lambda d: downloads.append(d))
 
-        def save(ds):
+        def save(ds, tag):
             out = []
             for k, d in enumerate(ds):
-                path = tmp_path / f"{len(out)}_{k}_{d.suggested_filename}"
+                path = tmp_path / f"{tag}{k}_{d.suggested_filename}"
                 d.save_as(path)
                 out.append((d.suggested_filename, path))
             return out
@@ -268,18 +268,19 @@ def test_youtube_transcript(tmp_path: Path):
         page.fill("#urls", "https://www.youtube.com/watch?v=transcrvid1\nhttps://youtu.be/notranscr01")
         page.click("#start")
         page.locator("#summary", has_text="스크립트가 없는 영상 1개").wait_for(timeout=60000)
-        page.wait_for_timeout(1000)
-        first = save(list(downloads))
+        page.wait_for_timeout(2500)  # 원본(_원본.txt)은 교정본보다 조금 늦게 받는다
         n_first = len(downloads)
-        output = page.input_value("#output")
+        first = save(downloads[:n_first], "a")
         rows = page.locator("#progress tbody tr")
+        rows.nth(0).locator("button", has_text="보기").click()
+        output = page.input_value("#output")
         assert "완료 · 4줄 · 교정 2곳" in rows.nth(0).inner_text()
         assert "유튜브 스크립트가 없습니다" in rows.nth(1).inner_text()
         # 스크립트가 없는 영상: [화면 자막으로] 버튼으로 다시
         rows.nth(1).locator("button", has_text="화면 자막으로").click()
         page.locator("#summary", has_text="저장했습니다").wait_for(timeout=120000)
-        page.wait_for_timeout(1000)
-        second = save(downloads[n_first:])
+        page.wait_for_timeout(2500)
+        second = save(downloads[n_first:], "b")
         ctx.close()
     server.shutdown()
 
@@ -538,7 +539,7 @@ def test_fast_audio_helper_missing(tmp_path: Path):
         page.locator("#helper", has_text="Mac 도우미가 설치되어 있지 않습니다").wait_for(timeout=20000)
         page.fill("#urls", "https://youtu.be/abcdefghijk")
         page.click("#start")
-        page.locator("#progress tbody", has_text="도우미 설치").wait_for(timeout=20000)
+        page.locator("#progress tbody", has_text="빠른다운로드_도우미설치").wait_for(timeout=20000)
         ctx.close()
 
 

@@ -400,7 +400,9 @@ function saveResult(i) {
   if (!r || !r.lines.length) return;
   const base = `${today()}_${safeFileName(r.title) || r.videoId}`;
   downloadText(scriptText(r.fixed || r.lines), `${base}.txt`);
-  if (r.fixed) downloadText(scriptText(r.lines), `${base}_원본.txt`);
+  // 바로 이어서 내려받으면 크롬이 앞의 다운로드를 취소할 수 있어 잠시 뒤에 원본을 받는다
+  const original = scriptText(r.lines);
+  if (r.fixed) setTimeout(() => downloadText(original, `${base}_원본.txt`), 800);
 }
 
 function addRowActions(row, i) {
