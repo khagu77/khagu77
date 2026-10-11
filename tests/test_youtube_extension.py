@@ -535,13 +535,19 @@ def test_youtube_transcript(tmp_path: Path):
     ws = load_workbook(xlsx_path)["스크립트 입력"]
     assert [c.value for c in ws[1]] == ["URL", "스크립트"]
     assert ws["A1"].font.b and ws["A1"].fill.fgColor.rgb == "FF003082" and ws["A1"].font.color.rgb == "FFFFFFFF"
-    assert ws["B2"].font.name == "돋움" and ws["A2"].font.name == "맑은 고딕" and ws["B2"].border.left.style == "thin"
+    for ref in ("A2", "B2", "A7", "B7"):  # 새로 넣은 줄도 양식 서식: 맑은 고딕 10, 위쪽 맞춤, 테두리·채우기 없음
+        c = ws[ref]
+        assert c.font.name == "맑은 고딕" and c.font.sz == 10 and not c.font.b, ref
+        assert c.alignment.vertical == "top" and c.border.left.style is None and c.fill.fill_type is None, ref
+    assert ws["B7"].alignment.wrap_text and not ws["A7"].alignment.wrap_text
+    assert ws.auto_filter.ref == "A1:B7"  # 필터도 마지막 줄까지
+    import zipfile  # 필터 숨은 이름도 같은 범위
+    assert "'스크립트 입력'!$A$1:$B$7</definedName>" in zipfile.ZipFile(xlsx_path).read("xl/workbook.xml").decode()
     assert ws.column_dimensions["B"].width == 120 and ws.freeze_panes == "A2"
     rows_x = [(r[0].value, r[1].value) for r in ws.iter_rows(min_row=2)]
     assert [a for a, _ in rows_x] == [f"https://www.youtube.com/watch?v={v}" for v in vids]
     for (_, b), block in zip(rows_x, blocks):  # B칸 = 텍스트 묶음의 해당 영상 내용과 같다
         assert b == "\n".join(block.split("\n")[4:]), (b, block)
-    assert ws["B7"].border.left.style == "thin"  # 새로 넣은 줄도 양식 서식
 
 
 def claude_sse(text):
