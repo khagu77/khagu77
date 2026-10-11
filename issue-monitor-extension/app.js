@@ -219,7 +219,20 @@ function renderResults() {
     const sum = el("input", { type: "text", value: r.summary, title: r.summary, oninput: (e) => (r.summary = e.target.value, e.target.title = e.target.value, saveLastResult()) });
     const tr = el(
       "tr",
-      { class: `${r.highlight ? "yellow" : ""} ${r.report ? "report" : ""}` },
+      { class: `${r.highlight ? "yellow" : ""} ${r.report ? "report" : ""} ${r.selected ? "selected" : ""}` },
+      el(
+        "td",
+        { class: "sel" },
+        el("input", {
+          type: "checkbox",
+          checked: !!r.selected,
+          onchange: (e) => {
+            r.selected = e.target.checked;
+            tr.classList.toggle("selected", r.selected);
+            updateSelection();
+          },
+        })
+      ),
       el("td", { class: "comm", text: r.community, title: r.community }),
       el("td", {}, el("input", { type: "text", value: r.car, size: 7, oninput: (e) => (r.car = e.target.value, saveLastResult()) })),
       el("td", { text: fmtMonthDay(r.date) }),
@@ -276,10 +289,45 @@ function renderResults() {
   });
   $("#results").hidden = !state.rows.length;
   $("#resultsTitle").hidden = !state.rows.length;
+  $("#resultTools").hidden = !state.rows.length;
+  $("#resultCount").textContent = `${state.rows.length}건 · 보고 필요 ${state.rows.filter((r) => r.report).length}건`;
+  updateSelection();
   $("#download").disabled = !state.rows.length && !state.range;
 }
 
-const serializeRows = (rows) => rows.map((r) => ({ ...r, date: r.date ? r.date.getTime() : null }));
+const serializeRows = (rows) => rows.map(({ selected, ...r }) => ({ ...r, date: r.date ? r.date.getTime() : null }));
+
+// 선택(왼쪽 체크) 상태 → '선택 삭제' 버튼·전체 선택 체크
+function updateSelection() {
+  const n = state.rows.filter((r) => r.selected).length;
+  $("#deleteSelected").disabled = !n;
+  $("#deleteSelected").textContent = n ? `선택 삭제 (${n}건)` : "선택 삭제";
+  const all = $("#selectAll");
+  all.checked = n > 0 && n === state.rows.length;
+  all.indeterminate = n > 0 && n < state.rows.length;
+}
+
+$("#selectAll").addEventListener("change", (e) => {
+  state.rows.forEach((r) => (r.selected = e.target.checked));
+  renderResults();
+});
+
+$("#deleteSelected").addEventListener("click", async () => {
+  const n = state.rows.filter((r) => r.selected).length;
+  if (!n || !confirm(`선택한 ${n}건을 결과에서 지울까요?`)) return;
+  state.rows = state.rows.filter((r) => !r.selected);
+  renderResults();
+  await saveLastResult();
+});
+
+$("#clearResults").addEventListener("click", async () => {
+  if (state.running || !state.rows.length) return;
+  if (!confirm(`결과 표의 ${state.rows.length}건을 모두 비울까요? (데일리 DB 에 저장된 이력은 지워지지 않습니다)`)) return;
+  state.rows = [];
+  renderResults();
+  await saveLastResult();
+  setSummary("결과를 비웠습니다.");
+});
 const deserializeRows = (rows) => (rows || []).map((r) => ({ ...r, date: r.date ? new Date(r.date) : null }));
 
 // ---------------------------------------------------------------------------
@@ -386,6 +434,15 @@ async function renderBaseOptions() {
   if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
 }
 
+// 첨부한 엑셀(이어서 작성용) 해제
+$("#clearBase").addEventListener("click", async () => {
+  state.baseFile = null;
+  $("#baseFile").value = "";
+  await renderBaseOptions();
+  $("#baseSelect").value = "";
+  await onBaseChange();
+});
+
 async function onBaseChange() {
   const v = $("#baseSelect").value;
   if (!v) state.base = null;
@@ -395,6 +452,7 @@ async function onBaseChange() {
     state.base = e ? { label: `데일리 DB ${fmtDateTime(new Date(e.finishedAt))}`, rows: deserializeRows(e.rows) } : null;
   }
   $("#baseInfo").textContent = state.base ? `기존 ${state.base.rows.length}건 뒤에 이어서 작성합니다 (같은 게시물은 기존 것만 남김).` : "";
+  $("#clearBase").hidden = !state.baseFile;
 }
 
 $("#baseSelect").addEventListener("change", onBaseChange);

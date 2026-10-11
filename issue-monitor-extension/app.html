@@ -54,6 +54,7 @@
           <select id="baseSelect"></select>
           <span class="hint">또는 기존 엑셀 파일:</span>
           <input type="file" id="baseFile" accept=".xlsx">
+          <button id="clearBase" class="danger" hidden>✕ 첨부 해제</button>
         </div>
         <div id="baseInfo" class="hint"></div>
       </div>
@@ -76,10 +77,14 @@
         <tbody></tbody>
       </table>
 
-      <h2 id="resultsTitle" hidden>결과 <span class="hint">(받기 전에 고치거나 지울 수 있습니다)</span></h2>
+      <h2 id="resultsTitle" hidden>결과 <span id="resultCount" class="hint"></span> <span class="hint">(받기 전에 고치거나 지울 수 있습니다)</span></h2>
+      <div id="resultTools" class="buttons small" hidden>
+        <button id="deleteSelected" class="danger" disabled>선택 삭제</button>
+        <button id="clearResults" class="danger">결과 비우기</button>
+      </div>
       <table id="results" hidden>
-        <colgroup><col style="width:120px"><col style="width:76px"><col style="width:72px"><col style="width:62px"><col style="width:230px"><col><col style="width:52px"><col style="width:62px"><col style="width:50px"></colgroup>
-        <thead><tr><th>커뮤니티명</th><th>차종</th><th>게시일</th><th>구분</th><th>URL</th><th>주요 내용</th><th>노란색</th><th title="꼭 보고해야 할 심각한 이슈 (엑셀 G열 +)">보고 필요</th><th></th></tr></thead>
+        <colgroup><col style="width:28px"><col style="width:120px"><col style="width:76px"><col style="width:72px"><col style="width:62px"><col style="width:230px"><col><col style="width:52px"><col style="width:62px"><col style="width:50px"></colgroup>
+        <thead><tr><th><input type="checkbox" id="selectAll" title="전체 선택/해제"></th><th>커뮤니티명</th><th>차종</th><th>게시일</th><th>구분</th><th>URL</th><th>주요 내용</th><th>노란색</th><th title="꼭 보고해야 할 심각한 이슈 (엑셀 G열 +)">보고 필요</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
 
