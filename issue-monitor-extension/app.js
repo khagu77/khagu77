@@ -243,6 +243,17 @@ function fmtMonthDay(d) {
   return d ? `${pad2(d.getMonth() + 1)}월 ${pad2(d.getDate())}일` : "";
 }
 
+// 조회수·댓글 수·강한 비판 표시 (URL 칸 앞, 값이 있을 때만)
+function countsBadge(r) {
+  const parts = [];
+  if (r.views != null) parts.push(`👁 ${Number(r.views).toLocaleString()}`);
+  if (r.ccount != null) parts.push(`💬 ${Number(r.ccount).toLocaleString()}`);
+  if (r.harsh) parts.push("🔥");
+  if (!parts.length) return null;
+  const hot = r.harsh || r.views >= 1000 || r.ccount >= 20;
+  return el("span", { class: `counts${hot ? " hot" : ""}`, title: `조회 ${r.views ?? "-"} · 댓글 ${r.ccount ?? "-"}${r.harsh ? " · 강한 비판·욕설 있음" : ""}`, text: parts.join(" ") });
+}
+
 function renderResults() {
   const tbody = $("#results tbody");
   tbody.textContent = "";
@@ -277,7 +288,7 @@ function renderResults() {
           return sel;
         })()
       ),
-      el("td", { class: "url" }, el("a", { href: r.url, target: "_blank", title: `${r.url}${r.views != null ? `\n조회 ${r.views}` : ""}${r.ccount != null ? ` · 댓글 ${r.ccount}` : ""}${r.harsh ? "\n강한 비판·욕설 있음" : ""}`, text: r.url.replace(/^https?:\/\/(www\.)?/, "") })),
+      el("td", { class: "url" }, countsBadge(r), el("a", { href: r.url, target: "_blank", title: `${r.url}${r.views != null ? `\n조회 ${r.views}` : ""}${r.ccount != null ? ` · 댓글 ${r.ccount}` : ""}${r.harsh ? "\n강한 비판·욕설 있음" : ""}`, text: r.url.replace(/^https?:\/\/(www\.)?/, "") })),
       el("td", { class: "sum" }, sum),
       el(
         "td",

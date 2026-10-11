@@ -343,6 +343,21 @@ function formatComments(list, writerNick) {
   return lines.join("\n").slice(0, 1500);
 }
 
+// 게시글 화면이 받아 온 데이터에서 조회수·댓글 수
+function countsFromJson(datas, articleId) {
+  let views = null;
+  let ccount = null;
+  walkJson(datas, (o) => {
+    const id = o.articleId ?? o.id;
+    if (id !== undefined && String(id) !== String(articleId) && !o.readCount && !o.commentCount) return;
+    const v = num(o.readCount ?? o.readcount ?? o.viewCount);
+    const c = num(o.commentCount ?? o.commentcount ?? o.totalCommentCount);
+    if (views === null && v !== null && (id === undefined || String(id) === String(articleId))) views = v;
+    if (ccount === null && c !== null && (id === undefined || String(id) === String(articleId))) ccount = c;
+  });
+  return { views, ccount };
+}
+
 // 화면이 받아 온 데이터에서 작성자 찾기 → { memberKey, nick }
 function writerFromJson(datas, articleId) {
   let found = null;
@@ -721,8 +736,8 @@ class NaverCollector {
           ts: fromJson && fromJson.ts ? fromJson.ts : parsed && parsed.exact ? parsed.date.getTime() : null,
           writer: { nick: writerNick, href: named.writerHref || "", memberKey: (w && w.memberKey) || "" },
           comments: formatComments(comments, writerNick),
-          views: (frames.find((f) => f.views) || {}).views ?? null,
-          ccount: (frames.find((f) => f.ccount) || {}).ccount ?? null,
+          views: (frames.find((f) => f.views) || {}).views ?? countsFromJson(datas, post.articleId).views,
+          ccount: countsFromJson(datas, post.articleId).ccount ?? (frames.find((f) => f.ccount) || {}).ccount ?? null,
         };
       }
       const signals = await this.tab.run(pageSignalsInFrame);
