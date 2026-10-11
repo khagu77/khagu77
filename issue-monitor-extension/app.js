@@ -664,6 +664,67 @@ function pushRow(row) {
   return true;
 }
 
+// 보고 필요 4~6건 고르기 (네이버 카페 글만). AI 가 있으면 AI, 없거나 실패하면 키워드
+async function pickReports(cafeRows, ai, settings) {
+  if (!cafeRows.length) return 0;
+  let picked;
+  try {
+    picked = ai ? await ai.selectReports(cafeRows, settings.priorityCars) : keywordReportPick(cafeRows, settings.priorityCars);
+  } catch (e) {
+    log(`AI 보고 필요 선정 실패(${e.message}) → 키워드로 대신 선정`, "err");
+    picked = keywordReportPick(cafeRows, settings.priorityCars);
+  }
+  cafeRows.forEach((r) => (r.report = false));
+  picked.forEach((i) => (cafeRows[i].report = true));
+  log(`보고 필요 ${picked.size}건 선정`);
+  return picked.size;
+}
+
+// 행이 네이버 카페 글인지 (불러온 엑셀처럼 kind 정보가 없으면 주소로 판단)
+const isCafeRow = (r) => (r.kind ? r.kind === "cafe" : /cafe\.naver\.com|naver\.me/.test(r.url || ""));
+
+// 지금 결과 표(또는 불러온 엑셀)에서 보고 필요 다시 고르기
+$("#pickReports").addEventListener("click", async () => {
+  if (state.running) return;
+  const settings = state.settings;
+  const rows = state.rows.filter(isCafeRow);
+  if (!rows.length) {
+    setSummary("보고 필요를 고를 네이버 카페 글이 없습니다.");
+    return;
+  }
+  $("#pickReports").disabled = true;
+  setSummary(`보고 필요 고르는 중… (네이버 카페 글 ${rows.length}건)`);
+  try {
+    const ai = settings.apiKey ? new AiClassifier(settings, log) : null;
+    const n = await pickReports(rows, ai, settings);
+    renderResults();
+    await saveLastResult();
+    setSummary(`보고 필요 ${n}건을 골랐습니다${ai ? ` (AI 비용 약 $${ai.costUsd().toFixed(3)})` : " (키워드 기준)"}. '엑셀 받기'로 G열 + 가 들어간 파일을 받으세요.`);
+  } finally {
+    $("#pickReports").disabled = false;
+  }
+});
+
+// 엑셀 파일을 불러와 결과 표로 보기 (파일 이름 앞 날짜를 그대로 씀)
+$("#viewFile").addEventListener("change", async (ev) => {
+  const f = ev.target.files[0];
+  ev.target.value = "";
+  if (!f || state.running) return;
+  try {
+    const rows = await ReportXlsx.read(new Uint8Array(await f.arrayBuffer()));
+    if (!rows.length) throw new Error("이 파일에서 보고서 행을 찾지 못했습니다");
+    state.rows = rows.map((r, i) => ({ ...r, order: i, ts: r.date ? r.date.getTime() : 0, kind: /cafe\.naver\.com|naver\.me/.test(r.url) ? "cafe" : "community", fromBase: true, baseIdx: i }));
+    const m = f.name.match(/^(\d{2})(\d{2})(\d{2})/);
+    const end = m ? new Date(2000 + +m[1], +m[2] - 1, +m[3], 8, 0) : new Date();
+    state.range = { start: new Date(end.getTime() - 86400000), end };
+    renderResults();
+    await saveLastResult();
+    setSummary(`불러온 엑셀: ${f.name} · ${rows.length}건 (노란색 ${rows.filter((r) => r.highlight).length}, 보고 필요 ${rows.filter((r) => r.report).length})`);
+  } catch (e) {
+    setSummary(`엑셀을 불러오지 못했습니다: ${e.message}`);
+  }
+});
+
 async function runCollection() {
   if (state.running) return;
   const settings = state.settings;
@@ -798,18 +859,7 @@ async function runCollection() {
   }
 
   // 보고 필요: 이번에 수집한 네이버 카페 글 중 심각한 4~6개 (신차 우선, 단순 정보 공유 제외)
-  const cafeRows = state.rows.filter((r) => r.kind === "cafe" && !r.fromBase);
-  if (cafeRows.length) {
-    let picked;
-    try {
-      picked = ai ? await ai.selectReports(cafeRows, settings.priorityCars) : keywordReportPick(cafeRows, settings.priorityCars);
-    } catch (e) {
-      log(`AI 보고 필요 선정 실패(${e.message}) → 키워드로 대신 선정`, "err");
-      picked = keywordReportPick(cafeRows, settings.priorityCars);
-    }
-    picked.forEach((i) => (cafeRows[i].report = true));
-    log(`보고 필요 ${picked.size}건 선정`);
-  }
+  await pickReports(state.rows.filter((r) => r.kind === "cafe" && !r.fromBase), ai, settings);
 
   sortRows();
   renderResults();

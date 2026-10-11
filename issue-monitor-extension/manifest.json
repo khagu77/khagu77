@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "현대차·제네시스 부정 이슈 모니터링",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "네이버 카페·자동차 커뮤니티의 새 글 중 현대차·제네시스 부정 이슈(품질·응대·결품)를 모아 보고서 엑셀로 저장합니다.",
   "icons": { "128": "icons/icon128.png", "48": "icons/icon48.png" },
   "action": {

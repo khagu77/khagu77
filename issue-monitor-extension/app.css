@@ -191,3 +191,6 @@ details[open] > *:not(summary) { margin-top: 8px; }
   details[open] > summary { background: #3b6fd1; border-color: #3b6fd1; color: #fff; }
   details > summary .hint { color: #8fa8cc; }
 }
+
+label.filebtn { display: inline-flex; align-items: center; margin: 0; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); font-size: 13px; font-weight: 400; cursor: pointer; }
+label.filebtn:hover { border-color: var(--green); }
