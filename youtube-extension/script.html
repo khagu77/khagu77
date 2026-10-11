@@ -11,7 +11,8 @@
     <h1>YouTube 스크립트 및 영상 파일 추출</h1>
     <p class="hint">
       유튜브에 있는 스크립트를 그대로 가져오거나, 영상을 재생하면서 스크립트를 새로 만듭니다.
-      결과는 <code>00:00 스크립트 내용</code> 형식으로 아래 출력칸에 나오고 메모장 파일(.txt)로 저장됩니다.
+      결과는 <code>00:00 스크립트 내용</code> 형식으로 아래 출력칸에 나옵니다. 수집이 끝나면 <b>전체 스크립트 한 파일로 받기</b>로
+      모든 영상의 스크립트를 영상별로 구분된 메모장 파일(.txt) 하나로 받을 수 있습니다(파일은 자동으로 내려받지 않음).
       띄어쓰기·자주 틀리는 맞춤법(됬→됐, 할수있다→할 수 있다 등)을 기본 규칙으로 고친 <b>교정본</b>과 고치기 전 <b>원본</b>(<code>_원본.txt</code>)을 함께 저장합니다.
     </p>
 
@@ -59,6 +60,9 @@
     </div>
 
     <div id="summary" class="summary"></div>
+    <div class="buttons">
+      <button id="saveAll" class="primary" disabled>전체 스크립트 한 파일로 받기 (.txt)</button>
+    </div>
 
     <table id="progress" hidden>
       <thead><tr><th>#</th><th>영상</th><th>상태</th><th></th></tr></thead>
@@ -69,7 +73,7 @@
     <textarea id="output" rows="16" readonly spellcheck="false" placeholder="여기에 00:00 스크립트 내용 형식으로 표시됩니다."></textarea>
     <div class="buttons">
       <button id="copy" disabled>복사</button>
-      <button id="save" disabled>메모장 파일(.txt)로 받기</button>
+      <button id="save" disabled>이 영상만 .txt 로 받기 (교정본 + 원본)</button>
     </div>
 
     <p class="note">

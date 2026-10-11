@@ -294,7 +294,7 @@ async function grabTranscriptInPage() {
       const section = document.querySelector("ytd-video-description-transcript-section-renderer");
       const pool = section ? section.querySelectorAll("button, [role=button]") : document.querySelectorAll("#description button, ytd-watch-metadata button");
       return [...pool].find(isShowTranscript);
-    }, 5000);
+    }, 8000);
     // 2-1) 예전 화면: 영상 아래 '…'(추가 작업) 메뉴의 '스크립트 표시'
     if (!btn) {
       const more = document.querySelector("ytd-watch-metadata #button-shape button, ytd-menu-renderer yt-button-shape button[aria-label]");
@@ -338,15 +338,25 @@ async function grabTranscriptInPage() {
   return { title: getTitle(), lines };
 }
 
+// 영상 페이지를 백그라운드 탭(화면이 바뀌지 않음)으로 열어 스크립트를 읽는다.
+// 화면이 늦게 그려져 '스크립트 표시'를 못 찾는 경우가 있어, 못 찾으면 새로고침해서 한 번 더 시도한다.
 async function readYoutubeTranscript(videoId, row, result) {
-  setRowStatus(row, "유튜브 탭 여는 중…");
-  const tab = await chrome.tabs.create({ url: `https://www.youtube.com/watch?v=${videoId}`, active: true });
+  setRowStatus(row, "유튜브 영상 페이지 여는 중… (백그라운드)");
+  const tab = await chrome.tabs.create({ url: `https://www.youtube.com/watch?v=${videoId}`, active: false });
   try {
     await chrome.tabs.update(tab.id, { muted: true }).catch(() => {});
-    await waitTabComplete(tab.id);
-    setRowStatus(row, "'…더보기' → '스크립트 표시' 여는 중…");
-    const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: grabTranscriptInPage });
-    const r = res && res.result;
+    let r = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      if (attempt > 1) {
+        setRowStatus(row, "스크립트를 찾지 못해 페이지를 새로고침해 다시 찾는 중…");
+        await chrome.tabs.reload(tab.id);
+      }
+      await waitTabComplete(tab.id);
+      setRowStatus(row, "'…더보기' → '스크립트 표시' 여는 중…");
+      const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: grabTranscriptInPage });
+      r = res && res.result;
+      if (r && r.lines.length) break;
+    }
     if (!r) throw new Error("유튜브 화면을 읽지 못했습니다");
     if (r.title) {
       result.title = r.title;
@@ -368,7 +378,8 @@ async function readYoutubeTranscript(videoId, row, result) {
 
 let running = false;
 let abortDrain = null;
-const results = []; // { title, videoId, lines }
+const results = []; // { title, videoId, url, lines, fixed }
+let runUrls = []; // 이번에 수집한 URL (전체 파일 순서)
 let selected = -1;
 
 function showResult(i) {
@@ -405,22 +416,56 @@ function saveResult(i) {
   if (r.fixed) setTimeout(() => downloadText(original, `${base}_원본.txt`), 800);
 }
 
+function rowButton(td, label, onClick, cls = "") {
+  const b = document.createElement("button");
+  b.textContent = label;
+  if (cls) b.className = cls;
+  b.addEventListener("click", onClick);
+  td.appendChild(b);
+  return b;
+}
+
+async function copyText(text, btn) {
+  await navigator.clipboard.writeText(text);
+  const old = btn.textContent;
+  btn.textContent = "복사됨 ✔";
+  setTimeout(() => (btn.textContent = old), 1500);
+}
+
 function addRowActions(row, i) {
   const td = row.querySelector(".actions");
   td.innerHTML = "";
-  const view = document.createElement("button");
-  view.textContent = "보기";
-  view.addEventListener("click", () => showResult(i));
-  const save = document.createElement("button");
-  save.textContent = ".txt";
-  save.addEventListener("click", () => saveResult(i));
-  td.append(view, save);
+  rowButton(td, "보기", () => showResult(i));
+  const copy = rowButton(td, "복사", () => {
+    const r = results[i];
+    if (r && r.lines.length) copyText(scriptText(r.fixed || r.lines), copy);
+  });
+  rowButton(td, ".txt", () => saveResult(i));
+}
+
+// 수집한 모든 스크립트를 영상별로 구분해 한 파일로 (교정본)
+function combinedText() {
+  const line = "=".repeat(60);
+  const parts = [];
+  runUrls.forEach((url, i) => {
+    const r = results[i];
+    const id = r ? r.videoId : parseYoutubeId(url);
+    const head = `[${i + 1}/${runUrls.length}] ${(r && r.title) || "(제목 없음)"}`;
+    const link = id ? `https://www.youtube.com/watch?v=${id}` : url;
+    const body = r && r.lines.length ? scriptText(r.fixed || r.lines) : "(스크립트를 가져오지 못했습니다)";
+    parts.push(`${line}\n${head}\n${link}\n${line}\n${body}`);
+  });
+  return parts.join("\n\n\n");
+}
+
+function updateSaveAll() {
+  $("#saveAll").disabled = !results.some((r) => r && r.lines.length);
 }
 
 async function transcribeVideo(url, row, index, opts) {
   const videoId = parseYoutubeId(url);
   if (!videoId) throw new Error("유튜브 영상 주소가 아닙니다");
-  const result = { videoId, title: "", lines: [] };
+  const result = { videoId, url, title: "", lines: [] };
   results[index] = result;
   addRowActions(row, index);
 
@@ -534,22 +579,19 @@ function setRunning(on) {
   document.querySelectorAll("button.retry").forEach((b) => (b.disabled = on));
 }
 
-// 스크립트가 없는 영상 줄에 '화면 자막으로' / '음성으로' 버튼을 단다
-function offerOtherModes(row, i, url) {
-  setRowStatus(row, "이 영상에는 유튜브 스크립트가 없습니다 → 오른쪽 버튼으로 다른 방식을 고르세요", "err");
+// 실패한 줄에는 [재시도], 스크립트가 없는 줄에는 [재시도] [화면 자막으로] [음성으로]
+function offerRetry(row, i, url, opts, missing) {
   const td = row.querySelector(".actions");
   td.innerHTML = "";
+  rowButton(td, "재시도", () => retryWith(i, url, row, opts), "retry");
+  if (!missing) return;
   for (const [mode, label] of [["screen", "화면 자막으로"], ["speech", "음성으로"]]) {
-    const b = document.createElement("button");
-    b.className = "retry";
-    b.textContent = label;
+    const b = rowButton(td, label, () => retryWith(i, url, row, { ...opts, mode, speed: DEFAULT_SPEED[mode] }), "retry");
     b.title = `${MODE_LABEL[mode]}으로 이 영상의 스크립트를 만듭니다`;
-    b.addEventListener("click", () => retryWith(i, url, row, mode));
-    td.appendChild(b);
   }
 }
 
-// 영상 하나 → 'ok' | 'missing'(스크립트 없음) | 'fail'
+// 영상 하나 → 'ok' | 'missing'(스크립트 없음) | 'fail'  (파일은 자동으로 받지 않음)
 async function runOne(i, url, row, opts) {
   showResult(i);
   try {
@@ -558,26 +600,32 @@ async function runOne(i, url, row, opts) {
     setRowStatus(row, `완료 · ${r.lines.length}줄 · 교정 ${r.fixes}곳`, "ok");
     addRowActions(row, i);
     showResult(i);
-    saveResult(i);
     return "ok";
   } catch (e) {
     if (e instanceof NoTranscriptError) {
-      offerOtherModes(row, i, url);
+      setRowStatus(row, "유튜브 스크립트를 찾지 못했습니다 → [재시도] 또는 다른 방식을 고르세요", "err");
+      offerRetry(row, i, url, opts, true);
       return "missing";
     }
     const n = results[i] ? results[i].lines.length : 0;
     setRowStatus(row, `${e.message}${n ? ` (그때까지 ${n}줄)` : ""}`, "err");
     if (results[i]) showResult(i);
+    if (parseYoutubeId(url)) offerRetry(row, i, url, opts, false);
     return "fail";
+  } finally {
+    updateSaveAll();
   }
 }
 
-async function retryWith(i, url, row, mode) {
+async function retryWith(i, url, row, opts) {
   if (running) return;
   setRunning(true);
-  setSummary(`${MODE_LABEL[mode]}으로 스크립트 만드는 중…`);
-  const r = await runOne(i, url, row, { ...currentOpts(), mode, speed: DEFAULT_SPEED[mode] });
-  setSummary(r === "ok" ? "다운로드 폴더에 .txt 로 저장했습니다." : "만들지 못했습니다. 줄의 상태를 확인하세요.", r === "ok" ? "ok" : "err");
+  setSummary(`${i + 1}번 영상 다시 수집하는 중…`);
+  const r = await runOne(i, url, row, { ...currentOpts(), ...opts });
+  setSummary(
+    r === "ok" ? `${i + 1}번 영상 스크립트를 수집했습니다. '전체 스크립트 한 파일로 받기'로 내려받으세요.` : "이번에도 수집하지 못했습니다. 줄의 상태를 확인하세요.",
+    r === "ok" ? "ok" : "err",
+  );
   setRunning(false);
 }
 
@@ -588,26 +636,35 @@ async function start() {
   setRunning(true);
   $("#progress tbody").innerHTML = "";
   results.length = 0;
+  runUrls = urls;
   showResult(-1);
-  let ok = 0;
-  let missing = 0;
+  updateSaveAll();
+  const count = { ok: 0, missing: 0, fail: 0 };
 
   for (let i = 0; i < urls.length && running; i++) {
     const row = addProgressRow(i, urls[i]);
-    setSummary(`${i + 1} / ${urls.length}번째 영상 스크립트 만드는 중…`);
-    const r = await runOne(i, urls[i], row, opts);
-    if (r === "ok") ok++;
-    if (r === "missing") missing++;
+    setSummary(`${i + 1} / ${urls.length}번째 영상 스크립트 수집 중…`);
+    count[await runOne(i, urls[i], row, opts)]++;
   }
 
   if (running) {
-    let msg = `${ok} / ${urls.length}개 영상 스크립트를 다운로드 폴더에 .txt 로 저장했습니다.`;
-    if (missing) msg += ` 유튜브 스크립트가 없는 영상 ${missing}개는 줄 오른쪽의 [화면 자막으로] 또는 [음성으로] 버튼을 누르세요.`;
-    setSummary(msg, missing ? "" : "ok");
+    const failed = count.missing + count.fail;
+    setSummary(
+      `${count.ok} / ${urls.length}개 영상 스크립트를 수집했습니다. '전체 스크립트 한 파일로 받기'로 내려받으세요.` +
+        (failed ? ` 수집하지 못한 ${failed}개는 줄 오른쪽 [재시도] 버튼을 누르세요.` : ""),
+      failed ? "" : "ok",
+    );
+    setRunning(false);
+    alert(
+      `스크립트 수집을 마쳤습니다.\n\n성공 ${count.ok}개` +
+        (count.missing ? ` · 스크립트 없음 ${count.missing}개` : "") +
+        (count.fail ? ` · 실패 ${count.fail}개` : "") +
+        `\n\n'전체 스크립트 한 파일로 받기' 버튼으로 모든 스크립트를 한 파일에 받을 수 있습니다.`,
+    );
   } else {
     setSummary("중지했습니다. 그때까지 받아쓴 내용은 ‘보기’로 확인할 수 있습니다.");
+    setRunning(false);
   }
-  setRunning(false);
 }
 
 const SPEEDS = {
@@ -673,6 +730,9 @@ async function init() {
     setTimeout(() => ($("#copy").textContent = "복사"), 1500);
   });
   $("#save").addEventListener("click", () => saveResult(selected));
+  $("#saveAll").addEventListener("click", () =>
+    downloadText(combinedText(), `${today()}_유튜브스크립트_${results.filter((r) => r && r.lines.length).length}개.txt`),
+  );
 }
 
 init();

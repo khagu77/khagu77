@@ -128,6 +128,8 @@ def start_fake_youtube(tmp_path: Path, media: dict, pages=None):
             else:
                 vid = self.path.split("v=")[-1][:11]
                 html = (pages or {}).get(vid) or WATCH_HTML.format(title=TITLE, name=f"{vid}.webm")
+                if callable(html):
+                    html = html()
                 body = html.encode()
                 ctype = "text/html; charset=utf-8"
             self.send_response(200)
@@ -164,6 +166,23 @@ def launch(p, tmp_path, ext_dir, port):
     )
 
 
+def run_script_and_save_row(page, tmp_path, timeout=120000):
+    """[스크립트 만들기] → 완료 알림 → 1번 줄 [.txt] 로 교정본을 받는다. 수집 중 자동 다운로드가 없어야 한다."""
+    downloads, dialogs = [], []
+    page.on("download", lambda d: downloads.append(d))
+    page.on("dialog", lambda d: (dialogs.append(d.message), d.accept()))
+    page.click("#start")
+    page.locator("#summary", has_text="수집했습니다").wait_for(timeout=timeout)
+    page.wait_for_timeout(1500)
+    assert downloads == [], [d.suggested_filename for d in downloads]  # 자동으로 받지 않음
+    assert dialogs and "스크립트 수집을 마쳤습니다" in dialogs[0], dialogs
+    with page.expect_download(timeout=10000) as dl:
+        page.locator("#progress tbody tr").nth(0).locator("button", has_text=".txt").click()
+    path = tmp_path / dl.value.suggested_filename
+    dl.value.save_as(path)
+    return path
+
+
 def ext_page(ctx, path):
     sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
     page = ctx.new_page()
@@ -185,11 +204,7 @@ def test_script(tmp_path: Path):
         assert page.input_value("#mode") == "transcript"  # 기본은 유튜브 스크립트 가져오기
         page.select_option("#mode", "speech")
         page.fill("#urls", "https://youtu.be/scriptvid01")
-        with page.expect_download(timeout=120000) as dl:
-            page.click("#start")
-        path = tmp_path / dl.value.suggested_filename
-        dl.value.save_as(path)
-        page.locator("#summary", has_text="저장했습니다").wait_for()
+        path = run_script_and_save_row(page, tmp_path)
         output = page.input_value("#output")
         status = page.inner_text("#progress tbody")
         ctx.close()
@@ -243,59 +258,99 @@ document.getElementById("expand").addEventListener("click", () => {{
 
 @pytest.mark.skipif(not Path(FONT).exists(), reason="한글 글꼴 없음")
 def test_youtube_transcript(tmp_path: Path):
-    """유튜브 스크립트 가져오기: 스크립트가 있는 영상은 패널 내용을 그대로, 없는 영상은 다른 방식 버튼을 띄우고
-    [화면 자막으로]를 누르면 화면 자막 인식으로 만든다."""
+    """유튜브 스크립트 가져오기:
+    - 스크립트가 있는 영상은 패널 내용을 그대로 (교정본 + 원본), 수집 중 자동 다운로드 없음, 끝나면 완료 알림
+    - 처음엔 스크립트가 안 보이다가 나중에 보이는 영상은 [재시도]로 수집
+    - 스크립트가 없는 영상은 [화면 자막으로]로 수집
+    - [전체 스크립트 한 파일로 받기]: 모든 영상을 구분선으로 나눠 한 파일에"""
     media = tmp_path / "notranscr01.webm"
     make_captioned_media(media, 23)
-    pages = {"transcrvid1": transcript_page("transcrvid1"), "notranscr01": transcript_page("notranscr01", False)}
+    flaky_hits = []
+
+    def flaky():  # 처음 두 번(첫 시도 + 자동 새로고침)은 스크립트 버튼이 없고, 세 번째부터 보인다
+        flaky_hits.append(1)
+        return transcript_page("flakyvideo1", len(flaky_hits) > 2)
+
+    pages = {"transcrvid1": transcript_page("transcrvid1"), "flakyvideo1": flaky,
+             "notranscr01": transcript_page("notranscr01", False)}
     server = start_fake_youtube(tmp_path, {media.name: media}, pages)
     with sync_playwright() as p:
         ctx = launch(p, tmp_path, EXT_DIR, server.server_address[1])
         page = ext_page(ctx, "script.html")
         assert page.input_value("#mode") == "transcript" and page.input_value("#fallback") == "ask"
         assert page.is_hidden("#speed") and page.is_hidden("#model")
-        downloads = []  # 영상마다 교정본과 원본 두 개가 저장된다 (이벤트에서는 모으기만 하고 저장은 나중에)
+        assert page.is_disabled("#saveAll")
+        downloads, dialogs = [], []
         page.on("download", lambda d: downloads.append(d))
+        page.on("dialog", lambda d: (dialogs.append(d.message), d.accept()))
 
-        def save(ds, tag):
-            out = []
-            for k, d in enumerate(ds):
-                path = tmp_path / f"{tag}{k}_{d.suggested_filename}"
-                d.save_as(path)
-                out.append((d.suggested_filename, path))
-            return out
-
-        page.fill("#urls", "https://www.youtube.com/watch?v=transcrvid1\nhttps://youtu.be/notranscr01")
+        page.fill("#urls", "https://www.youtube.com/watch?v=transcrvid1\nhttps://youtu.be/flakyvideo1\n"
+                           "https://youtu.be/notranscr01")
         page.click("#start")
-        page.locator("#summary", has_text="스크립트가 없는 영상 1개").wait_for(timeout=60000)
-        page.wait_for_timeout(2500)  # 원본(_원본.txt)은 교정본보다 조금 늦게 받는다
-        n_first = len(downloads)
-        first = save(downloads[:n_first], "a")
+        # 영상 페이지는 백그라운드 탭으로 열려 수집 화면이 계속 앞에 있다
+        page.locator("#progress tbody", has_text="백그라운드").wait_for(timeout=20000)
+        assert page.evaluate("document.visibilityState") == "visible"
+        page.locator("#summary", has_text="수집했습니다").wait_for(timeout=120000)
+        page.wait_for_timeout(1500)
+        assert downloads == [], [d.suggested_filename for d in downloads]  # 자동으로 받지 않음
+        assert len(dialogs) == 1 and "스크립트 수집을 마쳤습니다" in dialogs[0] and "성공 1개 · 스크립트 없음 2개" in dialogs[0], dialogs
         rows = page.locator("#progress tbody tr")
+        assert "완료 · 4줄 · 교정 2곳" in rows.nth(0).inner_text()
+        for k in (1, 2):
+            assert "스크립트를 찾지 못했습니다" in rows.nth(k).inner_text()
+            assert rows.nth(k).locator("button", has_text="재시도").count() == 1
+        assert len(flaky_hits) == 2  # 못 찾으면 새로고침해서 한 번 더 찾아봤다
+
+        # [재시도] → 이번엔 스크립트가 보여 수집된다
+        rows.nth(1).locator("button", has_text="재시도").click()
+        rows.nth(1).locator(".status", has_text="완료").wait_for(timeout=60000)
+        # 스크립트가 없는 영상: [화면 자막으로]
+        rows.nth(2).locator("button", has_text="화면 자막으로").click()
+        rows.nth(2).locator(".status", has_text="완료").wait_for(timeout=120000)
+        page.wait_for_timeout(1000)
+        assert downloads == [] and len(dialogs) == 1  # 재시도 때도 자동 다운로드·알림 없음
+
         rows.nth(0).locator("button", has_text="보기").click()
         output = page.input_value("#output")
-        assert "완료 · 4줄 · 교정 2곳" in rows.nth(0).inner_text()
-        assert "유튜브 스크립트가 없습니다" in rows.nth(1).inner_text()
-        # 스크립트가 없는 영상: [화면 자막으로] 버튼으로 다시
-        rows.nth(1).locator("button", has_text="화면 자막으로").click()
-        page.locator("#summary", has_text="저장했습니다").wait_for(timeout=120000)
+        # 줄의 [.txt]: 교정본 + 원본
+        rows.nth(0).locator("button", has_text=".txt").click()
         page.wait_for_timeout(2500)
-        second = save(downloads[n_first:], "b")
+        row_files = []
+        for k, d in enumerate(downloads):
+            path = tmp_path / f"row{k}_{d.suggested_filename}"
+            d.save_as(path)
+            row_files.append((d.suggested_filename, path))
+        # [전체 스크립트 한 파일로 받기]
+        with page.expect_download(timeout=10000) as dl:
+            page.click("#saveAll")
+        all_name = dl.value.suggested_filename
+        all_path = tmp_path / "all.txt"
+        dl.value.save_as(all_path)
         ctx.close()
     server.shutdown()
 
     read = lambda p: p.read_bytes().decode("utf-8-sig").strip().split("\r\n")
     base = f"{date.today():%Y%m%d}_{SAFE_TITLE}"
-    assert [n for n, _ in first] == [f"{base}.txt", f"{base}_원본.txt"], first
-    fixed, original = read(first[0][1]), read(first[1][1])
+    assert [n for n, _ in row_files] == [f"{base}.txt", f"{base}_원본.txt"], row_files
+    fixed, original = read(row_files[0][1]), read(row_files[1][1])
     # 교정본: 겹친 공백·줄바꿈 정리, 됬→됐, 할수있다→할 수 있다 / 원본: 패널 글자 그대로
     assert fixed == ["00:00 안녕하세요 여러분", "00:05 오늘은 팰리세이드 시승기입니다",
                      "00:09 이렇게 됐어요 할 수 있다", "1:02:03 끝까지 봐주셔서 감사합니다"], fixed
     assert original[2] == "00:09 이렇게 됬어요 할수있다", original
     assert output.split("\n") == fixed  # 화면 출력칸도 교정본
-    assert [n for n, _ in second] == [f"{base}.txt", f"{base}_원본.txt"], second
-    screen = second[0][1].read_bytes().decode("utf-8-sig")
-    assert "안녕하세요 반갑습니다" in screen and "오늘은 날씨가 좋습니다" in screen, screen
+
+    assert all_name == f"{date.today():%Y%m%d}_유튜브스크립트_3개.txt"
+    text = all_path.read_bytes().decode("utf-8-sig").replace("\r\n", "\n")
+    blocks = text.strip().split("\n\n\n")
+    assert len(blocks) == 3, text
+    sep = "=" * 60
+    for k, (vid, block) in enumerate(zip(["transcrvid1", "flakyvideo1", "notranscr01"], blocks), 1):
+        head = block.split("\n")
+        assert head[0] == sep and head[3] == sep, block
+        assert head[1] == f"[{k}/3] {TITLE}" and head[2] == f"https://www.youtube.com/watch?v={vid}", block
+    assert blocks[0].split("\n")[4:] == fixed
+    assert "00:09 이렇게 됐어요 할 수 있다" in blocks[1]
+    assert "안녕하세요 반갑습니다" in blocks[2] and "오늘은 날씨가 좋습니다" in blocks[2], blocks[2]
 
 
 @pytest.mark.skipif(not Path(FONT).exists(), reason="한글 글꼴 없음")
@@ -311,10 +366,7 @@ def test_screen_captions(tmp_path: Path):
         assert page.input_value("#speed") == "3"
         page.select_option("#speed", "3")
         page.fill("#urls", "https://www.youtube.com/watch?v=screenvid01")
-        with page.expect_download(timeout=120000) as dl:
-            page.click("#start")
-        path = tmp_path / dl.value.suggested_filename
-        dl.value.save_as(path)
+        path = run_script_and_save_row(page, tmp_path)
         output = page.input_value("#output")
         ctx.close()
     server.shutdown()
