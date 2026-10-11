@@ -297,7 +297,10 @@ function dayOffReason(d, s) {
 
 // '주요 내용' 칸을 노란색으로 칠할 집중 관리 항목
 const DEFAULT_HIGHLIGHTS = [
-  { car: "LX3", topic: "전동 시트(2열·3열 포함) 관련 불만·고장·작동 오류, 시트 관련 업데이트 의견" },
+  { car: "LX3", topic: "전동 시트(2열·3열 포함) 관련 불만·고장·작동 오류·끼임 사고, 전동 시트 리콜 불만, 시트 관련 업데이트 의견" },
+  { car: "ME1", topic: "2열·3열 전동 시트 끼임, 시트가 멈추지 않음(끼임 방지 미작동), 전동 시트 관련 리콜(해외 리콜 포함) 불만·문의" },
+  { car: "MX5", topic: "2열·3열 전동 시트 끼임, 시트가 멈추지 않음(끼임 방지 미작동), 전동 시트 관련 리콜(해외 리콜 포함) 불만·문의" },
+  { car: "JX", topic: "2열·3열 전동 시트 끼임, 시트가 멈추지 않음(끼임 방지 미작동), 전동 시트 관련 리콜(해외 리콜 포함) 불만·문의 (JX PE 포함)" },
 ];
 
 const DEFAULT_SETTINGS = {
@@ -329,7 +332,7 @@ const MODELS = [
 ];
 
 // 예전 버전에서 저장한 설정에 새 기본값을 보태 준다
-const SETTINGS_VERSION = 8;
+const SETTINGS_VERSION = 9;
 function migrateSettings(s) {
   if ((s.settingsVersion || 1) < 2 && typeof s.keywords === "string") {
     const add = "출고 대기, 출고대기, 출고 기다, 검수 업체, 검수업체, 검수 대행, 검수대행, 광고, 홍보, 오일교환, 오일 교환".split(", ");
@@ -350,6 +353,13 @@ function migrateSettings(s) {
         return missing.length ? `${line}, ${missing.join(", ")}` : line;
       });
     }
+  }
+  if ((s.settingsVersion || 1) < 9) {
+    // 노란색: ME1·MX5·JX 전동 시트 끼임·멈춤·리콜 이슈 추가 (이미 같은 차종 항목이 있으면 그대로 둠)
+    s.highlights = s.highlights || [];
+    const OLD_LX3 = "전동 시트(2열·3열 포함) 관련 불만·고장·작동 오류, 시트 관련 업데이트 의견";
+    for (const h of s.highlights) if (h.car === "LX3" && h.topic === OLD_LX3) h.topic = DEFAULT_HIGHLIGHTS[0].topic;
+    for (const h of DEFAULT_HIGHLIGHTS) if (!s.highlights.some((x) => x.car === h.car)) s.highlights.push({ ...h });
   }
   if ((s.settingsVersion || 1) < 8) {
     for (const c of s.cafes || []) if (!c.boards && DEFAULT_BOARDS[c.id]) c.boards = DEFAULT_BOARDS[c.id];
