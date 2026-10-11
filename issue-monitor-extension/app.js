@@ -461,7 +461,7 @@ async function runCollection() {
   $("#download").disabled = true;
   $("#log").textContent = "";
   const startedAt = Date.now();
-  log(`수집 시작: ${fmtDateTime(range.start)} ~ ${fmtDateTime(range.end)}, 카페 ${cafes.length}곳, 커뮤니티 ${communities.length}곳, ${useAi ? `AI(${settings.model})` : "키워드 모드"}`);
+  log(`v${chrome.runtime.getManifest().version} 수집 시작: ${fmtDateTime(range.start)} ~ ${fmtDateTime(range.end)}, 카페 ${cafes.length}곳, 커뮤니티 ${communities.length}곳, ${useAi ? `AI(${settings.model})` : "키워드 모드"}`);
   setSummary("수집 중…");
 
   const delays = DELAYS[settings.speed] || DELAYS.normal;
@@ -813,6 +813,7 @@ $("#testKey").addEventListener("click", async () => {
 // ---------------------------------------------------------------------------
 
 (async function init() {
+  $("#version").textContent = `v${chrome.runtime.getManifest().version}`;
   state.settings = await loadSettings();
   setIssueKeywords(state.settings.keywords);
   draft = structuredClone(state.settings);
