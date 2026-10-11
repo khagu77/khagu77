@@ -137,8 +137,11 @@ def start_fake_youtube(tmp_path: Path, media: dict, pages=None):
                 code = 200
                 if data.get("videoId") == "androidvid1" and client.get("clientName") == "ANDROID":
                     body = json.dumps({"videoDetails": {"title": TITLE}, "captions": {"playerCaptionsTracklistRenderer": {
-                        "captionTracks": [{"languageCode": "ko", "kind": "asr",
-                                           "baseUrl": "https://www.youtube.com/api/timedtext?v=androidvid1&lang=ko&fmt=srv3"}]}}}).encode()
+                        # 업로더가 올린 영어 번역 자막이 먼저, 한국어는 자동 생성 → 한국어를 골라야 한다
+                        "captionTracks": [
+                            {"languageCode": "en", "baseUrl": "https://www.youtube.com/api/timedtext?v=androidvid1&lang=en&fmt=srv3"},
+                            {"languageCode": "ko", "kind": "asr",
+                             "baseUrl": "https://www.youtube.com/api/timedtext?v=androidvid1&lang=ko&fmt=srv3"}]}}}).encode()
             self.send_response(code)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -149,9 +152,14 @@ def start_fake_youtube(tmp_path: Path, media: dict, pages=None):
             if self.path.startswith("/api/timedtext") and "androidvid1" in self.path:
                 # 예전 XML 형식 (json3 는 안 줌), 글자는 HTML 엔티티가 두 번 감싸져 있다
                 ok = "fmt=" not in self.path
+                # 자막 파일은 2초짜리 짧은 줄로 잘게 나뉘어 있다 (문장 단위로 합쳐야 함)
                 body = ('<?xml version="1.0" encoding="utf-8" ?><transcript>'
-                        '<text start="0.5" dur="2">모바일 앱 방식으로 &amp;#39;받았어요&amp;#39;</text>'
+                        '<text start="0.5" dur="2">모바일 앱 방식으로</text>'
+                        '<text start="2.5" dur="2">&amp;#39;받았어요&amp;#39;</text>'
                         '<text start="62" dur="2">몇일 걸렸어요</text></transcript>').encode()
+                if "lang=en" in self.path:
+                    body = ('<?xml version="1.0" encoding="utf-8" ?><transcript>'
+                            '<text start="0.5" dur="2">English translation</text></transcript>').encode()
                 self.send_response(200 if ok else 404)
                 self.send_header("Content-Type", "text/xml")
                 self.send_header("Content-Length", str(len(body)))

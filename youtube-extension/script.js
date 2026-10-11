@@ -464,10 +464,31 @@ function parseCaptionText(txt) {
   return out.map((l) => ({ t: l.t, text: l.text.replace(/\s+/g, " ").trim() })).filter((l) => l.text && Number.isFinite(l.t));
 }
 
-// 직접 올린 한국어 자막 > 다른 직접 올린 자막 > 자동 생성 자막
+// 한국어 자막(직접 올린 것 > 자동 생성) > 영상 원래 말의 자동 생성 자막 > 그 밖의 첫 자막
+// (한국어 영상에 영어 번역 자막이 따로 올라와 있어도 한국어를 고르도록)
 function pickTrack(tracks) {
-  return tracks.find((t) => t.kind !== "asr" && /^ko/.test(t.languageCode || "")) ||
-    tracks.find((t) => t.kind !== "asr") || tracks[0];
+  const ko = (t) => /^ko/i.test(t.languageCode || "");
+  return tracks.find((t) => ko(t) && t.kind !== "asr") || tracks.find(ko) ||
+    tracks.find((t) => t.kind === "asr") || tracks[0];
+}
+
+// 자막 파일은 2~3초짜리 짧은 줄로 잘게 나뉘어 있어, 유튜브 스크립트 화면처럼 문장 단위(최대 12초·90자)로 합친다
+function mergeCaptionLines(lines) {
+  const out = [];
+  let cur = null;
+  for (const l of lines) {
+    if (cur && l.t - cur.t >= 12) {
+      out.push(cur);
+      cur = null;
+    }
+    cur = cur ? { t: cur.t, text: `${cur.text} ${l.text}` } : { t: l.t, text: l.text };
+    if ((/[.?!。]$/.test(cur.text) && cur.text.length >= 20) || cur.text.length >= 90) {
+      out.push(cur);
+      cur = null;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
 }
 
 async function fetchCaptionTrack(baseUrl) {
@@ -483,7 +504,7 @@ async function fetchCaptionTrack(baseUrl) {
     try {
       const resp = await fetch(u, { credentials: "omit" });
       const lines = resp.ok ? parseCaptionText(await resp.text()) : [];
-      if (lines.length) return lines;
+      if (lines.length) return mergeCaptionLines(lines);
     } catch {}
   }
   return [];
@@ -645,9 +666,10 @@ async function fetchTranscriptInPage() {
     } catch {}
   }
 
-  // 그래도 안 되면 영상의 자막 데이터를 직접 받는다 (직접 올린 한국어 자막 > 다른 직접 올린 자막 > 자동 생성 자막)
-  const pick = tracks.find((t) => t.kind !== "asr" && /^ko/.test(t.languageCode || "")) ||
-    tracks.find((t) => t.kind !== "asr") || tracks[0];
+  // 그래도 안 되면 영상의 자막 데이터를 직접 받는다 (한국어 > 원래 말의 자동 생성 > 그 밖)
+  const isKo = (t) => /^ko/i.test(t.languageCode || "");
+  const pick = tracks.find((t) => isKo(t) && t.kind !== "asr") || tracks.find(isKo) ||
+    tracks.find((t) => t.kind === "asr") || tracks[0];
   if (pick && pick.baseUrl) {
     try {
       const resp = await fetch(`${pick.baseUrl}&fmt=json3`, { credentials: "include" });
@@ -657,7 +679,7 @@ async function fetchTranscriptInPage() {
         .filter((e) => e.segs && Number.isFinite(Number(e.tStartMs)))
         .map((e) => ({ t: Number(e.tStartMs) / 1000, text: e.segs.map((g) => g.utf8 || "").join("").replace(/\s+/g, " ").trim() }))
         .filter((l) => l.text);
-      if (lines.length) return { title, lines };
+      if (lines.length) return { title, lines, captions: true };
     } catch {}
   }
   return { title, lines: [], reason: "apifail" };
@@ -721,7 +743,10 @@ async function readYoutubeTranscript(videoId, row, result, visibleUi) {
   if (!r.lines.length && r.reason !== "none") {
     setRowStatus(row, "스크립트 가져오는 중… (영상 페이지에서)");
     const inPage = await readInHiddenFrame(videoId);
-    if (inPage) r = { ...inPage, title: inPage.title || r.title };
+    if (inPage) {
+      r = { ...inPage, title: inPage.title || r.title };
+      if (inPage.captions) r.lines = mergeCaptionLines(inPage.lines); // 자막 파일 줄은 문장 단위로 합침
+    }
   }
 
   if (!r.lines.length && r.reason !== "none" && visibleUi) {
