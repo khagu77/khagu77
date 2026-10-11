@@ -105,6 +105,17 @@ class WorkerTab {
     return results.map((r) => r.result).filter((r) => r !== undefined && r !== null);
   }
 
+  // 지금 탭 주소 (아직 탭을 안 열었거나 사용자가 닫았으면 "")
+  async url() {
+    if (this.tabId === null) return "";
+    try {
+      return (await chrome.tabs.get(this.tabId)).url || "";
+    } catch {
+      this.tabId = null;
+      return "";
+    }
+  }
+
   // 맨 바깥 화면(프레임)에서만 실행
   async runMain(func, args = [], world = "MAIN") {
     try {
@@ -468,7 +479,7 @@ class NaverCollector {
     await this.openChecked(`https://cafe.naver.com/${encodeURIComponent(cafe.id)}`);
     let id = null;
     for (let i = 0; i < 4 && !id; i++) {
-      const tab = await chrome.tabs.get(this.tab.tabId);
+      const tab = { url: await this.tab.url() };
       const m = (tab.url || "").match(/\/cafes\/(\d+)/) || (tab.url || "").match(/clubid=(\d+)/i);
       if (m) id = m[1];
       if (!id) {
@@ -515,7 +526,7 @@ class NaverCollector {
   // 실패했을 때 원인을 알 수 있도록 화면 상태를 기록에 남긴다
   async diagnose(cafe, clubId, step, logNow = true) {
     try {
-      const tab = await chrome.tabs.get(this.tab.tabId);
+      const tab = { url: await this.tab.url() };
       const frames = await this.tab.run(diagInFrame);
       const datas = await this.tab.run(() => (window.__imCaptured || []).map((x) => x.url), [], "MAIN");
       const lines = [
@@ -558,7 +569,7 @@ class NaverCollector {
       return { items: [], memberOnly };
     }
     // api: 지금 열려 있는 카페 화면 안에서, 카페 화면이 쓰는 목록 데이터를 한 페이지 요청
-    const tab = await chrome.tabs.get(this.tab.tabId);
+    const tab = { url: await this.tab.url() };
     if (!/^https:\/\/cafe\.naver\.com\//.test(tab.url || "")) await this.openChecked(`https://cafe.naver.com/${encodeURIComponent(cafe.id)}`);
     const res = await this.tab.runMain(fetchJsonInPage, [
       [
@@ -761,7 +772,7 @@ class NaverCollector {
       await this.tab.runMain(clickSearchResult, [found.index]);
       await loaded;
       await sleep(2500);
-      const tab = await chrome.tabs.get(this.tab.tabId);
+      const tab = { url: await this.tab.url() };
       if (/nid\.naver\.com/.test(tab.url || "")) throw new BlockedError("네이버 로그인이 풀렸습니다. 크롬에서 네이버에 다시 로그인해 주세요");
       const signals = await this.tab.run(pageSignalsInFrame);
       if (signals.some((x) => x.blocked)) throw new BlockedError("네이버 보호조치·자동입력 방지 화면이 보여 네이버 수집을 멈췄습니다");
