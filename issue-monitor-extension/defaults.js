@@ -128,7 +128,7 @@ DH: G80 이전 세대, 제네시스 DH`;
 const DEFAULT_KEYWORDS = `품질: 고장, 불량, 메시지, 무상 수리, 무상수리, 의심, 유격, 박리, 황변, 풍절음, 부조, 과열, 누출, 간헐적, 재발생, 미작동, 결함, 하자, 소음, 잡음, 이음, 떨림, 진동, 누수, 누유, 경고등, 점등, 오류, 에러, 먹통, 방전, 시동, 꺼짐, 부식, 녹슴, 녹이, 크랙, 균열, 깨짐, 파손, 단차, 도장, 들뜸, 변색, 냄새, 습기, 결로, 김서림, 작동 안, 작동안, 작동 불, 안됨, 안 됨, 불가, 멈춤, 리콜, 무상수리, 업데이트, 증상, 삐걱, 덜컹, 딸깍, 끼익, 찌그덕, 잡소리, 쏠림, 출력, ICCU, 충전 안, 충전안, 재부팅, 벌레소리, 안 움직, 안움직, 작동이 안, 안 켜, 안켜, 안 꺼, 안꺼, 멈춰
 응대: 블루핸즈, 블핸, 정비 후기, 정비후기, 출고 지연, 출고지연, 카마스터, 파업, 하이테크, 직영, 서비스센터, 서비스 센터, 사업소, 파란손, 멍든손, AS, A/S, 보증, 정비, 수리, 입고, 응대, 불친절, 재입고, 재수리
 결품: 결품, 재고, 부품, 수급, 부품 대기, 부품대기, 지연, 대기중, 입고 대기
-제외: 출고 후기, 출고기, 시승기, 가입인사, 등업, 이벤트, 공지, 판매합니다, 삽니다, 나눔`;
+제외: 출고 후기, 출고기, 시승기, 가입인사, 등업, 이벤트, 공지, 판매합니다, 삽니다, 나눔, 출고 대기, 출고대기, 출고 기다, 검수 업체, 검수업체, 검수 대행, 검수대행, 광고, 홍보, 오일교환, 오일 교환`;
 
 // '주요 내용' 칸을 노란색으로 칠할 집중 관리 항목
 const DEFAULT_HIGHLIGHTS = [
@@ -146,6 +146,7 @@ const DEFAULT_SETTINGS = {
   carCodes: DEFAULT_CAR_CODES,
   highlights: DEFAULT_HIGHLIGHTS,
   keywords: DEFAULT_KEYWORDS,
+  fileName: "{날짜}_현대차 제네시스 커뮤니티 부정이슈",
 };
 
 const MODELS = [
@@ -154,9 +155,23 @@ const MODELS = [
   { id: "claude-haiku-5-5", label: "Claude Haiku 5.5 (가장 저렴)", price: [0.1, 0.5], fallbacks: false },
 ];
 
+// 예전 버전에서 저장한 설정에 새 기본값을 보태 준다
+const SETTINGS_VERSION = 2;
+function migrateSettings(s) {
+  if ((s.settingsVersion || 1) < 2 && typeof s.keywords === "string") {
+    const add = "출고 대기, 출고대기, 출고 기다, 검수 업체, 검수업체, 검수 대행, 검수대행, 광고, 홍보, 오일교환, 오일 교환".split(", ");
+    s.keywords = s.keywords.replace(/^(\s*제외\s*[:：].*)$/m, (line) => {
+      const missing = add.filter((w) => !line.includes(w));
+      return missing.length ? `${line}, ${missing.join(", ")}` : line;
+    });
+  }
+  s.settingsVersion = SETTINGS_VERSION;
+  return s;
+}
+
 async function loadSettings() {
   const { settings } = await chrome.storage.local.get("settings");
-  return { ...structuredClone(DEFAULT_SETTINGS), ...(settings || {}) };
+  return migrateSettings({ ...structuredClone(DEFAULT_SETTINGS), ...(settings || {}) });
 }
 
 async function saveSettings(settings) {

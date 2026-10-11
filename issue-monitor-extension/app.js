@@ -204,11 +204,11 @@ function renderResults() {
   const tbody = $("#results tbody");
   tbody.textContent = "";
   state.rows.forEach((r, i) => {
-    const sum = el("input", { type: "text", value: r.summary, oninput: (e) => (r.summary = e.target.value, saveLastResult()) });
+    const sum = el("input", { type: "text", value: r.summary, title: r.summary, oninput: (e) => (r.summary = e.target.value, e.target.title = e.target.value, saveLastResult()) });
     const tr = el(
       "tr",
       { class: r.highlight ? "yellow" : "" },
-      el("td", { text: r.community }),
+      el("td", { class: "comm", text: r.community, title: r.community }),
       el("td", {}, el("input", { type: "text", value: r.car, size: 7, oninput: (e) => (r.car = e.target.value, saveLastResult()) })),
       el("td", { text: fmtMonthDay(r.date) }),
       el(
@@ -220,7 +220,7 @@ function renderResults() {
           return sel;
         })()
       ),
-      el("td", { class: "url" }, el("a", { href: r.url, target: "_blank", text: r.url })),
+      el("td", { class: "url" }, el("a", { href: r.url, target: "_blank", title: r.url, text: r.url.replace(/^https?:\/\/(www\.)?/, "") })),
       el("td", { class: "sum" }, sum),
       el(
         "td",
@@ -277,10 +277,14 @@ async function loadLastResult() {
   }
 }
 
+// 설정의 파일 이름에서 {날짜} 를 수집 끝 날짜(예: 261011)로 바꾼다
 function reportFilename(range, ascii = false) {
   const d = range ? range.end : new Date();
   const ymd = `${String(d.getFullYear()).slice(2)}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}`;
-  return ascii ? `${ymd}_HMG_community_issues.xlsx` : `${ymd}_현대차 제네시스 커뮤니티 부정이슈.xlsx`;
+  if (ascii) return `${ymd}_HMG_community_issues.xlsx`;
+  const tpl = (state.settings && state.settings.fileName) || DEFAULT_SETTINGS.fileName;
+  const name = tpl.replace(/\{날짜\}/g, ymd).replace(/[\\/:*?"<>|]/g, "_").replace(/\.xlsx$/i, "").trim();
+  return `${name || ymd}.xlsx`;
 }
 
 async function downloadReport() {
@@ -654,6 +658,7 @@ function renderSettings() {
   $("#speed").value = s.speed || "normal";
   $("#carCodes").value = s.carCodes || "";
   $("#keywords").value = s.keywords || "";
+  $("#fileName").value = s.fileName || "";
   renderCafeTable();
   renderCommunityTable();
   renderHighlightTable();
@@ -731,6 +736,7 @@ function readSettingsForm() {
   draft.speed = $("#speed").value;
   draft.carCodes = $("#carCodes").value;
   draft.keywords = $("#keywords").value;
+  draft.fileName = $("#fileName").value.trim() || DEFAULT_SETTINGS.fileName;
   // 카페 ID 에 주소 전체를 붙여넣은 경우 ID 만 남긴다
   for (const c of draft.cafes) {
     const m = String(c.id || "").match(/cafe\.naver\.com\/([A-Za-z0-9_\-]+)/);

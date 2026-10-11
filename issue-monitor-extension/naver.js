@@ -406,7 +406,7 @@ class NaverCollector {
   }
 
   // 실패했을 때 원인을 알 수 있도록 화면 상태를 기록에 남긴다
-  async diagnose(cafe, clubId, step) {
+  async diagnose(cafe, clubId, step, logNow = true) {
     try {
       const tab = await chrome.tabs.get(this.tab.tabId);
       const frames = await this.tab.run(diagInFrame);
@@ -417,9 +417,10 @@ class NaverCollector {
         ...frames.map((f) => `  프레임: ${f.href} | 제목="${f.title}" | 글링크 ${f.anchors}개 ${f.sample.join(" ")} | 내용: ${f.text}`),
         `  화면이 받은 데이터: ${datas.flat().length}건 ${datas.flat().slice(0, 6).join(" , ")}`,
       ];
-      this.log(lines.join("\n"), "err");
+      if (logNow) this.log(lines.join("\n"), "err");
+      return lines.join("\n");
     } catch (e) {
-      this.log(`[진단 실패] ${e.message}`, "err");
+      return `[진단 실패] ${e.message}`;
     }
   }
 
@@ -474,6 +475,7 @@ class NaverCollector {
     for (let page = 1; page <= NAVER_MAX_LIST_PAGES; page++) {
       let items = [];
       let memberOnly = false;
+      const diags = []; // 모든 방법이 실패했을 때만 기록에 남긴다
       for (const m of mode ? [mode] : modes) {
         const r = await this.listPage(cafe, clubId, page, m);
         memberOnly = memberOnly || r.memberOnly;
@@ -488,11 +490,12 @@ class NaverCollector {
           }
           break;
         }
-        if (page === 1) await this.diagnose(cafe, clubId, `목록(${m})`);
+        if (page === 1) diags.push(await this.diagnose(cafe, clubId, `목록(${m})`, false));
         await this.wait(this.delays.listPage);
       }
       if (!items.length) {
         if (page === 1) {
+          for (const d of diags) this.log(d, "err");
           if (memberOnly) throw new Error("카페 글 목록을 볼 권한이 없습니다 (가입·등급 확인)");
           await this.forgetClubId(cafe); // 카페 번호가 틀렸을 수도 있으니 다음에 다시 찾는다
           throw new Error("글 목록을 읽지 못했습니다 (진행 기록의 [진단] 내용을 보내 주세요)");

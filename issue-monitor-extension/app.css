@@ -112,3 +112,36 @@ table.edit td:first-child { width: 40px; text-align: center; }
 pre#log { white-space: pre-wrap; font-size: 12px; max-height: 360px; overflow: auto; background: var(--bg); padding: 10px; border-radius: 8px; }
 textarea#carCodes { font-size: 12px; }
 button.del { padding: 3px 8px; font-size: 12px; color: var(--red); }
+
+/* ---- 촘촘한 화면 (1.2) ---- */
+body { font-size: 13px; line-height: 1.45; }
+main { max-width: 1600px; margin: 12px auto; padding: 14px 18px; }
+header h1 { font-size: 17px; }
+h2 { font-size: 14px; margin: 18px 0 6px; }
+label { margin: 10px 0 4px; font-size: 13px; }
+label.check { margin: 10px 0 4px; }
+button { padding: 6px 12px; font-size: 13px; }
+.buttons { margin-top: 8px; gap: 6px; }
+.buttons.small button { padding: 4px 9px; font-size: 12px; }
+.status { padding: 6px 10px; margin-top: 10px; font-size: 12px; }
+.summary { margin: 10px 0 6px; font-size: 13px; }
+input[type="datetime-local"], input[type="time"], input[type="password"], input[type="text"], select { padding: 5px 7px; font-size: 13px; }
+table { font-size: 12px; }
+th, td { padding: 3px 6px; }
+#sources td, #sources th { padding: 3px 6px; }
+#results { table-layout: fixed; }
+#results td { vertical-align: middle; }
+#results td.comm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#results td.url { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#results td.url a { font-size: 11.5px; word-break: normal; }
+#results input[type="text"], #results select { width: 100%; padding: 2px 5px; font-size: 12px; }
+#results td.sum input { width: 100%; }
+button.del { padding: 2px 6px; font-size: 11px; }
+pre#log { font-size: 11.5px; }
+.picklist { font-size: 12px; }
+table.edit input[type="text"] { padding: 3px 6px; font-size: 12px; }
+textarea { font-size: 12px; }
+#results td { padding: 1px 4px; white-space: nowrap; }
+#results input[type="text"], #results select { height: 22px; line-height: 18px; padding: 0 5px; border-radius: 5px; }
+#results button.del { padding: 1px 6px; line-height: 16px; }
+#results th { padding: 4px; white-space: nowrap; }

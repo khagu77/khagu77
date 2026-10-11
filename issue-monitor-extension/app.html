@@ -63,6 +63,7 @@
 
       <h2 id="resultsTitle" hidden>결과 <span class="hint">(받기 전에 고치거나 지울 수 있습니다)</span></h2>
       <table id="results" hidden>
+        <colgroup><col style="width:120px"><col style="width:76px"><col style="width:72px"><col style="width:62px"><col style="width:230px"><col><col style="width:52px"><col style="width:50px"></colgroup>
         <thead><tr><th>커뮤니티명</th><th>차종</th><th>게시일</th><th>구분</th><th>URL</th><th>주요 내용</th><th>노란색</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
@@ -103,6 +104,9 @@
           <option value="slow">느리게 (더 안전, 시간 2배)</option>
         </select>
       </div>
+
+      <h2>엑셀 파일 이름 <span class="hint">{날짜} 자리에 수집 끝 날짜(예: 261011)가 들어갑니다</span></h2>
+      <input type="text" id="fileName" spellcheck="false">
 
       <h2>네이버 카페 <span class="hint">카페 ID = cafe.naver.com/<b>여기</b></span></h2>
       <table class="edit" id="cafeTable">
@@ -147,6 +151,7 @@
   <script src="naver.js"></script>
   <script src="community.js"></script>
   <script src="ai.js"></script>
+  <script src="report-template.js"></script>
   <script src="report-xlsx.js"></script>
   <script src="app.js"></script>
 </body>
