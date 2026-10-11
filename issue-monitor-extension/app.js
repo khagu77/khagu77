@@ -346,7 +346,7 @@ async function processSource(src, posts, readBody, ctx) {
     const picked = await ai.triage(posts.map((p) => ({ key: p.articleId, source: src.name, title: p.title })));
     candidates = posts.filter((p) => picked.has(p.articleId));
   } else {
-    candidates = posts.filter((p) => !excluded(p.title) && keywordHits(p.title).length && (src.kind === "cafe" || mentionsBrand(p.title)));
+    candidates = posts.filter((p) => !excluded(p.title) && keywordHits(p.title).length && (src.kind === "cafe" || (mentionsBrand(p.title) && !communityNewsLike(p.title))));
   }
   updateSource(src.key, { candidates: candidates.length, status: `본문 확인 중 0/${candidates.length}` });
 
@@ -603,6 +603,16 @@ $("#stop").addEventListener("click", () => {
   state.stopRequested = true;
   $("#stop").disabled = true;
   setSummary("중지하는 중… (지금까지 모은 결과로 정리합니다)");
+});
+
+$("#copyLog").addEventListener("click", async () => {
+  const text = `부정 이슈 모니터링 ${chrome.runtime.getManifest().version}\n${$("#summary").textContent}\n${$("#log").textContent}`;
+  try {
+    await navigator.clipboard.writeText(text);
+    $("#copyResult").textContent = "복사했습니다. 메신저 등에 붙여넣어 보내 주세요.";
+  } catch {
+    $("#copyResult").textContent = "복사하지 못했습니다. 기록을 직접 드래그해 복사해 주세요.";
+  }
 });
 
 window.addEventListener("beforeunload", (e) => {

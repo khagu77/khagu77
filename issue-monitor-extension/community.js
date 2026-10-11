@@ -107,8 +107,56 @@ async function fetchDocument(url) {
   return doc;
 }
 
+// 칸(td)마다 글자가 붙어 "홍길동06:211234" 처럼 되지 않도록 글자 조각 사이에 공백을 넣어 읽는다
+function spacedText(el) {
+  if (!el) return "";
+  const parts = [];
+  const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const t = n.nodeValue.trim();
+    if (t) parts.push(t);
+  }
+  return parts.join(" ");
+}
+
 function textOf(el) {
   return (el ? el.textContent : "").replace(/[ \t ]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
+}
+
+// 글 링크가 들어 있는 '한 줄'(행)을 찾아 날짜·공지 여부를 읽는다.
+// 링크에서 위로 올라가며, 이 글 하나만 담고 있는 가장 큰 덩어리 안에서 날짜를 찾는다(표 안에 표가 있는 사이트 대비).
+function rowInfo(a, title, ad) {
+  let el = a.parentElement;
+  let found = null;
+  let rowEl = null;
+  for (let depth = 0; el && depth < 8; depth++, el = el.parentElement) {
+    const ids = new Set();
+    for (const x of el.querySelectorAll("a[href]")) {
+      const id = ad.articleId(x.getAttribute("href") || "");
+      if (id) ids.add(id);
+    }
+    if (ids.size > 1) break; // 다른 글까지 담기 시작함 → 그만
+    if (/^(TR|LI)$/.test(el.tagName) || /item|row|list/i.test(el.className || "")) rowEl = el;
+    // 마우스를 올리면 보이는 전체 날짜(title 속성)를 먼저, 그다음 화면 글자
+    // (title 속성은 글 제목일 수도 있어 시각까지 있는 날짜만 믿는다)
+    let parsed = null;
+    for (const x of el.querySelectorAll("[title]")) {
+      const p = parseKoreanDate(x.getAttribute("title"));
+      if (p && p.exact) {
+        parsed = p;
+        break;
+      }
+    }
+    if (!parsed) parsed = parseKoreanDate(spacedText(el).replace(title, " "));
+    if (parsed) {
+      found = parsed;
+      rowEl = rowEl || el;
+      if (parsed.exact) break;
+    }
+  }
+  const r = rowEl || a.parentElement;
+  const notice = r ? /공지|notice/i.test(`${r.className || ""} ${r.querySelector("img[alt]")?.getAttribute("alt") || ""}`) : false;
+  return { parsed: found, notice };
 }
 
 class CommunityCollector {
@@ -127,49 +175,59 @@ class CommunityCollector {
   }
 
   // 목록에서 기간 안의 글 → [{articleId, title, ts|null, exact, url}]
+  // 429(요청이 너무 많음)·503 이면 1분 쉬었다가 한 번 더
+  async fetchDoc(url) {
+    try {
+      return await fetchDocument(url);
+    } catch (e) {
+      if (!/^(429|503) /.test(e.message)) throw e;
+      this.log(`${new URL(url).hostname}: 요청이 많다는 응답(${e.message.slice(0, 3)}) → 1분 쉬고 다시 시도`, "err");
+      await this.wait([60000, 75000]);
+      return fetchDocument(url);
+    }
+  }
+
+  // 목록에서 기간 안의 글 → [{articleId, title, ts, exact, url}]
   async list(site, range) {
     const ad = communityAdapter(site.url);
     const all = new Map();
+    let prevIds = "";
     for (let page = 1; page <= COMMUNITY_MAX_LIST_PAGES; page++) {
       if (this.isStopped()) throw new StopError("중지됨");
-      const doc = await fetchDocument(ad.listUrl(page));
-      let rows = 0;
-      let olderSeen = 0;
-      let added = 0;
+      const doc = await this.fetchDoc(ad.listUrl(page));
+      const items = new Map(); // 이 페이지의 글 (id → {title, parsed, notice})
       for (const a of doc.querySelectorAll("a[href]")) {
-        const href = a.getAttribute("href") || "";
-        const id = ad.articleId(href);
+        const id = ad.articleId(a.getAttribute("href") || "");
         if (!id) continue;
         const title = textOf(a).replace(/\s+/g, " ");
-        if (title.length < 2 || /^\[?\d+\]?$/.test(title)) continue;
-        const row = a.closest("tr, li, .list_item, [class*='item']") || a.parentElement;
-        const rowText = row
-          ? [textOf(row), ...[...row.querySelectorAll("[title]")].map((x) => x.getAttribute("title"))].join(" ")
-          : "";
-        const isNotice = row ? /공지|notice/i.test(row.className + " " + (row.querySelector("img[alt]")?.getAttribute("alt") || "")) : false;
-        // 제목 안의 숫자(차량 연식 등)를 날짜로 읽지 않도록 제목을 빼고 본다
-        const parsed = parseKoreanDate(rowText.replace(title, " "));
-        rows++;
-        if (parsed && !isNotice && parsed.date.getTime() < range.start.getTime() && (parsed.exact || parsed.date.getTime() + 86400000 <= range.start.getTime())) olderSeen++;
-        if (!mayBeInRange(parsed, range)) continue;
-        if (all.has(id)) {
-          if (title.length > all.get(id).title.length) all.get(id).title = title;
+        const prev = items.get(id);
+        if (prev) {
+          if (title.length > prev.title.length && !/^\[?\d+\]?$/.test(title)) prev.title = title;
           continue;
         }
-        all.set(id, {
-          articleId: id,
-          title,
-          ts: parsed ? parsed.date.getTime() : null,
-          exact: parsed ? parsed.exact : false,
-          url: ad.articleUrl(id),
-        });
-        added++;
+        const { parsed, notice } = rowInfo(a, title, ad);
+        items.set(id, { title, parsed, notice });
       }
-      if (!rows) {
+      const rows = [...items.entries()].filter(([, it]) => it.title.length >= 2 && !/^\[?\d+\]?$/.test(it.title));
+      if (!rows.length) {
         if (page === 1) throw new Error("글 목록을 읽지 못했습니다 (게시판 주소나 화면 구조 확인 필요)");
         break;
       }
-      if (olderSeen >= 3 || (page > 1 && added === 0) || ad.generic) break;
+      const ids = rows.map(([id]) => id).join(",");
+      if (ids === prevIds) break; // 페이지를 넘겨도 같은 글 → 마지막 페이지
+      prevIds = ids;
+      const dated = rows.filter(([, it]) => it.parsed);
+      if (!dated.length) {
+        if (page === 1) throw new Error("목록에서 글 날짜를 읽지 못했습니다 (화면 구조 확인 필요)");
+        break;
+      }
+      for (const [id, it] of dated) {
+        if (!mayBeInRange(it.parsed, range)) continue;
+        if (it.notice && !inRange(it.parsed.date, range)) continue;
+        if (!all.has(id)) all.set(id, { articleId: id, title: it.title, ts: it.parsed.date.getTime(), exact: it.parsed.exact, url: ad.articleUrl(id) });
+      }
+      const forStop = dated.map(([, it]) => ({ ts: it.parsed.date.getTime(), exact: it.parsed.exact, notice: it.notice }));
+      if (pageIsPastRange(forStop, range) || ad.generic) break;
       await this.wait(this.delays.community);
     }
     return [...all.values()];
@@ -177,7 +235,7 @@ class CommunityCollector {
 
   async readArticle(site, post) {
     const ad = communityAdapter(site.url);
-    const doc = await fetchDocument(post.url);
+    const doc = await this.fetchDoc(post.url);
     let body = "";
     for (const s of ad.bodySelectors) {
       const el = doc.querySelector(s);

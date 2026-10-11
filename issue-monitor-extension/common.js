@@ -32,14 +32,14 @@ class BlockedError extends Error {} // 네이버 보호조치·로그인 풀림 
 
 // 속도 설정별 대기 시간(ms)
 const DELAYS = {
-  normal: { listPage: [3000, 6000], article: [5000, 10000], cafeGap: [4000, 8000], restEvery: 8, rest: [20000, 40000], community: [1500, 3500] },
-  slow: { listPage: [6000, 10000], article: [9000, 16000], cafeGap: [8000, 15000], restEvery: 5, rest: [40000, 80000], community: [3000, 6000] },
+  normal: { listPage: [3000, 6000], article: [5000, 10000], cafeGap: [4000, 8000], restEvery: 8, rest: [20000, 40000], community: [3000, 6000] },
+  slow: { listPage: [6000, 10000], article: [9000, 16000], cafeGap: [8000, 15000], restEvery: 5, rest: [40000, 80000], community: [5000, 9000] },
 };
 
 // 네이버 카페 한 번 수집할 때 여는 화면 수 상한 (안전장치)
 const NAVER_MAX_PAGEVIEWS = 700;
-const NAVER_MAX_LIST_PAGES = 12; // 카페 하나당 목록 페이지 상한
-const COMMUNITY_MAX_LIST_PAGES = 40;
+const NAVER_MAX_LIST_PAGES = 30; // 카페 하나당 목록 페이지 상한
+const COMMUNITY_MAX_LIST_PAGES = 80;
 
 function fmtDateTime(d) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
@@ -103,6 +103,20 @@ function mayBeInRange(parsed, range) {
   return dayEnd > range.start.getTime() && t < range.end.getTime();
 }
 
+// 목록 한 페이지가 기간보다 오래된 글들로 넘어갔는지: 날짜를 아는 일반 글의 절반 이상이 기간 시작보다 오래되면 true
+// (공지·옆쪽 인기글처럼 오래된 글이 섞여 있어도 일찍 멈추지 않도록 비율로 본다)
+function pageIsPastRange(items, range) {
+  let dated = 0;
+  let older = 0;
+  for (const it of items) {
+    if (it.notice || it.ts === null || it.ts === undefined) continue;
+    dated++;
+    const t = it.ts;
+    if (it.exact ? t < range.start.getTime() : t + 86400000 <= range.start.getTime()) older++;
+  }
+  return dated > 0 && older * 2 >= dated;
+}
+
 function inRange(date, range) {
   const t = date.getTime();
   return t >= range.start.getTime() && t < range.end.getTime();
@@ -128,6 +142,13 @@ function setIssueKeywords(text) {
   EXCLUDE_KEYWORDS = k.제외;
 }
 setIssueKeywords(typeof DEFAULT_KEYWORDS !== "undefined" ? DEFAULT_KEYWORDS : "");
+
+// 자동차 커뮤니티의 단순 뉴스·해외 이슈 공유 글 (키워드 모드에서 뺀다. AI 모드는 AI 가 판단)
+const COMMUNITY_NEWS_RE = /뉴스|기사|외신|속보|단독|보도|\[펌\]|해외|미국|북미|유럽|독일|중국|일본|인도|호주|캐나다|NHTSA|IIHS/;
+
+function communityNewsLike(text) {
+  return COMMUNITY_NEWS_RE.test(String(text || ""));
+}
 
 function excluded(text) {
   const t = String(text || "");

@@ -105,6 +105,16 @@ class WorkerTab {
     return results.map((r) => r.result).filter((r) => r !== undefined && r !== null);
   }
 
+  // 맨 바깥 화면(프레임)에서만 실행
+  async runMain(func, args = [], world = "MAIN") {
+    try {
+      const [r] = await chrome.scripting.executeScript({ target: { tabId: this.tabId, frameIds: [0] }, func, args, world });
+      return r ? r.result : null;
+    } catch {
+      return null;
+    }
+  }
+
   async captured() {
     const parts = await this.run(() => (window.__imCaptured || []).map((x) => x.data), [], "MAIN");
     return parts.flat();
@@ -164,6 +174,40 @@ function listArticlesInFrame() {
       rowText: row ? row.innerText.replace(/\s+/g, " ").slice(0, 300) : "",
       isNotice,
     });
+  }
+  return out;
+}
+
+// 진단용: 화면 상태 요약
+function diagInFrame() {
+  const links = [...document.querySelectorAll("a[href]")].map((a) => a.getAttribute("href")).filter((h) => /articles?\/?\d|articleid=/i.test(h));
+  return {
+    href: location.href,
+    title: document.title,
+    anchors: links.length,
+    sample: links.slice(0, 3),
+    text: (document.body ? document.body.innerText : "").replace(/\s+/g, " ").slice(0, 160),
+  };
+}
+
+// 카페 화면 안에서(로그인된 그 화면 그대로) 데이터 주소를 차례로 요청해 처음 성공한 것까지 돌려준다
+async function fetchJsonInPage(urls) {
+  const out = [];
+  for (const u of urls) {
+    try {
+      const r = await fetch(u, { credentials: "include" });
+      const t = await r.text();
+      let data = null;
+      try {
+        data = JSON.parse(t);
+      } catch {
+        // JSON 아님
+      }
+      out.push({ url: u, status: r.status, data, snippet: data ? "" : t.slice(0, 120) });
+      if (r.ok && data) break;
+    } catch (e) {
+      out.push({ url: u, error: String(e) });
+    }
   }
   return out;
 }
@@ -317,76 +361,158 @@ class NaverCollector {
     await this.openChecked(`https://cafe.naver.com/${encodeURIComponent(cafe.id)}`);
     let id = null;
     for (let i = 0; i < 4 && !id; i++) {
-      const ids = await this.tab.run(findClubIdInFrame, [], "MAIN");
-      id = ids.find(Boolean) || null;
+      const tab = await chrome.tabs.get(this.tab.tabId);
+      const m = (tab.url || "").match(/\/cafes\/(\d+)/) || (tab.url || "").match(/clubid=(\d+)/i);
+      if (m) id = m[1];
       if (!id) {
         const datas = await this.tab.captured();
         walkJson(datas, (o) => {
-          if (!id && (o.cafeUrl === cafe.id || o.url === cafe.id) && (o.cafeId || o.clubId || o.id)) id = String(o.cafeId || o.clubId || o.id);
+          const url = o.cafeUrl ?? o.url ?? o.clubUrl;
+          const cid = o.cafeId ?? o.clubId ?? o.clubid;
+          if (!id && url === cafe.id && cid) id = String(cid);
         });
+      }
+      if (!id) {
+        const ids = await this.tab.run(findClubIdInFrame, [], "MAIN");
+        id = ids.find(Boolean) || null;
       }
       if (!id) await sleep(1500);
     }
-    if (!id) throw new Error("카페 번호를 찾지 못했습니다 (카페 ID 확인 필요)");
+    if (!id) {
+      // 카페 소개 정보(카페 화면이 처음 열릴 때 쓰는 것과 같은 정보)로 확인
+      const res = await this.tab.runMain(fetchJsonInPage, [[`https://apis.naver.com/cafe-web/cafe2/CafeGateInfo.json?cluburl=${encodeURIComponent(cafe.id)}`]]);
+      for (const r of res || []) {
+        walkJson(r.data, (o) => {
+          const cid = o.cafeId ?? o.clubId ?? o.clubid;
+          if (!id && cid && /^\d+$/.test(String(cid))) id = String(cid);
+        });
+      }
+    }
+    if (!id) {
+      await this.diagnose(cafe, null, "카페 번호 찾기");
+      throw new Error("카페 번호를 찾지 못했습니다 (카페 ID 확인 필요)");
+    }
+    this.log(`${cafe.name}: 카페 번호 ${id}`);
     clubIds[cafe.id] = id;
     await chrome.storage.local.set({ clubIds });
     await this.wait(this.delays.listPage);
     return id;
   }
 
-  // 전체글보기 목록에서 기간 안의 글 목록 → [{articleId, title, ts|null, dateText, url}]
-  async listCafe(cafe, range) {
-    const clubId = await this.clubIdFor(cafe);
-    const all = new Map();
-    for (let page = 1; page <= NAVER_MAX_LIST_PAGES; page++) {
-      const url = `https://cafe.naver.com/f-e/cafes/${clubId}/menus/0?viewType=L&page=${page}&size=50`;
+  async forgetClubId(cafe) {
+    const { clubIds = {} } = await chrome.storage.local.get("clubIds");
+    delete clubIds[cafe.id];
+    await chrome.storage.local.set({ clubIds });
+  }
+
+  // 실패했을 때 원인을 알 수 있도록 화면 상태를 기록에 남긴다
+  async diagnose(cafe, clubId, step) {
+    try {
+      const tab = await chrome.tabs.get(this.tab.tabId);
+      const frames = await this.tab.run(diagInFrame);
+      const datas = await this.tab.run(() => (window.__imCaptured || []).map((x) => x.url), [], "MAIN");
+      const lines = [
+        `[진단] ${cafe.name} (${cafe.id}) 단계=${step} 카페번호=${clubId || "?"}`,
+        `  탭 주소: ${tab.url}`,
+        ...frames.map((f) => `  프레임: ${f.href} | 제목="${f.title}" | 글링크 ${f.anchors}개 ${f.sample.join(" ")} | 내용: ${f.text}`),
+        `  화면이 받은 데이터: ${datas.flat().length}건 ${datas.flat().slice(0, 6).join(" , ")}`,
+      ];
+      this.log(lines.join("\n"), "err");
+    } catch (e) {
+      this.log(`[진단 실패] ${e.message}`, "err");
+    }
+  }
+
+  // 목록 한 페이지 읽기. 방법: fe = 새 카페 화면, api = 카페 화면 안에서 목록 데이터 요청, old = 예전 목록 화면
+  async listPage(cafe, clubId, page, mode) {
+    if (mode === "fe" || mode === "old") {
+      const url =
+        mode === "fe"
+          ? `https://cafe.naver.com/f-e/cafes/${clubId}/menus/0?viewType=L&page=${page}&size=50`
+          : `https://cafe.naver.com/ArticleList.nhn?search.clubid=${clubId}&search.boardtype=L&search.menuid=&search.page=${page}&userDisplay=50`;
       const { memberOnly } = await this.openChecked(url);
-      let items = [];
-      for (let attempt = 0; attempt < 5; attempt++) {
+      for (let attempt = 0; attempt < 6; attempt++) {
         const datas = await this.tab.captured();
-        items = articlesFromJson(datas, clubId).map((a) => ({ ...a, exact: true }));
-        if (items.length) break;
+        const fromJson = articlesFromJson(datas, clubId).map((a) => ({ ...a, exact: true }));
+        if (fromJson.length) return { items: fromJson, memberOnly };
         const dom = (await this.tab.run(listArticlesInFrame)).flat();
         if (dom.length >= 5 || (attempt >= 3 && dom.length)) {
-          items = dom.map((d) => {
-            const parsed = parseKoreanDate(d.dateText) || parseKoreanDate(d.rowText);
-            return {
-              articleId: d.articleId,
-              title: d.title,
-              ts: parsed ? parsed.date.getTime() : null,
-              exact: parsed ? parsed.exact : false,
-              notice: d.isNotice,
-            };
-          });
-          break;
+          return {
+            memberOnly,
+            items: dom.map((d) => {
+              const parsed = parseKoreanDate(d.dateText) || parseKoreanDate(d.rowText.replace(d.title, " "));
+              return { articleId: d.articleId, title: d.title, ts: parsed ? parsed.date.getTime() : null, exact: parsed ? parsed.exact : false, notice: d.isNotice };
+            }),
+          };
         }
         await sleep(1500);
       }
+      return { items: [], memberOnly };
+    }
+    // api: 지금 열려 있는 카페 화면 안에서, 카페 화면이 쓰는 목록 데이터를 한 페이지 요청
+    const tab = await chrome.tabs.get(this.tab.tabId);
+    if (!/^https:\/\/cafe\.naver\.com\//.test(tab.url || "")) await this.openChecked(`https://cafe.naver.com/${encodeURIComponent(cafe.id)}`);
+    const res = await this.tab.runMain(fetchJsonInPage, [
+      [
+        `https://apis.naver.com/cafe-web/cafe-boardlist-api/v1/cafes/${clubId}/menus/0/articles?page=${page}&pageSize=50&sortBy=TIME&viewType=L`,
+        `https://apis.naver.com/cafe-web/cafe2/ArticleListV2dot1.json?search.clubid=${clubId}&search.queryType=lastArticle&search.menuid=0&search.page=${page}&search.perPage=50&ad=false`,
+      ],
+    ]);
+    const items = articlesFromJson((res || []).map((r) => r.data).filter(Boolean), clubId).map((a) => ({ ...a, exact: true }));
+    if (!items.length) this.log(`${cafe.name}: 목록 데이터 요청 결과 ${(res || []).map((r) => `${r.status || r.error} ${r.snippet || ""}`).join(" / ")}`, "err");
+    return { items, memberOnly: false };
+  }
+
+  // 전체글보기 목록에서 기간 안의 글 목록 → [{articleId, title, ts|null, exact, url}]
+  async listCafe(cafe, range) {
+    const clubId = await this.clubIdFor(cafe);
+    const { naverListMode } = await chrome.storage.local.get("naverListMode");
+    const modes = [...new Set([naverListMode, "fe", "api", "old"].filter(Boolean))];
+    let mode = null;
+    let prevIds = "";
+    const all = new Map();
+    for (let page = 1; page <= NAVER_MAX_LIST_PAGES; page++) {
+      let items = [];
+      let memberOnly = false;
+      for (const m of mode ? [mode] : modes) {
+        const r = await this.listPage(cafe, clubId, page, m);
+        memberOnly = memberOnly || r.memberOnly;
+        if (r.items.length) {
+          items = r.items;
+          if (!mode) {
+            mode = m;
+            if (m !== naverListMode) {
+              await chrome.storage.local.set({ naverListMode: m });
+              this.log(`네이버 목록 읽는 방법: ${m === "fe" ? "카페 화면" : m === "api" ? "카페 화면 안 목록 데이터" : "예전 목록 화면"}`);
+            }
+          }
+          break;
+        }
+        if (page === 1) await this.diagnose(cafe, clubId, `목록(${m})`);
+        await this.wait(this.delays.listPage);
+      }
       if (!items.length) {
-        if (memberOnly) throw new Error("카페 글 목록을 볼 권한이 없습니다 (가입·등급 확인)");
-        if (page === 1) throw new Error("글 목록을 읽지 못했습니다 (카페 화면 구조가 바뀌었을 수 있음)");
+        if (page === 1) {
+          if (memberOnly) throw new Error("카페 글 목록을 볼 권한이 없습니다 (가입·등급 확인)");
+          await this.forgetClubId(cafe); // 카페 번호가 틀렸을 수도 있으니 다음에 다시 찾는다
+          throw new Error("글 목록을 읽지 못했습니다 (진행 기록의 [진단] 내용을 보내 주세요)");
+        }
         break;
       }
-      let olderSeen = 0;
-      let addedThisPage = 0;
+      const ids = items.map((it) => it.articleId).join(",");
+      if (ids === prevIds) break; // 페이지를 넘겨도 같은 글 → 마지막 페이지
+      prevIds = ids;
       for (const it of items) {
         const parsed = it.ts !== null ? { date: new Date(it.ts), exact: it.exact } : null;
-        if (!it.notice && parsed && parsed.date.getTime() < range.start.getTime() && (parsed.exact || parsed.date.getTime() + 86400000 <= range.start.getTime())) olderSeen++;
+        if (!parsed) continue; // 날짜를 모르는 글은 기간을 판단할 수 없어 뺀다
         if (!mayBeInRange(parsed, range)) continue;
-        if (it.notice && parsed && !inRange(parsed.date, range)) continue;
+        if (it.notice && !inRange(parsed.date, range)) continue;
         if (!all.has(it.articleId)) {
-          all.set(it.articleId, {
-            articleId: it.articleId,
-            title: it.title,
-            ts: it.ts,
-            exact: it.exact,
-            url: `https://cafe.naver.com/${cafe.id}/${it.articleId}`,
-          });
-          addedThisPage++;
+          all.set(it.articleId, { articleId: it.articleId, title: it.title, ts: it.ts, exact: it.exact, url: `https://cafe.naver.com/${cafe.id}/${it.articleId}` });
         }
       }
-      // 목록은 최신순: 기간보다 오래된 글이 보이기 시작하면 다음 페이지는 볼 필요 없음
-      if (olderSeen >= 3 || (page > 1 && addedThisPage === 0)) break;
+      // 목록은 최신순: 이 페이지 글 대부분이 기간보다 오래됐으면 다음 페이지는 볼 필요 없음
+      if (pageIsPastRange(items, range)) break;
       await this.wait(this.delays.listPage);
     }
     return [...all.values()];
