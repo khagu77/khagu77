@@ -187,6 +187,26 @@ function codeStartYears(text) {
 // 2020년 이전 출시 세대에서도 보고에 넣을 매우 심각한 이슈
 const VERY_SEVERE_RE = /화재|불이|불남|급발진|시동\s?꺼짐|시동이 꺼|사망|돌진|전소|폭발/;
 
+// 게시판 이름 비교용: 이모지·기호·띄어쓰기를 뺀다 ("아이오닉5️⃣Q&A" → "아이오닉5q&a")
+function boardNorm(t) {
+  return String(t || "").replace(/[^가-힣A-Za-z0-9&]/g, "").toLowerCase();
+}
+
+// '게시판 지정' 글 → { ids: Set(번호), names: [이름], groups: [그룹 이름] }
+function parseBoardSpec(text) {
+  const spec = { ids: new Set(), names: [], groups: [] };
+  for (const raw of String(text || "").split(/[,\n]/)) {
+    const t = raw.trim();
+    if (!t) continue;
+    const url = t.match(/menus\/(\d+)|menuid=(\d+)/i);
+    if (url) spec.ids.add(url[1] || url[2]);
+    else if (/^\d+$/.test(t)) spec.ids.add(t);
+    else if (/^그룹\s*[:：]/.test(t)) spec.groups.push(t.replace(/^그룹\s*[:：]\s*/, ""));
+    else if (boardNorm(t)) spec.names.push(boardNorm(t));
+  }
+  return spec;
+}
+
 // 같은 글인지 비교하기 위한 주소 열쇠 (카페 주소 형식이 달라도 같은 글이면 같은 열쇠)
 function urlKey(url) {
   const u = String(url || "").trim();

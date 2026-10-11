@@ -210,6 +210,45 @@ function clickSearchResult(index) {
   return true;
 }
 
+// 카페 메뉴(왼쪽 게시판 목록)에서 그룹 제목 아래의 게시판 번호들 (화면 안에서 실행)
+function findMenusInGroupInFrame(groupNorm) {
+  const norm = (t) => String(t || "").replace(/[^가-힣A-Za-z0-9&]/g, "").toLowerCase();
+  const menuId = (a) => {
+    const m = (a.getAttribute("href") || "").match(/menus\/(\d+)|menuid=(\d+)/i);
+    return m ? m[1] || m[2] : null;
+  };
+  const out = new Set();
+  // 그룹 제목: 글자가 짧고 그룹 이름을 담았으며, 게시판 링크 자체는 아닌 요소 (가장 안쪽 것)
+  const heads = [...document.querySelectorAll("li, div, p, strong, span, button, h3, h4, dt, a")].filter((e) => {
+    const text = (e.innerText || "").trim();
+    if (!text || text.length > 40 || !norm(text).includes(groupNorm)) return false;
+    if (e.closest("a[href*='menus/'], a[href*='menuid=']")) return false;
+    return ![...e.children].some((c) => norm(c.innerText).includes(groupNorm)); // 더 안쪽에 같은 글자가 있으면 그쪽을 쓴다
+  });
+  for (const h of heads) {
+    // 1) 그룹 제목과 게시판들이 한 덩어리 안에 들어 있는 경우
+    let box = h.parentElement;
+    for (let d = 0; d < 3 && box; d++, box = box.parentElement) {
+      const links = [...box.querySelectorAll("a[href]")].map(menuId).filter(Boolean);
+      const otherHeads = [...box.querySelectorAll("li, div, p, strong, span, button, h3, h4, dt")].filter((e) => e !== h && /[★☆■□▶▷◆◇●○]/.test(e.innerText || "") && !e.querySelector("a"));
+      if (links.length && links.length < 40 && otherHeads.length === 0) {
+        links.forEach((x) => out.add(x));
+        break;
+      }
+    }
+    if (out.size) break;
+    // 2) 그룹 제목 다음 형제들에 게시판이 이어지는 경우 (다음 그룹 제목 전까지)
+    let row = h.closest("li, dt, div") || h;
+    for (let sib = row.nextElementSibling; sib; sib = sib.nextElementSibling) {
+      const links = [...sib.querySelectorAll("a[href]"), ...(sib.matches("a[href]") ? [sib] : [])].map(menuId).filter(Boolean);
+      if (!links.length) break;
+      links.forEach((x) => out.add(x));
+    }
+    if (out.size) break;
+  }
+  return [...out];
+}
+
 // 진단용: 화면 상태 요약
 function diagInFrame() {
   const links = [...document.querySelectorAll("a[href]")].map((a) => a.getAttribute("href")).filter((h) => /articles?\/?\d|articleid=/i.test(h));
@@ -341,6 +380,7 @@ function articlesFromJson(datas, clubId) {
           title: htmlToText(title),
           ts,
           menu: o.menuName || "",
+          menuId: o.menuId ?? o.menuid ?? null,
           notice: !!(o.isNotice || o.notice || o.noticeType),
         });
       }
@@ -578,14 +618,62 @@ class NaverCollector {
         if (!mayBeInRange(parsed, range)) continue;
         if (it.notice && !inRange(parsed.date, range)) continue;
         if (!all.has(it.articleId)) {
-          all.set(it.articleId, { articleId: it.articleId, title: it.title, ts: it.ts, exact: it.exact, url: `https://cafe.naver.com/${cafe.id}/${it.articleId}` });
+          all.set(it.articleId, { articleId: it.articleId, title: it.title, ts: it.ts, exact: it.exact, url: `https://cafe.naver.com/${cafe.id}/${it.articleId}`, menu: it.menu || "", menuId: it.menuId ?? null });
         }
       }
       // 목록은 최신순: 이 페이지 글 대부분이 기간보다 오래됐으면 다음 페이지는 볼 필요 없음
       if (pageIsPastRange(items, range)) break;
       await this.wait(this.delays.listPage);
     }
-    return [...all.values()];
+    return this.filterBoards(cafe, clubId, [...all.values()]);
+  }
+
+  // 카페 설정의 '게시판 지정'이 있으면 그 게시판 글만 남긴다
+  //   숫자 = 게시판 번호(menus/숫자), "그룹:이름" = 카페 메뉴의 그 묶음(카테고리) 아래 게시판 전부, 그 밖 = 게시판 이름(일부만 같아도 됨)
+  async filterBoards(cafe, clubId, posts) {
+    const spec = parseBoardSpec(cafe.boards);
+    if (!spec.ids.size && !spec.names.length && !spec.groups.length) return posts;
+    const ids = new Set(spec.ids);
+    for (const g of spec.groups) {
+      const found = await this.groupMenuIds(cafe, clubId, g);
+      if (found.length) {
+        found.forEach((id) => ids.add(id));
+        this.log(`${cafe.name}: 그룹 '${g}' 게시판 ${found.length}개 (${found.join(", ")})`);
+      } else {
+        this.log(`${cafe.name}: 그룹 '${g}' 의 게시판을 카페 메뉴에서 찾지 못했습니다 (게시판 번호를 직접 넣어 주세요)`, "err");
+      }
+    }
+    if (posts.length && posts.every((p) => p.menuId === null && !p.menu)) {
+      this.log(`${cafe.name}: 글 목록에 게시판 정보가 없어 게시판 지정 없이 전체를 봅니다`, "err");
+      return posts;
+    }
+    if (!ids.size && !spec.names.length) {
+      this.log(`${cafe.name}: 지정한 게시판을 하나도 찾지 못해 전체를 봅니다`, "err");
+      return posts;
+    }
+    const kept = posts.filter((p) => (p.menuId !== null && ids.has(String(p.menuId))) || (p.menu && spec.names.some((n) => boardNorm(p.menu).includes(n))));
+    this.log(`${cafe.name}: 게시판 지정 → 기간 내 글 ${posts.length}개 중 ${kept.length}개`);
+    return kept;
+  }
+
+  // 카페 메뉴에서 그룹(카테고리) 아래 게시판 번호들 찾기 (7일간 기억)
+  async groupMenuIds(cafe, clubId, group) {
+    const key = `${cafe.id}|${group}`;
+    const { groupMenus = {} } = await chrome.storage.local.get("groupMenus");
+    const cached = groupMenus[key];
+    if (cached && Date.now() - cached.at < 7 * 86400000 && cached.ids.length) return cached.ids;
+    await this.openChecked(`https://cafe.naver.com/${encodeURIComponent(cafe.id)}`);
+    let ids = [];
+    for (let attempt = 0; attempt < 4 && !ids.length; attempt++) {
+      ids = [...new Set((await this.tab.run(findMenusInGroupInFrame, [boardNorm(group)])).flat())];
+      if (!ids.length) await sleep(1500);
+    }
+    if (ids.length) {
+      groupMenus[key] = { at: Date.now(), ids };
+      await chrome.storage.local.set({ groupMenus });
+    }
+    await this.wait(this.delays.listPage);
+    return ids;
   }
 
   // 게시글 본문 읽기 → { title, body, ts|null }

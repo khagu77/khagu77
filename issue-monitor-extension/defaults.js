@@ -3,6 +3,14 @@
 // 카페에서 바로 열면 안 보이는 글이 많아, 네이버 검색(카페 탭)을 거쳐 들어가 읽는 카페
 const VIA_SEARCH_CAFES = ["nexocafe", "truckerking"];
 
+// 카페별 게시판 지정 (숫자 = 게시판 번호, "그룹:이름" = 카페 메뉴의 묶음, 그 밖 = 게시판 이름)
+const DEFAULT_BOARDS = {
+  truckerking: "그룹:현대/기아 트럭",
+  allfm01: "전기차자유게시판, 전기차 Q&A, 그룹:현대차 EV",
+  nexocafe: "101, 31, 688",
+  cafeclip: "1259, 1258, 78, 아이오닉5Q&A, 아이오닉6Q&A, 아이오닉9Q&A",
+};
+
 // 차종이 글에서 분명히 드러나지 않으면 빼는 카페 (자동차 커뮤니티는 모두 해당)
 const REQUIRE_CAR_CAFES = ["hmckorea"];
 
@@ -56,7 +64,7 @@ const DEFAULT_CAFES = [
   ["현대모터클럽", "hmckorea", ""],
   ["영운모", "truckerking", "QZ / QV / QT"],
   ["자동차 정비 공유 카페", "autowave21", ""],
-].map(([name, id, car]) => ({ name, id, car, on: true, viaSearch: VIA_SEARCH_CAFES.includes(id) }));
+].map(([name, id, car]) => ({ name, id, car, on: true, viaSearch: VIA_SEARCH_CAFES.includes(id), boards: DEFAULT_BOARDS[id] || "" }));
 
 const DEFAULT_COMMUNITIES = [
   { name: "보배드림", url: "https://www.bobaedream.co.kr/list?code=national", on: true },
@@ -265,7 +273,7 @@ const MODELS = [
 ];
 
 // 예전 버전에서 저장한 설정에 새 기본값을 보태 준다
-const SETTINGS_VERSION = 7;
+const SETTINGS_VERSION = 8;
 function migrateSettings(s) {
   if ((s.settingsVersion || 1) < 2 && typeof s.keywords === "string") {
     const add = "출고 대기, 출고대기, 출고 기다, 검수 업체, 검수업체, 검수 대행, 검수대행, 광고, 홍보, 오일교환, 오일 교환".split(", ");
@@ -286,6 +294,9 @@ function migrateSettings(s) {
         return missing.length ? `${line}, ${missing.join(", ")}` : line;
       });
     }
+  }
+  if ((s.settingsVersion || 1) < 8) {
+    for (const c of s.cafes || []) if (!c.boards && DEFAULT_BOARDS[c.id]) c.boards = DEFAULT_BOARDS[c.id];
   }
   if ((s.settingsVersion || 1) < 7) {
     // 하이브리드(HEV) 표기 안 함

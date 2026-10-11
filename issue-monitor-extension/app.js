@@ -983,6 +983,7 @@ function renderCafeTable() {
         el("td", {}, textInput(c, "id", "예: allumpc")),
         el("td", {}, textInput(c, "car", "예: LX3 (여러 차종이면 비움)")),
         el("td", { style: "text-align:center" }, el("input", { type: "checkbox", checked: !!c.viaSearch, onchange: (e) => (c.viaSearch = e.target.checked) })),
+        el("td", { style: "min-width:260px" }, textInput(c, "boards", "비우면 전체 · 예: 101, 31, 그룹:현대차 EV")),
         el("td", {}, delButton(draft.cafes, i, renderCafeTable))
       )
     );
