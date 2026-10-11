@@ -43,11 +43,17 @@ function setSummary(text) {
   $("#summary").textContent = text;
 }
 
+function showTab(name) {
+  for (const b of document.querySelectorAll("nav .tab")) b.classList.toggle("active", b.dataset.tab === name);
+  for (const t of ["collect", "db", "prompt", "settings"]) $(`#tab-${t}`).hidden = t !== name;
+  if (name === "db") renderDb();
+  if (name === "prompt") renderPrompt();
+}
+
 for (const btn of document.querySelectorAll("nav .tab")) {
   btn.addEventListener("click", () => {
     for (const b of document.querySelectorAll("nav .tab")) b.classList.toggle("active", b === btn);
-    $("#tab-collect").hidden = btn.dataset.tab !== "collect";
-    $("#tab-settings").hidden = btn.dataset.tab !== "settings";
+    showTab(btn.dataset.tab);
   });
 }
 
@@ -207,7 +213,7 @@ function renderResults() {
     const sum = el("input", { type: "text", value: r.summary, title: r.summary, oninput: (e) => (r.summary = e.target.value, e.target.title = e.target.value, saveLastResult()) });
     const tr = el(
       "tr",
-      { class: r.highlight ? "yellow" : "" },
+      { class: `${r.highlight ? "yellow" : ""} ${r.report ? "report" : ""}` },
       el("td", { class: "comm", text: r.community, title: r.community }),
       el("td", {}, el("input", { type: "text", value: r.car, size: 7, oninput: (e) => (r.car = e.target.value, saveLastResult()) })),
       el("td", { text: fmtMonthDay(r.date) }),
@@ -235,6 +241,17 @@ function renderResults() {
           },
         })
       ),
+      (() => {
+        const td = el("td", { class: `rep${r.report ? "" : " off"}`, text: r.report ? "✅" : "☐", title: r.kind === "community" ? "자동차 커뮤니티 글 (보고 필요 대상 아님)" : "눌러서 보고 필요 표시/해제" });
+        td.addEventListener("click", () => {
+          r.report = !r.report;
+          td.textContent = r.report ? "✅" : "☐";
+          td.classList.toggle("off", !r.report);
+          tr.classList.toggle("report", r.report);
+          saveLastResult();
+        });
+        return td;
+      })(),
       el(
         "td",
         {},
@@ -256,11 +273,145 @@ function renderResults() {
   $("#download").disabled = !state.rows.length && !state.range;
 }
 
+const serializeRows = (rows) => rows.map((r) => ({ ...r, date: r.date ? r.date.getTime() : null }));
+const deserializeRows = (rows) => (rows || []).map((r) => ({ ...r, date: r.date ? new Date(r.date) : null }));
+
+// ---------------------------------------------------------------------------
+// 데일리 DB: 수집할 때마다 결과를 저장, 엑셀 받기·결과 보기·이어받기 기준
+// ---------------------------------------------------------------------------
+
+const DB_MAX = 400;
+
+async function dbList() {
+  const { dailyDb = [] } = await chrome.storage.local.get("dailyDb");
+  return dailyDb;
+}
+
+async function dbSave(entry) {
+  const list = await dbList();
+  list.unshift(entry);
+  await chrome.storage.local.set({ dailyDb: list.slice(0, DB_MAX) });
+}
+
+function fmtDuration(ms) {
+  const sec = Math.round(ms / 1000);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return h ? `${h}시간 ${m}분 ${s}초` : m ? `${m}분 ${s}초` : `${s}초`;
+}
+
+function dbLabel(e) {
+  return `${fmtDateTime(new Date(e.finishedAt))} 수집 · ${fmtDateTime(new Date(e.range.start))}~${fmtDateTime(new Date(e.range.end))} · ${e.count}건`;
+}
+
+async function renderDb() {
+  const list = await dbList();
+  const tbody = $("#dbTable tbody");
+  tbody.textContent = "";
+  $("#dbEmpty").hidden = list.length > 0;
+  $("#dbTable").hidden = !list.length;
+  for (const e of list) {
+    const rows = deserializeRows(e.rows);
+    tbody.append(
+      el(
+        "tr",
+        {},
+        el("td", { text: fmtDateTime(new Date(e.finishedAt)) }),
+        el("td", { text: `${fmtDateTime(new Date(e.range.start))} ~ ${fmtDateTime(new Date(e.range.end))}` }),
+        el("td", { text: `${e.count}건` }),
+        el("td", { text: `${rows.filter((r) => r.report).length}건` }),
+        el("td", { text: fmtDuration(e.finishedAt - e.startedAt) }),
+        el("td", { text: e.costUsd ? `$${e.costUsd.toFixed(2)}` : "-" }),
+        el("td", { class: "hint", text: [e.base ? `합본(${e.base})` : "", e.stopped ? "중지됨" : "", e.blocked ? "네이버 중단" : ""].filter(Boolean).join(" · ") }),
+        el(
+          "td",
+          { class: "actions" },
+          el("button", { text: "엑셀 받기", onclick: () => downloadReport(rows, { start: new Date(e.range.start), end: new Date(e.range.end) }).catch((err) => alert(err.message)) }),
+          el("button", {
+            text: "결과 보기",
+            onclick: () => {
+              state.rows = rows;
+              state.range = { start: new Date(e.range.start), end: new Date(e.range.end) };
+              renderResults();
+              setSummary(`데일리 DB: ${dbLabel(e)}`);
+              showTab("collect");
+            },
+          }),
+          el("button", {
+            text: "이어받기",
+            onclick: async () => {
+              await renderBaseOptions();
+              $("#baseSelect").value = e.id;
+              await onBaseChange();
+              showTab("collect");
+            },
+          }),
+          el("button", {
+            class: "del",
+            text: "삭제",
+            onclick: async () => {
+              if (!confirm(`이 수집 이력을 지울까요?\n${dbLabel(e)}`)) return;
+              const all = await dbList();
+              await chrome.storage.local.set({ dailyDb: all.filter((x) => x.id !== e.id) });
+              renderDb();
+              renderBaseOptions();
+            },
+          })
+        )
+      )
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 이어서 작성할 기존 데이터 (데일리 DB 또는 엑셀 파일)
+// ---------------------------------------------------------------------------
+
+state.base = null; // { label, rows }
+
+async function renderBaseOptions() {
+  const sel = $("#baseSelect");
+  const keep = sel.value;
+  sel.textContent = "";
+  sel.append(el("option", { value: "", text: "없음 (이번 수집만 새로 작성)" }));
+  if (state.baseFile) sel.append(el("option", { value: "file", text: `엑셀 파일: ${state.baseFile.label}` }));
+  for (const e of await dbList()) sel.append(el("option", { value: e.id, text: `데일리 DB: ${dbLabel(e)}` }));
+  if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+}
+
+async function onBaseChange() {
+  const v = $("#baseSelect").value;
+  if (!v) state.base = null;
+  else if (v === "file") state.base = state.baseFile;
+  else {
+    const e = (await dbList()).find((x) => x.id === v);
+    state.base = e ? { label: `데일리 DB ${fmtDateTime(new Date(e.finishedAt))}`, rows: deserializeRows(e.rows) } : null;
+  }
+  $("#baseInfo").textContent = state.base ? `기존 ${state.base.rows.length}건 뒤에 이어서 작성합니다 (같은 게시물은 기존 것만 남김).` : "";
+}
+
+$("#baseSelect").addEventListener("change", onBaseChange);
+$("#baseFile").addEventListener("change", async (ev) => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  try {
+    const rows = await ReportXlsx.read(new Uint8Array(await f.arrayBuffer()));
+    if (!rows.length) throw new Error("이 파일에서 보고서 행(커뮤니티명·주요 내용 머리글)을 찾지 못했습니다");
+    state.baseFile = { label: `${f.name} (${rows.length}건)`, rows };
+    await renderBaseOptions();
+    $("#baseSelect").value = "file";
+    await onBaseChange();
+  } catch (e) {
+    $("#baseInfo").textContent = `파일을 읽지 못했습니다: ${e.message}`;
+  }
+});
+
 async function saveLastResult() {
   await chrome.storage.local.set({
     lastResult: {
       range: state.range ? { start: state.range.start.getTime(), end: state.range.end.getTime() } : null,
-      rows: state.rows.map((r) => ({ ...r, date: r.date ? r.date.getTime() : null })),
+      rows: serializeRows(state.rows),
       savedAt: Date.now(),
     },
   });
@@ -269,7 +420,7 @@ async function saveLastResult() {
 async function loadLastResult() {
   const { lastResult } = await chrome.storage.local.get("lastResult");
   if (!lastResult) return;
-  state.rows = lastResult.rows.map((r) => ({ ...r, date: r.date ? new Date(r.date) : null }));
+  state.rows = deserializeRows(lastResult.rows);
   state.range = lastResult.range ? { start: new Date(lastResult.range.start), end: new Date(lastResult.range.end) } : null;
   if (state.rows.length || state.range) {
     renderResults();
@@ -287,22 +438,22 @@ function reportFilename(range, ascii = false) {
   return `${name || ymd}.xlsx`;
 }
 
-async function downloadReport() {
-  const bytes = ReportXlsx.build(state.rows);
+async function downloadReport(rows = state.rows, range = state.range) {
+  const bytes = ReportXlsx.build(rows);
   const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   try {
     try {
-      await chrome.downloads.download({ url, filename: reportFilename(state.range), conflictAction: "uniquify", saveAs: false });
+      await chrome.downloads.download({ url, filename: reportFilename(range), conflictAction: "uniquify", saveAs: false });
     } catch {
       // 한글 파일명을 못 쓰는 환경이면 영문 이름으로
-      await chrome.downloads.download({ url, filename: reportFilename(state.range, true), conflictAction: "uniquify", saveAs: false });
+      await chrome.downloads.download({ url, filename: reportFilename(range, true), conflictAction: "uniquify", saveAs: false });
     }
   } finally {
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 }
-$("#download").addEventListener("click", () => downloadReport().catch((e) => log(`엑셀 저장 실패: ${e.message}`, "err")));
+$("#download").addEventListener("click", () => downloadReport(state.rows, state.range).catch((e) => log(`엑셀 저장 실패: ${e.message}`, "err")));
 
 // ---------------------------------------------------------------------------
 // 수집
@@ -334,6 +485,75 @@ function keywordHighlight(car, text, highlights) {
     if (words.some((w) => text.includes(w))) return true;
   }
   return false;
+}
+
+// 판정이 끝난 행 다듬기 → 행 또는 null(뺌)
+// - GV60 마그마: 차종 JW, 주요 내용 끝에 (마그마)
+// - 차종이 분명해야 하는 출처(현대모터클럽·자동차 커뮤니티)에서 차종을 모르면 뺀다
+function finalizeRow(row, it, src) {
+  const text = `${it.title}\n${it.body}`;
+  row.car = String(row.car || "").replace(/\s*(HEV|PHEV|하이브리드)$/i, "").trim() || "-"; // 하이브리드는 표기 안 함
+  if (/마그마/.test(text) && (/^JW/.test(row.car) || /GV\s?60/i.test(text))) {
+    row.car = "JW";
+    if (!/\(마그마\)/.test(row.summary)) row.summary = `${row.summary} (마그마)`;
+  }
+  if (src.requireCar && (!row.car || row.car === "-")) return null;
+  // 키워드 모드: 2020년 이전 출시 세대는 화재·급발진·시동 꺼짐·사망사고·돌진 같은 매우 심각한 이슈만 (AI 모드는 AI 가 판단)
+  if (row.byKeyword) {
+    const start = state.codeYears && state.codeYears[String(row.car).replace(/ (EV|HEV|PHEV|N)$/, "")];
+    if (start && start < 2020 && !VERY_SEVERE_RE.test(text)) return null;
+    delete row.byKeyword;
+  }
+  return {
+    community: src.name,
+    date: it.ts ? new Date(it.ts) : null,
+    url: it.url,
+    order: src.order,
+    ts: it.ts || 0,
+    kind: src.kind,
+    title: it.title,
+    excerpt: String(it.body || "").slice(0, 400),
+    report: false,
+    ...row,
+  };
+}
+
+// PE 여부 등 차종이 애매하다고 AI 가 표시한 카페 글: 작성자의 다른 글을 보고 차종 코드를 다시 정한다
+// (네이버 화면을 더 열게 되므로 한 번 수집에 최대 AUTHOR_LOOKUP_MAX 명까지)
+const AUTHOR_LOOKUP_MAX = 60;
+async function refineUncertainCars(src, items, judged, ctx) {
+  const targets = items.filter((it) => {
+    const j = judged.get(it.key);
+    return j && j.relevant && j.car_uncertain && it.writer && (it.writer.href || it.writer.memberKey);
+  });
+  if (!targets.length) return;
+  const asks = [];
+  for (const it of targets) {
+    if (ctx.authorLookups >= AUTHOR_LOOKUP_MAX || state.stopRequested) break;
+    ctx.authorLookups++;
+    try {
+      const titles = await ctx.naver.authorTitles(it, src.cafe, it.writer);
+      asks.push({ key: it.key, title: it.title, carNow: judged.get(it.key).car_code, carHint: it.carHint, nick: it.writer.nick, authorTitles: titles });
+    } catch (e) {
+      if (e instanceof StopError || e instanceof BlockedError) throw e;
+      log(`${src.name} 작성자 글 확인 실패: ${e.message}`, "err");
+    }
+  }
+  if (!asks.length) return;
+  try {
+    const fixed = await ctx.ai.refineCars(asks);
+    let changed = 0;
+    for (const [key, code] of fixed) {
+      const j = judged.get(key);
+      if (j && code && code !== j.car_code) {
+        j.car_code = code;
+        changed++;
+      }
+    }
+    log(`${src.name}: 차종이 애매한 글 ${asks.length}건 작성자 글 확인 → ${changed}건 차종 코드 수정`);
+  } catch (e) {
+    log(`${src.name} 작성자 기반 차종 재판정 실패: ${e.message}`, "err");
+  }
 }
 
 // 한 출처(카페 하나 또는 커뮤니티 하나)의 글 목록 → 후보 고르기 → 본문 읽기 → 판정 → 보고서 행
@@ -372,6 +592,7 @@ async function processSource(src, posts, readBody, ctx) {
         body: info.body || "",
         url: post.url,
         ts: ts || post.ts,
+        writer: info.writer || null,
       });
     } catch (e) {
       if (e instanceof StopError || e instanceof BlockedError) throw e;
@@ -391,6 +612,7 @@ async function processSource(src, posts, readBody, ctx) {
     } catch (e) {
       log(`${src.name} AI 판정 실패(${e.message}) → 키워드로 대신 판정`, "err");
     }
+    if (src.kind === "cafe") await refineUncertainCars(src, items, judged, ctx);
     for (const it of items) {
       const j = judged.get(it.key);
       let row;
@@ -402,9 +624,10 @@ async function processSource(src, posts, readBody, ctx) {
         const cat = keywordCategory(text);
         if (!cat) continue;
         const car = guessCarCode(text, parseCarCodes(settings.carCodes)) || firstHint(it.carHint) || "-";
-        row = { car, category: cat, summary: it.title, highlight: keywordHighlight(car, text, settings.highlights) };
+        row = { car, category: cat, summary: it.title, highlight: keywordHighlight(car, text, settings.highlights), byKeyword: true };
       }
-      state.rows.push({ community: src.name, date: it.ts ? new Date(it.ts) : null, url: it.url, order: src.order, ts: it.ts || 0, ...row });
+      const fin = finalizeRow(row, it, src);
+      if (!fin || !pushRow(fin)) continue;
       added++;
     }
   } else {
@@ -415,17 +638,8 @@ async function processSource(src, posts, readBody, ctx) {
       if (!cat) continue;
       if (src.kind !== "cafe" && !mentionsBrand(text)) continue;
       const car = guessCarCode(text, codes) || firstHint(it.carHint) || "-";
-      state.rows.push({
-        community: src.name,
-        car,
-        date: it.ts ? new Date(it.ts) : null,
-        category: cat,
-        url: it.url,
-        summary: it.title,
-        highlight: keywordHighlight(car, text, settings.highlights),
-        order: src.order,
-        ts: it.ts || 0,
-      });
+      const fin = finalizeRow({ car, category: cat, summary: it.title, highlight: keywordHighlight(car, text, settings.highlights), byKeyword: true }, it, src);
+      if (!fin || !pushRow(fin)) continue;
       added++;
     }
   }
@@ -435,8 +649,18 @@ async function processSource(src, posts, readBody, ctx) {
   updateSource(src.key, { issues: added, status: "완료" });
 }
 
+// 이어서 작성한 기존 행은 원래 순서 그대로 앞에, 이번 수집 행은 카페·커뮤니티 순서 → 게시 시각 순
 function sortRows() {
-  state.rows.sort((a, b) => a.order - b.order || a.ts - b.ts);
+  state.rows.sort((a, b) => (a.fromBase ? 0 : 1) - (b.fromBase ? 0 : 1) || (a.fromBase ? a.baseIdx - b.baseIdx : a.order - b.order || a.ts - b.ts));
+}
+
+// 같은 게시물(주소)이 이미 있으면 넣지 않는다 (처음 것만 남김)
+function pushRow(row) {
+  const key = urlKey(row.url);
+  if (state.seenKeys.has(key)) return false;
+  state.seenKeys.add(key);
+  state.rows.push(row);
+  return true;
 }
 
 async function runCollection() {
@@ -458,14 +682,23 @@ async function runCollection() {
 
   state.running = true;
   state.stopRequested = false;
+  // 이어서 작성: 기존 행을 먼저 넣고(중복은 처음 것만), 이번 수집 결과를 뒤에 붙인다
   state.rows = [];
+  state.seenKeys = new Set();
+  if (state.base) {
+    state.base.rows.forEach((r, i) => pushRow({ ...r, fromBase: true, baseIdx: i, kind: r.kind || "base", order: -1, ts: r.ts || 0 }));
+    log(`이어서 작성: ${state.base.label} ${state.base.rows.length}건 → 중복 뺀 ${state.rows.length}건 뒤에 붙입니다`);
+  }
   state.range = range;
+  state.codeYears = codeStartYears(settings.carCodes);
   renderResults();
   $("#start").disabled = true;
   $("#stop").disabled = false;
   $("#download").disabled = true;
   $("#log").textContent = "";
   const startedAt = Date.now();
+  $("#runTimes").hidden = false;
+  $("#runTimes").textContent = `수집 시작 ${fmtDateTime(new Date(startedAt))}:${pad2(new Date(startedAt).getSeconds())} · 수집 중…`;
   log(`v${chrome.runtime.getManifest().version} 수집 시작: ${fmtDateTime(range.start)} ~ ${fmtDateTime(range.end)}, 카페 ${cafes.length}곳, 커뮤니티 ${communities.length}곳, ${useAi ? `AI(${settings.model})` : "키워드 모드"}`);
   setSummary("수집 중…");
 
@@ -474,8 +707,8 @@ async function runCollection() {
   const isStopped = () => state.stopRequested;
 
   // 엑셀 행 순서: 설정에 적힌 카페 순서 → 커뮤니티 순서
-  const cafeSources = cafes.map((c) => ({ kind: "cafe", key: `cafe:${c.id}`, name: c.name || c.id, car: c.car, cafe: c, order: settings.cafes.indexOf(c) }));
-  const commSources = communities.map((c) => ({ kind: "community", key: `comm:${c.url}`, name: c.name || c.url, site: c, order: 1000 + settings.communities.indexOf(c) }));
+  const cafeSources = cafes.map((c) => ({ kind: "cafe", key: `cafe:${c.id}`, name: c.name || c.id, car: c.car, cafe: c, order: settings.cafes.indexOf(c), requireCar: REQUIRE_CAR_CAFES.includes(c.id) }));
+  const commSources = communities.map((c) => ({ kind: "community", key: `comm:${c.url}`, name: c.name || c.url, site: c, order: 1000 + settings.communities.indexOf(c), requireCar: true }));
   initSourceTable([...cafeSources, ...commSources]);
 
   const naver = new NaverCollector({ delays, log, isStopped });
@@ -485,6 +718,8 @@ async function runCollection() {
     range,
     settings,
     delays,
+    naver,
+    authorLookups: 0,
     naverWait: (r) => naver.wait(r),
     communityWait: (r) => community.wait(r),
   };
@@ -561,15 +796,47 @@ async function runCollection() {
     if (!/^완료|^실패|^건너뜀/.test(st)) updateSource(key, { status: state.stopRequested ? "중지됨" : st });
   }
 
+  // 보고 필요: 이번에 수집한 네이버 카페 글 중 심각한 4~6개 (신차 우선, 단순 정보 공유 제외)
+  const cafeRows = state.rows.filter((r) => r.kind === "cafe" && !r.fromBase);
+  if (cafeRows.length) {
+    let picked;
+    try {
+      picked = ai ? await ai.selectReports(cafeRows, settings.priorityCars) : keywordReportPick(cafeRows, settings.priorityCars);
+    } catch (e) {
+      log(`AI 보고 필요 선정 실패(${e.message}) → 키워드로 대신 선정`, "err");
+      picked = keywordReportPick(cafeRows, settings.priorityCars);
+    }
+    picked.forEach((i) => (cafeRows[i].report = true));
+    log(`보고 필요 ${picked.size}건 선정`);
+  }
+
   sortRows();
   renderResults();
   await saveLastResult();
   state.costUsd = ai ? ai.costUsd() : 0;
-  const mins = Math.round((Date.now() - startedAt) / 60000);
+  const finishedAt = Date.now();
+  const mins = Math.round((finishedAt - startedAt) / 60000);
+  const sec = (d) => `${fmtDateTime(d)}:${pad2(d.getSeconds())}`;
+  $("#runTimes").textContent = `수집 시작 ${sec(new Date(startedAt))}  ·  수집 완료 ${sec(new Date(finishedAt))}  ·  소요 ${fmtDuration(finishedAt - startedAt)}`;
+  log($("#runTimes").textContent);
   const costText = ai ? ` · AI 비용 약 $${state.costUsd.toFixed(2)} (입력 ${ai.usage.input + ai.usage.cacheRead + ai.usage.cacheWrite} / 출력 ${ai.usage.output} 토큰)` : "";
   const msg = `${state.stopRequested ? "중지됨" : "완료"}: 부정 이슈 ${state.rows.length}건 · ${mins}분${costText}${state.naverBlocked ? ` · ⚠ ${state.naverBlocked}` : ""}`;
   setSummary(msg);
   log(msg);
+  await dbSave({
+    id: `run-${finishedAt}`,
+    startedAt,
+    finishedAt,
+    range: { start: range.start.getTime(), end: range.end.getTime() },
+    count: state.rows.length,
+    costUsd: state.costUsd,
+    model: ai ? settings.model : "키워드",
+    base: state.base ? state.base.label : "",
+    stopped: state.stopRequested,
+    blocked: state.naverBlocked || "",
+    rows: serializeRows(state.rows),
+  });
+  await renderBaseOptions();
   await chrome.storage.local.set({
     lastRun: { at: Date.now(), count: state.rows.length, costUsd: state.costUsd, blocked: state.naverBlocked, stopped: state.stopRequested },
   });
@@ -628,6 +895,42 @@ window.addEventListener("beforeunload", (e) => {
 });
 
 // ---------------------------------------------------------------------------
+// 명령 프롬프트: 현재 AI 에 보내는 프롬프트 보기 + 추가 지시사항 수정 (최종 업데이트 시각·이력)
+// ---------------------------------------------------------------------------
+
+function renderPrompt() {
+  const s = state.settings;
+  $("#customPrompt").value = s.customPrompt || "";
+  $("#promptUpdated").textContent = s.customPromptUpdatedAt ? `최종 업데이트: ${fmtDateTime(new Date(s.customPromptUpdatedAt))}` : "아직 추가 지시사항 없음";
+  $("#promptBuilt").textContent = `(기본 규칙 업데이트: ${PROMPT_BUILT_AT})`;
+  $("#promptTriage").textContent = triageSystem(s);
+  $("#promptClassify").textContent = classifySystem(s);
+  $("#promptReport").textContent = reportSystem(s.priorityCars, s);
+  const box = $("#promptHistory");
+  box.textContent = "";
+  for (const h of s.promptHistory || []) {
+    box.append(el("div", { class: "item" }, el("b", { text: fmtDateTime(new Date(h.at)) }), `\n${h.text || "(비움)"}`));
+  }
+  if (!(s.promptHistory || []).length) box.append(el("div", { class: "hint", text: "이력이 없습니다." }));
+}
+
+$("#savePrompt").addEventListener("click", async () => {
+  const text = $("#customPrompt").value.trim();
+  const s = await loadSettings();
+  if (text === (s.customPrompt || "").trim()) {
+    $("#promptUpdated").textContent = "바뀐 내용이 없습니다.";
+    return;
+  }
+  s.customPrompt = text;
+  s.customPromptUpdatedAt = Date.now();
+  s.promptHistory = [{ at: s.customPromptUpdatedAt, text }, ...(s.promptHistory || [])].slice(0, 50);
+  await saveSettings(s);
+  state.settings = s;
+  draft = structuredClone(s);
+  renderPrompt();
+});
+
+// ---------------------------------------------------------------------------
 // 설정 화면
 // ---------------------------------------------------------------------------
 
@@ -660,6 +963,7 @@ function renderSettings() {
   $("#carCodes").value = s.carCodes || "";
   $("#keywords").value = s.keywords || "";
   $("#fileName").value = s.fileName || "";
+  $("#priorityCars").value = s.priorityCars || "";
   renderCafeTable();
   renderCommunityTable();
   renderHighlightTable();
@@ -739,6 +1043,7 @@ function readSettingsForm() {
   draft.carCodes = $("#carCodes").value;
   draft.keywords = $("#keywords").value;
   draft.fileName = $("#fileName").value.trim() || DEFAULT_SETTINGS.fileName;
+  draft.priorityCars = $("#priorityCars").value.trim();
   // 카페 ID 에 주소 전체를 붙여넣은 경우 ID 만 남긴다
   for (const c of draft.cafes) {
     const m = String(c.id || "").match(/cafe\.naver\.com\/([A-Za-z0-9_\-]+)/);
@@ -832,6 +1137,7 @@ $("#testKey").addEventListener("click", async () => {
   const r = defaultRange();
   setRange(r.start, r.end);
   await checkLogin();
+  await renderBaseOptions();
   if (AUTO) {
     const end = new Date();
     end.setSeconds(0, 0);

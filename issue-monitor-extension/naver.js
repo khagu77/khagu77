@@ -258,7 +258,26 @@ function readArticleInFrame() {
     title: pick([".title_text", ".ArticleTitle .title_text", "h3.title_text", ".tit-box .title"]),
     date: pick([".article_info .date", ".WriterInfo .date", ".ArticleWriterProfile .date", ".article_info", ".tit-box .date"]),
     body: pick([".se-main-container", ".ContentRenderer", ".article_viewer", ".article_container .content", "#tbody", "#postContent"]),
+    // 작성자: 닉네임과 작성자 정보(작성 글 목록) 화면 주소
+    nickname: pick([".WriterInfo .nickname", ".ArticleWriterProfile .nickname", ".nick_box .nickname", ".profile_info .nickname", ".nickname"]),
+    writerHref: (() => {
+      const a = document.querySelector(".WriterInfo a[href*='members'], .ArticleWriterProfile a[href*='members'], .profile_area a[href*='members'], a[href*='/members/'], a[href*='memberid=']");
+      return a ? a.href : "";
+    })(),
   };
+}
+
+// 화면이 받아 온 데이터에서 작성자 찾기 → { memberKey, nick }
+function writerFromJson(datas, articleId) {
+  let found = null;
+  walkJson(datas, (o) => {
+    if (found) return;
+    const w = o.writer || (o.article && o.article.writer);
+    if (w && (w.memberKey || w.id) && (!o.id || String(o.id) === String(articleId) || String(o.articleId || "") === String(articleId) || o.article)) {
+      found = { memberKey: w.memberKey || w.id, nick: w.nick || w.nickname || "" };
+    }
+  });
+  return found;
 }
 
 // ---------------------------------------------------------------------------
@@ -563,10 +582,13 @@ class NaverCollector {
       const fromJson = articleBodyFromJson(datas, post.articleId);
       if (hit || fromJson) {
         const parsed = hit && hit.date ? parseKoreanDate(hit.date) : null;
+        const w = writerFromJson(datas, post.articleId);
+        const named = frames.find((f) => f.nickname || f.writerHref) || {};
         return {
           title: (hit && hit.title) || (fromJson && htmlToText(fromJson.title)) || post.title,
           body: (hit && hit.body) || (fromJson ? htmlToText(fromJson.html) : ""),
           ts: fromJson && fromJson.ts ? fromJson.ts : parsed && parsed.exact ? parsed.date.getTime() : null,
+          writer: { nick: named.nickname || (w && w.nick) || "", href: named.writerHref || "", memberKey: (w && w.memberKey) || "" },
         };
       }
       const signals = await this.tab.run(pageSignalsInFrame);
@@ -587,6 +609,26 @@ class NaverCollector {
     const viaSearch = await this.readViaSearch(post, cafe);
     if (viaSearch) return viaSearch;
     throw new Error(cafe.viaSearch ? "네이버 검색으로도 글을 찾지 못함" : "글을 볼 수 없음 (권한 제한·삭제) → 네이버 검색으로도 찾지 못함");
+  }
+
+  // PE 여부 등 차종이 애매할 때: 작성자 정보(작성 글 목록) 화면을 열어 그 사람이 쓴 다른 글 제목을 모은다
+  async authorTitles(post, cafe, writer) {
+    let url = writer && /members|memberid=/i.test(writer.href || "") ? writer.href : "";
+    if (!url && writer && writer.memberKey) {
+      const { clubIds = {} } = await chrome.storage.local.get("clubIds");
+      if (clubIds[cafe.id]) url = `https://cafe.naver.com/f-e/cafes/${clubIds[cafe.id]}/members/${encodeURIComponent(writer.memberKey)}`;
+    }
+    if (!url) return [];
+    await this.wait(this.delays.article);
+    await this.openChecked(url);
+    let titles = [];
+    for (let attempt = 0; attempt < 4 && !titles.length; attempt++) {
+      const datas = await this.tab.captured();
+      titles = articlesFromJson(datas, null).map((a) => a.title);
+      if (!titles.length) titles = (await this.tab.run(listArticlesInFrame)).flat().map((d) => d.title);
+      if (!titles.length) await sleep(1500);
+    }
+    return [...new Set(titles)].filter((t) => t && t !== post.title).slice(0, 30);
   }
 
   async readViaSearch(post, cafe) {

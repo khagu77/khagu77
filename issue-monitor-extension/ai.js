@@ -10,6 +10,19 @@ const ISSUE_DEFINITION = `부정 이슈는 다음 3가지다. (지난 보고서 
 2) 응대: 블루핸즈, 하이테크 센터, 직영 서비스센터(은어: 파란손, 멍든손 등)의 정비 후기·AS·보증수리 응대 불만, 정비 과정·결과물 불만(재수리, 수리 후 재발, 불친절, 보증 거절 등), 업데이트 후기, 출고 지연·카마스터 응대 불만, 파업 등으로 인한 정비·출고 지연.
 3) 결품: 입고했는데 부품 재고 부족·부품 수급 문제로 정비가 지연되는 불만.`;
 
+// 기본 프롬프트(아래 규칙)를 마지막으로 고친 때 - '명령 프롬프트' 화면에 표시
+const PROMPT_BUILT_AT = "2026-10-11 (v1.5.0)";
+
+// '명령 프롬프트' 화면에서 사용자가 추가한 지시사항 (모든 AI 단계에 붙고, 기본 규칙보다 우선)
+function customInstructions(settings) {
+  const t = String((settings && settings.customPrompt) || "").trim();
+  return t ? `\n\n추가 지시사항 (사용자가 수시로 추가한 것, 위 규칙과 충돌하면 이것을 따른다):\n${t}` : "";
+}
+
+function triageSystem(settings) {
+  return `${TRIAGE_SYSTEM}\n\n${keywordReference(settings)}${customInstructions(settings)}`;
+}
+
 function keywordReference(settings) {
   return `참고 키워드 (커뮤니티 은어 포함, 이 말이 없어도 부정 이슈일 수 있음):\n${settings.keywords || ""}`;
 }
@@ -24,6 +37,7 @@ ${ISSUE_DEFINITION}
 - 제외: 문제 언급 없는 출고·시승 후기, 칭찬, 튜닝·용품·세차 이야기, 매매·시세, 결함 언급 없는 사고·블랙박스, 보험, 공지·이벤트·가입인사, 현대차·제네시스와 무관한 타 브랜드만의 이야기.
 - 제외: 출석 도장·출근 도장·퇴근 도장·출석 체크 글 (여기서 '도장'은 도색이 아님).
 - 제외: 신차 출고 대기·출고 기다림 같은 기대·설렘 글(불만 없는 출고 대기 이야기), 신차 검수·PPF·썬팅·광택 등 업체의 홍보·광고 글, 정기 소모품 교환만 다룬 글.
+- 2020년 이전에 출시된 세대의 차(코드표 적용 시기 시작이 2020년 전, 예: LX2, TM, IG, AD, OS, FE, DH, HI 등)는 차량 화재, 급발진, 주행 중 시동 꺼짐, 사망사고, 돌진처럼 매우 심각한 이슈만 고른다. 노후화로 인한 고장·불량은 고르지 않는다.
 - 자동차 커뮤니티(보배드림·클리앙·뽐뿌 등)의 단순 뉴스·기사 공유, 해외 이슈 공유(해외 리콜·해외 시장·해외 소비자 소식 등)는 제외한다. 다만 국내 차주의 실제 피해 사례를 옮겨 온 글은 고른다.
 - 네이버 카페는 대부분 현대차·제네시스 차주 카페다. 자동차 커뮤니티(보배드림·클리앙·뽐뿌 등)는 현대차·제네시스 관련이 드러나거나, 차종이 안 보여도 결함·AS·부품 이슈로 보이면 고른다.
 - 결과는 고른 글의 번호(id)만 돌려준다.`;
@@ -42,6 +56,7 @@ ${ISSUE_DEFINITION}
 - 현대차·제네시스 차량의 위 3가지 부정 이슈면 true. 아니면 false.
 - false 예: 문제 언급 없는 출고 후기·칭찬, 튜닝·용품, 매매, 결함과 무관한 사고, 타 브랜드만의 이야기, 내용이 없는 글.
 - 무상수리·리콜 정보 공유/문의, 업데이트 관련 의견, 정비 후기는 true (지난 보고서에 포함돼 왔음).
+- 2020년 이후 출시 차량 위주로 본다. 2020년 이전에 출시된 세대(코드표 적용 시기 시작이 2020년 전, 예: LX2, TM, IG, AD, OS, OS EV, FE, DH, HI 등)는 차량 화재, 급발진, 주행 중 시동 꺼짐, 사망사고, 돌진처럼 매우 심각한 이슈만 true, 그 밖의 고장·불량(특히 노후화·주행거리·연식 때문인 고장)은 false.
 - 출석 도장·출근 도장·퇴근 도장·출석 체크 글은 무조건 false ('도장'이 도색이 아님).
 - 불만 없는 신차 출고 대기·출고 기다림 글, 업체의 신차 검수·PPF·썬팅·광택 홍보·광고 글, 문제 없는 정기 소모품 교환(엔진오일 등) 후기는 false. 단, 차주가 신차 검수 중 직접 발견한 불량, 출고 지연 불만은 true.
 - 자동차 커뮤니티(보배드림·클리앙·뽐뿌 등) 글 중 단순 뉴스·기사 공유, 해외 이슈 공유(해외 리콜·해외 시장·해외 소비자 소식 등)는 false. 국내 차주의 실제 경험·피해 사례(퍼온 글 포함)는 true.
@@ -50,8 +65,11 @@ ${ISSUE_DEFINITION}
 - 여러 개에 해당하면 품질 > 결품 > 응대 순서로 고른다. (예: 고장으로 입고했는데 결품으로 정비 지연 → 품질)
 
 차종 코드(car_code): 아래 코드표의 코드를 쓴다.
-- 파생은 코드 뒤에 붙인다: 부분변경(페이스리프트, '더 뉴', '페리') → " PE", 전기차 → " EV", 하이브리드 → " HEV", 고성능 N → "N" 또는 표에 적힌 이름. 예: GN7 PE, NE PE, JK EV, RG3 EV, AX EV, US4 EV, CN7N
+- 파생은 코드 뒤에 붙인다: 부분변경(페이스리프트, '더 뉴', '페리') → " PE", 전기차 → " EV", 고성능 N → " N". 하이브리드(HEV)는 표기하지 않는다 (GN7 PE HEV → GN7 PE). 예: GN7 PE, NE PE, JK EV, RG3 EV, AX EV, US4 EV, CN7 N
 - 글에 "23년식", "24년형", "2022년 출고" 같은 연식이 나오면 코드표의 적용 시기로 세대를 정한다 (예: 21년식 팰리세이드 → LX2, 25년식 팰리세이드 → LX3, 20년식 아반떼 → AD PE 또는 CN7 중 글 내용으로). '계열'이라는 말은 빼고 코드만 쓴다.
+- GV60 마그마(Magma) 글은 차종 코드 JW (주요 내용 끝의 "(마그마)" 표기는 프로그램이 붙인다).
+- 현대모터클럽과 자동차 커뮤니티(보배드림·클리앙·뽐뿌 등) 글은 차종이 글에서 분명히 드러나지 않으면 relevant=false (추측 금지).
+- car_uncertain: PE(부분변경) 여부·세대 구분이 글만으로 분명하지 않으면 true (프로그램이 작성자의 다른 글을 확인해 다시 묻는다), 분명하면 false.
 - 글에 차종·세대·연식이 드러나면 그것을 따른다. 안 드러나면 '카페 기본 차종'(여러 개면 앞쪽이 가장 흔함) 중에서 고른다. 그래도 모르면 "-".
 
 주요 내용(summary): 보고서에 들어갈 짧은 한국어 명사구(보통 6~20자, 복합 사안만 길게). 존칭·문장부호 없이, 아래 지난 보고서의 표준 표현을 최대한 그대로 쓴다.
@@ -66,7 +84,7 @@ ${highlights || "(없음)"}
 ${keywordReference(settings)}
 
 차종 코드표:
-${settings.carCodes}`;
+${settings.carCodes}${customInstructions(settings)}`;
 }
 
 const TRIAGE_SCHEMA = {
@@ -90,8 +108,9 @@ const CLASSIFY_SCHEMA = {
           car_code: { type: "string" },
           summary: { type: "string" },
           highlight: { type: "boolean" },
+          car_uncertain: { type: "boolean" },
         },
-        required: ["id", "relevant", "category", "car_code", "summary", "highlight"],
+        required: ["id", "relevant", "category", "car_code", "summary", "highlight", "car_uncertain"],
         additionalProperties: false,
       },
     },
@@ -99,6 +118,20 @@ const CLASSIFY_SCHEMA = {
   required: ["results"],
   additionalProperties: false,
 };
+
+const REPORT_SCHEMA = TRIAGE_SCHEMA;
+
+function reportSystem(priorityCars, settings) {
+  return `너는 현대자동차·제네시스 고객 커뮤니티 모니터링 담당자다.
+오늘 수집된 네이버 카페 부정 이슈 목록에서, 경영진에게 꼭 보고해야 할 심각한 이슈를 고른다.
+
+규칙:
+- 보통 4~6개를 고른다. 정말 심각한 것이 그보다 적으면 적게 고른다. 7개 이상은 고르지 않는다.
+- 우선순위 1: 신규 출시 차종(${priorityCars || "(없음)"})의 심각한 결함·안전 이슈.
+- 심각함의 기준: 주행 중 시동 꺼짐·출력 제한·가속 불가, 제동·조향 이상, 화재·연기·과열, 고전압 배터리·ICCU·연료전지 이상, 누수(실내 유입), 주행 중 도어 열림, 에어백·안전벨트 등 안전 관련, 여러 차주가 같은 증상을 호소하는 경우, 반복 수리에도 해결 안 됨, 장기 정비 지연(결품 등)으로 큰 불편.
+- 고르지 않는 것: 단순 정보 공유(무상 수리 정보 공유, 업데이트 내용 공유, 뉴스 공유 등), 단순 문의, 가벼운 소음·마감 불만, 개인 의견. 신차라도 단순 정보 공유면 고르지 않는다.
+- 결과는 고른 글의 번호(id)만 돌려준다.${customInstructions(settings)}`;
+}
 
 class AiClassifier {
   constructor(settings, log) {
@@ -147,6 +180,49 @@ class AiClassifier {
     return JSON.parse(text);
   }
 
+  // 보고 필요: rows 중 심각한 4~6개 → 고른 행 번호(0부터) Set
+  async selectReports(rows, priorityCars) {
+    if (!rows.length) return new Set();
+    const lines = rows
+      .map((r, i) => `${i + 1}\t[${r.community}] 차종 ${r.car} | ${r.category} | ${r.summary} | 제목: ${r.title || ""} | 본문: ${(r.excerpt || "").replace(/\s+/g, " ").slice(0, 200)}`)
+      .join("\n");
+    const out = await this.callJson(reportSystem(priorityCars, this.settings), `id\t내용\n${lines}`, REPORT_SCHEMA);
+    const picked = new Set();
+    for (const id of out.ids || []) {
+      const n = +String(id).replace(/\D/g, "") - 1;
+      if (n >= 0 && n < rows.length && picked.size < 6) picked.add(n);
+    }
+    return picked;
+  }
+
+  // 차종이 애매한 글: 작성자 닉네임·작성자의 다른 글 제목으로 차종 코드(PE 여부 등)를 다시 정한다
+  // items: [{key, title, carNow, carHint, nick, authorTitles}] → Map(key → car_code)
+  async refineCars(items) {
+    const out = new Map();
+    if (!items.length) return out;
+    const system = `너는 현대자동차·제네시스 차종 코드 담당자다. 각 글의 차종 코드를, 작성자 닉네임과 작성자가 이 카페에 쓴 다른 글 제목들로 유추해 가장 정확하게 정한다.
+- 닉네임이나 다른 글에 '더 뉴', '페리', 'PE', 연식(예: 24년식), 트림, 출고 시기가 보이면 그것으로 PE 여부·세대를 정한다.
+- 근거가 없으면 지금 추정 코드를 그대로 둔다. 하이브리드(HEV)는 표기하지 않는다.
+
+차종 코드표:
+${this.settings.carCodes}${customInstructions(this.settings)}`;
+    const text = items
+      .map((it, j) => `<post id="${j + 1}">\n지금 추정: ${it.carNow}\n카페 기본 차종: ${it.carHint || "(없음)"}\n작성자 닉네임: ${it.nick || "(모름)"}\n이 글 제목: ${it.title}\n작성자의 다른 글 제목:\n${(it.authorTitles || []).map((t) => `- ${t}`).join("\n") || "(없음)"}\n</post>`)
+      .join("\n\n");
+    const schema = {
+      type: "object",
+      properties: { results: { type: "array", items: { type: "object", properties: { id: { type: "string" }, car_code: { type: "string" } }, required: ["id", "car_code"], additionalProperties: false } } },
+      required: ["results"],
+      additionalProperties: false,
+    };
+    const res = await this.callJson(system, text, schema);
+    for (const r of res.results || []) {
+      const it = items[+String(r.id).replace(/\D/g, "") - 1];
+      if (it && r.car_code) out.set(it.key, r.car_code);
+    }
+    return out;
+  }
+
   // 간단한 요청으로 키·모델이 되는지 확인
   async ping() {
     await this.client.messages.create({
@@ -164,7 +240,7 @@ class AiClassifier {
       const batch = posts.slice(i, i + TRIAGE_BATCH);
       const lines = batch.map((p, j) => `${j + 1}\t[${p.source}] ${p.title}`).join("\n");
       try {
-        const out = await this.callJson(`${TRIAGE_SYSTEM}\n\n${keywordReference(this.settings)}`, `id\t[출처] 제목\n${lines}`, TRIAGE_SCHEMA);
+        const out = await this.callJson(triageSystem(this.settings), `id\t[출처] 제목\n${lines}`, TRIAGE_SCHEMA);
         for (const id of out.ids || []) {
           const p = batch[+String(id).replace(/\D/g, "") - 1];
           if (p) picked.add(p.key);

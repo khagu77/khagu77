@@ -157,6 +157,50 @@ function isAttendancePost(text) {
   return ATTENDANCE_RE.test(String(text || ""));
 }
 
+// AI 없이 '보고 필요' 고르기: 신차 + 심각한 증상 점수, 단순 정보 공유·문의는 제외 → 행 번호 Set (최대 5개)
+const SEVERE_RE = /시동\s?꺼짐|시동 불가|가속 불가|출력 제한|브레이크|제동|조향|화재|연기|과열|ICCU|고전압|배터리 (이상|불량)|연료\s?전지|누수|도어 열림|에어백|안전벨트|급발진|견인|결품|재발/;
+function keywordReportPick(rows, priorityCars) {
+  const pri = String(priorityCars || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const scored = rows
+    .map((r, i) => {
+      const text = `${r.summary} ${r.title || ""} ${r.excerpt || ""}`;
+      if (/정보 공유|정보 문의|공유$|의견$/.test(r.summary)) return null;
+      let score = (text.match(new RegExp(SEVERE_RE.source, "g")) || []).length * 2;
+      if (pri.some((c) => r.car === c || r.car.startsWith(`${c} `))) score += 3;
+      return score >= 4 ? { i, score } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.score - a.score);
+  return new Set(scored.slice(0, 5).map((x) => x.i));
+}
+
+// 코드표에서 코드별 출시(적용 시작) 연도: "LX2: … (1세대, 2018~2024)" → { LX2: 2018 }
+function codeStartYears(text) {
+  const out = {};
+  for (const line of String(text || "").split("\n")) {
+    const m = line.match(/^([^#:][^:]*):.*\((?:[^)]*?,\s*)?((?:19|20)\d{2})\s*~/);
+    if (m) out[m[1].trim()] = +m[2];
+  }
+  return out;
+}
+
+// 2020년 이전 출시 세대에서도 보고에 넣을 매우 심각한 이슈
+const VERY_SEVERE_RE = /화재|불이|불남|급발진|시동\s?꺼짐|시동이 꺼|사망|돌진|전소|폭발/;
+
+// 같은 글인지 비교하기 위한 주소 열쇠 (카페 주소 형식이 달라도 같은 글이면 같은 열쇠)
+function urlKey(url) {
+  const u = String(url || "").trim();
+  let m = u.match(/cafe\.naver\.com\/([A-Za-z0-9_\-]+)\/(\d+)/i);
+  if (m) return `cafe:${m[1].toLowerCase()}/${m[2]}`;
+  m = u.match(/bobaedream\.co\.kr\/view\?.*?code=([^&]+).*?No=(\d+)/i) || u.match(/bobaedream\.co\.kr\/view\?.*?No=(\d+).*?code=([^&]+)/i);
+  if (m) return `bobae:${/^\d+$/.test(m[1]) ? `${m[2]}/${m[1]}` : `${m[1]}/${m[2]}`}`;
+  m = u.match(/ppomppu\.co\.kr\/zboard\/view\.php\?.*?id=([^&]+).*?no=(\d+)/i);
+  if (m) return `ppom:${m[1]}/${m[2]}`;
+  m = u.match(/clien\.net\/service\/board\/([^/?#]+)\/(\d+)/i);
+  if (m) return `clien:${m[1]}/${m[2]}`;
+  return u.replace(/^https?:\/\/(www\.|m\.)?/i, "").replace(/[#?].*$/, "").replace(/\/$/, "").toLowerCase();
+}
+
 function excluded(text) {
   const t = String(text || "");
   return EXCLUDE_KEYWORDS.some((w) => t.includes(w));
@@ -216,7 +260,6 @@ function guessCarCode(text, carCodes) {
   let bestLen = 0;
   const variantOk = (code) => {
     if (/ (EV|FC|FCEV)$/.test(code)) return /EV|일렉트릭|전기|수소|FCEV/i.test(t);
-    if (/ (HEV|PHEV)$/.test(code)) return /HEV|하이브리드|플러그인/i.test(t);
     if (/ N$/.test(code)) return /N라인|[^A-Za-z]N(?![A-Za-z])|고성능/.test(` ${t}`);
     return true;
   };

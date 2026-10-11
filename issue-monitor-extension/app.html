@@ -12,6 +12,8 @@
       <h1>현대차·제네시스 부정 이슈 모니터링 <span id="version" class="hint"></span></h1>
       <nav>
         <button class="tab active" data-tab="collect">수집</button>
+        <button class="tab" data-tab="db">데일리 DB</button>
+        <button class="tab" data-tab="prompt">명령 프롬프트</button>
         <button class="tab" data-tab="settings">설정</button>
       </nav>
     </header>
@@ -46,6 +48,16 @@
         <div id="pickList" class="picklist"></div>
       </details>
 
+      <div class="basebox">
+        <label for="baseSelect">이어서 작성 <span class="hint">(고르면 그 데이터 뒤에 이번 수집 결과를 붙여 합본으로 저장, 같은 게시물은 처음 것만 남김)</span></label>
+        <div class="inline">
+          <select id="baseSelect"></select>
+          <span class="hint">또는 기존 엑셀 파일:</span>
+          <input type="file" id="baseFile" accept=".xlsx">
+        </div>
+        <div id="baseInfo" class="hint"></div>
+      </div>
+
       <label class="check"><input type="checkbox" id="useAi" checked> AI(Claude)로 판정·요약 <span id="aiInfo" class="hint"></span></label>
 
       <div class="buttons">
@@ -54,6 +66,7 @@
         <button id="download" disabled>엑셀 받기</button>
       </div>
 
+      <div id="runTimes" class="runtimes" hidden></div>
       <div id="summary" class="summary"></div>
 
       <table id="sources" hidden>
@@ -63,8 +76,8 @@
 
       <h2 id="resultsTitle" hidden>결과 <span class="hint">(받기 전에 고치거나 지울 수 있습니다)</span></h2>
       <table id="results" hidden>
-        <colgroup><col style="width:120px"><col style="width:76px"><col style="width:72px"><col style="width:62px"><col style="width:230px"><col><col style="width:52px"><col style="width:50px"></colgroup>
-        <thead><tr><th>커뮤니티명</th><th>차종</th><th>게시일</th><th>구분</th><th>URL</th><th>주요 내용</th><th>노란색</th><th></th></tr></thead>
+        <colgroup><col style="width:120px"><col style="width:76px"><col style="width:72px"><col style="width:62px"><col style="width:230px"><col><col style="width:52px"><col style="width:62px"><col style="width:50px"></colgroup>
+        <thead><tr><th>커뮤니티명</th><th>차종</th><th>게시일</th><th>구분</th><th>URL</th><th>주요 내용</th><th>노란색</th><th title="꼭 보고해야 할 심각한 이슈 (엑셀 G열 +)">보고 필요</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
 
@@ -73,6 +86,36 @@
         <div class="buttons small"><button id="copyLog">기록 복사</button> <span id="copyResult" class="hint"></span></div>
         <pre id="log"></pre>
       </details>
+    </section>
+
+    <!-- ===================== 데일리 DB ===================== -->
+    <section id="tab-db" hidden>
+      <h2>데일리 DB <span class="hint">수집할 때마다 결과가 저장됩니다. 엑셀로 받거나, 이어받기 기준으로 고를 수 있습니다.</span></h2>
+      <table id="dbTable">
+        <thead><tr><th>수집 일시</th><th>수집 기간</th><th>건수</th><th>보고 필요</th><th>소요</th><th>AI 비용</th><th>비고</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p id="dbEmpty" class="hint">아직 저장된 수집 이력이 없습니다.</p>
+    </section>
+
+    <!-- ===================== 명령 프롬프트 ===================== -->
+    <section id="tab-prompt" hidden>
+      <h2>추가 지시사항 <span class="hint">AI 가 글을 고르고·판정하고·보고 필요를 고를 때 모두 붙습니다. 기본 규칙과 충돌하면 이 내용을 따릅니다.</span></h2>
+      <textarea id="customPrompt" rows="8" spellcheck="false" placeholder="예) 넥쏘 FE 의 수소 저장 시스템 점검 메시지 글은 연식과 관계없이 포함&#10;예) '업데이트 관련 의견'은 LX3 만 포함"></textarea>
+      <div class="buttons small">
+        <button id="savePrompt" class="primary">저장 (다음 수집부터 적용)</button>
+        <span id="promptUpdated" class="runtimes-inline"></span>
+      </div>
+      <details id="promptHistoryBox">
+        <summary>수정 이력</summary>
+        <div id="promptHistory"></div>
+      </details>
+
+      <h2>현재 적용 중인 전체 프롬프트 <span id="promptBuilt" class="hint"></span></h2>
+      <p class="hint">설정(키워드·차종 코드표·노란색 항목·우선 차종)과 위 추가 지시사항이 반영된, 실제로 AI 에 보내는 내용입니다.</p>
+      <details open><summary>1단계: 제목 선별</summary><pre id="promptTriage" class="prompt"></pre></details>
+      <details><summary>2단계: 본문 판정·구분·차종·요약</summary><pre id="promptClassify" class="prompt"></pre></details>
+      <details><summary>3단계: 보고 필요 선정</summary><pre id="promptReport" class="prompt"></pre></details>
     </section>
 
     <!-- ===================== 설정 ===================== -->
@@ -107,6 +150,9 @@
 
       <h2>엑셀 파일 이름 <span class="hint">{날짜} 자리에 수집 끝 날짜(예: 261011)가 들어갑니다</span></h2>
       <input type="text" id="fileName" spellcheck="false">
+
+      <h2>보고 필요 우선 차종 <span class="hint">신규 출시 차종 코드, 쉼표로 구분. 이 차종의 심각한 이슈를 '보고 필요'로 먼저 고릅니다 (네이버 카페 글만)</span></h2>
+      <input type="text" id="priorityCars" spellcheck="false">
 
       <h2>네이버 카페 <span class="hint">카페 ID = cafe.naver.com/<b>여기</b></span></h2>
       <table class="edit" id="cafeTable">

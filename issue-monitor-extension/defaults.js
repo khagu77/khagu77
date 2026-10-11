@@ -3,6 +3,9 @@
 // 카페에서 바로 열면 안 보이는 글이 많아, 네이버 검색(카페 탭)을 거쳐 들어가 읽는 카페
 const VIA_SEARCH_CAFES = ["nexocafe", "truckerking"];
 
+// 차종이 글에서 분명히 드러나지 않으면 빼는 카페 (자동차 커뮤니티는 모두 해당)
+const REQUIRE_CAR_CAFES = ["hmckorea"];
+
 const DEFAULT_CAFES = [
   ["그랜저 리더스 클럽", "suddenattackskincafe", "GN7 PE / GN7"],
   ["그랜저 GN7 매니아", "bestani", "GN7 / GN7 PE"],
@@ -51,7 +54,7 @@ const DEFAULT_CAFES = [
   ["넥쏘 오너스", "fmsn98", "NH2 / FE"],
   ["스타리아EV & ST1 클럽", "steamgunz", "US4 EV / ST1"],
   ["현대모터클럽", "hmckorea", ""],
-  ["영운모", "truckerking", "QZ / QV / WQ"],
+  ["영운모", "truckerking", "QZ / QV / QT"],
   ["자동차 정비 공유 카페", "autowave21", ""],
 ].map(([name, id, car]) => ({ name, id, car, on: true, viaSearch: VIA_SEARCH_CAFES.includes(id) }));
 
@@ -64,7 +67,8 @@ const DEFAULT_COMMUNITIES = [
 const DEFAULT_CAR_CODES = `# 차종별 코드명·적용 시기 (현대 제네시스 차종별 코드 정리표 기준). "코드: 차종명, 별칭 (세대, 적용 시기)" 한 줄에 하나, 최신 세대가 위.
 # 규칙: 글에 "23년식", "24년형", "2022년 출고" 등 연식이 나오면 적용 시기로 세대를 고른다.
 #       F/L(PE) 경계 연도처럼 두 코드에 걸치면 '더 뉴', '페리', 'F/L', 'PE' 언급이 있으면 PE, 없으면 카페 기본 차종을 따른다.
-#       '계열', 'LWB 계열' 같은 말은 빼고 코드만 쓴다 (예: QZ 계열 → QZ). 전기차는 " EV", 하이브리드는 " HEV" 를 붙인다.
+#       '계열', 'LWB 계열' 같은 말은 빼고 코드만 쓴다 (예: QZ 계열 → QZ). 전기차는 " EV" 를 붙이고, 하이브리드는 표기하지 않는다 (GN7 PE HEV → GN7 PE).
+#       GV60 마그마(Magma) 는 JW 로 쓰고 주요 내용 끝에 "(마그마)" 를 붙인다.
 # 현대 아반떼
 CN7 PE: 아반떼, 아방 (7세대 F/L, 2023~현재)
 CN7: 아반떼, 아방 (7세대, 2020~2023)
@@ -134,8 +138,7 @@ EN: 베라크루즈 (단일 세대, 2006~2015)
 # 현대 테라칸
 HP: 테라칸 (단일 세대, 2001~2007)
 # 현대 아이오닉
-AE PHEV: 아이오닉 (플러그인, 2017~2022)
-AE HEV: 아이오닉 (하이브리드, 2016~2022)
+AE: 아이오닉, 아이오닉 하이브리드 (하이브리드·플러그인, 2016~2022)
 AE EV: 아이오닉 (일렉트릭, 2016~2022)
 # 현대 아이오닉 5
 NE N: 아이오닉5, 아이오닉 5, 아5 (고성능, 2023~현재)
@@ -162,7 +165,6 @@ TQ: 스타렉스 (그랜드 스타렉스, 2007~2021)
 A1: 스타렉스 (초기형, 1997~2007)
 # 현대 스타리아
 US4 EV: 스타리아 (전기차 파생형, 2026년형 / 판매 시점 별도 확인)
-US4 HEV: 스타리아 (하이브리드, 2024~현재)
 US4 PE: 스타리아 (F/L, 2025~현재)
 US4: 스타리아 (1세대, 2021~2025)
 # 현대 쏠라티
@@ -171,20 +173,20 @@ EU: 쏠라티 (미니버스, 2015~현재, 시장별 상이)
 HR EV: 포터, 포터2 (전기 트럭, 2019~현재)
 HR: 포터, 포터2 (소형 트럭, 2004~현재)
 # 현대 마이티
-WQ 계열: 마이티 (준중형 트럭, 2015~현재)
+QT: 마이티, 올뉴마이티 (준중형 트럭, 2015~현재)
 # 현대 파비스
 QV 계열: 파비스 (중형 트럭, 2019~현재)
 # 현대 엑시언트
 QZ FCEV: 엑시언트 (수소전기 트럭, 2020~현재)
 QZ 계열: 엑시언트 (대형 트럭, 2013~현재)
 # 현대 카운티
-CN EV 계열: 카운티 (전기 버스, 2020~현재)
-CN 계열: 카운티 (중형 버스, 1998~현재)
+COUNTY EV: 카운티 일렉트릭 (전기 버스, 2020~현재)
+COUNTY: 카운티 (중형 버스, 1998~현재)
 # 현대 일렉시티
 CY 계열: 일렉시티 (전기 버스, 2017~현재)
 # 현대 유니버스
-PY FCEV: 유니버스 (수소전기 버스, 2023~현재)
-PY 계열: 유니버스 (대형 버스, 2006~현재)
+PV FCEV: 유니버스 수소 (수소전기 버스, 2023~현재)
+PV: 유니버스 (대형 버스, 2006~현재)
 # 제네시스 제네시스(현대 브랜드)
 DH: 제네시스(현대 브랜드) (2세대, 2013~2016)
 BH: 제네시스(현대 브랜드) (1세대, 2008~2013)
@@ -221,7 +223,8 @@ JX: GV80 (1세대, 2020~2023)
 JG: GV90 (대형 전기 SUV, 출시/양산 코드 확인 필요)
 
 # 지난 보고서에서 쓰였지만 정리표에 없는 코드
-CN8: 차세대 아반떼 (8세대)
+CN8: 차세대 아반떼, 디 올 뉴 아반떼 (8세대, 신차)
+NX5: 차세대 투싼, 신형 투싼, 디 올 뉴 투싼 (5세대, 신차)
 ST1: ST1, ST-1 (2024~현재)
 NX4 N: 투싼 N
 CN7 N: 아반떼 N (2021~현재)`;
@@ -248,7 +251,11 @@ const DEFAULT_SETTINGS = {
   carCodes: DEFAULT_CAR_CODES,
   highlights: DEFAULT_HIGHLIGHTS,
   keywords: DEFAULT_KEYWORDS,
-  fileName: "{날짜}_현대차 제네시스 커뮤니티 부정이슈",
+  fileName: "{날짜}_차종별 온라인 동향_통합",
+  priorityCars: "ME1, NH2, CN8, NX5, GN7 PE, US4 EV, JW",
+  customPrompt: "",
+  customPromptUpdatedAt: 0,
+  promptHistory: [],
 };
 
 const MODELS = [
@@ -258,7 +265,7 @@ const MODELS = [
 ];
 
 // 예전 버전에서 저장한 설정에 새 기본값을 보태 준다
-const SETTINGS_VERSION = 5;
+const SETTINGS_VERSION = 7;
 function migrateSettings(s) {
   if ((s.settingsVersion || 1) < 2 && typeof s.keywords === "string") {
     const add = "출고 대기, 출고대기, 출고 기다, 검수 업체, 검수업체, 검수 대행, 검수대행, 광고, 홍보, 오일교환, 오일 교환".split(", ");
@@ -279,6 +286,16 @@ function migrateSettings(s) {
         return missing.length ? `${line}, ${missing.join(", ")}` : line;
       });
     }
+  }
+  if ((s.settingsVersion || 1) < 7) {
+    // 하이브리드(HEV) 표기 안 함
+    s.carCodes = DEFAULT_CAR_CODES;
+  }
+  if ((s.settingsVersion || 1) < 6) {
+    // 상용 코드 QT / COUNTY / PV 유지, NX5 추가, 파일 이름 기본값 변경
+    s.carCodes = DEFAULT_CAR_CODES;
+    for (const c of s.cafes || []) if (c.id === "truckerking") c.car = "QZ / QV / QT";
+    if (!s.fileName || s.fileName === "{날짜}_현대차 제네시스 커뮤니티 부정이슈") s.fileName = DEFAULT_SETTINGS.fileName;
   }
   if ((s.settingsVersion || 1) < 5) {
     // 캐스퍼는 AX / AX PE / AX EV, 그랜저 현행은 GN7 PE (1.3.0 의 AX1 표기 되돌림)
