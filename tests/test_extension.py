@@ -8,7 +8,8 @@ import os
 import ssl
 import subprocess
 import threading
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -26,6 +27,11 @@ CAFE_PAGES = {
     2: [("c12", False, "민수", "둘째 페이지", "2023.11.15. 07:16"), ("c13", False, "", "삭제된 댓글입니다.", "")],
 }
 
+
+
+def seoul_today() -> date:
+    """브라우저를 Asia/Seoul 로 띄우므로 파일 이름 날짜도 서울 기준."""
+    return datetime.now(ZoneInfo("Asia/Seoul")).date()
 
 def cafe_html(canonical):
     pages = {
@@ -218,7 +224,7 @@ URLS = [
 
 def test_blank_output(tmp_path: Path):
     path, summary, tokens = run_extension(tmp_path, URLS)
-    assert path.name == f"{date.today():%Y%m%d}_raw_data.xlsx"
+    assert path.name == f"{seoul_today():%Y%m%d}_raw_data.xlsx"
     assert "SORT_NEW" not in tokens
     wb = load_workbook(path)
     assert wb.sheetnames == ["언론", "동호회", "유튜브", "자동차 커뮤니티"]
@@ -239,7 +245,7 @@ def test_continue_template(tmp_path: Path):
     make_template(tpl)
     urls = URLS + ["https://www.youtube.com/watch?v=keepkeepkee"]
     path, summary, _ = run_extension(tmp_path, urls, template=tpl, fail_video="keepkeepkee")
-    assert path.name == f"{date.today():%Y%m%d}_현대차_raw_data_정리.xlsx"
+    assert path.name == f"{seoul_today():%Y%m%d}_현대차_raw_data_정리.xlsx"
     assert "동호회 5개 추가(연번 3~7)" in summary and "이미 있던 댓글 1개 제외" in summary
     assert "삭제된 댓글" not in str(list(load_workbook(path)["동호회"].values))
 

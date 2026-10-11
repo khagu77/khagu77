@@ -624,6 +624,87 @@ def test_ai_correction(tmp_path: Path):
     assert "00:09 이렇게 됐어요 할 수 있다" in failed_output and not any("AI:" in l for l in failed_output)
 
 
+def make_review_xlsx(path: Path):
+    """사용자의 스크립트 분석 RAW 파일처럼 생긴 엑셀: '스크립트 RAW'(머리글 없음, A~H) + 다른 시트 2개."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "스크립트 RAW"
+    rows = [
+        (1, "채널A", "팰리세이드 시승기", "2026-10-10", "https://www.youtube.com/watch?v=aaa",
+         "[0:00] 안녕하세요 여러분\n[0:05] 오늘은 시승기 입니다\n[1:02:03] 할수있다", "비판", "negative"),
+        (2, "채널B", "관련 없는 영상", "2026-10-10", "https://www.youtube.com/watch?v=bbb",
+         "[0:00] 해당없는 내용", "해당없음", "non_negative"),
+        (3, "채널C", "ASMR", "2026-10-10", "https://www.youtube.com/watch?v=ccc", "ASMR 영상", "ASMR 영상", "non_negative"),
+        (4, "채널D", "칭찬 영상", "2026-10-10", "https://www.youtube.com/watch?v=ddd",
+         "[0:00] 좋아요\n\n[0:10] 정말 됬어요", "긍정", "non_negative"),
+    ]
+    for row in rows:
+        ws.append(row)
+    for r in range(1, 5):
+        ws[f"F{r}"].alignment = Alignment(wrap_text=True)
+        ws[f"F{r}"].font = Font(name="맑은 고딕", size=9)
+    wb.create_sheet("전체 분석 결과").append(["항목", "값"])
+    wb.create_sheet("전체 스크립트 분할 원문").append(["[0:00] 안녕하세요 여러분"])
+    wb.save(path)
+
+
+def test_ai_review(tmp_path: Path):
+    """스크립트 AI 검열: G열 '해당없음'·스크립트 없는 행은 그대로, 나머지 F열만 시간 표시를 살려 교정, _modify.xlsx 로 받기."""
+    src = tmp_path / "20261011_스크립트분석_RAW.xlsx"
+    make_review_xlsx(src)
+    sent = []
+
+    def claude(route):
+        body = json.loads(route.request.post_data)
+        lines = json.loads(body["messages"][0]["content"].split("\n\n", 1)[1])["lines"]
+        sent.append(lines)
+        route.fulfill(status=200, content_type="text/event-stream",
+                      body=claude_sse(json.dumps({"lines": [f"AI:{t}" for t in lines]}, ensure_ascii=False)))
+
+    server = start_fake_youtube(tmp_path, {})
+    with sync_playwright() as p:
+        ctx = launch(p, tmp_path, EXT_DIR, server.server_address[1])
+        ctx.route("https://api.anthropic.com/**", claude)
+        page = ext_page(ctx, "review.html")
+        dialogs = []
+        page.on("dialog", lambda d: (dialogs.append(d.message), d.accept()))
+        page.set_input_files("#reviewFile", str(src))
+        info = page.locator("#fileInfo", has_text="검토 대상")
+        info.wait_for(timeout=10000)
+        text = info.inner_text()
+        assert "검토 대상 2행" in text and "'해당없음' 1행" in text and "없는 행 1행" in text, text
+        assert "20261011_스크립트분석_RAW_modify.xlsx" in text, text
+        assert page.locator("#progress tbody tr").count() == 2
+        page.fill("#aiKey", "sk-ant-test-key")
+        page.click("#start")
+        page.locator("#summary", has_text="2 / 2행 교정").wait_for(timeout=60000)
+        assert "예상 요금" in dialogs[0] and "AI 검토를 마쳤습니다" in dialogs[1], dialogs
+        with page.expect_download(timeout=10000) as dl:
+            page.click("#saveModify")
+        out = tmp_path / dl.value.suggested_filename
+        dl.value.save_as(out)
+        ctx.close()
+    server.shutdown()
+
+    assert out.name == "20261011_스크립트분석_RAW_modify.xlsx"
+    flat = [t for chunk in sent for t in chunk]
+    assert "해당없는 내용" not in flat and "할 수 있다" in flat and "정말 됐어요" in flat, flat  # 기본 교정 후 AI 에 보냄
+    wb = load_workbook(out)
+    assert wb.sheetnames == ["스크립트 RAW", "전체 분석 결과", "전체 스크립트 분할 원문"]
+    ws = wb["스크립트 RAW"]
+    assert ws["F1"].value == "[0:00] AI:안녕하세요 여러분\n[0:05] AI:오늘은 시승기 입니다\n[1:02:03] AI:할 수 있다", ws["F1"].value
+    assert ws["F2"].value == "[0:00] 해당없는 내용"  # 해당없음 은 그대로
+    assert ws["F3"].value == "ASMR 영상"
+    assert ws["F4"].value == "[0:00] AI:좋아요\n\n[0:10] AI:정말 됐어요", ws["F4"].value
+    assert ws["A1"].value == 1 and ws["G1"].value == "비판" and ws["H4"].value == "non_negative"
+    assert ws["F1"].alignment.wrap_text and ws["F1"].font.name == "맑은 고딕" and ws["F1"].font.sz == 9
+    assert wb["전체 분석 결과"]["B1"].value == "값"
+    assert wb["전체 스크립트 분할 원문"]["A1"].value == "[0:00] 안녕하세요 여러분"
+
+
 @pytest.mark.skipif(not Path(FONT).exists(), reason="한글 글꼴 없음")
 def test_screen_captions(tmp_path: Path):
     media = tmp_path / "screenvid01.webm"

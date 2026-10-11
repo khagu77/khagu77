@@ -328,6 +328,23 @@
       this.texts.set(path, xml);
     }
 
+    // 시트의 셀 글자를 바꾼다. updates: { "F12": "새 글자", ... } (셀 서식은 그대로, 없는 셀은 건너뜀)
+    async setCellTexts(name, updates) {
+      const path = this._sheetPath(name);
+      let xml = await this.text(path);
+      let changed = 0;
+      for (const [ref, value] of Object.entries(updates)) {
+        const re = new RegExp(`<c r="${ref}"(\\s[^>]*?)?(?:/>|>[\\s\\S]*?</c>)`);
+        xml = xml.replace(re, (m, attrs) => {
+          changed++;
+          const keep = (attrs || "").replace(/\s+t="[^"]*"/, "");
+          return `<c r="${ref}"${keep} t="inlineStr"><is><t xml:space="preserve">${esc(value)}</t></is></c>`;
+        });
+      }
+      this.texts.set(path, xml);
+      return changed;
+    }
+
     async save() {
       // 공유 문자열 사용 횟수(count) 갱신
       if (this.sstPath) {

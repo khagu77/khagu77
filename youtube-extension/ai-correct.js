@@ -8,6 +8,21 @@ const AI_MODELS = [
   ["claude-haiku-5-5", "Claude Haiku 5.5 (가장 저렴)"],
 ];
 const AI_CHUNK = 120; // 한 번에 보내는 줄 수 (긴 영상은 나눠서)
+const AI_PARALLEL = 4; // 동시에 보내는 요청 수 (모든 영상·묶음 합쳐서)
+
+// 동시에 보내는 요청 수를 AI_PARALLEL 개로 묶는 줄 세우기
+const aiSlots = { busy: 0, waiting: [] };
+async function withAiSlot(fn) {
+  if (aiSlots.busy >= AI_PARALLEL) await new Promise((resolve) => aiSlots.waiting.push(resolve));
+  aiSlots.busy++;
+  try {
+    return await fn();
+  } finally {
+    aiSlots.busy--;
+    const next = aiSlots.waiting.shift();
+    if (next) next();
+  }
+}
 
 const AI_SYSTEM = `당신은 한국어 유튜브 스크립트(자동 자막)를 다듬는 교정자입니다. 영상은 주로 자동차 리뷰·시승기·자동차 소식입니다.
 각 줄은 영상의 한 구간에서 들린 말을 받아쓴 것입니다. 각 줄을 아래 기준으로 고쳐서, 같은 순서·같은 개수로 돌려주세요.
@@ -64,31 +79,51 @@ async function aiCorrectChunk(client, model, texts) {
   return parsed.lines.map((t, k) => (typeof t === "string" && t.trim() ? t.replace(/\s+/g, " ").trim() : texts[k]));
 }
 
-// texts(줄 글자 배열) → 교정된 같은 길이의 배열. 실패한 묶음은 한 번 더 시도하고, 그래도 안 되면 원래 줄을 둔다.
+// texts(줄 글자 배열) → 교정된 같은 길이의 배열. 묶음(120줄)들은 동시에 보내고(최대 AI_PARALLEL),
+// 실패한 묶음은 한 번 더 시도하고, 그래도 안 되면 원래 줄을 둔다.
 async function aiCorrectLines(texts, { apiKey, model, onProgress }) {
-  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2 });
-  const out = [];
+  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 4 });
+  const starts = [];
+  for (let i = 0; i < texts.length; i += AI_CHUNK) starts.push(i);
+  let done = 0;
   let failed = 0;
   let lastError = null;
-  for (let i = 0; i < texts.length; i += AI_CHUNK) {
-    const chunk = texts.slice(i, i + AI_CHUNK);
-    if (onProgress) onProgress(i, texts.length);
-    let fixed = null;
-    for (let attempt = 1; attempt <= 2 && !fixed; attempt++) {
-      try {
-        fixed = await aiCorrectChunk(client, model, chunk);
-      } catch (e) {
-        lastError = e;
-        // 키·권한 문제는 다시 해도 같으므로 바로 멈춘다
-        if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) throw e;
-      }
-    }
-    if (!fixed) {
-      failed += chunk.length;
-      fixed = chunk;
-    }
-    out.push(...fixed);
-  }
+  let fatal = null;
+  if (onProgress) onProgress(0, texts.length);
+  const parts = await Promise.all(
+    starts.map((i) =>
+      withAiSlot(async () => {
+        const chunk = texts.slice(i, i + AI_CHUNK);
+        let fixed = null;
+        for (let attempt = 1; attempt <= 2 && !fixed && !fatal; attempt++) {
+          try {
+            fixed = await aiCorrectChunk(client, model, chunk);
+          } catch (e) {
+            lastError = e;
+            // 키·권한 문제는 다시 해도 같으므로 바로 멈춘다
+            if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) fatal = e;
+          }
+        }
+        if (!fixed) {
+          failed += chunk.length;
+          fixed = chunk;
+        }
+        done += chunk.length;
+        if (onProgress) onProgress(done, texts.length);
+        return fixed;
+      }),
+    ),
+  );
+  if (fatal) throw fatal;
   if (failed === texts.length) throw lastError || new Error("AI 교정에 실패했습니다");
-  return { lines: out, failed, lastError };
+  return { lines: parts.flat(), failed, lastError };
+}
+
+// 대략적인 요금 추정 (원). 한국어는 글자 1개가 토큰 약 1개 정도로 잡는다. 1달러 = 1,400원으로 계산.
+const AI_PRICE = { "claude-opus-5-5": [4, 20], "claude-sonnet-5-5": [2, 10], "claude-haiku-5-5": [0.1, 0.5] };
+function aiCostEstimateWon(chars, model) {
+  const [inP, outP] = AI_PRICE[model] || AI_PRICE["claude-opus-5-5"];
+  const tokens = chars * 1.0;
+  const usd = (tokens * 1.15 * inP + tokens * 1.2 * outP) / 1e6; // 입력(지시문 포함)·출력(JSON 포함)
+  return Math.round((usd * 1400) / 10) * 10;
 }
