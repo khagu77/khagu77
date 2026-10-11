@@ -11,7 +11,7 @@ const ISSUE_DEFINITION = `부정 이슈는 다음 3가지다. (지난 보고서 
 3) 결품: 입고했는데 부품 재고 부족·부품 수급 문제로 정비가 지연되는 불만.`;
 
 // 기본 프롬프트(아래 규칙)를 마지막으로 고친 때 - '명령 프롬프트' 화면에 표시
-const PROMPT_BUILT_AT = "2026-10-11 (v1.5.0)";
+const PROMPT_BUILT_AT = "2026-10-11 (v1.5.1)";
 
 // '명령 프롬프트' 화면에서 사용자가 추가한 지시사항 (모든 AI 단계에 붙고, 기본 규칙보다 우선)
 function customInstructions(settings) {
@@ -69,6 +69,7 @@ ${ISSUE_DEFINITION}
 - 글에 "23년식", "24년형", "2022년 출고" 같은 연식이 나오면 코드표의 적용 시기로 세대를 정한다 (예: 21년식 팰리세이드 → LX2, 25년식 팰리세이드 → LX3, 20년식 아반떼 → AD PE 또는 CN7 중 글 내용으로). '계열'이라는 말은 빼고 코드만 쓴다.
 - GV60 마그마(Magma) 글은 차종 코드 JW (주요 내용 끝의 "(마그마)" 표기는 프로그램이 붙인다).
 - 현대모터클럽과 자동차 커뮤니티(보배드림·클리앙·뽐뿌 등) 글은 차종이 글에서 분명히 드러나지 않으면 relevant=false (추측 금지).
+- 본문에 차종·세대가 없으면 댓글에서 유추한다. [작성자] 표시가 붙은 작성자 본인 댓글(예: "저는 24년식 더 뉴예요")을 가장 믿고, 다른 사람 댓글은 "같은 차종 같은데요" 처럼 이 글의 차를 가리킬 때만 참고한다. 다른 사람이 자기 차 이야기를 한 것은 이 글의 차종으로 쓰지 않는다.
 - car_uncertain: PE(부분변경) 여부·세대 구분이 글만으로 분명하지 않으면 true (프로그램이 작성자의 다른 글을 확인해 다시 묻는다), 분명하면 false.
 - 글에 차종·세대·연식이 드러나면 그것을 따른다. 안 드러나면 '카페 기본 차종'(여러 개면 앞쪽이 가장 흔함) 중에서 고른다. 그래도 모르면 "-".
 
@@ -201,13 +202,13 @@ class AiClassifier {
     const out = new Map();
     if (!items.length) return out;
     const system = `너는 현대자동차·제네시스 차종 코드 담당자다. 각 글의 차종 코드를, 작성자 닉네임과 작성자가 이 카페에 쓴 다른 글 제목들로 유추해 가장 정확하게 정한다.
-- 닉네임이나 다른 글에 '더 뉴', '페리', 'PE', 연식(예: 24년식), 트림, 출고 시기가 보이면 그것으로 PE 여부·세대를 정한다.
+- 닉네임, 다른 글 제목, 이 글의 댓글(특히 [작성자] 본인 댓글)에 '더 뉴', '페리', 'PE', 연식(예: 24년식), 트림, 출고 시기가 보이면 그것으로 PE 여부·세대를 정한다.
 - 근거가 없으면 지금 추정 코드를 그대로 둔다. 하이브리드(HEV)는 표기하지 않는다.
 
 차종 코드표:
 ${this.settings.carCodes}${customInstructions(this.settings)}`;
     const text = items
-      .map((it, j) => `<post id="${j + 1}">\n지금 추정: ${it.carNow}\n카페 기본 차종: ${it.carHint || "(없음)"}\n작성자 닉네임: ${it.nick || "(모름)"}\n이 글 제목: ${it.title}\n작성자의 다른 글 제목:\n${(it.authorTitles || []).map((t) => `- ${t}`).join("\n") || "(없음)"}\n</post>`)
+      .map((it, j) => `<post id="${j + 1}">\n지금 추정: ${it.carNow}\n카페 기본 차종: ${it.carHint || "(없음)"}\n작성자 닉네임: ${it.nick || "(모름)"}\n이 글 제목: ${it.title}\n작성자의 다른 글 제목:\n${(it.authorTitles || []).map((t) => `- ${t}`).join("\n") || "(없음)"}${it.comments ? `\n이 글의 댓글(일부, [작성자]=글쓴이 본인):\n${it.comments}` : ""}\n</post>`)
       .join("\n\n");
     const schema = {
       type: "object",
@@ -263,7 +264,7 @@ ${this.settings.carCodes}${customInstructions(this.settings)}`;
       const text = batch
         .map((it, j) => {
           const body = it.body.length > BODY_CHARS ? `${it.body.slice(0, BODY_CHARS)}\n(이하 생략)` : it.body;
-          return `<post id="${j + 1}">\n출처: ${it.source}\n카페 기본 차종: ${it.carHint || "(없음)"}\n제목: ${it.title}\n본문:\n${body || "(본문 없음)"}\n</post>`;
+          return `<post id="${j + 1}">\n출처: ${it.source}\n카페 기본 차종: ${it.carHint || "(없음)"}\n제목: ${it.title}\n본문:\n${body || "(본문 없음)"}${it.comments ? `\n댓글(일부):\n${it.comments}` : ""}\n</post>`;
         })
         .join("\n\n");
       const result = await this.callJson(system, text, CLASSIFY_SCHEMA);

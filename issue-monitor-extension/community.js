@@ -263,6 +263,15 @@ class CommunityCollector {
       }
     }
     const titleEl = doc.querySelector("h1, h2, h3, .post_subject, .subject, title");
-    return { title: post.title || textOf(titleEl), body, ts };
+    // 댓글: 본문에 차종이 없을 때 댓글로 유추 (사이트마다 다른 이름을 차례로 시도, 최대 1500자)
+    let comments = "";
+    for (const sel of [".comment_view", ".comment-content", ".comment_content", ".comment_line", ".commentCont", ".cmt_txt", "[class*='comment'] [class*='text']"]) {
+      const els = [...doc.querySelectorAll(sel)].slice(0, 30);
+      if (els.length) {
+        comments = els.map((e) => textOf(e).replace(/\s+/g, " ").slice(0, 200)).filter(Boolean).join("\n").slice(0, 1500);
+        if (comments) break;
+      }
+    }
+    return { title: post.title || textOf(titleEl), body, ts, comments };
   }
 }

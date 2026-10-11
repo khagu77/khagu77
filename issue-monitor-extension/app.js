@@ -533,7 +533,7 @@ async function refineUncertainCars(src, items, judged, ctx) {
     ctx.authorLookups++;
     try {
       const titles = await ctx.naver.authorTitles(it, src.cafe, it.writer);
-      asks.push({ key: it.key, title: it.title, carNow: judged.get(it.key).car_code, carHint: it.carHint, nick: it.writer.nick, authorTitles: titles });
+      asks.push({ key: it.key, title: it.title, carNow: judged.get(it.key).car_code, carHint: it.carHint, nick: it.writer.nick, authorTitles: titles, comments: it.comments });
     } catch (e) {
       if (e instanceof StopError || e instanceof BlockedError) throw e;
       log(`${src.name} 작성자 글 확인 실패: ${e.message}`, "err");
@@ -590,6 +590,7 @@ async function processSource(src, posts, readBody, ctx) {
         carHint: src.car || "",
         title: info.title || post.title,
         body: info.body || "",
+        comments: info.comments || "",
         url: post.url,
         ts: ts || post.ts,
         writer: info.writer || null,

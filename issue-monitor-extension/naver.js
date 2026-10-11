@@ -258,6 +258,16 @@ function readArticleInFrame() {
     title: pick([".title_text", ".ArticleTitle .title_text", "h3.title_text", ".tit-box .title"]),
     date: pick([".article_info .date", ".WriterInfo .date", ".ArticleWriterProfile .date", ".article_info", ".tit-box .date"]),
     body: pick([".se-main-container", ".ContentRenderer", ".article_viewer", ".article_container .content", "#tbody", "#postContent"]),
+    // 댓글(지금 보이는 첫 페이지, 최대 30개): 본문에 차종이 없을 때 댓글로 유추
+    comments: [...document.querySelectorAll("li.CommentItem")]
+      .slice(0, 30)
+      .map((li) => {
+        const nick = (li.querySelector(".comment_nickname") || {}).innerText || "";
+        const text = (li.querySelector(".text_comment") || {}).innerText || "";
+        const mine = !!li.querySelector(".comment_writer, .CommentWriter, [class*='writer']");
+        return text.trim() ? { nick: nick.trim(), text: text.trim().slice(0, 200), mine } : null;
+      })
+      .filter(Boolean),
     // 작성자: 닉네임과 작성자 정보(작성 글 목록) 화면 주소
     nickname: pick([".WriterInfo .nickname", ".ArticleWriterProfile .nickname", ".nick_box .nickname", ".profile_info .nickname", ".nickname"]),
     writerHref: (() => {
@@ -265,6 +275,12 @@ function readArticleInFrame() {
       return a ? a.href : "";
     })(),
   };
+}
+
+// 댓글 목록 → 판정용 글 (작성자 본인 댓글 표시, 최대 1500자)
+function formatComments(list, writerNick) {
+  const lines = (list || []).map((c) => `${c.mine || (writerNick && c.nick === writerNick) ? "[작성자] " : ""}${c.nick ? `${c.nick}: ` : ""}${c.text}`);
+  return lines.join("\n").slice(0, 1500);
 }
 
 // 화면이 받아 온 데이터에서 작성자 찾기 → { memberKey, nick }
@@ -584,11 +600,14 @@ class NaverCollector {
         const parsed = hit && hit.date ? parseKoreanDate(hit.date) : null;
         const w = writerFromJson(datas, post.articleId);
         const named = frames.find((f) => f.nickname || f.writerHref) || {};
+        const comments = (frames.find((f) => f.comments && f.comments.length) || {}).comments || [];
+        const writerNick = named.nickname || (w && w.nick) || "";
         return {
           title: (hit && hit.title) || (fromJson && htmlToText(fromJson.title)) || post.title,
           body: (hit && hit.body) || (fromJson ? htmlToText(fromJson.html) : ""),
           ts: fromJson && fromJson.ts ? fromJson.ts : parsed && parsed.exact ? parsed.date.getTime() : null,
-          writer: { nick: named.nickname || (w && w.nick) || "", href: named.writerHref || "", memberKey: (w && w.memberKey) || "" },
+          writer: { nick: writerNick, href: named.writerHref || "", memberKey: (w && w.memberKey) || "" },
+          comments: formatComments(comments, writerNick),
         };
       }
       const signals = await this.tab.run(pageSignalsInFrame);
