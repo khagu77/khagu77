@@ -313,6 +313,11 @@ function shuffle(arr) {
   return a;
 }
 
+// "GN7 PE / GN7" 처럼 여러 개면 가장 흔한 앞쪽
+function firstHint(hint) {
+  return String(hint || "").split("/")[0].trim();
+}
+
 // 키워드만으로 노란색 항목 판단 (AI 를 안 쓸 때)
 function keywordHighlight(car, text, highlights) {
   const generic = new Set(["관련", "불만", "고장", "의견", "포함", "작동", "오류", "문의", "이상", "전체"]);
@@ -386,12 +391,12 @@ async function processSource(src, posts, readBody, ctx) {
       let row;
       if (j) {
         if (!j.relevant) continue;
-        row = { car: j.car_code || it.carHint, category: j.category, summary: j.summary, highlight: !!j.highlight };
+        row = { car: j.car_code || firstHint(it.carHint) || "-", category: j.category, summary: j.summary, highlight: !!j.highlight };
       } else {
         const text = `${it.title}\n${it.body}`;
         const cat = keywordCategory(text);
         if (!cat) continue;
-        const car = guessCarCode(text, parseCarCodes(settings.carCodes)) || it.carHint;
+        const car = guessCarCode(text, parseCarCodes(settings.carCodes)) || firstHint(it.carHint) || "-";
         row = { car, category: cat, summary: it.title, highlight: keywordHighlight(car, text, settings.highlights) };
       }
       state.rows.push({ community: src.name, date: it.ts ? new Date(it.ts) : null, url: it.url, order: src.order, ts: it.ts || 0, ...row });
@@ -404,7 +409,7 @@ async function processSource(src, posts, readBody, ctx) {
       const cat = keywordCategory(text);
       if (!cat) continue;
       if (src.kind !== "cafe" && !mentionsBrand(text)) continue;
-      const car = guessCarCode(text, codes) || it.carHint;
+      const car = guessCarCode(text, codes) || firstHint(it.carHint) || "-";
       state.rows.push({
         community: src.name,
         car,
@@ -570,6 +575,7 @@ async function runCollection() {
   $("#download").disabled = false;
 
   if (AUTO) {
+    if (!state.stopRequested) await chrome.storage.local.set({ lastAutoRangeEnd: range.end.getTime() });
     try {
       await downloadReport();
       log("엑셀을 다운로드 폴더에 저장했습니다");
@@ -808,7 +814,14 @@ $("#testKey").addEventListener("click", async () => {
   setRange(r.start, r.end);
   await checkLogin();
   if (AUTO) {
-    log("자동 수집을 시작합니다");
+    const end = new Date();
+    end.setSeconds(0, 0);
+    const { lastAutoRangeEnd } = await chrome.storage.local.get("lastAutoRangeEnd");
+    const prev = lastAutoRangeEnd ? new Date(lastAutoRangeEnd) : null;
+    // 지난 자동 수집이 끝난 시각부터 이어서 (사흘 넘게 비었으면 최근 24시간)
+    const start = prev && end - prev < 3 * 86400000 && prev < end ? prev : new Date(end.getTime() - 86400000);
+    setRange(start, end);
+    log(`자동 수집을 시작합니다 (${fmtDateTime(start)} ~ ${fmtDateTime(end)}: 지난 자동 수집에 이어서)`);
     await sleep(3000);
     $("#start").click();
   } else {
