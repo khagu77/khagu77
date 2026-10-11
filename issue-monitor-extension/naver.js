@@ -319,6 +319,16 @@ function readArticleInFrame() {
       })
       .filter(Boolean),
     // 작성자: 닉네임과 작성자 정보(작성 글 목록) 화면 주소
+    // 조회수·댓글 수 (보고 필요 선정에 참고)
+    views: (() => {
+      const m = (pick([".article_info", ".WriterInfo", ".ArticleWriterProfile"]) || "").match(/조회\s*([\d,]+)/);
+      return m ? +m[1].replace(/,/g, "") : null;
+    })(),
+    ccount: (() => {
+      const t = pick([".CommentBox .comment_title", ".button_comment", ".article_info"]) || "";
+      const m = t.match(/댓글\s*([\d,]+)/);
+      return m ? +m[1].replace(/,/g, "") : document.querySelectorAll("li.CommentItem").length || null;
+    })(),
     nickname: pick([".WriterInfo .nickname", ".ArticleWriterProfile .nickname", ".nick_box .nickname", ".profile_info .nickname", ".nickname"]),
     writerHref: (() => {
       const a = document.querySelector(".WriterInfo a[href*='members'], .ArticleWriterProfile a[href*='members'], .profile_area a[href*='members'], a[href*='/members/'], a[href*='memberid=']");
@@ -349,6 +359,8 @@ function writerFromJson(datas, articleId) {
 // ---------------------------------------------------------------------------
 // 화면이 받아 온 데이터(JSON)에서 게시글 찾기
 // ---------------------------------------------------------------------------
+
+const num = (v) => (v === undefined || v === null || v === "" || isNaN(+String(v).replace(/,/g, "")) ? null : +String(v).replace(/,/g, ""));
 
 function walkJson(node, fn, depth = 0) {
   if (!node || typeof node !== "object" || depth > 12) return;
@@ -392,6 +404,8 @@ function articlesFromJson(datas, clubId) {
           ts,
           menu: o.menuName || "",
           menuId: o.menuId ?? o.menuid ?? null,
+          views: num(o.readCount ?? o.readcount ?? o.viewCount ?? o.hitCount),
+          ccount: num(o.commentCount ?? o.commentcount ?? o.replyCount ?? o.totalCommentCount),
           notice: !!(o.isNotice || o.notice || o.noticeType),
         });
       }
@@ -629,7 +643,7 @@ class NaverCollector {
         if (!mayBeInRange(parsed, range)) continue;
         if (it.notice && !inRange(parsed.date, range)) continue;
         if (!all.has(it.articleId)) {
-          all.set(it.articleId, { articleId: it.articleId, title: it.title, ts: it.ts, exact: it.exact, url: `https://cafe.naver.com/${cafe.id}/${it.articleId}`, menu: it.menu || "", menuId: it.menuId ?? null });
+          all.set(it.articleId, { articleId: it.articleId, title: it.title, ts: it.ts, exact: it.exact, url: `https://cafe.naver.com/${cafe.id}/${it.articleId}`, menu: it.menu || "", menuId: it.menuId ?? null, views: it.views ?? null, ccount: it.ccount ?? null });
         }
       }
       // 목록은 최신순: 이 페이지 글 대부분이 기간보다 오래됐으면 다음 페이지는 볼 필요 없음
@@ -707,6 +721,8 @@ class NaverCollector {
           ts: fromJson && fromJson.ts ? fromJson.ts : parsed && parsed.exact ? parsed.date.getTime() : null,
           writer: { nick: writerNick, href: named.writerHref || "", memberKey: (w && w.memberKey) || "" },
           comments: formatComments(comments, writerNick),
+          views: (frames.find((f) => f.views) || {}).views ?? null,
+          ccount: (frames.find((f) => f.ccount) || {}).ccount ?? null,
         };
       }
       const signals = await this.tab.run(pageSignalsInFrame);

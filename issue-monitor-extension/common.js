@@ -172,7 +172,11 @@ function keywordReportPick(rows, priorityCars) {
     .map((r, i) => {
       const text = `${r.summary} ${r.title || ""} ${r.excerpt || ""}`;
       if (/정보 공유|정보 문의|공유$|의견$/.test(r.summary)) return null;
+      if (/각종 경고등|운전자 보조|전방 (충돌|안전)|ADAS|경고등 일시|일시적 (점등|경고)/.test(r.summary)) return null;
       let score = (text.match(new RegExp(SEVERE_RE.source, "g")) || []).length * 2;
+      if (r.harsh || /[시씨]발|ㅅㅂ|개같|좆|미친|빡치|열받|최악|쓰레기|사기/.test(text)) score += 2;
+      if (r.views >= 1000 || r.ccount >= 20) score += 2;
+      else if (r.views >= 300 || r.ccount >= 8) score += 1;
       if (pri.some((c) => r.car === c || r.car.startsWith(`${c} `))) score += 3;
       return score >= 4 ? { i, score } : null;
     })

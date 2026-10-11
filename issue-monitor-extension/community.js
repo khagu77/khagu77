@@ -272,6 +272,9 @@ class CommunityCollector {
         if (comments) break;
       }
     }
-    return { title: post.title || textOf(titleEl), body, ts, comments };
+    const head = spacedText(doc.body).slice(0, 4000);
+    const vm = head.match(/조회(?:수)?\s*[:：]?\s*([\d,]+)/);
+    const cm = head.match(/댓글\s*[:：(]?\s*([\d,]+)/);
+    return { title: post.title || textOf(titleEl), body, ts, comments, views: vm ? +vm[1].replace(/,/g, "") : null, ccount: cm ? +cm[1].replace(/,/g, "") : null };
   }
 }

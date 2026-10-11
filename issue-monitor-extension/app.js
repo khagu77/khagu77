@@ -277,7 +277,7 @@ function renderResults() {
           return sel;
         })()
       ),
-      el("td", { class: "url" }, el("a", { href: r.url, target: "_blank", title: r.url, text: r.url.replace(/^https?:\/\/(www\.)?/, "") })),
+      el("td", { class: "url" }, el("a", { href: r.url, target: "_blank", title: `${r.url}${r.views != null ? `\n조회 ${r.views}` : ""}${r.ccount != null ? ` · 댓글 ${r.ccount}` : ""}${r.harsh ? "\n강한 비판·욕설 있음" : ""}`, text: r.url.replace(/^https?:\/\/(www\.)?/, "") })),
       el("td", { class: "sum" }, sum),
       el(
         "td",
@@ -618,6 +618,8 @@ function finalizeRow(row, it, src) {
     kind: src.kind,
     title: it.title,
     excerpt: String(it.body || "").slice(0, 400),
+    views: it.views ?? null,
+    ccount: it.ccount ?? null,
     report: false,
     ...row,
   };
@@ -699,6 +701,8 @@ async function processSource(src, posts, readBody, ctx) {
         url: post.url,
         ts: ts || post.ts,
         writer: info.writer || null,
+        views: info.views ?? post.views ?? null,
+        ccount: info.ccount ?? post.ccount ?? null,
       });
     } catch (e) {
       if (e instanceof StopError || e instanceof BlockedError) throw e;
@@ -724,7 +728,7 @@ async function processSource(src, posts, readBody, ctx) {
       let row;
       if (j) {
         if (!j.relevant) continue;
-        row = { car: j.car_code || firstHint(it.carHint) || "-", category: j.category, summary: j.summary, highlight: !!j.highlight, year: j.model_year || findModelYear(`${it.title}\n${it.body}\n${it.comments || ""}`) };
+        row = { car: j.car_code || firstHint(it.carHint) || "-", category: j.category, summary: j.summary, highlight: !!j.highlight, harsh: !!j.harsh, year: j.model_year || findModelYear(`${it.title}\n${it.body}\n${it.comments || ""}`) };
       } else {
         const text = `${it.title}\n${it.body}`;
         const cat = keywordCategory(text);

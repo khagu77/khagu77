@@ -11,7 +11,7 @@ const ISSUE_DEFINITION = `부정 이슈는 다음 3가지다. (지난 보고서 
 3) 결품: 입고했는데 부품 재고 부족·부품 수급 문제로 정비가 지연되는 불만.`;
 
 // 기본 프롬프트(아래 규칙)를 마지막으로 고친 때 - '명령 프롬프트' 화면에 표시
-const PROMPT_BUILT_AT = "2026-10-11 (v1.8.0)";
+const PROMPT_BUILT_AT = "2026-10-11 (v1.8.4)";
 
 // '명령 프롬프트' 화면에서 사용자가 추가한 지시사항 (모든 AI 단계에 붙고, 기본 규칙보다 우선)
 function customInstructions(settings) {
@@ -72,6 +72,7 @@ ${ISSUE_DEFINITION}
 - GV60 마그마(Magma) 글은 차종 코드 JW (주요 내용 끝의 "(마그마)" 표기는 프로그램이 붙인다).
 - 현대모터클럽과 자동차 커뮤니티(보배드림·클리앙·뽐뿌 등) 글은 차종이 글에서 분명히 드러나지 않으면 relevant=false (추측 금지).
 - 본문에 차종·세대가 없으면 댓글에서 유추한다. [작성자] 표시가 붙은 작성자 본인 댓글(예: "저는 24년식 더 뉴예요")을 가장 믿고, 다른 사람 댓글은 "같은 차종 같은데요" 처럼 이 글의 차를 가리킬 때만 참고한다. 다른 사람이 자기 차 이야기를 한 것은 이 글의 차종으로 쓰지 않는다.
+- harsh: 글·댓글에 심한 욕설이나 회사·제품에 대한 강한 비판·분노가 있으면 true.
 - model_year: 글·댓글에 차량 연식이 드러나면 "24년식" 처럼 적는다 (연식 표현이 없고 출고 시기만 있으면 "24년 출고"). 모르면 빈 문자열.
 - car_uncertain: PE(부분변경) 여부·세대 구분이 글만으로 분명하지 않으면 true (프로그램이 작성자의 다른 글을 확인해 다시 묻는다), 분명하면 false.
 - 글에 차종·세대·연식이 드러나면 그것을 따른다. 안 드러나면 '카페 기본 차종'(여러 개면 앞쪽이 가장 흔함) 중에서 고른다. 그래도 모르면 "-".
@@ -118,8 +119,9 @@ const CLASSIFY_SCHEMA = {
           highlight: { type: "boolean" },
           car_uncertain: { type: "boolean" },
           model_year: { type: "string" },
+          harsh: { type: "boolean" },
         },
-        required: ["id", "relevant", "category", "car_code", "summary", "highlight", "car_uncertain", "model_year"],
+        required: ["id", "relevant", "category", "car_code", "summary", "highlight", "car_uncertain", "model_year", "harsh"],
         additionalProperties: false,
       },
     },
@@ -138,7 +140,9 @@ function reportSystem(priorityCars, settings) {
 - 보통 4~6개를 고른다. 정말 심각한 것이 그보다 적으면 적게 고른다. 7개 이상은 고르지 않는다.
 - 우선순위 1: 신규 출시 차종(${priorityCars || "(없음)"})의 심각한 결함·안전 이슈.
 - 심각함의 기준: 주행 중 시동 꺼짐·출력 제한·가속 불가, 제동·조향 이상, 화재·연기·과열, 고전압 배터리·ICCU·연료전지 이상, 누수(실내 유입), 주행 중 도어 열림, 에어백·안전벨트 등 안전 관련, 여러 차주가 같은 증상을 호소하는 경우, 반복 수리에도 해결 안 됨, 장기 정비 지연(결품 등)으로 큰 불편.
+- 같은 정도로 심각하면 다음을 더 우선한다: 심한 욕설·강한 비판이 담긴 글([강한 비판] 표시), 조회수·댓글 수가 많은 글(반응이 큰 글).
 - 고르지 않는 것: 단순 정보 공유(무상 수리 정보 공유, 업데이트 내용 공유, 뉴스 공유 등), 단순 문의, 가벼운 소음·마감 불만, 개인 의견. 신차라도 단순 정보 공유면 고르지 않는다.
+- 고르지 않는 것: 운전자 보조 시스템(ADAS) 점검·전방 안전 시스템 점검 메시지, 여러 경고등이 한 번에 잠깐 켜졌다 꺼진 일시적 점등 같은 글.
 - 결과는 고른 글의 번호(id)만 돌려준다.${customInstructions(settings)}`;
 }
 
@@ -193,7 +197,7 @@ class AiClassifier {
   async selectReports(rows, priorityCars) {
     if (!rows.length) return new Set();
     const lines = rows
-      .map((r, i) => `${i + 1}\t[${r.community}] 차종 ${r.car} | ${r.category} | ${r.summary} | 제목: ${r.title || ""} | 본문: ${(r.excerpt || "").replace(/\s+/g, " ").slice(0, 200)}`)
+      .map((r, i) => `${i + 1}\t[${r.community}] 차종 ${r.car} | ${r.category} | ${r.summary}${r.harsh ? " | [강한 비판]" : ""}${r.views != null ? ` | 조회 ${r.views}` : ""}${r.ccount != null ? ` | 댓글 ${r.ccount}` : ""} | 제목: ${r.title || ""} | 본문: ${(r.excerpt || "").replace(/\s+/g, " ").slice(0, 200)}`)
       .join("\n");
     const out = await this.callJson(reportSystem(priorityCars, this.settings), `id\t내용\n${lines}`, REPORT_SCHEMA);
     const picked = new Set();
