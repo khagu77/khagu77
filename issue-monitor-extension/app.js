@@ -345,6 +345,7 @@ async function processSource(src, posts, readBody, ctx) {
     return;
   }
 
+  posts = posts.filter((p) => !isAttendancePost(p.title));
   let candidates;
   if (ai) {
     const picked = await ai.triage(posts.map((p) => ({ key: p.articleId, source: src.name, title: p.title })));

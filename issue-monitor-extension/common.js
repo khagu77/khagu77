@@ -150,6 +150,13 @@ function communityNewsLike(text) {
   return COMMUNITY_NEWS_RE.test(String(text || ""));
 }
 
+// 출석·출근·퇴근 도장(출석 체크) 글은 어떤 모드에서든 무조건 뺀다 (여기서 '도장'은 도색이 아님)
+const ATTENDANCE_RE = /(출석|출근|퇴근|등교|하교|점심|아침|저녁)\s*도장|출석\s*체크|출첵|출석부/;
+
+function isAttendancePost(text) {
+  return ATTENDANCE_RE.test(String(text || ""));
+}
+
 function excluded(text) {
   const t = String(text || "");
   return EXCLUDE_KEYWORDS.some((w) => t.includes(w));
@@ -202,13 +209,32 @@ function parseCarCodes(text) {
   return out;
 }
 
+// 글에 나온 차종명 중 가장 긴(구체적인) 것을 고른다 (예: "아이오닉5" 가 "아이오닉" 보다 우선). 같은 이름이면 표에서 위(최신 세대)
 function guessCarCode(text, carCodes) {
   const t = String(text || "").replace(/\s+/g, "");
+  let best = "";
+  let bestLen = 0;
+  const variantOk = (code) => {
+    if (/ (EV|FC|FCEV)$/.test(code)) return /EV|일렉트릭|전기|수소|FCEV/i.test(t);
+    if (/ (HEV|PHEV)$/.test(code)) return /HEV|하이브리드|플러그인/i.test(t);
+    if (/ N$/.test(code)) return /N라인|[^A-Za-z]N(?![A-Za-z])|고성능/.test(` ${t}`);
+    return true;
+  };
   for (const { code, names } of carCodes) {
-    if (t.includes(code) && /^[A-Z]{2}\d/.test(code)) return code;
-    for (const n of names) if (t.includes(n.replace(/\s+/g, ""))) return code;
+    if (!variantOk(code)) continue;
+    if (/^[A-Z]{2,3}\d/.test(code) && t.includes(code.replace(/\s+/g, "")) && code.length + 100 > bestLen) {
+      best = code;
+      bestLen = code.length + 100; // 코드가 직접 적혀 있으면 가장 우선
+    }
+    for (const n of names) {
+      const nn = n.replace(/\s+/g, "");
+      if (nn.length > bestLen && t.includes(nn)) {
+        best = code;
+        bestLen = nn.length;
+      }
+    }
   }
-  return "";
+  return best;
 }
 
 function htmlToText(html) {
