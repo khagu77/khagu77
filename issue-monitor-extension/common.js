@@ -234,6 +234,14 @@ function applyTerms(summary, pairs) {
   return s;
 }
 
+// 글에서 연식 찾기 (키워드 모드용): "24년식", "2024년형", "23년형" → "24년식"
+function findModelYear(text) {
+  const m = String(text || "").match(/(?:^|[^\d])(20)?(\d{2})\s*년\s*(식|형)/);
+  if (!m) return "";
+  const yy = +m[2];
+  return yy >= 0 && yy <= 40 ? `${String(yy).padStart(2, "0")}년식` : "";
+}
+
 // 같은 글인지 비교하기 위한 주소 열쇠 (카페 주소 형식이 달라도 같은 글이면 같은 열쇠)
 function urlKey(url) {
   const u = String(url || "").trim();

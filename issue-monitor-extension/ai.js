@@ -72,6 +72,7 @@ ${ISSUE_DEFINITION}
 - GV60 마그마(Magma) 글은 차종 코드 JW (주요 내용 끝의 "(마그마)" 표기는 프로그램이 붙인다).
 - 현대모터클럽과 자동차 커뮤니티(보배드림·클리앙·뽐뿌 등) 글은 차종이 글에서 분명히 드러나지 않으면 relevant=false (추측 금지).
 - 본문에 차종·세대가 없으면 댓글에서 유추한다. [작성자] 표시가 붙은 작성자 본인 댓글(예: "저는 24년식 더 뉴예요")을 가장 믿고, 다른 사람 댓글은 "같은 차종 같은데요" 처럼 이 글의 차를 가리킬 때만 참고한다. 다른 사람이 자기 차 이야기를 한 것은 이 글의 차종으로 쓰지 않는다.
+- model_year: 글·댓글에 차량 연식이 드러나면 "24년식" 처럼 적는다 (연식 표현이 없고 출고 시기만 있으면 "24년 출고"). 모르면 빈 문자열.
 - car_uncertain: PE(부분변경) 여부·세대 구분이 글만으로 분명하지 않으면 true (프로그램이 작성자의 다른 글을 확인해 다시 묻는다), 분명하면 false.
 - 글에 차종·세대·연식이 드러나면 그것을 따른다. 안 드러나면 '카페 기본 차종'(여러 개면 앞쪽이 가장 흔함) 중에서 고른다. 그래도 모르면 "-".
 
@@ -116,8 +117,9 @@ const CLASSIFY_SCHEMA = {
           summary: { type: "string" },
           highlight: { type: "boolean" },
           car_uncertain: { type: "boolean" },
+          model_year: { type: "string" },
         },
-        required: ["id", "relevant", "category", "car_code", "summary", "highlight", "car_uncertain"],
+        required: ["id", "relevant", "category", "car_code", "summary", "highlight", "car_uncertain", "model_year"],
         additionalProperties: false,
       },
     },

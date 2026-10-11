@@ -266,6 +266,7 @@ function renderResults() {
       ),
       el("td", { class: "comm", text: r.community, title: r.community }),
       el("td", {}, el("input", { type: "text", value: r.car, size: 7, oninput: (e) => (r.car = e.target.value, saveLastResult()) })),
+      el("td", {}, el("input", { type: "text", class: "year", value: r.year || "", placeholder: "-", title: "확인 연식 (화면 검토용, 엑셀에는 안 들어감)", oninput: (e) => (r.year = e.target.value, saveLastResult()) })),
       el("td", { text: fmtMonthDay(r.date) }),
       el(
         "td",
@@ -723,13 +724,13 @@ async function processSource(src, posts, readBody, ctx) {
       let row;
       if (j) {
         if (!j.relevant) continue;
-        row = { car: j.car_code || firstHint(it.carHint) || "-", category: j.category, summary: j.summary, highlight: !!j.highlight };
+        row = { car: j.car_code || firstHint(it.carHint) || "-", category: j.category, summary: j.summary, highlight: !!j.highlight, year: j.model_year || findModelYear(`${it.title}\n${it.body}\n${it.comments || ""}`) };
       } else {
         const text = `${it.title}\n${it.body}`;
         const cat = keywordCategory(text);
         if (!cat) continue;
         const car = guessCarCode(text, parseCarCodes(settings.carCodes)) || firstHint(it.carHint) || "-";
-        row = { car, category: cat, summary: it.title, highlight: keywordHighlight(car, text, settings.highlights), byKeyword: true };
+        row = { car, category: cat, summary: it.title, highlight: keywordHighlight(car, text, settings.highlights), byKeyword: true, year: findModelYear(`${text}\n${it.comments || ""}`) };
       }
       const fin = finalizeRow(row, it, src);
       if (!fin || !pushRow(fin)) continue;
@@ -743,7 +744,7 @@ async function processSource(src, posts, readBody, ctx) {
       if (!cat) continue;
       if (src.kind !== "cafe" && !mentionsBrand(text)) continue;
       const car = guessCarCode(text, codes) || firstHint(it.carHint) || "-";
-      const fin = finalizeRow({ car, category: cat, summary: it.title, highlight: keywordHighlight(car, text, settings.highlights), byKeyword: true }, it, src);
+      const fin = finalizeRow({ car, category: cat, summary: it.title, highlight: keywordHighlight(car, text, settings.highlights), byKeyword: true, year: findModelYear(`${text}\n${it.comments || ""}`) }, it, src);
       if (!fin || !pushRow(fin)) continue;
       added++;
     }
@@ -1013,7 +1014,8 @@ async function runCollection() {
   }
 
   // 보고 필요: 이번에 수집한 네이버 카페 글 중 심각한 4~6개 (신차 우선, 단순 정보 공유 제외)
-  await pickReports(state.rows.filter((r) => r.kind === "cafe" && !r.fromBase), ai, settings);
+  // 보고 필요: 이어서 작성한 합본이면 기존 행까지 합친 전체 카페 글에서 다시 4~6건 (기존 체크는 다시 정함)
+  await pickReports(state.rows.filter((r) => (state.base ? isCafeRow(r) : r.kind === "cafe" && !r.fromBase)), ai, settings);
 
   sortRows();
   renderResults();
