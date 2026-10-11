@@ -346,9 +346,9 @@ def test_youtube_transcript(tmp_path: Path):
     make_captioned_media(media, 23)
     flaky_hits = []
 
-    def flaky():  # 처음 두 번(첫 시도 + 자동 새로고침)은 스크립트 버튼이 없고, 세 번째부터 보인다
+    def flaky():  # 처음 세 번(바로 받기 + 탭 + 자동 새로고침)은 스크립트 버튼이 없고, 네 번째부터 보인다
         flaky_hits.append(1)
-        return transcript_page("flakyvideo1", len(flaky_hits) > 2, captions=True, modern=True)
+        return transcript_page("flakyvideo1", len(flaky_hits) > 3, captions=True, modern=True)
 
     # transcrvid1: 데이터로 바로 받음(뒤쪽 탭) / flakyvideo1: 데이터가 없어 화면 버튼으로, 세 번째에야 버튼이 보임
     # notranscr01: 자막이 아예 없음 → 바로 '스크립트 없음'
@@ -363,16 +363,14 @@ def test_youtube_transcript(tmp_path: Path):
         assert page.input_value("#mode") == "transcript" and page.input_value("#fallback") == "ask"
         assert page.is_hidden("#speed") and page.is_hidden("#model")
         assert page.is_disabled("#saveAll")
-        downloads, dialogs = [], []
+        downloads, dialogs, opened = [], [], []
+        ctx.on("page", lambda pg: opened.append(pg))
         page.on("download", lambda d: downloads.append(d))
         page.on("dialog", lambda d: (dialogs.append(d.message), d.accept()))
 
         page.fill("#urls", "https://www.youtube.com/watch?v=transcrvid1\nhttps://youtu.be/flakyvideo1\n"
                            "https://youtu.be/notranscr01\nhttps://youtu.be/captionvid1")
         page.click("#start")
-        # 영상 페이지는 백그라운드 탭으로 열려 수집 화면이 계속 앞에 있다
-        page.locator("#progress tbody", has_text="뒤쪽 탭").wait_for(timeout=20000)
-        assert page.evaluate("document.visibilityState") == "visible"
         page.locator("#summary", has_text="수집했습니다").wait_for(timeout=120000)
         page.wait_for_timeout(1500)
         assert downloads == [], [d.suggested_filename for d in downloads]  # 자동으로 받지 않음
@@ -382,10 +380,14 @@ def test_youtube_transcript(tmp_path: Path):
         for k in (1, 2):
             assert "스크립트를 찾지 못했습니다" in rows.nth(k).inner_text()
             assert rows.nth(k).locator("button", has_text="재시도").count() == 1
-        assert len(flaky_hits) == 2  # 못 찾으면 새로고침해서 한 번 더 찾아봤다
+        assert len(flaky_hits) == 3  # 바로 받기 → 탭에서 찾기 → 새로고침해서 한 번 더
+        # 바로 받을 수 있는 영상(1, 3, 4번)은 탭을 열지 않는다. 탭은 화면에서 찾아야 했던 2번만.
+        tab_urls = [pg.url for pg in opened]
+        assert tab_urls and all("flakyvideo1" in u for u in tab_urls), tab_urls
         # 1번은 화면을 그리지 않고 get_transcript 로 받았다 (유튜브 화면과 같은 요청)
         tr = [d for path, d in server.posts if path.startswith("/youtubei/v1/get_transcript")]
         assert tr and tr[0]["params"] == "PARAMS_transcrvid1" and tr[0]["context"]["client"]["clientName"] == "WEB", server.posts
+        assert tr[0]["context"]["client"]["clientVersion"] == "2.0"  # 페이지의 클라이언트 버전 그대로
         # 진행 목록의 주소는 새 탭으로 여는 링크
         link = rows.nth(0).locator("a")
         assert link.get_attribute("href") == "https://www.youtube.com/watch?v=transcrvid1"

@@ -353,6 +353,127 @@ async function grabTranscriptInPage() {
   return { title: getTitle(), lines };
 }
 
+// html 안에서 `marker = {...}` 형태의 JSON 객체를 괄호 짝을 맞춰 잘라낸다.
+function extractJsonAfter(html, marker) {
+  let idx = html.indexOf(marker);
+  while (idx !== -1) {
+    const start = html.indexOf("{", idx + marker.length);
+    if (start !== -1 && /^\s*=\s*$/.test(html.slice(idx + marker.length, start))) {
+      let depth = 0;
+      let inStr = false;
+      let quote = "";
+      for (let i = start; i < html.length; i++) {
+        const ch = html[i];
+        if (inStr) {
+          if (ch === "\\") i++;
+          else if (ch === quote) inStr = false;
+        } else if (ch === '"' || ch === "'") {
+          inStr = true;
+          quote = ch;
+        } else if (ch === "{") depth++;
+        else if (ch === "}" && --depth === 0) {
+          try {
+            return JSON.parse(html.slice(start, i + 1));
+          } catch {
+            break;
+          }
+        }
+      }
+    }
+    idx = html.indexOf(marker, idx + marker.length);
+  }
+  return null;
+}
+
+function findTranscriptParams(data) {
+  let params = null;
+  (function walk(o) {
+    if (params || !o || typeof o !== "object") return;
+    if (o.getTranscriptEndpoint && o.getTranscriptEndpoint.params) {
+      params = o.getTranscriptEndpoint.params;
+      return;
+    }
+    for (const v of Object.values(o)) walk(v);
+  })(data);
+  return params;
+}
+
+function transcriptSegments(json) {
+  const lines = [];
+  (function walk(o) {
+    if (!o || typeof o !== "object") return;
+    const seg = o.transcriptSegmentRenderer;
+    if (seg) {
+      const sn = seg.snippet || {};
+      const text = ((sn.runs || []).map((r) => r.text).join("") || sn.simpleText || "").replace(/\s+/g, " ").trim();
+      const ms = Number(seg.startMs);
+      if (text && Number.isFinite(ms)) lines.push({ t: ms / 1000, text });
+      return;
+    }
+    for (const v of Object.values(o)) walk(v);
+  })(json);
+  return lines;
+}
+
+function captionLines(json) {
+  return ((json && json.events) || [])
+    .filter((e) => e.segs && Number.isFinite(Number(e.tStartMs)))
+    .map((e) => ({ t: Number(e.tStartMs) / 1000, text: e.segs.map((g) => g.utf8 || "").join("").replace(/\s+/g, " ").trim() }))
+    .filter((l) => l.text);
+}
+
+// 탭을 열지 않는 방법: 확장에서 영상 페이지 HTML 을 받아 '스크립트 표시'와 같은 get_transcript 요청을 직접 보낸다.
+// 안 되면 자막 데이터(timedtext). → { title, lines: [{ t, text }], reason }
+async function fetchTranscriptDirect(videoId) {
+  let html = "";
+  try {
+    const resp = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=ko&gl=KR`, { credentials: "omit" });
+    if (resp.ok) html = await resp.text();
+  } catch {}
+  if (!html) return { title: "", lines: [], reason: "nodata" };
+  const player = extractJsonAfter(html, "ytInitialPlayerResponse");
+  const data = extractJsonAfter(html, "ytInitialData");
+  const title = (player && player.videoDetails && player.videoDetails.title) || "";
+  const tracks = (player && player.captions && player.captions.playerCaptionsTracklistRenderer &&
+    player.captions.playerCaptionsTracklistRenderer.captionTracks) || [];
+  const params = data && findTranscriptParams(data);
+  if (!params && !tracks.length) return { title, lines: [], reason: player && !player.captions ? "none" : "noparams" };
+
+  if (params) {
+    const apiKey = (html.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/) || [])[1];
+    const clientVersion = (html.match(/"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"]+)"/) || [])[1] || "2.20250101.00.00";
+    const visitorData = (html.match(/"VISITOR_DATA"\s*:\s*"([^"]+)"/) || [])[1];
+    const client = { clientName: "WEB", clientVersion, hl: "ko", gl: "KR" };
+    if (visitorData) client.visitorData = visitorData;
+    try {
+      const resp = await fetch(`https://www.youtube.com/youtubei/v1/get_transcript?prettyPrint=false${apiKey ? `&key=${apiKey}` : ""}`, {
+        method: "POST",
+        credentials: "omit",
+        headers: { "Content-Type": "application/json", "X-Youtube-Client-Name": "1", "X-Youtube-Client-Version": clientVersion },
+        body: JSON.stringify({ context: { client }, params }),
+      });
+      if (resp.ok) {
+        const lines = transcriptSegments(await resp.json());
+        if (lines.length) return { title, lines };
+      }
+    } catch {}
+  }
+
+  const pick = tracks.find((t) => t.kind !== "asr" && /^ko/.test(t.languageCode || "")) ||
+    tracks.find((t) => t.kind !== "asr") || tracks[0];
+  if (pick && pick.baseUrl) {
+    try {
+      const url = new URL(pick.baseUrl, "https://www.youtube.com");
+      url.searchParams.set("fmt", "json3");
+      const resp = await fetch(url.href, { credentials: "omit" });
+      const txt = resp.ok ? await resp.text() : "";
+      const lines = txt ? captionLines(JSON.parse(txt)) : [];
+      if (lines.length) return { title, lines };
+    } catch {}
+  }
+  return { title, lines: [], reason: "apifail" };
+}
+
 // 유튜브 탭 안(페이지 쪽, world: MAIN)에서 실행: 화면을 그리지 않아도 되는 방법.
 // '스크립트 표시' 버튼이 부르는 것과 같은 유튜브 요청(get_transcript)으로 스크립트 데이터를 바로 받는다.
 // → { title, lines: [{ t(초), text }], reason }   reason: "none"(자막이 아예 없는 영상) / "noparams" / "apifail" / "nodata"
@@ -445,10 +566,27 @@ async function fetchTranscriptInPage() {
   return { title, lines: [], reason: "apifail" };
 }
 
-// 1) 영상 페이지를 보이지 않는 뒤쪽 탭으로 열어 스크립트 데이터를 바로 받는다 (화면이 바뀌지 않음).
-// 2) 그게 안 되면 유튜브 탭을 잠깐 앞으로 띄워 '…더보기' → '스크립트 표시'를 직접 누른다
+function addTranscriptLines(result, row, r) {
+  if (r.title) {
+    result.title = r.title;
+    setRowTitle(row, r.title);
+  }
+  for (const l of r.lines) if (l.t !== null && Number.isFinite(l.t) && l.text) result.lines.push({ t: l.t, text: l.text });
+}
+
+// 1) 탭을 열지 않고 확장에서 바로 스크립트 데이터를 받는다 (대부분 여기서 끝남).
+// 2) 안 되면 영상 페이지를 뒤쪽 탭으로 열어 페이지 안에서 같은 요청을 보낸다 (로그인 상태로).
+// 3) 그래도 안 되면 유튜브 탭을 잠깐 앞으로 띄워 '…더보기' → '스크립트 표시'를 직접 누른다
 //    (뒤쪽 탭에서는 유튜브가 화면을 그리지 않아 버튼을 못 찾기 때문). 못 찾으면 새로고침해 한 번 더.
 async function readYoutubeTranscript(videoId, row, result) {
+  setRowStatus(row, "스크립트 가져오는 중…");
+  const direct = await fetchTranscriptDirect(videoId);
+  if (direct.lines.length || direct.reason === "none") {
+    addTranscriptLines(result, row, direct);
+    if (!result.lines.length) throw new NoTranscriptError("이 영상에는 유튜브 스크립트가 없습니다");
+    return;
+  }
+
   setRowStatus(row, "유튜브 영상 페이지 여는 중… (뒤쪽 탭)");
   const me = await chrome.tabs.getCurrent().catch(() => null);
   const tab = await chrome.tabs.create({ url: `https://www.youtube.com/watch?v=${videoId}`, active: false });
@@ -480,11 +618,8 @@ async function readYoutubeTranscript(videoId, row, result) {
       }
     }
 
-    if (r.title) {
-      result.title = r.title;
-      setRowTitle(row, r.title);
-    }
-    for (const l of r.lines) if (l.t !== null && Number.isFinite(l.t) && l.text) result.lines.push({ t: l.t, text: l.text });
+    if (!r.title) r.title = direct.title;
+    addTranscriptLines(result, row, r);
     if (!result.lines.length) throw new NoTranscriptError("이 영상에는 유튜브 스크립트가 없습니다");
   } finally {
     chrome.tabs.remove(tab.id).catch(() => {});
