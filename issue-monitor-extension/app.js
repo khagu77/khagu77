@@ -1195,8 +1195,8 @@ $("#testKey").addEventListener("click", async () => {
     end.setSeconds(0, 0);
     const { lastAutoRangeEnd } = await chrome.storage.local.get("lastAutoRangeEnd");
     const prev = lastAutoRangeEnd ? new Date(lastAutoRangeEnd) : null;
-    // 지난 자동 수집이 끝난 시각부터 이어서 (사흘 넘게 비었으면 최근 24시간)
-    const start = prev && end - prev < 3 * 86400000 && prev < end ? prev : new Date(end.getTime() - 86400000);
+    // 지난 자동 수집이 끝난 시각부터 이어서 (주말에 못 돌린 경우도 포함, 7일 넘게 비었으면 최근 24시간)
+    const start = prev && end - prev <= 7 * 86400000 && prev < end ? prev : new Date(end.getTime() - 86400000);
     setRange(start, end);
     log(`자동 수집을 시작합니다 (${fmtDateTime(start)} ~ ${fmtDateTime(end)}: 지난 자동 수집에 이어서)`);
     await sleep(3000);
