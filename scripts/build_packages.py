@@ -3,6 +3,7 @@
   dist/댓글수집기_윈도우용.zip
   dist/유튜브추출기_윈도우용.zip
   dist/유튜브추출기_맥용.zip
+  dist/부정이슈모니터링.zip
 
 각 압축 파일 안에는 크롬에 올릴 확장프로그램 폴더와 설치안내서 PDF(docs/windows, docs/mac 의 html 을 변환)가 들어간다.
 유튜브추출기에는 빠른 다운로드 도우미(윈도우: windows-helper, 맥: '유튜브 도우미 설치.app')도 함께 넣는다.
@@ -44,6 +45,11 @@ PACKAGES = [
             (ROOT / "youtube-extension", "유튜브추출기_확장프로그램"),
             (ROOT / "유튜브 도우미 설치.app", "빠른다운로드_도우미설치.app"),
         ],
+    },
+    {
+        "zip": "부정이슈모니터링",
+        "guide": ("windows/guide_monitor.html", "설치안내서_부정이슈모니터링.pdf"),
+        "items": [(ROOT / "issue-monitor-extension", "부정이슈모니터링_확장프로그램")],
     },
 ]
 

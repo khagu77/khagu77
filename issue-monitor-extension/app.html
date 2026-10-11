@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>부정 이슈 모니터링</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>현대차·제네시스 부정 이슈 모니터링</h1>
+      <nav>
+        <button class="tab active" data-tab="collect">수집</button>
+        <button class="tab" data-tab="settings">설정</button>
+      </nav>
+    </header>
+
+    <!-- ===================== 수집 ===================== -->
+    <section id="tab-collect">
+      <div id="login" class="status">로그인 상태 확인 중…</div>
+      <div id="autoInfo" class="hint"></div>
+
+      <div class="grid2">
+        <div>
+          <label for="rangeStart">수집 시작</label>
+          <input type="datetime-local" id="rangeStart">
+        </div>
+        <div>
+          <label for="rangeEnd">수집 끝 <span class="hint">(이 시각 전까지)</span></label>
+          <input type="datetime-local" id="rangeEnd">
+        </div>
+      </div>
+      <div class="buttons small">
+        <button id="rangeDefault">기본값 (전일 08:00 ~ 금일 08:00)</button>
+        <button id="range3h">최근 3시간 (시험용)</button>
+      </div>
+
+      <details id="sourcePick">
+        <summary>이번에 수집할 곳 고르기 <span id="sourceCount" class="hint"></span></summary>
+        <div class="buttons small">
+          <button id="pickAll">전체 선택</button>
+          <button id="pickNone">전체 해제</button>
+          <button id="pickTest">시험용 (카페 2곳 + 커뮤니티 1곳)</button>
+        </div>
+        <div id="pickList" class="picklist"></div>
+      </details>
+
+      <label class="check"><input type="checkbox" id="useAi" checked> AI(Claude)로 판정·요약 <span id="aiInfo" class="hint"></span></label>
+
+      <div class="buttons">
+        <button id="start" class="primary">수집 시작</button>
+        <button id="stop" disabled>중지</button>
+        <button id="download" disabled>엑셀 받기</button>
+      </div>
+
+      <div id="summary" class="summary"></div>
+
+      <table id="sources" hidden>
+        <thead><tr><th>출처</th><th>기간 내 글</th><th>후보</th><th>본문 확인</th><th>부정 이슈</th><th>상태</th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <h2 id="resultsTitle" hidden>결과 <span class="hint">(받기 전에 고치거나 지울 수 있습니다)</span></h2>
+      <table id="results" hidden>
+        <thead><tr><th>커뮤니티명</th><th>차종</th><th>게시일</th><th>구분</th><th>URL</th><th>주요 내용</th><th>노란색</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <details>
+        <summary>진행 기록</summary>
+        <pre id="log"></pre>
+      </details>
+    </section>
+
+    <!-- ===================== 설정 ===================== -->
+    <section id="tab-settings" hidden>
+      <h2>Claude API</h2>
+      <div class="grid2">
+        <div>
+          <label for="apiKey">API 키 <span class="hint">(이 PC 의 크롬에만 저장)</span></label>
+          <input type="password" id="apiKey" placeholder="sk-ant-…" autocomplete="off">
+        </div>
+        <div>
+          <label for="model">모델</label>
+          <select id="model"></select>
+        </div>
+      </div>
+      <div class="buttons small"><button id="testKey">키 확인</button> <span id="keyResult" class="hint"></span></div>
+
+      <h2>자동 수집</h2>
+      <label class="check"><input type="checkbox" id="autoRun"> 매일 자동으로 수집하고 엑셀을 다운로드 폴더에 저장</label>
+      <div class="inline">
+        <label for="autoRunTime">시작 시각</label>
+        <input type="time" id="autoRunTime">
+        <span class="hint">PC·크롬이 켜져 있고 네이버에 로그인돼 있어야 합니다. 30~60분 걸리니 8시 전에 끝나도록 6시 전후를 권장합니다.</span>
+      </div>
+      <div class="inline">
+        <label for="speed">네이버 읽는 속도</label>
+        <select id="speed">
+          <option value="normal">보통</option>
+          <option value="slow">느리게 (더 안전, 시간 2배)</option>
+        </select>
+      </div>
+
+      <h2>네이버 카페 <span class="hint">카페 ID = cafe.naver.com/<b>여기</b></span></h2>
+      <table class="edit" id="cafeTable">
+        <thead><tr><th>사용</th><th>카페 이름 (엑셀 표시명)</th><th>카페 ID</th><th>기본 차종</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="buttons small"><button id="addCafe">+ 카페 추가</button></div>
+
+      <h2>자동차 커뮤니티 <span class="hint">게시판 목록 주소</span></h2>
+      <table class="edit" id="communityTable">
+        <thead><tr><th>사용</th><th>이름</th><th>게시판 주소</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="buttons small"><button id="addCommunity">+ 커뮤니티 추가</button></div>
+      <p class="hint">보배드림·클리앙·뽐뿌는 게시판 주소만 바꿔도 됩니다. 그 밖의 사이트는 일반 방식으로 읽어 정확도가 떨어질 수 있습니다.</p>
+
+      <h2>노란색 표시 (집중 관리 항목)</h2>
+      <table class="edit" id="highlightTable">
+        <thead><tr><th>차종 코드</th><th>내용</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="buttons small"><button id="addHighlight">+ 항목 추가</button></div>
+
+      <h2>부정 이슈 키워드 <span class="hint">"구분: 단어, 단어" 한 줄에 하나 · 커뮤니티 은어도 넣어 주세요</span></h2>
+      <textarea id="keywords" rows="6" spellcheck="false"></textarea>
+      <p class="hint">AI 없이 수집할 때 이 키워드로 고르고, AI 를 쓸 때도 참고 자료로 함께 보냅니다. '제외:' 줄의 말이 제목에 있으면 키워드 모드에서 뺍니다.</p>
+
+      <h2>차종 코드표 <span class="hint">"코드: 차종명, 별칭" 한 줄에 하나 (# 은 메모)</span></h2>
+      <textarea id="carCodes" rows="14" spellcheck="false"></textarea>
+
+      <div class="buttons sticky">
+        <button id="saveSettings" class="primary">설정 저장</button>
+        <button id="resetSettings">기본값으로 되돌리기</button>
+        <span id="saveResult" class="hint"></span>
+      </div>
+    </section>
+  </main>
+
+  <script src="lib/anthropic.js"></script>
+  <script src="defaults.js"></script>
+  <script src="common.js"></script>
+  <script src="naver.js"></script>
+  <script src="community.js"></script>
+  <script src="ai.js"></script>
+  <script src="report-xlsx.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

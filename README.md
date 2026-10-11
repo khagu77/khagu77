@@ -209,3 +209,17 @@ CHROMIUM_PATH=/path/to/chromium python -m pytest tests
 
 - 그래픽카드가 없는 PC에서는 영상 길이와 비슷하거나 더 걸립니다. 빠르게 하려면 `transcribe.bat --model small`, 더 정확하게 하려면 `transcribe.bat --model large-v3` 로 실행합니다.
 - 음성인식 결과라 고유명사·전문용어는 틀릴 수 있으니 한 번 훑어보고 고쳐 주세요.
+
+---
+
+## 현대차·제네시스 부정 이슈 모니터링 (크롬 확장, `issue-monitor-extension`)
+
+설정한 네이버 카페와 자동차 커뮤니티(보배드림·클리앙·뽐뿌)의 기간 내(기본 전일 08:00 ~ 금일 08:00) 새 글 중
+현대차·제네시스 부정 이슈(품질·응대·결품)를 골라 보고서 엑셀(커뮤니티명/차종/게시일/구분/URL/주요 내용)로 저장합니다.
+자세한 설치·사용법은 `docs/windows/guide_monitor.html` (배포 zip 에는 PDF 로 포함).
+
+- 설치: `chrome://extensions` → 개발자 모드 → 압축해제된 확장 프로그램 로드 → `issue-monitor-extension` 폴더
+- 판정·요약: Claude API (설정에 API 키). 키가 없으면 키워드 모드(무료, '주요 내용'=글 제목)
+- 네이버: API 직접 호출 없이 백그라운드 탭 하나로 화면을 천천히 열어 읽음. 보호조치·로그인 풀림이 보이면 즉시 중단
+- 자동 수집: 매일 지정 시각(기본 06:00), PC·크롬 켜짐 + 네이버 로그인 필요
+- `lib/anthropic.js` 는 공식 `@anthropic-ai/sdk` 를 esbuild 로 묶은 파일
