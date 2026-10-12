@@ -11,7 +11,7 @@ const ISSUE_DEFINITION = `부정 이슈는 다음 3가지다. (지난 보고서 
 3) 결품: 입고했는데 부품 재고 부족·부품 수급 문제로 정비가 지연되는 불만.`;
 
 // 기본 프롬프트(아래 규칙)를 마지막으로 고친 때 - '명령 프롬프트' 화면에 표시
-const PROMPT_BUILT_AT = "2026-10-11 (v1.8.4)";
+const PROMPT_BUILT_AT = "2026-10-12 (v1.8.6)";
 
 // '명령 프롬프트' 화면에서 사용자가 추가한 지시사항 (모든 AI 단계에 붙고, 기본 규칙보다 우선)
 function customInstructions(settings) {
@@ -75,7 +75,10 @@ ${ISSUE_DEFINITION}
 - harsh: 글·댓글에 심한 욕설이나 회사·제품에 대한 강한 비판·분노가 있으면 true.
 - model_year: 글·댓글에 차량 연식이 드러나면 "24년식" 처럼 적는다 (연식 표현이 없고 출고 시기만 있으면 "24년 출고"). 모르면 빈 문자열.
 - car_uncertain: PE(부분변경) 여부·세대 구분이 글만으로 분명하지 않으면 true (프로그램이 작성자의 다른 글을 확인해 다시 묻는다), 분명하면 false.
-- 글에 차종·세대·연식이 드러나면 그것을 따른다. 안 드러나면 '카페 기본 차종'(여러 개면 앞쪽이 가장 흔함) 중에서 고른다. 그래도 모르면 "-".
+- 차종 코드는 가장 주의해서 정확하게 정한다. 근거 순서: 제목·본문·댓글에 적힌 차명/코드 > 게시판 이름(예: 'ST1 게시판', '스타리아EV 게시판') > 사진 설명·트림·용도(카고·냉동탑차 등) > 작성자 닉네임 > 카페 기본 차종.
+- 카페 기본 차종이 여러 개(/로 구분, 예: "US4 EV / ST1")면 그 카페에 여러 차종이 섞여 있다는 뜻이다. 근거 없이 앞쪽 것을 고르지 말고, 근거가 없으면 가장 가능성 높은 것을 쓰되 car_uncertain=true 로 한다.
+- ST1(스타리아 기반 상용 전기 밴·카고·냉동탑차)과 US4 EV(스타리아 전기 승합)는 서로 다른 차다. 'ST1', '에스티원', 카고·탑차·적재함 이야기면 ST1.
+- 글에 차종·세대·연식이 드러나면 그것을 따른다. 안 드러나면 '카페 기본 차종' 중에서 고른다. 그래도 모르면 "-".
 
 용어 통일 (주요 내용에 반드시 이 표현을 쓴다):
 ${settings.terms || ""}
@@ -276,7 +279,7 @@ ${this.settings.carCodes}${customInstructions(this.settings)}`;
       const text = batch
         .map((it, j) => {
           const body = it.body.length > BODY_CHARS ? `${it.body.slice(0, BODY_CHARS)}\n(이하 생략)` : it.body;
-          return `<post id="${j + 1}">\n출처: ${it.source}\n카페 기본 차종: ${it.carHint || "(없음)"}\n제목: ${it.title}\n본문:\n${body || "(본문 없음)"}${it.comments ? `\n댓글(일부):\n${it.comments}` : ""}\n</post>`;
+          return `<post id="${j + 1}">\n출처: ${it.source}\n카페 기본 차종: ${it.carHint || "(없음)"}${it.menu ? `\n게시판: ${it.menu}` : ""}\n제목: ${it.title}\n본문:\n${body || "(본문 없음)"}${it.comments ? `\n댓글(일부):\n${it.comments}` : ""}\n</post>`;
         })
         .join("\n\n");
       const result = await this.callJson(system, text, CLASSIFY_SCHEMA);

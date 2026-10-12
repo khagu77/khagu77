@@ -172,7 +172,7 @@ LM FC: 투싼 ix FCEV (수소전기차, 2013~2018)
 TQ: 스타렉스 (그랜드 스타렉스, 2007~2021)
 A1: 스타렉스 (초기형, 1997~2007)
 # 현대 스타리아
-US4 EV: 스타리아 (전기차 파생형, 2026년형 / 판매 시점 별도 확인)
+US4 EV: 스타리아 EV, 스타리아 일렉트릭, 스타리아 전기차 (전기차 파생형, 2026년형 / 판매 시점 별도 확인)
 US4 PE: 스타리아 (F/L, 2025~현재)
 US4: 스타리아 (1세대, 2021~2025)
 # 현대 쏠라티
@@ -233,7 +233,7 @@ JG: GV90 (대형 전기 SUV, 출시/양산 코드 확인 필요)
 # 지난 보고서에서 쓰였지만 정리표에 없는 코드
 CN8: 차세대 아반떼, 디 올 뉴 아반떼 (8세대, 신차)
 NX5: 차세대 투싼, 신형 투싼, 디 올 뉴 투싼 (5세대, 신차)
-ST1: ST1, ST-1 (2024~현재)
+ST1: ST1, ST-1, 에스티원, 에스티1 (스타리아 기반 상용 전기 밴·카고·냉동탑차, 2024~현재)
 NX4 N: 투싼 N
 CN7 N: 아반떼 N (2021~현재)`;
 
@@ -360,7 +360,7 @@ const MODELS = [
 ];
 
 // 예전 버전에서 저장한 설정에 새 기본값을 보태 준다
-const SETTINGS_VERSION = 10;
+const SETTINGS_VERSION = 11;
 function migrateSettings(s) {
   if ((s.settingsVersion || 1) < 2 && typeof s.keywords === "string") {
     const add = "출고 대기, 출고대기, 출고 기다, 검수 업체, 검수업체, 검수 대행, 검수대행, 광고, 홍보, 오일교환, 오일 교환".split(", ");
@@ -380,6 +380,12 @@ function migrateSettings(s) {
         const missing = add.filter((w) => !line.includes(w));
         return missing.length ? `${line}, ${missing.join(", ")}` : line;
       });
+    }
+  }
+  if ((s.settingsVersion || 1) < 11) {
+    // ST1 과 스타리아 EV 구분이 잘 되도록 별칭 보강 (저장된 코드표의 해당 줄만 바꿈)
+    if (typeof s.carCodes === "string") {
+      s.carCodes = s.carCodes.replace(/^ST1:.*$/m, "ST1: ST1, ST-1, 에스티원, 에스티1 (스타리아 기반 상용 전기 밴·카고·냉동탑차, 2024~현재)").replace(/^US4 EV:.*$/m, "US4 EV: 스타리아 EV, 스타리아 일렉트릭, 스타리아 전기차 (전기차 파생형, 2026년형 / 판매 시점 별도 확인)");
     }
   }
   if ((s.settingsVersion || 1) < 10) {

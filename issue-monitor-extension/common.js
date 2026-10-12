@@ -294,6 +294,24 @@ function keywordCategory(text) {
   return "";
 }
 
+// 제목에 분명히 적힌 차종들 (서로 다른 기본 코드만, 가장 구체적인 이름 기준)
+function titleCarCodes(title, carCodes) {
+  const t = String(title || "").replace(/\s+/g, "");
+  const found = new Map(); // 기본 코드 → 가장 긴 이름의 코드
+  for (const { code, names } of carCodes) {
+    for (const n of [code, ...names]) {
+      const nn = n.replace(/\s+/g, "");
+      if (nn.length < 3 && !/^[A-Z]{2,3}\d/.test(nn)) continue;
+      if (!t.toUpperCase().includes(nn.toUpperCase())) continue;
+      const base = code.split(" ")[0];
+      const prev = found.get(base);
+      if (!prev || nn.length > prev.len) found.set(base, { code, len: nn.length });
+    }
+  }
+  // "스타리아EV" 처럼 더 긴 이름 안에 들어간 짧은 이름(스타리아)은 같은 기본 코드라 하나로 묶임
+  return [...found.values()].map((x) => x.code);
+}
+
 // 코드표에서 별칭으로 차종 코드 찾기 (AI 없이 쓸 때)
 function parseCarCodes(text) {
   const out = [];

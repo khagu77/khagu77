@@ -608,6 +608,17 @@ function finalizeRow(row, it, src) {
     if (!/\(마그마\)/.test(row.summary)) row.summary = `${row.summary} (마그마)`;
   }
   if (src.requireCar && (!row.car || row.car === "-")) return null;
+  // 차종 이중 확인: 여러 차종이 섞인 카페에서 제목에 차명이 하나만 분명히 적혀 있는데 판정 차종과 다르면 제목을 따른다
+  // (예: 스타리아EV & ST1 클럽의 "ST1 …" 글을 US4 EV 로 잘못 넣는 것 방지)
+  if (/\//.test(src.car || "") && row.car && row.car !== "-") {
+    const codes = state.carCodeList || parseCarCodes(state.settings.carCodes);
+    const named = titleCarCodes(it.title, codes);
+    const base = (c) => String(c).split(" ")[0];
+    if (named.length === 1 && base(named[0]) !== base(row.car)) {
+      log(`${src.name}: 제목에 '${named[0]}' 차명이 있어 차종을 ${row.car} → ${named[0]} 로 고침 (${it.url})`);
+      row.car = named[0];
+    }
+  }
   // 용어 통일 (크락션 → 클랙슨 등)
   row.summary = applyTerms(row.summary, state.termPairs || parseTermReplacements(state.settings.terms));
   // 퍼온 글: 주요 내용을 "… 관련 내용 공유" 로
@@ -706,6 +717,7 @@ async function processSource(src, posts, readBody, ctx) {
         key: post.articleId,
         source: src.name,
         carHint: src.car || "",
+        menu: post.menu || "",
         title: info.title || post.title,
         body: info.body || "",
         comments: info.comments || "",
@@ -923,6 +935,7 @@ async function runCollection() {
   state.range = range;
   state.codeYears = codeStartYears(settings.carCodes);
   state.termPairs = parseTermReplacements(settings.terms);
+  state.carCodeList = parseCarCodes(settings.carCodes);
   renderResults();
   $("#start").disabled = true;
   $("#stop").disabled = false;
