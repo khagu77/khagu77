@@ -98,3 +98,4 @@ button:disabled { opacity: 0.45; cursor: default; }
 .shot .ctext { max-width: 280px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cnt { font-weight: 400; color: var(--muted); margin-left: 4px; } .cnt.err { color: var(--red); font-weight: 600; }
 .item.deleted { opacity: 0.55; }
+#ppi { min-width: 260px; }

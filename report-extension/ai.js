@@ -19,13 +19,21 @@ const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작�
 - 자극적·부정적 표현 대신 사실 중심의 순화된 표현을 씁니다. 표준어의 쉬운 표현으로 씁니다.
 - "에러", "결함"은 쓰지 않습니다. "증상", "현상", "오류", "불량", "고장", "문제" 등으로 바꿉니다.
 - 문장 시작 유형: [출고] "최근 출고한 차량에서", "출고 후 3개월 된 차량에서" / [주행 중] "주행 중에", "정차 중에", "주차 중에" / [차량의] "차량의 ○○ 부분에서"
-- 문장 끝 유형: 증상을 묻는 글은 "~며 증상에 대해 문의하는 내용", 강하게 항의하는 글은 "~며 품질에 대해 불만 토로하는 내용"(응대 불만이면 "응대에 대해"), 사진·영상으로 상황을 알리는 글은 "~며 공유하는 내용".
+- 문장 끝맺음은 글의 성격에 맞게 아래 유형을 골고루 섞어 씁니다. 모든 글을 "~하는 내용"으로 끝내지 않습니다.
+  · 불만을 강하게 표출한 글: "~며 품질 관련 불만글 게재", "~에 대한 불만글 게재", "~며 품질에 대해 불만 토로" (응대 불만이면 "응대 관련")
+  · 같은 증상을 겪은 사람이나 해결책을 묻는 글: "~ 동일 증상 여부 및 해결 방안 문의", "~ 원인 및 조치 방법 문의", "~며 증상에 대해 문의하는 내용"
+  · 사진·영상을 함께 올린 글(photoCount 가 1 이상): "~ 증상 관련 사진과 함께 글 게재", "~ 영상과 함께 공유"
+  · 정비·수리 경과를 알리는 글: "~ 정비 후기 공유", "~ 조치 경과 공유"
   예) 차량의 리어 스텝 부분에서 녹이 발생해 도색 불량을 의심한다며 증상에 대해 문의하는 내용
+  예) 출고 4개월 된 차량에서 선루프 오작동, 네트워크 오류, 시트 소음이 발생했다며 품질 관련 불만글 게재
+  예) 냉간 시동 시 소음·진동과 함께 엔진 경고등이 점등돼 동일 증상 여부 및 해결 방안 문의
+  예) 운전석 뒤 펜더 안쪽에 녹이 올라와 도장이 들뜬 증상 관련 사진과 함께 글 게재
+  recentBodies(같은 보고서에서 앞서 쓴 본문 요약)와 끝맺음이 겹치지 않게 다른 유형을 우선 고릅니다.
 
 [작성 항목]
 - issue: 슬라이드 제목의 증상 부분. 차명은 빼고 10글자 내외의 명사형. 예) "엔진 경고등 점등", "펜더 부식", "선루프 개폐 오류 및 각종 불량"
 - short: 첫 장 요약표의 '내용 요약'. 한 줄(35자 이내) 명사형. 예) "시동 시 엔진 소음 및 진동 발생 후 엔진 경고등 점등"
-- body: 상세 슬라이드의 본문 요약. 위 문장 유형을 따른 한 문장. 반드시 ${BODY_MAX}자 이내(한 줄에 들어가야 함). 넘으면 덜 중요한 정황을 빼고 줄입니다.
+- body: 상세 슬라이드의 본문 요약. 위 문장 시작·끝맺음 유형을 따른 한 문장. 반드시 ${BODY_MAX}자 이내(한 줄에 들어가야 함). 넘으면 덜 중요한 정황을 빼고 줄입니다.
 - reaction: 댓글 반응 한 줄. 캡처할 댓글(comment_picks) 2개를 고른 순서대로 요약합니다. 말 그대로 '여론'이므로 댓글의 말투를 따릅니다.
   · 댓글을 그대로 옮기지 말고 오탈자·맞춤법을 고쳐 핵심만 자연스럽게 다듬습니다.
   · 댓글이 존댓말이면 존댓말로, 반말이면 반말로 씁니다. (예: "못 해요"는 "못 해요"로, "안 되네"는 "안 되네"로)
@@ -81,7 +89,7 @@ function aiErrorMessage(e) {
 }
 
 // row: 엑셀 행, info: 캡처에서 읽은 글 정보 → AI_SCHEMA 모양의 결과
-async function aiSummarize(row, info, { apiKey, model }) {
+async function aiSummarize(row, info, { apiKey, model, recentBodies = [] }) {
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 4 });
   const comments = (info.comments || []).map((c) => ({
     index: c.index,
@@ -95,7 +103,9 @@ async function aiSummarize(row, info, { apiKey, model }) {
     author: info.author || "",
     postDate: info.postDate || "",
     body: info.bodyText || "",
+    photoCount: (info.images || []).length,
     comments,
+    recentBodies: recentBodies.slice(-6),
     authorPosts: (info.authorPosts || []).slice(0, 30).map((p) => ({ title: p.title, date: p.date })),
     authorCertPosts: info.authorCertPosts || [],
     boardPosts: (info.boardPosts || []).map((p) => ({ title: p.title, date: p.date })),

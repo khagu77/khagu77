@@ -49,14 +49,20 @@ function isCafeUrl(url) {
 // ---------------------------------------------------------------------------
 async function loadSettings() {
   for (const [id, label] of AI_MODELS) $("#aiModel").add(new Option(label, id));
-  const s = await chrome.storage.local.get(["aiKey", "aiModel", "fileName", "templateName", "templateSavedAt"]).catch(() => ({}));
+  const s = await chrome.storage.local.get(["aiKey", "aiModel", "fileName", "ppi", "templateName", "templateSavedAt"]).catch(() => ({}));
+  if (s.ppi) $("#ppi").value = String(s.ppi);
   $("#aiKey").value = s.aiKey || "";
   if (s.aiModel && AI_MODELS.some(([id]) => id === s.aiModel)) $("#aiModel").value = s.aiModel;
   if (s.fileName) $("#fileName").value = s.fileName;
   showTemplateInfo(s.templateName, s.templateSavedAt);
-  for (const el of ["#aiKey", "#aiModel", "#fileName"]) {
+  for (const el of ["#aiKey", "#aiModel", "#fileName", "#ppi"]) {
     $(el).addEventListener("change", () =>
-      chrome.storage.local.set({ aiKey: $("#aiKey").value.trim(), aiModel: $("#aiModel").value, fileName: $("#fileName").value.trim() }),
+      chrome.storage.local.set({
+        aiKey: $("#aiKey").value.trim(),
+        aiModel: $("#aiModel").value,
+        fileName: $("#fileName").value.trim(),
+        ppi: $("#ppi").value,
+      }),
     );
   }
   if (!s.templateName) $("#settings").open = true;
@@ -219,7 +225,9 @@ async function processItem(it) {
   if (key && info) {
     setItemStatus(it, "AI 요약 중");
     try {
-      ai = await aiSummarize(row, info, { apiKey: key, model: $("#aiModel").value });
+      // 같은 보고서에서 앞서 쓴 본문 요약을 알려 주어 끝맺음이 겹치지 않게
+      const recentBodies = items.filter((x) => x !== it && x.ready && !x.deleted && x.fields).map((x) => x.fields.body);
+      ai = await aiSummarize(row, info, { apiKey: key, model: $("#aiModel").value, recentBodies });
     } catch (e) {
       it.error = [it.error, `AI 요약 실패: ${aiErrorMessage(e)} (엑셀 내용으로 초안)`].filter(Boolean).join(" · ");
       ai = excelDraft(row, info);
@@ -437,7 +445,8 @@ async function pictures(it) {
       h = (p.w * item.canvas.height) / item.canvas.width;
     }
     const isPhoto = p.kind === "image";
-    const enc = await ImageProc.encodeAtPpi(item.canvas, p.w / Layout.CM, h / Layout.CM, { type: isPhoto ? "image/jpeg" : "image/png" });
+    const ppi = Number($("#ppi").value) || 330;
+    const enc = await ImageProc.encodeAtPpi(item.canvas, p.w / Layout.CM, h / Layout.CM, { ppi, type: isPhoto ? "image/jpeg" : "image/png" });
     out.push({ blob: enc.blob, ext: isPhoto ? "jpeg" : "png", x: p.x, y: p.y, w: p.w, h, name: "그림" });
   }
   return out;

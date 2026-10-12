@@ -352,6 +352,8 @@ def test_report_end_to_end(tmp_path):
     assert [(c["text"], c["hasSticker"]) for c in sent["comments"]] == [
         ("저도 같은 증상이에요", False), ("사업소 가세요", False), ("ㅋㅋ", True)]
     assert sent["author"] == "파주ll작성자" and sent["postDate"] == "2026-10-06"
+    # 끝맺음을 고르는 데 쓰는 정보: 첨부 사진 수, 같은 보고서의 앞선 본문 요약(첫 글이라 비어 있음)
+    assert sent["photoCount"] == 1 and sent["recentBodies"] == []
     assert [p["title"] for p in sent["authorPosts"]] == ["[출고인증] ST1 카고 받았습니다", "타이어 공기압 문의"]
     # 제원 확인용: 작성자의 출고 인증 글 본문을 읽어 보낸다
     assert sent["authorCertPosts"] == [{"title": "[출고인증] ST1 카고 받았습니다", "text": "드디어 ST1 카고 EV 롱레인지 출고했습니다."}]
@@ -415,16 +417,16 @@ def test_report_end_to_end(tmp_path):
     # 본문 캡처에도 안내 문구가 없다: 글자 4줄 높이만 (안내 문구 7줄이 들어가면 훨씬 높아짐)
     body_pic = [p for p in pics if 4.5 < p.left / cm < 4.6][0]
     assert body_pic.height < 1.8 * cm, body_pic.height / cm
-    # 본문 사진: 원본 비율(4:3) 그대로, 오른쪽 영역에 150ppi 로
+    # 본문 사진: 원본 비율(4:3) 그대로, 오른쪽 영역에 330ppi 로
     photo = max(pics, key=lambda p: p.left)
     assert abs(photo.width / photo.height - 4 / 3) < 0.01
     assert abs(photo.image.size[0] / photo.image.size[1] - 4 / 3) < 0.01
-    assert abs(photo.image.size[0] / (photo.width / cm / 2.54) - 150) < 2
+    assert abs(photo.image.size[0] / (photo.width / cm / 2.54) - 330) < 2
     for pic in pics:
         assert pic.top >= 2133600 - 10 and pic.top + pic.height <= 6165850 + 10
-        # 150ppi 로 저장
+        # 기본 330ppi 이하로 저장 (캡처 원본보다 키우지는 않음)
         ppi = pic.image.size[0] / (pic.width / cm / 2.54)
-        assert ppi <= 151, (pic.name, ppi)
+        assert ppi <= 331, (pic.name, ppi)
 
     d2 = slides[4]
     tbl2 = [sh for sh in d2.shapes if sh.has_table][0].table
@@ -498,14 +500,18 @@ def test_excel_layouts(tmp_path):
     lx = wb.create_sheet("LX3")
     lx.append(["커뮤니티명", "차종", "게시일", "구분", None, "주요 내용"])
     lx.append([" 팰리세이드 피플", "LX3", "2026-10-11", "품질", "https://naver.me/G4d8mM0i", "엔진 경고등 점등", "+"])
+    # 머리글 없이 A열 동호회명 · B열 차종 (담당자 기본 양식)
+    plain = wb.create_sheet("머리글없음")
+    plain.append(["캐스퍼 매니아", "AX", "2026-10-11", "품질", "https://naver.me/xtNJKRiE", "펜더 부식", "+"])
     path = tmp_path / "차종별.xlsx"
     wb.save(path)
 
     [res] = read_marked_in_extension(tmp_path, [path])
     assert "error" not in res, res
-    assert res["total"] == 4 and res["sheets"] == ["ME1", "JK", "LX3"]
+    assert res["total"] == 5 and res["sheets"] == ["ME1", "JK", "LX3", "머리글없음"]
     assert [(i["car"], i["url"], i["main"], i["cafe"]) for i in res["items"]] == [
         ("ME1", "https://naver.me/AAA", "업데이트 중 시동 불가", "아이오닉9 오너스"),
         ("JK EV", "https://cafe.naver.com/gv70club/123", "가속 시 충격", "GV70 클럽"),
         ("LX3", "https://naver.me/G4d8mM0i", "엔진 경고등 점등", "팰리세이드 피플"),
+        ("AX", "https://naver.me/xtNJKRiE", "", "캐스퍼 매니아"),
     ]

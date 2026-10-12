@@ -21,6 +21,13 @@
       <label for="aiModel">AI 모델</label>
       <select id="aiModel"></select>
 
+      <label for="ppi">그림 해상도 <span class="hint">(높을수록 선명하고 파일이 조금 커집니다. PowerPoint '그림 압축'과 같은 기준)</span></label>
+      <select id="ppi">
+        <option value="330">고화질 330ppi (기본 · 가장 선명)</option>
+        <option value="220">인쇄 220ppi</option>
+        <option value="150">화상 150ppi (가장 작은 파일)</option>
+      </select>
+
       <label for="fileName">파일 이름 <span class="hint">({날짜} 자리에 보고서 날짜가 YYMMDD 로 들어갑니다)</span></label>
       <input type="text" id="fileName" value="{날짜}_현대차 온라인 이슈 보고서">
     </details>

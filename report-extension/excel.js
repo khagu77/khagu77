@@ -139,6 +139,9 @@
     if (!looksUrl(col.url)) col.url = urlColumnByContent(body);
     if (col.url < 0) return null;
     for (const k of Object.keys(col)) if (k !== "url" && col[k] === col.url) col[k] = -1;
+    // 담당자 엑셀 기본 양식: A열 동호회명, B열 차종 (머리글로 못 찾으면 이 자리로)
+    if (col.cafe < 0 && col.url !== 0 && col.car !== 0) col.cafe = 0;
+    if (col.car < 0 && col.url !== 1 && col.cafe !== 1) col.car = 1;
     return { headerAt, col };
   }
 

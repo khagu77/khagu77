@@ -125,15 +125,21 @@
   }
 
   // 슬라이드에 놓일 크기(cm) 기준 ppi 로 줄여서 PNG/JPEG Blob 으로
-  async function encodeAtPpi(canvas, widthCm, heightCm, { ppi = 150, type = "image/png" } = {}) {
+  async function encodeAtPpi(canvas, widthCm, heightCm, { ppi = 330, type = "image/png" } = {}) {
     // 가로 기준으로 줄이고 세로는 원본 비율 그대로 (임의로 찌그러뜨리지 않음)
     const tw = Math.max(1, Math.round((widthCm / 2.54) * ppi));
     const th = Math.max(1, Math.round((tw * canvas.height) / canvas.width));
     let src = canvas;
-    if (tw < canvas.width || th < canvas.height) {
-      const bmp = await createImageBitmap(canvas, { resizeWidth: tw, resizeHeight: th, resizeQuality: "high" });
-      src = canvasOf(tw, th);
-      src.getContext("2d").drawImage(bmp, 0, 0);
+    // 크게 한 번에 줄이면 글자가 뭉개지므로 절반씩 단계적으로 고품질로 줄인다
+    while (src.width > tw) {
+      const w = Math.max(tw, Math.round(src.width / 2));
+      const h = w === tw ? th : Math.max(1, Math.round((src.height * w) / src.width));
+      const next = canvasOf(w, h);
+      const ctx = next.getContext("2d");
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(src, 0, 0, w, h);
+      src = next;
     }
     const blob = await src.convertToBlob(type === "image/jpeg" ? { type, quality: 0.92 } : { type });
     return { blob, width: src.width, height: src.height };
