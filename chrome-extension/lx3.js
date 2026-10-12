@@ -23,6 +23,7 @@ let listFile = null; // { name, bytes, urls:Set, info }
 let cafeSlugs = {};
 let cafeNames = {};
 let lastSaved = null;
+let diagnostics = []; // 글을 못 읽은 화면의 구조 (진단 파일)
 
 // ---------------------------------------------------------------------------
 // 설정
@@ -38,7 +39,7 @@ async function loadSettings() {
   $("#exclude").value = s.lx3Exclude ?? DEFAULT_EXCLUDE;
   $("#searchUrl").value = s.lx3SearchUrl || DEFAULT_SEARCH_URL;
   $("#maxPages").value = s.lx3MaxPages || DEFAULT_MAX_PAGES;
-  cafeNames = s.lx3CafeNames || {};
+  cafeNames = Object.fromEntries(Object.entries(s.lx3CafeNames || {}).map(([k, v]) => [k, cleanCafeName(v)]));
   cafeSlugs = await loadCafeSlugs();
   youtube = s.lx3Youtube || [];
 }
@@ -108,6 +109,11 @@ function isRelated(item) {
   const inc = words($("#include").value).some((w) => text.includes(w));
   const exc = words($("#exclude").value).some((w) => text.includes(w));
   return inc && !exc;
+}
+
+// 카페 화면 제목 → 동호회 명 ('전체글보기,카페이름 : 네이버 카페' 처럼 메뉴 이름이 앞에 붙는 경우도)
+function cleanCafeName(title) {
+  return cafeNameFromTitle(title).replace(/^\s*(?:전체글보기|전체\s*글|검색\s*결과|인기글)\s*[,:|]\s*/, "").trim();
 }
 
 function renderCafeInfo() {
@@ -186,6 +192,7 @@ function scanSearchInFrame() {
   const pageText = body.innerText || "";
   const noResult = /검색\s*결과가\s*없|검색된\s*(?:게시물|게시글|글)이\s*없|등록된\s*(?:게시물|게시글)이\s*없/.test(pageText);
   const idOf = (href) => {
+    href = String(href || "");
     let m = href.match(/\/cafes\/(\d+)\/articles\/(\d+)/);
     if (m) return { cafeId: m[1], articleId: m[2], slug: "" };
     m = href.match(/\/cafes\/([A-Za-z][\w-]*)\/articles\/(\d+)/);
@@ -197,12 +204,23 @@ function scanSearchInFrame() {
     }
     m = href.match(/^https?:\/\/(?:m\.)?cafe\.naver\.com\/([A-Za-z0-9][\w-]*)\/(\d+)(?:[?#/]|$)/);
     if (m && !/^(f-e|ca-fe|cafes)$/.test(m[1])) return { cafeId: "", articleId: m[2], slug: m[1] };
+    m = href.match(/(?:^|[/"'=(,\s])articles?\/(\d{3,})/) || href.match(/article[_-]?id["'=:\s]+(\d{3,})/i);
+    if (m) return { cafeId: "", articleId: m[1], slug: "" };
     return null;
   };
+  // 글 링크: <a href> 뿐 아니라 data-*·onclick 으로 글을 여는 화면도 있다
   const anchors = [];
-  for (const a of document.querySelectorAll("a[href]")) {
-    const id = idOf(a.href);
-    if (id) anchors.push({ a, ...id });
+  const SEL = "a, [href], [data-href], [data-url], [data-link], [data-article-id], [data-articleid], [data-article], [onclick]";
+  for (const a of document.querySelectorAll(SEL)) {
+    const cands = [a.href, a.getAttribute("href"), a.getAttribute("onclick")];
+    for (const at of a.attributes) if (at.name.startsWith("data-")) cands.push(/article.?id$/i.test(at.name) ? `articleid=${at.value}` : at.value);
+    for (const c of cands) {
+      const id = c && idOf(c);
+      if (id) {
+        anchors.push({ a, ...id });
+        break;
+      }
+    }
   }
   const idsIn = (el) => {
     const s = new Set();
@@ -226,7 +244,9 @@ function scanSearchInFrame() {
     let best = null;
     let bestScore = -1;
     for (const a of g.anchors) {
-      const t = clean(a.innerText);
+      // 글 전체가 링크인 모양이면 그 안의 제목 부분만
+      const titleEl = a.querySelector("[class*='title'], [class*='tit'], [class*='subject'], strong");
+      const t = clean((titleEl || a).innerText);
       if (!t || /^\[?\d+\]?$/.test(t) || /^댓글/.test(t)) continue;
       const cls = `${a.className} ${a.parentElement?.className || ""}`;
       const score = (/title|tit|subject|article/i.test(cls) ? 2 : 0) + (best === null ? 1 : 0) + (t.length <= 120 ? 1 : 0);
@@ -246,7 +266,41 @@ function scanSearchInFrame() {
       text: String(g.box.innerText || "").replace(/\s+/g, " ").slice(0, 600),
     });
   }
-  return { items, noResult, href: location.href, top, title: top ? document.title : "" };
+  // 링크로 못 찾았으면: 글번호(5자리 이상)로 시작하고 날짜·시간이 있는 줄(전체글보기 목록 모양)
+  if (!items.length) {
+    const dateRe = /\d{4}\.\s*\d{1,2}\.\s*\d{1,2}\.|(?:^|\s)\d{1,2}:\d{2}(?:\s|$)|\d+\s*(?:분|시간)\s*전/;
+    const seen = new Set();
+    for (const row of document.querySelectorAll("tr, li, [role='row'], [class*='article'], [class*='Article']")) {
+      const t = String(row.innerText || "").trim();
+      const m = t.match(/^(\d{5,})\s+([\s\S]+)$/);
+      if (!m || seen.has(m[1]) || !dateRe.test(t) || t.length > 1500) continue;
+      seen.add(m[1]);
+      const titleEl = row.querySelector("[class*='title'], [class*='tit'], [class*='subject'], a");
+      const title = clean(titleEl ? titleEl.innerText : m[2].split("\n")[0]);
+      const dateEl = row.querySelector('[class*="date"], [class*="Date"], time, .td_date');
+      if (title) items.push({ cafeId: "", articleId: m[1], slug: "", title, dateText: dateEl ? dateEl.innerText : t, text: t.replace(/\s+/g, " ").slice(0, 600) });
+    }
+  }
+  return { items, noResult, href: location.href, top, title: top ? document.title : "", anchorCount: anchors.length };
+}
+
+// 진단용: 이 화면이 어떻게 생겼는지 (글을 못 찾았을 때 보내 주시면 화면 구조에 맞춰 고칠 수 있음)
+function snapshotInFrame() {
+  const body = document.body;
+  const links = [...document.querySelectorAll("a")].slice(0, 80).map((a) => ({
+    href: a.getAttribute("href"), text: String(a.innerText || "").replace(/\s+/g, " ").slice(0, 80),
+    cls: String(a.className || "").slice(0, 80), data: [...a.attributes].filter((x) => x.name.startsWith("data-") || x.name === "onclick").map((x) => `${x.name}=${x.value}`.slice(0, 120)),
+  }));
+  const rows = [...document.querySelectorAll("tr, li, [role='row'], [class*='article'], [class*='Article']")]
+    .filter((r) => /\d{1,2}:\d{2}|\d{4}\.\s*\d{1,2}\./.test(r.innerText || ""))
+    .slice(0, 5)
+    .map((r) => r.outerHTML.slice(0, 3000));
+  return {
+    href: location.href, top: window === window.top, title: document.title, readyState: document.readyState,
+    visibility: document.visibilityState, counts: { a: document.querySelectorAll("a").length, iframes: document.querySelectorAll("iframe").length, rows: rows.length },
+    iframes: [...document.querySelectorAll("iframe")].map((f) => f.src).slice(0, 10),
+    text: body ? String(body.innerText || "").slice(0, 3000) : "", links, rows,
+  };
 }
 
 // 게시글 화면: 글쓴 날짜·시간
@@ -282,7 +336,8 @@ function setSummary(text, cls = "") {
 async function scanSearchPage(url) {
   return withTab(url, async (tabId) => {
     let last = { items: [], noResult: false, login: false, title: "", hints: [] };
-    for (let i = 0; i < 10; i++) {
+    let emptyInRow = 0;
+    for (let i = 0; i < 14; i++) {
       const frames = await runInFrames(tabId, scanSearchInFrame);
       const items = frames.flatMap((f) => f.items || []);
       last = {
@@ -291,9 +346,12 @@ async function scanSearchPage(url) {
         login: frames.some((f) => /nid\.naver\.com/.test(f.href || "")),
         title: frames.find((f) => f.top)?.title || "",
       };
-      if (items.length || last.noResult || last.login) break;
+      if (items.length || last.login) break;
+      emptyInRow = last.noResult ? emptyInRow + 1 : 0;
+      if (emptyInRow >= 4) break; // '검색 결과 없음'이 6초 넘게 그대로면 정말 없는 것
       await sleep(1500);
     }
+    if (!last.items.length && !last.login) last.snapshot = await runInFrames(tabId, snapshotInFrame);
     last.hints = await runInFrames(tabId, cafeSlugHintsInFrame);
     if (!last.title) last.title = last.hints.find((h) => h.top)?.title || "";
     return last;
@@ -337,6 +395,8 @@ async function search() {
   $("#search").disabled = true;
   $("#stop").disabled = false;
   $("#log").innerHTML = "";
+  diagnostics = [];
+  $("#diag").hidden = true;
   items = [];
   renderResults();
   const maxPages = Math.max(1, Number($("#maxPages").value) || DEFAULT_MAX_PAGES);
@@ -354,7 +414,7 @@ async function search() {
         log(`✖ ${cafeId}: 네이버 로그인이 필요합니다`);
         break;
       }
-      const name = cafeNameFromTitle(res.title);
+      const name = cleanCafeName(res.title);
       if (name && !/^네이버\s*카페$/.test(name)) cafeNames[cafeId] = name;
       const slugFromItems = res.items.find((x) => x.slug && (!x.cafeId || x.cafeId === cafeId))?.slug;
       const slug = slugFromItems || pickSlug(res.hints);
@@ -365,7 +425,8 @@ async function search() {
       const pageItems = res.items.filter((x) => !x.cafeId || x.cafeId === cafeId);
       const keys = pageItems.map((x) => x.articleId).join(",");
       if (!pageItems.length || keys === prevKeys) {
-        log(`· ${cafeNames[cafeId] || cafeId}: ${page}페이지 ${pageItems.length ? "(앞 페이지와 같음)" : "검색 결과 없음"}`);
+        if (!pageItems.length && res.snapshot) diagnostics.push({ cafeId, page, url: searchUrl(cafeId, q, page), frames: res.snapshot });
+        log(`· ${cafeNames[cafeId] || cafeId}: ${page}페이지 ${pageItems.length ? "(앞 페이지와 같음)" : res.noResult ? "검색 결과 없음" : "글 목록을 읽지 못함"}`);
         break;
       }
       prevKeys = keys;
@@ -429,6 +490,7 @@ async function search() {
   }
 
   await chrome.storage.local.set({ lx3CafeNames: cafeNames }).catch(() => {});
+  $("#diag").hidden = !diagnostics.length;
   cafeSlugs = await loadCafeSlugs();
   renderCafeInfo();
   markDuplicates();
@@ -800,6 +862,13 @@ async function init() {
   $("#toComments").addEventListener("click", toComments);
   $("#withYoutube").addEventListener("change", updateCounts);
   $("#ytAdd").addEventListener("click", addYoutube);
+  $("#diag").addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify({ version: chrome.runtime.getManifest().version, at: new Date().toString(), diagnostics }, null, 1)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${today()}_LX3_진단.json`;
+    a.click();
+  });
   $("#ytInput").addEventListener("keydown", (e) => e.key === "Enter" && addYoutube());
   $("#ytCollect").addEventListener("click", () =>
     handOff(youtube, `LX3 메뉴에서 유튜브 영상 ${youtube.length}개를 가져왔습니다. 기존 raw data 엑셀 파일을 고른 뒤 '수집 시작'을 누르세요.`),

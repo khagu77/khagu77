@@ -303,10 +303,10 @@ LX3_SEARCH = {
     ],
     ("111", 2): [("1006", "전동 시트 사망 사고 기사", "2026.10.11. 12:30"), ("1007", "옛날 시트 글", "2026.10.10.")],
     ("111", 3): [("1008", "더 옛날 시트 글", "2026.10.09.")],
-    ("222", 1): [("2001", "아이오닉9 전동시트 리콜 공지", "2026.10.11.")],
+    ("222", 1): [("20001", "아이오닉9 전동시트 리콜 공지", "2026.10.11.")],
 }
 # 게시글 화면의 정확한 작성 시간
-LX3_TIMES = {"1003": "2026.10.11. 15:22", "1004": "2026.10.11. 08:00", "2001": "2026.10.11. 18:05", "1001": "2026.10.12. 09:30"}
+LX3_TIMES = {"1003": "2026.10.11. 15:22", "1004": "2026.10.11. 08:00", "20001": "2026.10.11. 18:05", "1001": "2026.10.12. 09:30"}
 NAVER_ME = {"/xSBkYEbW": "https://cafe.naver.com/f-e/cafes/111/articles/1001"}
 
 
@@ -324,17 +324,26 @@ def lx3_page(path):
         page = int(qs.get("page", ["1"])[0])
         name, slug = LX3_CAFES[cafe]
         rows = LX3_SEARCH.get((cafe, page), [])
-        html = "".join(
+        if cafe == "222":  # 링크 없이 글번호가 보이는 표 모양(전체글보기 목록)
+            html = "".join(f"<tr><td>{aid}</td><td><span class='article_title'>{title}</span></td><td>글쓴이</td><td class='td_date'>{date}</td><td>53</td></tr>"
+                           for aid, title, date in rows)
+            html = f"<table>{html}</table>" if html else '<p class="empty">검색 결과가 없습니다.</p>'
+        elif page == 2:  # <a href> 없이 data-* 로 글을 여는 모양
+            html = "".join(f'<div class="article-item" data-article-id="{aid}"><span class="tit">{title}</span><span class="date">{date}</span></div>'
+                           for aid, title, date in rows)
+        else:
+          html = "".join(
             f'<li class="article-item"><a class="article_title" href="/f-e/cafes/{cafe}/articles/{aid}?referrerAllArticles=false">'
             f'<strong>{title}</strong></a> <a class="cmt" href="/f-e/cafes/{cafe}/articles/{aid}?commentFocus=true">[3]</a>'
             f'<div class="item_preview"><a href="/f-e/cafes/{cafe}/articles/{aid}">미리보기 내용 시트 이야기</a></div>'
             f'<span class="nickname">글쓴이</span><span class="date">{date}</span></li>'
             for aid, title, date in rows
-        ) or '<p class="empty">검색 결과가 없습니다.</p>'
+          ) or '<p class="empty">검색 결과가 없습니다.</p>'
         home = f'<a class="cafe_name" href="https://cafe.naver.com/{slug}">{name}</a>' if cafe == "111" else ""
         return (
-            f"<html><head><title>{name} : 네이버 카페</title></head><body>{home}<ul id='list'></ul>"
-            f"<script>setTimeout(() => {{ document.getElementById('list').innerHTML = {json.dumps(html, ensure_ascii=False)}; }}, 400);</script>"
+            f"<html><head><title>전체글보기,{name} : 네이버 카페</title></head><body>{home}<ul id='list'><p>검색 결과가 없습니다.</p></ul>"
+            # 실제 화면처럼 처음엔 '결과 없음'이 잠깐 보였다가 목록이 늦게 그려진다
+            f"<script>setTimeout(() => {{ document.getElementById('list').innerHTML = {json.dumps(html, ensure_ascii=False)}; }}, {6000 if page == 1 else 400});</script>"
             "</body></html>"
         )
     m = re.match(r"/f-e/cafes/(\d+)/articles/(\d+)$", u.path)
@@ -434,7 +443,7 @@ def test_lx3(tmp_path: Path):
         assert got == [
             ("2026-10-11 12:30", "AA 동호회", "전동 시트 사망 사고 기사", "https://cafe.naver.com/aacafe/1006", True),
             ("2026-10-11 15:22", "AA 동호회", "2열 시트 폴딩 오류", "https://cafe.naver.com/aacafe/1003", True),
-            ("2026-10-11 18:05", "BB 오너스 - 비비", "아이오닉9 전동시트 리콜 공지", "https://cafe.naver.com/bbcafe/2001", True),
+            ("2026-10-11 18:05", "BB 오너스 - 비비", "아이오닉9 전동시트 리콜 공지", "https://cafe.naver.com/bbcafe/20001", True),
             ("2026-10-12 08:00", "AA 동호회", "카시트 추천 부탁드려요", "https://cafe.naver.com/aacafe/1002", False),
             ("2026-10-12 09:30", "AA 동호회", "팰리세이드 전동시트 끼임 사고 무섭네요", "https://cafe.naver.com/aacafe/1001", True),
         ], (got, summary)
@@ -468,7 +477,7 @@ def test_lx3(tmp_path: Path):
         page.wait_for_url("**/app.html")
         assert "카페 글 2개, 유튜브 영상 1개" in page.inner_text("#handoff")
         assert page.input_value("#urls").split("\n") == [
-            "https://cafe.naver.com/aacafe/1003", "https://cafe.naver.com/bbcafe/2001", "https://www.youtube.com/watch?v=abcdefghijk"]
+            "https://cafe.naver.com/aacafe/1003", "https://cafe.naver.com/bbcafe/20001", "https://www.youtube.com/watch?v=abcdefghijk"]
 
         # naver.me 짧은 주소도 엑셀에는 https://cafe.naver.com/카페주소/글번호 로
         page.fill("#urls", "https://naver.me/xSBkYEbW")
@@ -489,16 +498,16 @@ def test_lx3(tmp_path: Path):
     assert [d[2] for d in data] == ["AA 동호회", "AA 동호회", "BB 오너스 - 비비", "AA 동호회"]
     assert data[1][3] == datetime(2026, 10, 11, 15, 22)
     assert [d[5] for d in data] == ["https://cafe.naver.com/aacafe/1006", "https://cafe.naver.com/aacafe/1003",
-                                     "https://cafe.naver.com/bbcafe/2001", "https://cafe.naver.com/aacafe/1001"]
+                                     "https://cafe.naver.com/bbcafe/20001", "https://cafe.naver.com/aacafe/1001"]
     assert ws["G5"].hyperlink.target == "https://cafe.naver.com/aacafe/1003"
     assert ws["B3"].value == "순번" and ws["B4"].border.left.style == "thin" and ws["E4"].number_format == "mm-dd-yy"
 
     ws = load_workbook(appended)["채널별 버즈량 현황"]
     data = [[c.value for c in r[1:7]] for r in ws.iter_rows(min_row=4)]
     assert [d[0] for d in data] == [1, 2, 3, 4]
-    assert [d[5] for d in data[2:]] == ["https://cafe.naver.com/aacafe/1003", "https://cafe.naver.com/bbcafe/2001"]
+    assert [d[5] for d in data[2:]] == ["https://cafe.naver.com/aacafe/1003", "https://cafe.naver.com/bbcafe/20001"]
     assert ws["G5"].hyperlink.target == "https://cafe.naver.com/aacafe/1001"  # 기존 링크 유지
-    assert ws["G7"].hyperlink.target == "https://cafe.naver.com/bbcafe/2001"
+    assert ws["G7"].hyperlink.target == "https://cafe.naver.com/bbcafe/20001"
     assert ws["B7"].border.left.style == "thin" and ws["E7"].number_format == "yyyy-mm-dd"  # 마지막 동호회 행 서식
 
     cafe = list(load_workbook(raw)["동호회"].values)
