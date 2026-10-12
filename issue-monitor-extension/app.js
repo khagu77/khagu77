@@ -607,7 +607,10 @@ function finalizeRow(row, it, src) {
     row.car = "JW";
     if (!/\(마그마\)/.test(row.summary)) row.summary = `${row.summary} (마그마)`;
   }
-  if (src.requireCar && (!row.car || row.car === "-")) return null;
+  if ((src.requireCar || it.needCar) && (!row.car || row.car === "-")) {
+    if (it.needCar) log(`${src.name}: 「${it.title}」 차종을 알 수 없어 제외 (차종 필수 게시판) ${it.url}`);
+    return null;
+  }
   // 차종 이중 확인: 여러 차종이 섞인 카페에서 제목에 차명이 하나만 분명히 적혀 있는데 판정 차종과 다르면 제목을 따른다
   // (예: 스타리아EV & ST1 클럽의 "ST1 …" 글을 US4 EV 로 잘못 넣는 것 방지)
   if (/\//.test(src.car || "") && row.car && row.car !== "-") {
@@ -653,7 +656,7 @@ const AUTHOR_LOOKUP_MAX = 60;
 async function refineUncertainCars(src, items, judged, ctx) {
   const targets = items.filter((it) => {
     const j = judged.get(it.key);
-    return j && j.relevant && j.car_uncertain && it.writer && (it.writer.href || it.writer.memberKey);
+    return j && j.relevant && (j.car_uncertain || (it.needCar && (!j.car_code || j.car_code === "-"))) && it.writer && (it.writer.href || it.writer.memberKey);
   });
   if (!targets.length) return;
   const asks = [];
@@ -662,7 +665,7 @@ async function refineUncertainCars(src, items, judged, ctx) {
     ctx.authorLookups++;
     try {
       const titles = await ctx.naver.authorTitles(it, src.cafe, it.writer);
-      asks.push({ key: it.key, title: it.title, carNow: judged.get(it.key).car_code, carHint: it.carHint, nick: it.writer.nick, authorTitles: titles, comments: it.comments });
+      asks.push({ key: it.key, needCar: it.needCar, title: it.title, carNow: judged.get(it.key).car_code, carHint: it.carHint, nick: it.writer.nick, authorTitles: titles, comments: it.comments });
     } catch (e) {
       if (e instanceof StopError || e instanceof BlockedError) throw e;
       log(`${src.name} 작성자 글 확인 실패: ${e.message}`, "err");
@@ -719,6 +722,7 @@ async function processSource(src, posts, readBody, ctx) {
         source: src.name,
         carHint: src.car || "",
         menu: post.menu || "",
+        needCar: src.kind === "cafe" && requiresCarBoard(src.cafe && src.cafe.id, post.menuId, post.menu),
         title: info.title || post.title,
         body: info.body || "",
         comments: info.comments || "",
@@ -755,12 +759,12 @@ async function processSource(src, posts, readBody, ctx) {
       let row;
       if (j) {
         if (!j.relevant) continue;
-        row = { car: j.car_code || firstHint(it.carHint) || "-", category: j.category, summary: j.summary, highlight: !!j.highlight, harsh: !!j.harsh, year: j.model_year || findModelYear(`${it.title}\n${it.body}\n${it.comments || ""}`) };
+        row = { car: j.car_code || (it.needCar ? "" : firstHint(it.carHint)) || "-", category: j.category, summary: j.summary, highlight: !!j.highlight, harsh: !!j.harsh, year: j.model_year || findModelYear(`${it.title}\n${it.body}\n${it.comments || ""}`) };
       } else {
         const text = `${it.title}\n${it.body}`;
         const cat = keywordCategory(text);
         if (!cat) continue;
-        const car = guessCarCode(text, parseCarCodes(settings.carCodes)) || firstHint(it.carHint) || "-";
+        const car = guessCarCode(text, parseCarCodes(settings.carCodes)) || (it.needCar ? "" : firstHint(it.carHint)) || "-";
         row = { car, category: cat, summary: it.title, highlight: keywordHighlight(car, text, settings.highlights), byKeyword: true, year: findModelYear(`${text}\n${it.comments || ""}`) };
       }
       const fin = finalizeRow(row, it, src);
@@ -774,7 +778,7 @@ async function processSource(src, posts, readBody, ctx) {
       const cat = keywordCategory(text);
       if (!cat) continue;
       if (src.kind !== "cafe" && !mentionsBrand(text)) continue;
-      const car = guessCarCode(text, codes) || firstHint(it.carHint) || "-";
+      const car = guessCarCode(text, codes) || (it.needCar ? "" : firstHint(it.carHint)) || "-";
       const fin = finalizeRow({ car, category: cat, summary: it.title, highlight: keywordHighlight(car, text, settings.highlights), byKeyword: true, year: findModelYear(`${text}\n${it.comments || ""}`) }, it, src);
       if (!fin || !pushRow(fin)) continue;
       added++;

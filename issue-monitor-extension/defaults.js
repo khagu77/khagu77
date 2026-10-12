@@ -14,6 +14,16 @@ const DEFAULT_BOARDS = {
 // 차종이 글에서 분명히 드러나지 않으면 빼는 카페 (자동차 커뮤니티는 모두 해당)
 const REQUIRE_CAR_CAFES = ["hmckorea"];
 
+// 카페 안의 특정 게시판만 차종이 분명해야 하는 경우 (닉네임·작성자 다른 글로도 차종을 모르면 뺀다)
+// 전기차 동호회 자유게시판: https://cafe.naver.com/f-e/cafes/21771803/menus/66
+const REQUIRE_CAR_BOARDS = [{ cafe: "allfm01", menuIds: ["66"], names: ["자유게시판"] }];
+
+function requiresCarBoard(cafeId, menuId, menu) {
+  return REQUIRE_CAR_BOARDS.some(
+    (b) => b.cafe === cafeId && ((menuId != null && b.menuIds.includes(String(menuId))) || (menu && b.names.some((n) => boardNorm(menu).includes(boardNorm(n)))))
+  );
+}
+
 const DEFAULT_CAFES = [
   ["그랜저 리더스 클럽", "suddenattackskincafe", "GN7 PE / GN7"],
   ["그랜저 GN7 매니아", "bestani", "GN7 / GN7 PE"],
@@ -313,7 +323,8 @@ const DEFAULT_TERMS = `크락션 > 클랙슨
 도어 손잡이(내부) > 도어 내캐치
 네비게이션 > 내비게이션
 내비화면, 네비화면 > AVN 디스플레이
-디스플레이가 작동 이외에 화면이 까맣게 되거나 먹통 > 디스플레이 블랙아웃`;
+디스플레이가 작동 이외에 화면이 까맣게 되거나 먹통 > 디스플레이 블랙아웃
+과속방지턱, 방지턱 > 요철 등`;
 
 // 1인용 수집: 이 카페(ID)와 자동차 커뮤니티만 고른다 (수집 화면에서 지금 선택으로 바꿀 수 있음)
 const DEFAULT_SOLO_CAFES = ["allfm01", "cafeclip", "ioniq9owners", "optimusex119", "nexocafe", "nexoguarantee", "fmsn98", "steamgunz", "hmckorea", "truckerking"];
@@ -360,7 +371,7 @@ const MODELS = [
 ];
 
 // 예전 버전에서 저장한 설정에 새 기본값을 보태 준다
-const SETTINGS_VERSION = 11;
+const SETTINGS_VERSION = 12;
 function migrateSettings(s) {
   if ((s.settingsVersion || 1) < 2 && typeof s.keywords === "string") {
     const add = "출고 대기, 출고대기, 출고 기다, 검수 업체, 검수업체, 검수 대행, 검수대행, 광고, 홍보, 오일교환, 오일 교환".split(", ");
@@ -397,6 +408,10 @@ function migrateSettings(s) {
     const OLD_LX3 = "전동 시트(2열·3열 포함) 관련 불만·고장·작동 오류, 시트 관련 업데이트 의견";
     for (const h of s.highlights) if (h.car === "LX3" && h.topic === OLD_LX3) h.topic = DEFAULT_HIGHLIGHTS[0].topic;
     for (const h of DEFAULT_HIGHLIGHTS) if (!s.highlights.some((x) => x.car === h.car)) s.highlights.push({ ...h });
+  }
+  if ((s.settingsVersion || 1) < 12) {
+    // 용어 통일: 방지턱 주행 시 → 요철 등 주행 시
+    if (s.terms && !/방지턱/.test(s.terms)) s.terms = `${s.terms.replace(/\s+$/, "")}\n과속방지턱, 방지턱 > 요철 등`;
   }
   if ((s.settingsVersion || 1) < 8) {
     for (const c of s.cafes || []) if (!c.boards && DEFAULT_BOARDS[c.id]) c.boards = DEFAULT_BOARDS[c.id];
