@@ -23,46 +23,76 @@ PNG_1PX = (
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
 )
 
-PHOTO = ("data:image/svg+xml;base64," + __import__("base64").b64encode(
-    b'<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300"><rect width="400" height="300" fill="#f80"/>'
-    b'<circle cx="200" cy="150" r="80" fill="#06c"/></svg>').decode())
+def _photo_png():
+    """본문 첨부 사진(원본 1200x900 PNG). 확장은 화면 캡처 대신 이 원본 파일을 받아 써야 한다."""
+    import base64
+    import io as _io
+    from PIL import Image, ImageDraw
+
+    im = Image.new("RGB", (1200, 900), "#ff8800")
+    ImageDraw.Draw(im).ellipse((360, 210, 840, 690), fill="#0066cc")
+    buf = _io.BytesIO()
+    im.save(buf, "PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+PHOTO = _photo_png()
+
+PROFILE = ("data:image/svg+xml;base64," + __import__("base64").b64encode(
+    b'<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"><circle cx="18" cy="18" r="18" fill="#cc00ff"/></svg>').decode())
+STICKER = ("data:image/svg+xml;base64," + __import__("base64").b64encode(
+    b'<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#00ff00"/></svg>').decode())
+
+
+def comment_li(nick, text, cls="", extra=""):
+    # 하트·… 버튼(주황)은 댓글 칸 오른쪽 밖으로 살짝 튀어나와 있다
+    return (f'<li class="CommentItem {cls}" style="position:relative">'
+            '<button class="comment_tool" style="position:absolute;right:-30px;top:0;width:16px;height:16px;'
+            f'border:0;background:#ff8800"></button><div class="comment_thumb"><img src="{PROFILE}" width="36" height="36"></div>'
+            f'<a class="comment_nickname">{nick}</a>{extra}<span class="text_comment">{text}</span>'
+            '<span class="comment_info_date">2026.10.06. 11:00</span></li>')
+
 
 # 한 줄씩 띄어 쓴 본문 + 첨부 이미지 1장 + 댓글 3개
-ARTICLE_HTML = f"""<html><head><meta charset="utf-8"><style>
+ARTICLE_HTML = f"""<html><head><meta charset="utf-8"><meta property="og:url" content="https://cafe.naver.com/allfm01/2157343"><style>
 body{{margin:0;font:16px/1.6 sans-serif;color:#222;background:#fff}}
 .top{{position:fixed;top:0;left:0;right:0;height:40px;background:#03c75a}}
 .wrap{{width:860px;margin:60px auto}}
 .article_header{{border-bottom:1px solid #ddd;padding:10px 0}}
+.avatar{{display:inline-block;width:40px;height:40px;border-radius:50%;background:#00ccaa;vertical-align:middle}}
 .title_text{{font-size:26px;margin:0}}
 .se-main-container p{{margin:0}}
-.se-image img{{width:400px;height:300px;display:block;background:#f80}}
+.se-image img{{width:400px;height:300px;display:block}}
 li.CommentItem{{list-style:none;padding:8px 0;border-bottom:1px solid #eee}}
 </style></head><body><div class="top"></div><div class="wrap">
-<div class="article_header"><h3 class="title_text">ST1 공조기가 혼자 켜집니다</h3>
-<div class="WriterInfo"><span class="nickname">작성자A</span></div>
-<div class="article_info"><span class="date">2026.10.06. 10:00</span> <span class="count">조회 1,234</span></div></div>
+<div class="ArticleContentBox"><a class="link_board" href="/ca-fe/cafes/1/menus/5">ST1 질문 게시판 &gt;</a>
+<div class="article_header"><h3 class="title_text">ST1 공조기가 혼자 켜집니다</h3></div>
+<div class="WriterInfo"><span class="avatar"></span><a href="/ca-fe/cafes/1/members/abc"><span class="nickname">파주ll작성자</span></a></div>
+<div class="article_info"><span class="date">2026.10.06. 10:00</span> <span class="count">조회 1,234</span></div>
 <div class="article_container"><div class="se-main-container">
 <p>출고 2주 된 ST1 입니다.</p><p><br></p><p><br></p>
 <p>시동만 걸면 공조기가 자동으로 켜지고</p><p><br></p><p><br></p><p><br></p>
 <p>OFF 버튼을 눌러도 꺼지지 않습니다.</p>
 <div class="se-component se-image"><img src="{PHOTO}"></div>
 <p>블루핸즈 예약했습니다.</p></div></div>
-<div class="ArticleTool"><a class="button_comment">댓글 3</a></div>
+<div class="ArticleTool"><a class="button_comment">댓글 5</a></div>
 <div class="CommentBox"><ul>
-<li class="CommentItem"><a class="comment_nickname">회원1</a><span class="text_comment">저도 같은 증상이에요</span></li>
-<li class="CommentItem CommentItem--reply"><a class="comment_nickname">회원2</a><span class="text_comment">저도요 ㅠ</span></li>
-<li class="CommentItem"><a class="comment_nickname">회원3</a><span class="text_comment">사업소 가세요</span></li>
-</ul></div></div></body></html>"""
+{comment_li("회원1", "저도 같은 증상이에요")}
+{comment_li("회원2", "저도요 ㅠ", "CommentItem--reply")}
+{comment_li("파주ll작성자", "감사합니다", extra='<em class="comment_writer">작성자</em>')}
+{comment_li("회원3", "사업소 가세요")}
+{comment_li("회원4", "ㅋㅋ", extra=f'<div class="CommentItem__sticker"><img src="{STICKER}" width="80" height="80"></div>')}
+</ul></div></div></div></body></html>"""
 
 AI_RESULT = {
     "issue": "공조기 자동 작동 및 OFF 불가",
     "short": "공조기 자동 작동 및 OFF 불가 발생",
     "body": "출고 2주 된 차량에서 공조기가 자동으로 작동하고 OFF가 되지 않는다며 증상에 대해 문의하는 내용",
     "reaction": "'저도 같은 증상이다, 사업소에 가라' 등의 여론",
-    "level": "주의",
+    "level": "경고",
     "duplicate": "중복 2건",
     "region": "-",
-    "comment_picks": [0, 2, 99],
+    "comment_picks": [0, 1, 99],
 }
 
 
@@ -145,7 +175,7 @@ def make_template(path: Path):
 
 DEFAULT_ROWS = [
     ["전기차 동호회", "NE", "2026-10-06", "품질", "https://cafe.naver.com/testcafe/1", "표시 안 된 글"],
-    ["스타리아EV & ST1 클럽", "ST1", "2026-10-06", "품질", "https://cafe.naver.com/steamgunz/39003", "공조기 자동 작동 및 off 불가 발생 불만", "+"],
+    ["스타리아EV & ST1 클럽", "ST1", "2026-10-06", "품질", "https://naver.me/xSBkYEbW", "공조기 자동 작동 및 off 불가 발생 불만", "+"],
     ["보배드림", "GN7 PE", "2026-10-06", "품질", "https://www.bobaedream.co.kr/view?No=1", "주행 중 시동 꺼짐", "+"],
 ]
 
@@ -172,7 +202,13 @@ def start_fake_cafe(tmp_path: Path):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             # 예전 카페 화면: 바깥 페이지 안의 cafe_main 틀(iframe)에 게시글이 들어 있다
-            if "/framecafe/" in self.path:
+            if "/members/" in self.path or "/menus/" in self.path:
+                titles = (["[파주] 출고 후기", "타이어 공기압 문의"] if "/members/" in self.path
+                          else ["공조기 자동으로 켜짐", "공조기 OFF 안 됨", "와이퍼 소음"])
+                body = ("<html><body><ul>" + "".join(
+                    f'<li><a href="/ca-fe/cafes/1/articles/{100 + i}">{t}</a> <span>2026.09.2{i}.</span></li>'
+                    for i, t in enumerate(titles)) + "</ul></body></html>").encode()
+            elif "/framecafe/" in self.path:
                 body = ('<html><body style="margin:0"><div style="height:120px;background:#eee">카페 메뉴</div>'
                         '<iframe id="cafe_main" name="cafe_main" src="/inner" style="width:1000px;height:1600px;border:0">'
                         '</iframe></body></html>').encode()
@@ -208,7 +244,8 @@ def run_report(tmp_path: Path, template: Path, excel: Path, out_dir: Path, ai_ke
             args=[
                 f"--disable-extensions-except={EXT_DIR}",
                 f"--load-extension={EXT_DIR}",
-                f"--host-resolver-rules=MAP cafe.naver.com 127.0.0.1:{server.server_address[1]}",
+                f"--host-resolver-rules=MAP cafe.naver.com 127.0.0.1:{server.server_address[1]},"
+                f"MAP naver.me 127.0.0.1:{server.server_address[1]}",
                 "--no-proxy-server",
                 "--ignore-certificate-errors",
             ],
@@ -262,7 +299,12 @@ def test_report_end_to_end(tmp_path):
     assert len(ai_requests) == 1  # 카페 글만 AI 요약 (보배드림은 캡처·요약 안 함)
     sent = json.loads(ai_requests[0]["messages"][0]["content"].split("\n\n", 1)[1])
     assert "OFF 버튼을 눌러도" in sent["body"]
-    assert [c["text"] for c in sent["comments"]] == ["저도 같은 증상이에요", "저도요 ㅠ", "사업소 가세요"]
+    # 대댓글·작성자 댓글은 빼고, 이모티콘 댓글은 표시해서 보낸다
+    assert [(c["text"], c["hasSticker"]) for c in sent["comments"]] == [
+        ("저도 같은 증상이에요", False), ("사업소 가세요", False), ("ㅋㅋ", True)]
+    assert sent["author"] == "파주ll작성자" and sent["postDate"] == "2026-10-06"
+    assert [p["title"] for p in sent["authorPosts"]] == ["[파주] 출고 후기", "타이어 공기압 문의"]
+    assert len(sent["boardPosts"]) == 3 and sent["boardPosts"][0]["date"].startswith("2026.09.2")
 
     prs = Presentation(out)
     slides = list(prs.slides)
@@ -270,7 +312,7 @@ def test_report_end_to_end(tmp_path):
     assert any("2026.10.07" in sh.text_frame.text for sh in slides[0].shapes if sh.has_text_frame)
     summary_tbl = [sh for sh in slides[1].shapes if sh.has_table][0].table
     rows = [[c.text for c in r.cells] for r in summary_tbl.rows]
-    assert rows[1][:6] == ["1", "ST1", "품질", "공조기 자동 작동 및 OFF 불가 발생", "3", "중복 2건"]
+    assert rows[1][:6] == ["1", "ST1", "품질", "공조기 자동 작동 및 OFF 불가 발생", "5", "중복 2건"]
     assert rows[2][:2] == ["2", "GN7 PE"] and rows[2][4] == "확인"
     assert len(rows) == 3
 
@@ -281,12 +323,14 @@ def test_report_end_to_end(tmp_path):
     tbl = [sh for sh in d1.shapes if sh.has_table][0].table
     assert tbl.cell(0, 1).text == "ST1" and tbl.cell(0, 3).text == "EV" and tbl.cell(0, 7).text == "초기"
     level_runs = {r.text: str(r.font.color.rgb) for r in tbl.cell(0, 5).text_frame.paragraphs[0].runs if r.text in ("주의", "경고", "심각")}
-    assert level_runs["주의"] == "00B050" and level_runs["경고"] != "00B050"
+    assert level_runs["경고"] == "0563C1"  # 경고는 파랑
+    assert level_runs["주의"] != "00B050" and level_runs["심각"] != "C00000"
     assert tbl.cell(1, 1).text == "동호회\n스타리아EV & ST1 클럽"
     link_run = tbl.cell(1, 3).text_frame.paragraphs[0].runs[0]
-    assert link_run.text == "https://cafe.naver.com/steamgunz/39003"
-    assert link_run.hyperlink.address == "https://cafe.naver.com/steamgunz/39003"
-    assert tbl.cell(2, 5).text == "1,234건" and tbl.cell(2, 6).text == "3건"
+    # naver.me 단축 주소 → https://cafe.naver.com/카페주소/글번호
+    assert link_run.text == "https://cafe.naver.com/allfm01/2157343"
+    assert link_run.hyperlink.address == "https://cafe.naver.com/allfm01/2157343"
+    assert tbl.cell(2, 5).text == "1,234건" and tbl.cell(2, 6).text == "5건"
     assert tbl.cell(3, 1).text.startswith("출고 2주 된 차량에서")
     assert "댓글 반응 : '저도 같은 증상이다" in tbl.cell(3, 1).text
 
@@ -296,6 +340,23 @@ def test_report_end_to_end(tmp_path):
     cm = 360000
     xs = sorted(round(p.left / cm, 2) for p in pics)
     assert xs[0] == 3.66 and 4.56 in xs and xs[-1] >= 19.86
+    # 댓글 캡처에는 작성자 동그라미 아이콘(보라색)이 함께 찍힌다
+    from PIL import Image
+    import io
+    comment_pics = [p for p in pics if 3.6 < p.left / cm < 3.7 and p.top > 2133600 + 100000]
+    assert len(comment_pics) == 2
+    has = lambda pic, f: any(f(*px) for px in Image.open(io.BytesIO(pic.image.blob)).convert("RGB").getdata())
+    for p in comment_pics:
+        assert has(p, lambda r, g, b: r > 150 and g < 80 and b > 200), "댓글 프로필 아이콘 없음"
+        assert has(p, lambda r, g, b: r > 200 and 90 < g < 170 and b < 80), "하트·… 버튼이 잘림"
+    # 제목 캡처에 게시판 이름 아래 제목 · 작성자 아이콘(청록)이 한 장으로
+    header_pic = min(pics, key=lambda p: p.top)
+    assert has(header_pic, lambda r, g, b: r < 60 and g > 170 and 130 < b < 210), "제목 캡처에 작성자 아이콘 없음"
+    # 본문 사진: 원본 비율(4:3) 그대로, 오른쪽 영역에 150ppi 로
+    photo = max(pics, key=lambda p: p.left)
+    assert abs(photo.width / photo.height - 4 / 3) < 0.01
+    assert abs(photo.image.size[0] / photo.image.size[1] - 4 / 3) < 0.01
+    assert abs(photo.image.size[0] / (photo.width / cm / 2.54) - 150) < 2
     for pic in pics:
         assert pic.top >= 2133600 - 10 and pic.top + pic.height <= 6165850 + 10
         # 150ppi 로 저장
@@ -323,7 +384,7 @@ def test_report_old_cafe_iframe(tmp_path):
     texts = [sh.text_frame.text for sh in d1.shapes if sh.has_text_frame]
     assert "■ 아이오닉9(ME1) 신차 검수 시 블랙잉크 차량 크롬 몰딩 조립" in texts
     tbl = [sh for sh in d1.shapes if sh.has_table][0].table
-    assert tbl.cell(2, 5).text == "1,234건" and tbl.cell(2, 6).text == "3건"
+    assert tbl.cell(2, 5).text == "1,234건" and tbl.cell(2, 6).text == "5건"
     assert tbl.cell(3, 1).text.startswith("신차 검수 시 블랙잉크")
     pics = [sh for sh in d1.shapes if sh.shape_type == 13]
-    assert len(pics) == 5  # 제목 + 본문 + 댓글 2(초안은 앞 2개) + 이미지 1
+    assert len(pics) == 5  # 제목 + 본문 + 댓글 2(이모티콘 없는 짧은 댓글) + 이미지 1

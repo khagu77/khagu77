@@ -113,23 +113,26 @@
     return { ...item, canvas: out, cuts: item.cuts.filter((y) => y <= cut), cssHeight: cut / item.dpr };
   }
 
-  function photo(bitmap, dpr) {
+  // 사진: 원본 파일이면 픽셀 그대로(비율 유지), 화면 캡처면 해상도 배율(dpr)로 크기 환산
+  function photo(bitmap, dpr, isOriginal = false) {
     const c = canvasOf(bitmap.width, bitmap.height);
     c.getContext("2d").drawImage(bitmap, 0, 0);
-    return { canvas: c, cuts: [c.height], cssWidth: c.width / dpr, cssHeight: c.height / dpr, dpr };
+    const k = isOriginal ? 1 : dpr;
+    return { canvas: c, cuts: [c.height], cssWidth: c.width / k, cssHeight: c.height / k, dpr: k };
   }
 
   // 슬라이드에 놓일 크기(cm) 기준 ppi 로 줄여서 PNG/JPEG Blob 으로
   async function encodeAtPpi(canvas, widthCm, heightCm, { ppi = 150, type = "image/png" } = {}) {
+    // 가로 기준으로 줄이고 세로는 원본 비율 그대로 (임의로 찌그러뜨리지 않음)
     const tw = Math.max(1, Math.round((widthCm / 2.54) * ppi));
-    const th = Math.max(1, Math.round((heightCm / 2.54) * ppi));
+    const th = Math.max(1, Math.round((tw * canvas.height) / canvas.width));
     let src = canvas;
     if (tw < canvas.width || th < canvas.height) {
       const bmp = await createImageBitmap(canvas, { resizeWidth: tw, resizeHeight: th, resizeQuality: "high" });
       src = canvasOf(tw, th);
       src.getContext("2d").drawImage(bmp, 0, 0);
     }
-    const blob = await src.convertToBlob(type === "image/jpeg" ? { type, quality: 0.85 } : { type });
+    const blob = await src.convertToBlob(type === "image/jpeg" ? { type, quality: 0.92 } : { type });
     return { blob, width: src.width, height: src.height };
   }
 

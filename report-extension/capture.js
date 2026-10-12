@@ -8,6 +8,7 @@ const CAPTURE_WIDTH = 1280;
 const CAPTURE_HEIGHT = 1000;
 const MAX_COMMENTS = 20; // 미리보기에서 고를 수 있도록 찍어 두는 댓글 수
 const MAX_IMAGES = 8; // 본문 첨부 이미지 최대 개수
+const LIST_LIMIT = 50; // 작성자 작성글 · 게시판 목록에서 읽는 글 제목 수
 
 class CaptureError extends Error {}
 
@@ -44,16 +45,40 @@ async function cafePageProbe(mode, target, maxComments, maxImages) {
   }
   const win = doc.defaultView;
 
-  function toPage(el) {
-    const r = el.getBoundingClientRect();
-    let x = r.left + window.scrollX;
-    let y = r.top + window.scrollY;
+  // 요소와 그 안의 모든 하위 요소를 덮는 범위 (칸 밖으로 튀어나온 하트·… 버튼·프로필 아이콘도 잘리지 않게)
+  function unionRect(els) {
+    let l = Infinity;
+    let t = Infinity;
+    let r = -Infinity;
+    let b = -Infinity;
+    for (const root of els) {
+      for (const e of [root, ...root.querySelectorAll("*")]) {
+        if (e.closest("[data-rpt-hide]") || e.closest("[data-rpt-fixed]")) continue;
+        const st = win.getComputedStyle(e);
+        if (st.visibility === "hidden" || st.display === "none") continue;
+        const rc = e.getBoundingClientRect();
+        if (rc.width < 1 || rc.height < 1) continue;
+        l = Math.min(l, rc.left);
+        t = Math.min(t, rc.top);
+        r = Math.max(r, rc.right);
+        b = Math.max(b, rc.bottom);
+      }
+    }
+    return { left: l, top: t, width: r - l, height: b - t };
+  }
+
+  function toPage(els) {
+    const r = unionRect(els);
+    if (!Number.isFinite(r.left)) return null;
+    const pad = 4;
+    let x = r.left + window.scrollX - pad;
+    let y = r.top + window.scrollY - pad;
     if (doc !== document) {
       const fr = frame.getBoundingClientRect();
       x += fr.left + frame.clientLeft;
       y += fr.top + frame.clientTop;
     }
-    return { x: Math.max(0, x), y: Math.max(0, y), width: r.width, height: r.height };
+    return { x: Math.max(0, x), y: Math.max(0, y), width: r.width + pad * 2, height: r.height + pad * 2 };
   }
 
   if (mode === "restore") {
@@ -80,21 +105,42 @@ async function cafePageProbe(mode, target, maxComments, maxImages) {
     }
     const el = doc.querySelector(`[data-rpt="${target}"]`);
     if (!el) return null;
+    doc.querySelectorAll("[data-rpt-hide]").forEach((m) => {
+      m.style.visibility = m.dataset.rptHide === "-" ? "" : m.dataset.rptHide;
+      delete m.dataset.rptHide;
+    });
+    const hide = (m) => {
+      if (m.dataset.rptHide == null) m.dataset.rptHide = m.style.visibility || "-";
+      m.style.visibility = "hidden";
+    };
     if (target === "body") {
       // 본문 글자만 찍기 위해 첨부 이미지·영상·스티커를 가린다 (빈 공간은 나중에 줄여 붙임)
-      for (const m of el.querySelectorAll("img, video, iframe, canvas, .se-image, .se-sticker, .se-video, .se-oglink, .se-map, .se-file")) {
-        if (m.dataset.rptHide == null) m.dataset.rptHide = m.style.visibility || "-";
-        m.style.visibility = "hidden";
-      }
-    } else {
-      doc.querySelectorAll("[data-rpt-hide]").forEach((m) => {
-        m.style.visibility = m.dataset.rptHide === "-" ? "" : m.dataset.rptHide;
-        delete m.dataset.rptHide;
-      });
+      el.querySelectorAll("img, video, iframe, canvas, .se-image, .se-sticker, .se-video, .se-oglink, .se-map, .se-file").forEach(hide);
+    } else if (target.startsWith("comment")) {
+      // 댓글: 작성자 아이콘·하트·… 버튼은 그대로 두고 이모티콘(스티커)만 가린다 → 빈 자리는 줄여 붙여 작성일시가 글 바로 밑에 붙음
+      el.querySelectorAll("[class*='sticker' i]").forEach(hide);
     }
     el.scrollIntoView({ block: "center" });
-    await new Promise((r) => setTimeout(r, 400));
-    return toPage(el);
+    // 늦게 불러오는 그림(프로필 아이콘 등)이 다 그려질 때까지 기다린다 (최대 3초)
+    for (let t = 0; t < 30; t++) {
+      const pending = [...el.querySelectorAll("img")].filter(
+        (im) => im.style.visibility !== "hidden" && (!im.complete || im.naturalWidth === 0) && im.getAttribute("src"),
+      );
+      if (!pending.length) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await new Promise((r) => setTimeout(r, 300));
+    // 제목 캡처: 게시판 이름 · 제목 · 작성자 아이콘 · 닉네임 · 작성일을 한 장으로 (아이콘 위쪽이 잘리지 않게)
+    if (target === "header") {
+      const box = el.closest(".ArticleContentBox, .article_wrap, .ArticleContent") || el.parentElement || doc;
+      const extra = [...box.querySelectorAll(".link_board, .WriterInfo, .profile_area, .article_writer, .article_info")]
+        .filter((e) => !el.contains(e) && !e.closest("[data-rpt='body'], .CommentBox"));
+      return toPage([el, ...extra]);
+    }
+    const rect = toPage([el]);
+    // 아주 긴 본문은 캡처 크기 한계를 넘지 않게 위쪽 일부만 (슬라이드에도 다 들어가지 않음)
+    if (rect && target === "body") rect.height = Math.min(rect.height, 6000);
+    return rect;
   }
 
   // ---- mode === "info" ----
@@ -130,20 +176,24 @@ async function cafePageProbe(mode, target, maxComments, maxImages) {
     }
   }
 
+  // 보고서에 쓰는 댓글: 대댓글·게시글 작성자 댓글·삭제 댓글은 뺀다
+  const author = authorEl ? authorEl.innerText.trim() : "";
   const comments = [];
   let ci = 0;
   for (const li of doc.querySelectorAll(SEL.commentItem.join(","))) {
     if (li.querySelector(".comment_deleted, .comment_delete")) continue;
+    if (li.classList.contains("CommentItem--reply")) continue;
+    const nickname = pick(li, SEL.nickname)?.innerText.trim() || "";
+    const byAuthor =
+      (author && nickname === author) ||
+      [...li.querySelectorAll("span, em, i, strong, a")].some((e) => e.innerText && e.innerText.trim() === "작성자");
+    if (byAuthor) continue;
     const text = pick(li, SEL.commentText)?.innerText.trim() || "";
     if (!text) continue;
     if (comments.length >= maxComments) break;
+    const hasSticker = !!li.querySelector("[class*='sticker' i]");
     li.setAttribute("data-rpt", `comment${ci}`);
-    comments.push({
-      index: ci,
-      nickname: pick(li, SEL.nickname)?.innerText.trim() || "",
-      text,
-      isReply: li.classList.contains("CommentItem--reply"),
-    });
+    comments.push({ index: ci, nickname, text, hasSticker });
     ci++;
   }
   if (!commentCount) commentCount = String(doc.querySelectorAll(SEL.commentItem.join(",")).length);
@@ -155,19 +205,87 @@ async function cafePageProbe(mode, target, maxComments, maxImages) {
     const r = img.getBoundingClientRect();
     if (r.width < 80 || r.height < 60 || img.naturalWidth < 80) continue;
     img.setAttribute("data-rpt", `image${images.length}`);
-    images.push({ index: images.length, width: r.width, height: r.height });
+    // 원본 주소: 늦게 불러오기 전 흐린 미리보기(type=w80_blur 등) 대신 큰 이미지로
+    let src = img.getAttribute("data-lazy-src") || img.getAttribute("data-src") || img.currentSrc || img.src || "";
+    if (/pstatic\.net/.test(src)) src = src.replace(/([?&])type=[^&]*/, "$1type=w966");
+    images.push({ index: images.length, width: r.width, height: r.height, src });
   }
+
+  // 게시글 주소를 https://cafe.naver.com/카페주소/글번호 로 통일 (naver.me 단축 주소 등)
+  const SHORT = /^https?:\/\/(?:m\.)?cafe\.naver\.com\/([A-Za-z0-9_\-]+)\/(\d+)(?:[/?#]|$)/;
+  let canonicalUrl = "";
+  for (const d of [doc, document]) {
+    for (const sel of ['meta[property="og:url"]', 'link[rel="canonical"]']) {
+      const el = d.querySelector(sel);
+      const v = el && (el.getAttribute("content") || el.getAttribute("href"));
+      const m = v && v.match(SHORT);
+      if (m && !canonicalUrl) canonicalUrl = `https://cafe.naver.com/${m[1]}/${m[2]}`;
+    }
+  }
+  if (!canonicalUrl) {
+    const m = location.href.match(SHORT);
+    if (m && !/^(ca-fe|f-e)$/.test(m[1])) canonicalUrl = `https://cafe.naver.com/${m[1]}/${m[2]}`;
+  }
+
+  // 작성자의 '작성글 보기' 와 이 글이 있는 게시판 목록 주소 (지역·중복 판단용)
+  const abs = (a) => (a ? new URL(a.getAttribute("href"), doc.baseURI).href : "");
+  const articleBox = (header && header.closest(".ArticleContentBox, .article_wrap, .ArticleContent")) || header || doc;
+  const authorLink = abs(
+    articleBox.querySelector("a[href*='/members/'], a[href*='MemberArticleList'], a[href*='memberid='], a[href*='search.writerId']"),
+  );
+  const boardLink = abs(
+    articleBox.querySelector("a.link_board, a[href*='/menus/'], a[href*='ArticleList.nhn'], a[href*='search.menuid']"),
+  );
+  const postDate = (headText.match(/(\d{4})\.\s?(\d{1,2})\.\s?(\d{1,2})/) || []).slice(1, 4).join("-");
 
   return {
     href: location.href,
+    canonicalUrl,
+    authorLink,
+    boardLink,
+    postDate,
     title: titleEl ? titleEl.innerText.trim() : "",
-    author: authorEl ? authorEl.innerText.trim() : "",
+    author,
     views,
     commentCount,
     bodyText: body.innerText.replace(/\n{3,}/g, "\n\n").trim().slice(0, 6000),
     comments,
     images,
   };
+}
+
+// 글 목록 화면(작성자의 작성글 / 게시판 목록) 안에서 실행: 보이는 글 제목과 날짜를 모은다
+async function cafeListProbe(limit) {
+  const ARTICLE = /articles\/\d+|articleid=\d+|cafe\.naver\.com\/[A-Za-z0-9_\-]+\/\d+/i;
+  const DATE = /(\d{4}\.\s?\d{1,2}\.\s?\d{1,2})|(\d{2}\.\d{2}\.\d{2})|(\d{1,2}:\d{2})/;
+  const collect = () => {
+    const frame = document.querySelector("iframe#cafe_main");
+    let doc = document;
+    try {
+      if (frame && frame.contentDocument && frame.contentDocument.body) doc = frame.contentDocument;
+    } catch {
+      /* 다른 도메인 틀 */
+    }
+    const seen = new Set();
+    const out = [];
+    for (const a of doc.querySelectorAll("a[href]")) {
+      if (!ARTICLE.test(a.getAttribute("href"))) continue;
+      const title = a.innerText.replace(/\s+/g, " ").trim();
+      if (title.length < 4 || seen.has(title)) continue;
+      seen.add(title);
+      const row = a.closest("tr, li, [class*='item'], [class*='Item']") || a.parentElement;
+      const date = ((row && row.innerText.match(DATE)) || [""])[0];
+      out.push({ title: title.slice(0, 80), date });
+      if (out.length >= limit) break;
+    }
+    return out;
+  };
+  let rows = [];
+  for (let t = 0; t < 12 && rows.length < 3; t++) {
+    rows = collect();
+    if (rows.length < 3) await new Promise((r) => setTimeout(r, 500));
+  }
+  return rows;
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +320,34 @@ async function openWindow(url) {
   return { windowId: win.id, tabId: tab.id };
 }
 
+async function gotoAndWait(tabId, url) {
+  await new Promise((resolve) => {
+    const timer = setTimeout(done, 30000);
+    function done() {
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }
+    function listener(id, info) {
+      if (id === tabId && info.status === "complete") done();
+    }
+    chrome.tabs.onUpdated.addListener(listener);
+    chrome.tabs.update(tabId, { url }).catch(done);
+  });
+  await sleep(2000);
+}
+
+async function readList(tabId, url) {
+  if (!url) return [];
+  try {
+    await gotoAndWait(tabId, url);
+    const [res] = await chrome.scripting.executeScript({ target: { tabId }, func: cafeListProbe, args: [LIST_LIMIT] });
+    return (res && res.result) || [];
+  } catch {
+    return [];
+  }
+}
+
 async function probe(tabId, mode, target) {
   const [res] = await chrome.scripting.executeScript({
     target: { tabId },
@@ -222,6 +368,21 @@ async function shot(tabId, rect) {
   const u8 = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
   return new Blob([u8], { type: "image/png" });
+}
+
+async function fetchImage(src) {
+  if (!src || !/^(https:|data:image\/(png|jpe?g|gif|webp))/i.test(src)) return null;
+  try {
+    const res = await fetch(src, { credentials: "omit" });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    const bmp = await createImageBitmap(blob); // 그림으로 열리는지 확인
+    if (bmp.width < 80 || bmp.height < 60) return null;
+    blob.isOriginal = true;
+    return blob;
+  } catch {
+    return null;
+  }
 }
 
 // → { info, header, body, comments: [Blob|null], images: [Blob|null], dpr }
@@ -256,10 +417,20 @@ async function captureCafePost(url, onStep = () => {}) {
     const take = async (target) => shot(tabId, await probe(tabId, "rect", target));
     const out = { info, dpr: CAPTURE_DPR, comments: [], images: [] };
     out.header = await take("header");
-    for (const im of info.images) out.images.push(await take(`image${im.index}`));
+    // 본문 사진은 원본 파일을 직접 받는다 (선명하고 여백·비율 왜곡 없음). 못 받으면 화면 캡처로 대신.
+    for (const im of info.images) out.images.push((await fetchImage(im.src)) || (await take(`image${im.index}`)));
     for (const c of info.comments) out.comments.push(await take(`comment${c.index}`));
     out.body = await take("body"); // 마지막: 본문 이미지를 가린 상태로 찍음
     await probe(tabId, "restore");
+    await chrome.debugger.detach({ tabId }).catch(() => {});
+    attached = false;
+
+    // 지역(작성자의 다른 글)·중복(같은 게시판 최근 글) 판단용 목록. 사람처럼 잠깐씩 쉬며 같은 창에서 연다.
+    onStep("작성글·게시판 목록 확인 중");
+    await sleep(1000 + Math.random() * 1500);
+    info.authorPosts = await readList(tabId, info.authorLink);
+    if (info.boardLink) await sleep(1000 + Math.random() * 1500);
+    info.boardPosts = await readList(tabId, info.boardLink);
     return out;
   } finally {
     if (attached) await chrome.debugger.detach({ tabId }).catch(() => {});

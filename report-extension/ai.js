@@ -7,6 +7,10 @@ const AI_MODELS = [
   ["claude-haiku-5-5", "Claude Haiku 5.5 (가장 저렴)"],
 ];
 
+// 내용 요약 칸은 반드시 2줄(본문 요약 1줄 + 댓글 반응 1줄)이 되도록 길이를 제한한다
+const BODY_MAX = 55;
+const REACTION_MAX = 48; // "댓글 반응 : " 뒤에 들어가는 글자 수
+
 const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작성하는 모니터링 담당자입니다.
 자동차 동호회(네이버 카페) 게시글의 제목·본문·댓글을 읽고, 보고서 칸에 들어갈 문구를 작성합니다.
 
@@ -17,22 +21,28 @@ const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작�
 - 문장 시작 유형: [출고] "최근 출고한 차량에서", "출고 후 3개월 된 차량에서" / [주행 중] "주행 중에", "정차 중에", "주차 중에" / [차량의] "차량의 ○○ 부분에서"
 - 문장 끝 유형: 증상을 묻는 글은 "~며 증상에 대해 문의하는 내용", 강하게 항의하는 글은 "~며 품질에 대해 불만 토로하는 내용"(응대 불만이면 "응대에 대해"), 사진·영상으로 상황을 알리는 글은 "~며 공유하는 내용".
   예) 차량의 리어 스텝 부분에서 녹이 발생해 도색 불량을 의심한다며 증상에 대해 문의하는 내용
-  예) 시동 시 엔진 소음 및 진동 발생 후 엔진 경고등이 점등되어 블루핸즈에서 2번 및 4번 점화 코일 교체 조치를 받았다며 증상에 대해 문의하는 내용
 
 [작성 항목]
 - issue: 슬라이드 제목의 증상 부분. 차명은 빼고 10글자 내외의 명사형. 예) "엔진 경고등 점등", "펜더 부식", "선루프 개폐 오류 및 각종 불량"
 - short: 첫 장 요약표의 '내용 요약'. 한 줄(35자 이내) 명사형. 예) "시동 시 엔진 소음 및 진동 발생 후 엔진 경고등 점등"
-- body: 상세 슬라이드의 본문 요약. 위 문장 유형을 따른 한 문장(90자 이내).
-- reaction: 댓글 반응을 한 줄로. 핵심 댓글을 표준어로 다듬어 작은따옴표로 인용하고 "등의 여론"으로 끝냅니다.
-  예) '이것은 제작이 잘못된 것 같다, 블루핸즈 말고 사업소에 가서 강하게 항의하라' 등의 여론
+- body: 상세 슬라이드의 본문 요약. 위 문장 유형을 따른 한 문장. 반드시 ${BODY_MAX}자 이내(한 줄에 들어가야 함). 넘으면 덜 중요한 정황을 빼고 줄입니다.
+- reaction: 댓글 반응 한 줄. 댓글을 그대로 옮기지 말고 오탈자·맞춤법을 고치고 표준어로 다듬어, 여론이 자연스럽게 전달되도록 요약합니다.
+  핵심 반응 1~2개를 작은따옴표로 묶고 "등의 여론"으로 끝냅니다. 반드시 ${REACTION_MAX}자 이내.
+  예) '제작 불량으로 보인다, 사업소에 가서 강하게 항의하라' 등의 여론
   댓글이 없거나 의미 있는 반응이 없으면 빈 문자열.
-- level: 불만 단계.
-  주의 = 운행에 크게 지장이 없고 중복 이슈가 없거나 공론화되지 않을 수준 (도장 불량, 단차, 소음, 색상 이색 등)
-  경고 = 엔진/시동/멈춤 등 차량 운행에 직접 영향을 주는 이슈, 동일 증상을 호소하는 댓글이 보이는 경우 (엔진오일 감소, 충전 멈춤, 차가 움직이지 않음 등)
-  심각 = 운행 불가 및 생명의 위협을 느꼈을 이슈 (화재, 급발진 등)
-- duplicate: 댓글 중 다른 사용자가 같은 증상을 겪었다고 한 댓글 수. 0이면 "신규", 있으면 "중복 N건".
-- region: 작성자가 본문에 입고 지점·운행 지역을 명확히 적은 경우에만 시·구까지만(예: "부산 사상구", "경기 오산"). 없으면 "-".
-- comment_picks: 보고서에 캡처해 넣을 댓글 번호(index) 최대 3개. 증상 공감·동일 증상·여론을 잘 보여주는 댓글을 고릅니다. 없으면 빈 배열.`;
+- level: 불만 단계. 대부분은 "주의"입니다.
+  주의 = 일반적인 품질 불만·문의 (도장 불량, 단차, 소음, 경고등, 기능 오작동 등 대부분)
+  경고 = 악성 민원(강한 항의·집단 행동·언론 제보 예고 등) 또는 주요하고 심각한 이슈 (주행 중 시동 꺼짐, 차가 움직이지 않음 등 운행에 직접 영향)
+  심각 = 운행 불가 및 생명의 위협을 느꼈을 이슈 (화재, 급발진, 사고 등)
+- duplicate: 아래 두 가지를 러프하게 더한 수.
+  ① 댓글 중 "저도 그래요", "나도 그랬다"처럼 같은 증상을 겪었다는 뉘앙스의 댓글 수
+  ② boardPosts(이 글이 있는 게시판의 최근 글 목록) 중 게시일(postDate) 기준 최근 3개월 안의 같은 차종·같은 증상 관련 게시글 수 (이 글 자신은 빼고, 날짜가 시간만 있으면 최근 글)
+  합이 0이면 "신규", 있으면 "중복 N건". 대부분은 "신규"입니다.
+- region: 입고/운행 지역. 먼저 작성자 닉네임(author)에서 지역을 판단합니다(예: "부산ll홍길동" → 부산, "파주II아무개" → 파주).
+  닉네임으로 알 수 없으면 authorPosts(작성자의 다른 글 제목)와 본문에서 지역이 분명히 드러나면 씁니다. 시·구까지만(예: "부산", "경기 오산", "서울 강동구").
+  알 수 없으면 "-".
+- comment_picks: 보고서에 캡처해 넣을 댓글 번호(index) 2개. 자극적이거나 심각하다고 느껴지는, 길지 않은 댓글을 우선 고릅니다.
+  hasSticker 가 true 인(이모티콘이 있는) 댓글은 될 수 있으면 고르지 말고, 그것밖에 없을 때만 고릅니다. 댓글이 2개보다 적으면 있는 만큼.`;
 
 const AI_SCHEMA = {
   type: "object",
@@ -64,12 +74,21 @@ function aiErrorMessage(e) {
 // row: 엑셀 행, info: 캡처에서 읽은 글 정보 → AI_SCHEMA 모양의 결과
 async function aiSummarize(row, info, { apiKey, model }) {
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 4 });
-  const comments = (info.comments || []).map((c) => ({ index: c.index, reply: c.isReply, text: c.text.slice(0, 400) }));
+  const comments = (info.comments || []).map((c) => ({
+    index: c.index,
+    text: c.text.slice(0, 400),
+    length: c.text.length,
+    hasSticker: !!c.hasSticker,
+  }));
   const input = {
     excel: { 차종: row.car, 구분: row.kind, 카페: row.cafe, 담당자메모: row.main },
     title: info.title || "",
+    author: info.author || "",
+    postDate: info.postDate || "",
     body: info.bodyText || "",
     comments,
+    authorPosts: (info.authorPosts || []).slice(0, 30),
+    boardPosts: info.boardPosts || [],
   };
   const params = {
     model,
@@ -91,9 +110,18 @@ async function aiSummarize(row, info, { apiKey, model }) {
   const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");
   const out = JSON.parse(text);
   const valid = new Set(comments.map((c) => c.index));
-  out.comment_picks = [...new Set((out.comment_picks || []).filter((i) => valid.has(i)))].slice(0, 3);
+  out.comment_picks = [...new Set((out.comment_picks || []).filter((i) => valid.has(i)))].slice(0, 2);
+  if (!out.comment_picks.length) out.comment_picks = defaultPicks(info);
   for (const k of ["issue", "short", "body", "reaction", "duplicate", "region"]) out[k] = String(out[k] || "").trim();
   return out;
+}
+
+// 기본 댓글 2개: 이모티콘 없는 짧은 댓글 우선
+function defaultPicks(info) {
+  return [...(info?.comments || [])]
+    .sort((a, b) => (a.hasSticker - b.hasSticker) || (a.text.length - b.text.length))
+    .slice(0, 2)
+    .map((c) => c.index);
 }
 
 // API 키가 없을 때: 엑셀 '주요 내용'으로 초안만 채운다 (나머지는 미리보기에서 직접 입력)
@@ -107,6 +135,6 @@ function excelDraft(row, info) {
     level: "주의",
     duplicate: "",
     region: "",
-    comment_picks: (info?.comments || []).slice(0, 2).map((c) => c.index),
+    comment_picks: defaultPicks(info),
   };
 }

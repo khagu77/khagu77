@@ -150,7 +150,7 @@ async function processCaptures(cap) {
   if (cap.header) v.header = ImageProc.compactText(await ImageProc.toBitmap(cap.header), dpr);
   if (cap.body) v.body = ImageProc.compactText(await ImageProc.toBitmap(cap.body), dpr);
   for (const b of cap.comments) v.comments.push(b ? ImageProc.compactText(await ImageProc.toBitmap(b), dpr) : null);
-  for (const b of cap.images) v.images.push(b ? ImageProc.photo(await ImageProc.toBitmap(b), dpr) : null);
+  for (const b of cap.images) v.images.push(b ? ImageProc.photo(await ImageProc.toBitmap(b), dpr, !!b.isOriginal) : null);
   for (const x of [v.header, v.body, ...v.comments, ...v.images]) if (x) x.url = await ImageProc.previewUrl(x.canvas);
   return v;
 }
@@ -165,14 +165,14 @@ function fieldsFrom(row, info, ai) {
     level: ai.level || "주의",
     progress: "초기",
     cafe: row.cafe,
-    url: row.url,
+    url: info?.canonicalUrl || row.url, // naver.me 등은 https://cafe.naver.com/카페주소/글번호 로 통일
     views: info?.views || "",
     commentCount: info?.commentCount || "",
     body: ai.body,
     reaction: ai.reaction,
     short: ai.short,
     duplicate: ai.duplicate,
-    region: ai.region && ai.region !== "-" ? ai.region : "",
+    region: ai.region || "-",
     focus: "-",
   };
 }
@@ -253,14 +253,15 @@ async function start() {
 // ---------------------------------------------------------------------------
 const FIELD_DEFS = [
   ["title", "페이지 제목", "text", "■ 뒤에 들어갈 '차명(모델명) 증상'"],
+  ["url", "게시글 위치", "text", "https://cafe.naver.com/카페주소/글번호"],
   ["code", "차종", "text"],
   ["spec", "제원", "text"],
   ["level", "불만 구분", "select", ["주의", "경고", "심각"]],
   ["progress", "경과", "select", ["초기", "진행", "타결"]],
   ["views", "조회수", "text"],
   ["commentCount", "댓글수", "text"],
-  ["body", "본문 요약", "textarea"],
-  ["reaction", "댓글 반응", "textarea", "비우면 '댓글 반응 없음'(댓글이 없을 때) 또는 확인 필요"],
+  ["body", "본문 요약", "textarea", "한 줄 (최대 55자)", BODY_MAX],
+  ["reaction", "댓글 반응", "textarea", "한 줄 (최대 48자). 비우면 '댓글 반응 없음'(댓글이 없을 때) 또는 확인 필요", REACTION_MAX],
   ["short", "요약표 내용", "text"],
   ["duplicate", "신규/중복", "text", "예: 신규, 중복 2건"],
   ["region", "입고/운행지역", "text", "본문에 명시된 경우만 (예: 부산 사상구)"],
@@ -288,13 +289,14 @@ function renderItem(it) {
     return;
   }
   const f = it.fields;
-  const fields = FIELD_DEFS.map(([k, label, type, extra]) => {
+  const fields = FIELD_DEFS.map(([k, label, type, extra, max]) => {
     const v = esc(f[k] ?? "");
     let input;
     if (type === "select") input = `<select data-k="${k}">${extra.map((o) => `<option${o === f[k] ? " selected" : ""}>${o}</option>`).join("")}</select>`;
     else if (type === "textarea") input = `<textarea data-k="${k}" rows="2" placeholder="${esc(extra || "")}">${v}</textarea>`;
     else input = `<input type="text" data-k="${k}" value="${v}" placeholder="${esc(extra || "")}">`;
-    return `<label>${label}</label>${input}`;
+    const cnt = max ? ` <span class="cnt" data-for="${k}" data-max="${max}"></span>` : "";
+    return `<label>${label}${cnt}</label>${input}`;
   }).join("");
 
   const v = it.visuals;
@@ -303,21 +305,31 @@ function renderItem(it) {
       ? `<label class="shot ${cls}${checked ? "" : " off"}"><span><input type="checkbox" data-kind="${kind}" data-i="${i}"${checked ? " checked" : ""}> ${esc(label)}</span><img src="${x.url}"></label>`
       : "";
   const comments = (it.info?.comments || [])
-    .map((c, i) => (v.comments[i] ? shot("comment", c.index, v.comments[i], `${c.isReply ? "└ " : ""}${c.text.slice(0, 40)}`, it.sel.comments.has(c.index)) : ""))
+    .map((c, i) => (v.comments[i] ? shot("comment", c.index, v.comments[i], `${c.hasSticker ? "[이모티콘] " : ""}${c.text.slice(0, 40)}`, it.sel.comments.has(c.index)) : ""))
     .join("");
   const images = v.images.map((x, i) => shot("image", i, x, `이미지 ${i + 1}`, it.sel.images.has(i), "images")).join("");
   const shots = `<div class="shots">
     ${v.header || v.body ? `<h4>제목·본문 캡처</h4>${shot("header", 0, v.header, "제목", it.sel.header)}${shot("body", 0, v.body, "본문", it.sel.body)}` : ""}
-    ${comments ? `<h4>댓글 캡처 (AI 추천이 체크됨 · 2~3개 권장)</h4>${comments}` : ""}
+    ${comments ? `<h4>댓글 캡처 (대댓글·작성자 댓글 제외 · 추천 2개 체크됨)</h4>${comments}` : ""}
     ${images ? `<h4>본문 첨부 이미지</h4>${images}` : ""}
   </div>`;
 
   it.el.innerHTML = head + `<div class="item-body"><div class="fields">${fields}</div>
     <div class="preview"><canvas width="600" height="415"></canvas><div class="buttons"><button data-act="retry">다시 캡처·요약</button></div></div></div>` + shots;
 
+  // 내용 요약은 2줄 엄수: 본문 요약·댓글 반응 글자 수를 보여 주고 넘으면 빨갛게
+  const updateCount = (k) => {
+    const c = $(`.cnt[data-for="${k}"]`, it.el);
+    if (!c) return;
+    const n = (it.fields[k] || "").length;
+    c.textContent = `${n}/${c.dataset.max}`;
+    c.classList.toggle("err", n > Number(c.dataset.max));
+  };
   for (const el of it.el.querySelectorAll("[data-k]")) {
+    updateCount(el.dataset.k);
     el.addEventListener("input", () => {
-      it.fields[el.dataset.k] = el.value;
+      it.fields[el.dataset.k] = el.value.replace(/\n/g, " ");
+      updateCount(el.dataset.k);
     });
   }
   for (const el of it.el.querySelectorAll("input[data-kind]")) {

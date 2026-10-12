@@ -96,3 +96,4 @@ button:disabled { opacity: 0.45; cursor: default; }
 .shot.images img { max-width: 120px; }
 .shot.off img { opacity: 0.35; }
 .shot .ctext { max-width: 280px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cnt { font-weight: 400; color: var(--muted); margin-left: 4px; } .cnt.err { color: var(--red); font-weight: 600; }

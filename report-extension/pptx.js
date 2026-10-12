@@ -12,7 +12,8 @@
   const T_LINK = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink";
   const T_NOTES = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide";
   const SLIDE_CT = "application/vnd.openxmlformats-officedocument.presentationml.slide+xml";
-  const GREEN = "00B050";
+  // 불만 구분 글자색: 주의 초록 / 경고 파랑 / 심각 진한 빨강 (해당 단계에만 색)
+  const LEVEL_COLORS = { 주의: "00B050", 경고: "0563C1", 심각: "C00000" };
   const RED = "FF0000";
   const TODO = "확인 필요";
 
@@ -122,7 +123,7 @@
     const cell = (r, c) => rows[r][c];
     setCell(cell(0, 1), orTodo(item.code));
     setCell(cell(0, 3), item.spec || "-");
-    const lv = (name) => [name, item.level === name ? GREEN : null];
+    const lv = (name) => [name, item.level === name ? LEVEL_COLORS[name] : null];
     setCell(cell(0, 5), [[item.kind || "품질", null], ["(", null], lv("주의"), ["/", null], lv("경고"), ["/", null], lv("심각"), [")", null]]);
     setCell(cell(0, 7), item.progress || "초기");
     setCell(cell(1, 1), "동호회", orTodo(item.cafe));
