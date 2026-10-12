@@ -104,3 +104,4 @@ label.inline { display: inline-flex; gap: 4px; align-items: center; margin: 0; f
 #countOpts input[type="number"] { width: 52px; padding: 3px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
 #countOpts.off { opacity: 0.4; pointer-events: none; }
 label.inline.part { font-weight: 400; margin-left: 6px; }
+.folder-row { align-items: center; margin-top: 2px; }

@@ -28,6 +28,13 @@
         <option value="150">화상 150ppi (가장 작은 파일)</option>
       </select>
 
+      <label>저장 폴더 <span class="hint">(PPT 받기를 누르면 이 폴더에 바로 저장. 고르지 않으면 다운로드 폴더)</span></label>
+      <div class="buttons folder-row">
+        <button id="pickFolder" type="button">저장 폴더 선택</button>
+        <button id="clearFolder" type="button">다운로드 폴더로</button>
+        <span id="folderInfo" class="hint"></span>
+      </div>
+
       <label for="fileName">파일 이름 <span class="hint">({날짜} 자리에 보고서 날짜가 YYMMDD 로 들어갑니다)</span></label>
       <input type="text" id="fileName" value="{날짜}_현대차 온라인 이슈 보고서">
     </details>

@@ -272,7 +272,8 @@ def start_fake_cafe(tmp_path: Path):
     return server
 
 
-def run_report(tmp_path: Path, template: Path, excel: Path, out_dir: Path, ai_key="sk-ant-test", count=None):
+def run_report(tmp_path: Path, template: Path, excel: Path, out_dir: Path, ai_key="sk-ant-test", count=None,
+               folder=False):
     from playwright.sync_api import sync_playwright
 
     server = start_fake_cafe(tmp_path)
@@ -328,11 +329,29 @@ def run_report(tmp_path: Path, template: Path, excel: Path, out_dir: Path, ai_ke
         page.wait_for_selector("#build:not([disabled])", timeout=180000)
         page.wait_for_selector("#stop[disabled]", timeout=180000)
         page.screenshot(path=str(out_dir / "screen.png"), full_page=True)
-        with page.expect_download() as dl:
+        if folder:
+            # 폴더 선택 창 대신 브라우저 내부 저장소 폴더를 '고른 폴더'로 쓴다
+            page.evaluate("window.showDirectoryPicker = async () => navigator.storage.getDirectory()")
+            page.click("#pickFolder")
+            page.wait_for_selector("#folderInfo.ok")
             page.click("#build")
-        download = dl.value
-        target = out_dir / download.suggested_filename
-        download.save_as(target)
+            page.locator("#summary", has_text="📁").wait_for(timeout=120000)
+            name = page.inner_text("#summary").split("/", 1)[1].split(" (")[0]
+            b64 = page.evaluate("""async (n) => {
+                const dir = await navigator.storage.getDirectory();
+                const f = await (await dir.getFileHandle(n)).getFile();
+                const u8 = new Uint8Array(await f.arrayBuffer()); let s = "";
+                for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+                return btoa(s);
+            }""", name)
+            target = out_dir / name
+            target.write_bytes(__import__("base64").b64decode(b64))
+        else:
+            with page.expect_download() as dl:
+                page.click("#build")
+            download = dl.value
+            target = out_dir / download.suggested_filename
+            download.save_as(target)
         summary = page.inner_text("#summary")
         ctx.close()
     server.shutdown()
@@ -560,7 +579,8 @@ def test_report_count_first_k(tmp_path):
     excel = tmp_path / "issues.xlsx"
     make_template(template)
     make_excel(excel)  # + 글: ST1 카페 글 / 삭제된 글 / 보배드림 글
-    out, ai_requests, _ = run_report(tmp_path, template, excel, tmp_path, count=(3, 1, 3, "front"))
+    out, ai_requests, summary = run_report(tmp_path, template, excel, tmp_path, count=(3, 1, 3, "front"), folder=True)
+    assert out.name == "261007_현대차 온라인 이슈 보고서.pptx" and "📁" in summary  # 고른 폴더에 바로 저장
     assert len(ai_requests) >= 1  # 1번 ST1 카페 글만 캡처·요약
     slides = list(Presentation(out).slides)
     assert len(slides) == 4

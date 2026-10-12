@@ -519,6 +519,65 @@ async function pictures(it) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// 저장 폴더 (내가 고른 폴더에 바로 저장) — 크롬 확장은 경로 글자로는 저장할 수 없어서
+// 폴더 선택 창으로 한 번 고르고, 그 폴더 정보를 이 PC 크롬(IndexedDB)에 기억해 둔다.
+// ---------------------------------------------------------------------------
+function idb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("report-extension", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("kv");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function kvGet(key) {
+  const db = await idb();
+  return new Promise((resolve) => {
+    const r = db.transaction("kv").objectStore("kv").get(key);
+    r.onsuccess = () => resolve(r.result || null);
+    r.onerror = () => resolve(null);
+  });
+}
+async function kvSet(key, value) {
+  const db = await idb();
+  return new Promise((resolve) => {
+    const tx = db.transaction("kv", "readwrite");
+    if (value == null) tx.objectStore("kv").delete(key);
+    else tx.objectStore("kv").put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  });
+}
+
+function showFolder(handle) {
+  $("#folderInfo").textContent = handle ? `📁 ${handle.name} 에 저장` : "다운로드 폴더에 저장";
+  $("#folderInfo").className = handle ? "hint ok" : "hint";
+}
+
+async function pickFolder() {
+  try {
+    const handle = await window.showDirectoryPicker({ id: "report-out", mode: "readwrite", startIn: "desktop" });
+    await kvSet("saveDir", handle);
+    showFolder(handle);
+  } catch (e) {
+    if (e && e.name !== "AbortError") setSummary(`폴더를 고르지 못했습니다: ${e.message || e}`, "err");
+  }
+}
+
+// 고른 폴더에 쓸 수 있는지 확인 (크롬을 다시 켠 뒤에는 한 번 허용을 물어봄 — 버튼을 누른 직후에만 가능)
+async function saveDirIfAllowed() {
+  const handle = await kvGet("saveDir");
+  if (!handle) return null;
+  try {
+    let p = await handle.queryPermission({ mode: "readwrite" });
+    if (p !== "granted") p = await handle.requestPermission({ mode: "readwrite" });
+    return p === "granted" ? handle : null;
+  } catch {
+    return null;
+  }
+}
+
 function reportDate() {
   const v = $("#reportDate").value;
   const [y, m, d] = v ? v.split("-").map(Number) : [new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate()];
@@ -527,6 +586,8 @@ function reportDate() {
 
 async function buildPpt() {
   $("#build").disabled = true;
+  // 저장 폴더 허용 확인은 버튼을 누른 바로 그때 해야 해서 맨 먼저
+  const saveDir = await saveDirIfAllowed();
   try {
     setSummary("PPT 만드는 중…");
     const template = await loadTemplate();
@@ -539,13 +600,27 @@ async function buildPpt() {
     const totalRows = plan.all ? list.length : plan.total;
     const bytes = await Pptx.build(template, { dateText: `${y}.${pad(m)}.${pad(d)}`, items: list, startNo, totalRows });
     const name = ($("#fileName").value.trim() || "{날짜}_현대차 온라인 이슈 보고서").replace("{날짜}", `${String(y).slice(2)}${pad(m)}${pad(d)}`);
+    const fileName = `${name.replace(/[<>:"/\\|?*]/g, "_")}.pptx`;
+    const size = `${list.length}건, ${(bytes.length / 1024 / 1024).toFixed(1)}MB`;
+    if (saveDir) {
+      try {
+        const fh = await saveDir.getFileHandle(fileName, { create: true });
+        const w = await fh.createWritable();
+        await w.write(bytes);
+        await w.close();
+        setSummary(`저장했습니다: 📁 ${saveDir.name}/${fileName} (${size})`, "ok");
+        return;
+      } catch (e) {
+        setSummary(`고른 폴더에 저장하지 못해 다운로드 폴더로 받습니다 (${e.message || e})`, "err");
+      }
+    }
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }));
-    a.download = `${name.replace(/[<>:"/\\|?*]/g, "_")}.pptx`;
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setSummary(`저장했습니다: ${a.download} (${list.length}건, ${(bytes.length / 1024 / 1024).toFixed(1)}MB)`, "ok");
+    setSummary(`저장했습니다: 다운로드 폴더/${fileName} (${size})`, "ok");
   } catch (e) {
     setSummary(`PPT 를 만들지 못했습니다: ${e.message || e}`, "err");
   } finally {
@@ -568,4 +643,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     setSummary("지금 글까지만 끝내고 멈춥니다…");
   });
   $("#build").addEventListener("click", buildPpt);
+  $("#pickFolder").addEventListener("click", pickFolder);
+  $("#clearFolder").addEventListener("click", async () => {
+    await kvSet("saveDir", null);
+    showFolder(null);
+  });
+  showFolder(await kvGet("saveDir").catch(() => null));
 });
