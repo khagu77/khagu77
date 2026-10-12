@@ -110,12 +110,19 @@ AI_RESULT = {
     "issue": "공조기 자동 작동 및 OFF 불가",
     "spec": "EV",
     "short": "공조기 자동 작동 및 OFF 불가 발생",
-    "body": "출고 2주 된 차량에서 공조기가 자동으로 작동하고 OFF가 되지 않는다며 증상에 대해 문의하는 내용",
+    # 일부러 55자를 넘김 → 확장이 한 번 더 줄여 달라고 요청해야 함
+    "body": "출고 2주 된 신차에서 시동을 걸 때마다 공조기가 자동으로 작동하고 OFF 버튼을 눌러도 꺼지지 않는다며 증상에 대해 문의하는 내용",
     "reaction": "‘저도 같은 증상이에요., 사업소에 가세요.’ 등의 여론",
     "level": "경고",
     "duplicate": "중복 2건",
     "region": "-",
     "comment_picks": [0, 1, 99],
+}
+
+
+SHORTENED = {
+    "body": "출고 2주 된 차량에서 공조기가 자동 작동하고 OFF가 안 된다며 증상에 대해 문의하는 내용",
+    "reaction": AI_RESULT["reaction"],
 }
 
 
@@ -287,9 +294,12 @@ def run_report(tmp_path: Path, template: Path, excel: Path, out_dir: Path, ai_ke
         )
 
         def anthropic(route):
-            ai_requests.append(json.loads(route.request.post_data))
+            req = json.loads(route.request.post_data)
+            ai_requests.append(req)
+            schema_keys = set(req["output_config"]["format"]["schema"]["properties"])
+            result = SHORTENED if schema_keys == {"body", "reaction"} else AI_RESULT
             route.fulfill(status=200, headers={"content-type": "text/event-stream"},
-                          body=sse_body(json.dumps(AI_RESULT, ensure_ascii=False)))
+                          body=sse_body(json.dumps(result, ensure_ascii=False)))
 
         ctx.route("https://api.anthropic.com/**", anthropic)
         # 삭제 안내 알림창은 확장이 직접 닫는다 (Playwright 의 자동 닫기와 겹치지 않게 빈 처리기를 둔다)
@@ -332,7 +342,8 @@ def test_report_end_to_end(tmp_path):
     out, ai_requests, summary = run_report(tmp_path, template, excel, tmp_path)
 
     assert out.name == "261007_현대차 온라인 이슈 보고서.pptx", summary
-    assert len(ai_requests) == 1  # 카페 글만 AI 요약 (보배드림은 캡처·요약 안 함)
+    # 카페 글만 AI 요약 (보배드림은 캡처·요약 안 함) + 본문 요약이 55자를 넘어 줄이기 요청 1번
+    assert len(ai_requests) == 2
     sent = json.loads(ai_requests[0]["messages"][0]["content"].split("\n\n", 1)[1])
     assert "OFF 버튼을 눌러도" in sent["body"]
     # 카페 공통 안내 문구(게시판 글쓰기 양식)는 본문에서 뺀다
@@ -371,7 +382,7 @@ def test_report_end_to_end(tmp_path):
     assert link_run.text == "https://cafe.naver.com/allfm01/2157343"
     assert link_run.hyperlink.address == "https://cafe.naver.com/allfm01/2157343"
     assert tbl.cell(2, 5).text == "1,234건" and tbl.cell(2, 6).text == "5건"
-    assert tbl.cell(3, 1).text.startswith("출고 2주 된 차량에서")
+    assert tbl.cell(3, 1).text.split("\n")[0] == SHORTENED["body"]
     assert tbl.cell(3, 1).text.split("\n")[1] == "댓글 반응 : ‘저도 같은 증상이에요., 사업소에 가세요.’ 등의 여론"
 
     pics = [sh for sh in d1.shapes if sh.shape_type == 13]
@@ -483,13 +494,18 @@ def test_excel_layouts(tmp_path):
     gv.append(["카페명", "모델", "작성일", "유형", "링크", "내용", "체크"])
     gv.append(["GV70 클럽", "JK EV", "2026-10-11", "품질", "바로가기", "가속 시 충격", "＋"])
     gv.cell(row=2, column=5).hyperlink = "https://cafe.naver.com/gv70club/123"
+    # 261012 엑셀처럼 URL 열 머리글 칸이 비어 있고, 커뮤니티명 앞에 공백이 있는 경우
+    lx = wb.create_sheet("LX3")
+    lx.append(["커뮤니티명", "차종", "게시일", "구분", None, "주요 내용"])
+    lx.append([" 팰리세이드 피플", "LX3", "2026-10-11", "품질", "https://naver.me/G4d8mM0i", "엔진 경고등 점등", "+"])
     path = tmp_path / "차종별.xlsx"
     wb.save(path)
 
     [res] = read_marked_in_extension(tmp_path, [path])
     assert "error" not in res, res
-    assert res["total"] == 3 and res["sheets"] == ["ME1", "JK"]
+    assert res["total"] == 4 and res["sheets"] == ["ME1", "JK", "LX3"]
     assert [(i["car"], i["url"], i["main"], i["cafe"]) for i in res["items"]] == [
         ("ME1", "https://naver.me/AAA", "업데이트 중 시동 불가", "아이오닉9 오너스"),
         ("JK EV", "https://cafe.naver.com/gv70club/123", "가속 시 충격", "GV70 클럽"),
+        ("LX3", "https://naver.me/G4d8mM0i", "엔진 경고등 점등", "팰리세이드 피플"),
     ]

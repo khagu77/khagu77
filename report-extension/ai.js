@@ -112,18 +112,53 @@ async function aiSummarize(row, info, { apiKey, model }) {
       },
     ],
   };
+  const out = await askJson(client, model, params);
+  const valid = new Set(comments.map((c) => c.index));
+  out.comment_picks = [...new Set((out.comment_picks || []).filter((i) => valid.has(i)))].slice(0, 2);
+  if (!out.comment_picks.length) out.comment_picks = defaultPicks(info);
+  for (const k of ["issue", "spec", "short", "body", "reaction", "duplicate", "region"]) out[k] = String(out[k] || "").trim();
+
+  // 내용 요약 2줄 엄수: 글자 수를 넘으면 한 번 더 줄여 달라고 한다 (말투·마침표·쉼표 규칙은 그대로)
+  if (out.body.length > BODY_MAX || out.reaction.length > REACTION_MAX) {
+    try {
+      const short = await askJson(client, model, {
+        model,
+        max_tokens: 1000,
+        system: AI_SYSTEM,
+        output_config: { effort: "low", format: { type: "json_schema", schema: SHORTEN_SCHEMA } },
+        messages: [
+          {
+            role: "user",
+            content:
+              `아래 body 는 ${BODY_MAX}자 이내, reaction 은 ${REACTION_MAX}자 이내가 되도록 덜 중요한 말을 빼서 줄여 주세요. ` +
+              `이미 짧은 것은 그대로 둡니다. 문장 유형, 댓글 말투(존댓말), 마침표·쉼표·‘ ’ 등의 여론 형식은 그대로 지킵니다.\n\n` +
+              JSON.stringify({ body: out.body, reaction: out.reaction }),
+          },
+        ],
+      });
+      if (short.body && short.body.trim().length <= out.body.length) out.body = short.body.trim();
+      if (out.reaction && short.reaction && short.reaction.trim().length <= out.reaction.length) out.reaction = short.reaction.trim();
+    } catch {
+      /* 줄이지 못하면 원래 문장 (미리보기에서 글자 수가 빨갛게 표시됨) */
+    }
+  }
+  return out;
+}
+
+const SHORTEN_SCHEMA = {
+  type: "object",
+  properties: { body: { type: "string" }, reaction: { type: "string" } },
+  required: ["body", "reaction"],
+  additionalProperties: false,
+};
+
+async function askJson(client, model, params) {
   const stream = model === "claude-haiku-5-5"
     ? client.messages.stream(params)
     : client.beta.messages.stream({ ...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" });
   const msg = await stream.finalMessage();
   if (msg.stop_reason === "refusal") throw new Error("Claude 가 이 글의 요약을 거절했습니다");
-  const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");
-  const out = JSON.parse(text);
-  const valid = new Set(comments.map((c) => c.index));
-  out.comment_picks = [...new Set((out.comment_picks || []).filter((i) => valid.has(i)))].slice(0, 2);
-  if (!out.comment_picks.length) out.comment_picks = defaultPicks(info);
-  for (const k of ["issue", "spec", "short", "body", "reaction", "duplicate", "region"]) out[k] = String(out[k] || "").trim();
-  return out;
+  return JSON.parse(msg.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
 }
 
 // 기본 댓글 2개: 이모티콘 없는 짧은 댓글 우선

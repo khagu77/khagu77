@@ -95,34 +95,51 @@
     return sheets;
   }
 
+  // http 주소(글자 또는 하이퍼링크)가 가장 많은 열
+  function urlColumnByContent(rows) {
+    const count = {};
+    rows.forEach((r) => r.forEach((c, j) => {
+      if (HTTP.test(c.text) || c.link) count[j] = (count[j] || 0) + 1;
+    }));
+    const best = Object.keys(count).sort((a, b) => count[b] - count[a])[0];
+    return best == null ? -1 : Number(best);
+  }
+
   function findColumns(rows) {
-    // 1) 머리글 행: 앞 20줄 중 URL 계열 머리글이 있는 첫 행
+    // 머리글 행: 앞 20줄 중 알려진 머리글 이름이 가장 많이 들어 있는 행 (URL 머리글 칸이 비어 있어도 찾음)
+    let headerAt = -1;
+    let bestScore = 0;
     for (let i = 0; i < Math.min(20, rows.length); i++) {
       const head = rows[i].map((c) => c.text);
-      const urlCol = head.findIndex((h) => h && h.length <= 20 && HEADERS.url.some((re) => re.test(h)));
-      if (urlCol < 0) continue;
-      const col = { url: urlCol };
+      const score = Object.values(HEADERS).filter((pats) =>
+        head.some((h) => h && h.length <= 20 && !HTTP.test(h) && pats.some((re) => re.test(h))),
+      ).length;
+      if (score > bestScore) {
+        bestScore = score;
+        headerAt = i;
+      }
+    }
+    if (bestScore < 2) headerAt = -1;
+    const col = { url: -1, cafe: -1, car: -1, date: -1, kind: -1, main: -1 };
+    if (headerAt >= 0) {
+      const head = rows[headerAt].map((c) => c.text);
       for (const [key, pats] of Object.entries(HEADERS)) {
-        if (key === "url") continue;
-        col[key] = -1;
         for (const re of pats) {
-          const k = head.findIndex((h, j) => j !== urlCol && h && h.length <= 20 && re.test(h) && !Object.values(col).includes(j));
+          const k = head.findIndex((h, j) => h && h.length <= 20 && re.test(h) && !Object.values(col).includes(j));
           if (k >= 0) {
             col[key] = k;
             break;
           }
         }
       }
-      return { headerAt: i, col };
     }
-    // 2) 머리글이 없으면: http 주소(글자 또는 하이퍼링크)가 가장 많은 열
-    const count = {};
-    rows.forEach((r) => r.forEach((c, j) => {
-      if (HTTP.test(c.text) || c.link) count[j] = (count[j] || 0) + 1;
-    }));
-    const best = Object.keys(count).sort((a, b) => count[b] - count[a])[0];
-    if (best == null) return null;
-    return { headerAt: -1, col: { url: Number(best), cafe: -1, car: -1, date: -1, kind: -1, main: -1 } };
+    // URL 열: 머리글이 없거나 비어 있으면 주소가 든 열로
+    const body = rows.slice(headerAt + 1);
+    const looksUrl = (j) => j >= 0 && body.some((r) => r[j] && (HTTP.test(r[j].text) || r[j].link));
+    if (!looksUrl(col.url)) col.url = urlColumnByContent(body);
+    if (col.url < 0) return null;
+    for (const k of Object.keys(col)) if (k !== "url" && col[k] === col.url) col[k] = -1;
+    return { headerAt, col };
   }
 
   // → { items: [{cafe, car, date, kind, url, main, row, sheet}], total, sheets: [이름] }
@@ -135,7 +152,7 @@
       const found = findColumns(sheet.rows);
       if (!found) continue;
       const { headerAt, col } = found;
-      const get = (r, k) => (col[k] >= 0 && r[col[k]] ? r[col[k]].text : "");
+      const get = (r, k) => (col[k] >= 0 && r[col[k]] ? r[col[k]].text.replace(/\s+/g, " ").trim() : "");
       let marked = 0;
       sheet.rows.slice(headerAt + 1).forEach((r, i) => {
         const cell = r[col.url];
