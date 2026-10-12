@@ -343,7 +343,14 @@ def lx3_page(path):
         return (
             f"<html><head><title>전체글보기,{name} : 네이버 카페</title></head><body>{home}<ul id='list'><p>검색 결과가 없습니다.</p></ul>"
             # 실제 화면처럼 처음엔 '결과 없음'이 잠깐 보였다가 목록이 늦게 그려진다
-            f"<script>setTimeout(() => {{ document.getElementById('list').innerHTML = {json.dumps(html, ensure_ascii=False)}; }}, {6000 if page == 1 else 400});</script>"
+            # 새 카페 화면처럼: 보이는 탭에서만(화면 그리기·보이는지 확인이 돌 때만) 목록을 그린다
+            "<div id='sentinel'></div><script>window.__visible = [document.visibilityState];"
+            "function render(){ requestAnimationFrame(() => { document.getElementById('list').innerHTML = "
+            f"{json.dumps(html, ensure_ascii=False)}; }}); }}"
+            f"function go(){{ if (document.hidden) return setTimeout(go, 300);"
+            " new IntersectionObserver((es, io) => { if (es.some(e => e.isIntersecting)) { io.disconnect(); render(); } })"
+            ".observe(document.getElementById('sentinel')); }"
+            f"setTimeout(go, {6000 if page == 1 else 400});</script>"
             "</body></html>"
         )
     m = re.match(r"/f-e/cafes/(\d+)/articles/(\d+)$", u.path)
@@ -406,6 +413,14 @@ def test_lx3(tmp_path: Path):
             status=200, content_type="application/json" if "/youtubei/" in route.request.url else "text/html",
             body=json.dumps(YT_PAGES.get(json.loads(route.request.post_data or "{}").get("continuation"), {}))
             if "/youtubei/" in route.request.url else YT_HTML))
+        # 실제 크롬의 뒤쪽 탭 흉내 (진단 파일로 확인: 탭이 hidden 이면 새 카페 화면은 글 목록을 그리지 않음):
+        # 카페 화면은 '보이지 않음' 상태이고 화면 그리기(requestAnimationFrame)·보이는지 확인(IntersectionObserver)이 멈춘다
+        ctx.add_init_script("""if (location.hostname === 'cafe.naver.com') {
+          Object.defineProperty(Document.prototype, 'hidden', { get: () => true, configurable: true });
+          Object.defineProperty(Document.prototype, 'visibilityState', { get: () => 'hidden', configurable: true });
+          window.requestAnimationFrame = () => 0;
+          window.IntersectionObserver = class { observe() {} disconnect() {} unobserve() {} };
+        }""")
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext = f"chrome-extension://{sw.url.split('/')[2]}"
         page = ctx.new_page()
@@ -420,11 +435,16 @@ def test_lx3(tmp_path: Path):
         assert page.input_value("#from") == (today_noon - __import__("datetime").timedelta(days=1)).strftime("%Y-%m-%dT12:00")
         assert len(page.input_value("#cafeList").split("\n")) == 12 and "16624720" in page.input_value("#cafeList")
 
-        # 유튜브 목록: 추가 · 삭제 · 저장
+        # 유튜브 목록: 기본 23개 · 추가 · 삭제 · 기본으로 되돌리기
+        assert page.locator("#ytList li").count() == 23
+        assert page.locator("#ytList li a").first.inner_text() == "https://www.youtube.com/watch?v=qCzKGyMaDq4"
+        page.evaluate("youtube.length = 0; saveYoutube()")
         page.fill("#ytInput", "https://youtu.be/abcdefghijk https://www.youtube.com/watch?v=zzzzzzzzzzz&t=3 엉뚱한주소")
         page.click("#ytAdd")
         assert page.locator("#ytList li").count() == 2 and page.input_value("#ytInput") == "엉뚱한주소"
         page.locator("#ytList li").nth(1).locator("button").click()
+        assert page.locator("#ytList li a").all_inner_texts() == ["https://www.youtube.com/watch?v=abcdefghijk"]
+        page.reload()  # 저장됨
         assert page.locator("#ytList li a").all_inner_texts() == ["https://www.youtube.com/watch?v=abcdefghijk"]
 
         # 테스트용 동호회 두 곳, 기간 2026-10-11 12:00 ~ 2026-10-12 12:00
@@ -446,7 +466,7 @@ def test_lx3(tmp_path: Path):
             ("2026-10-11 18:05", "BB 오너스 - 비비", "아이오닉9 전동시트 리콜 공지", "https://cafe.naver.com/bbcafe/20001", True),
             ("2026-10-12 08:00", "AA 동호회", "카시트 추천 부탁드려요", "https://cafe.naver.com/aacafe/1002", False),
             ("2026-10-12 09:30", "AA 동호회", "팰리세이드 전동시트 끼임 사고 무섭네요", "https://cafe.naver.com/aacafe/1001", True),
-        ], (got, summary)
+        ], (got, summary, page.inner_text("#log"))
         assert "찾은 글 5개 (관련 글로 체크 4개)" in summary, summary
         # 동호회 이름·영문 주소가 설정 표에 채워진다
         assert page.locator("#cafeInfo tbody tr").nth(1).locator("td").nth(2).inner_text() == "BB 오너스 - 비비"

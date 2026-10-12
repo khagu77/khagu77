@@ -7,6 +7,32 @@ const DEFAULT_CAFES = [
   16624720, 10050004, 19934815, 10633813, 20179506, 21771803, 16598058, 31522344, 23756663, 22267088, 12025661, 25538910,
 ].map((id) => `https://cafe.naver.com/f-e/cafes/${id}/menus/0`);
 const DEFAULT_QUERY = "시트";
+// 기본 유튜브 영상 목록 (화면에서 추가·삭제하면 그 목록이 저장되어 계속 쓰임)
+const DEFAULT_YOUTUBE = [
+  "qCzKGyMaDq4",
+  "XBMdMt_QCCc",
+  "4RBKMiM7U2U",
+  "vUDDF-qIHc8",
+  "8nD5NuYU78Q",
+  "e0HLk5TohDc",
+  "zHKmLScJwmQ",
+  "1ZTBkyUWVsk",
+  "c0BjmtN0U4g",
+  "_JCP2fRFMDA",
+  "Ul8LAQ6SL5o",
+  "SUcSFeNftzg",
+  "vYGVhHMIiwM",
+  "Gw8QlbmzHY8",
+  "LlVeeM8i9r8",
+  "Oxhnyr4nchQ",
+  "Ya7tNSCWHKQ",
+  "JQ0328NfbWc",
+  "Z_IMxiszGII",
+  "GtWQuSuVazI",
+  "ceSOHGdclns",
+  "fxKieGRWEd8",
+  "Ee0tytsS_Ks",
+].map((id) => `https://www.youtube.com/watch?v=${id}`);
 const DEFAULT_INCLUDE =
   "전동시트, 전동 시트, 끼임, 끼여, 끼었, 끼인, 끼이, 폴딩, 접이, 접힘, 접히, 사망, 리콜, 원터치, 업데이트, 업뎃, 판매 중단, 결함, 간담회, 2열, 3열";
 const DEFAULT_EXCLUDE = "카시트, 시트커버, 시트지, 열선, 통풍, 썬팅, 틴팅";
@@ -31,7 +57,7 @@ let diagnostics = []; // 글을 못 읽은 화면의 구조 (진단 파일)
 
 async function loadSettings() {
   const s = await chrome.storage.local
-    .get(["lx3Cafes", "lx3Query", "lx3Include", "lx3Exclude", "lx3SearchUrl", "lx3MaxPages", "lx3CafeNames", "lx3Youtube"])
+    .get(["lx3VisibleRetry", "lx3Cafes", "lx3Query", "lx3Include", "lx3Exclude", "lx3SearchUrl", "lx3MaxPages", "lx3CafeNames", "lx3Youtube"])
     .catch(() => ({}));
   $("#cafeList").value = (s.lx3Cafes || DEFAULT_CAFES).join("\n");
   $("#query").value = s.lx3Query ?? DEFAULT_QUERY;
@@ -39,9 +65,10 @@ async function loadSettings() {
   $("#exclude").value = s.lx3Exclude ?? DEFAULT_EXCLUDE;
   $("#searchUrl").value = s.lx3SearchUrl || DEFAULT_SEARCH_URL;
   $("#maxPages").value = s.lx3MaxPages || DEFAULT_MAX_PAGES;
+  $("#visibleRetry").checked = s.lx3VisibleRetry ?? true;
   cafeNames = Object.fromEntries(Object.entries(s.lx3CafeNames || {}).map(([k, v]) => [k, cleanCafeName(v)]));
   cafeSlugs = await loadCafeSlugs();
-  youtube = s.lx3Youtube || [];
+  youtube = s.lx3Youtube || [...DEFAULT_YOUTUBE];
 }
 
 function saveSettings() {
@@ -53,6 +80,7 @@ function saveSettings() {
       lx3Exclude: $("#exclude").value,
       lx3SearchUrl: normalizeSearchUrl($("#searchUrl").value),
       lx3MaxPages: Math.max(1, Math.min(20, Number($("#maxPages").value) || DEFAULT_MAX_PAGES)),
+      lx3VisibleRetry: $("#visibleRetry").checked,
     })
     .catch(() => {});
 }
@@ -334,6 +362,19 @@ function setSummary(text, cls = "") {
 }
 
 async function scanSearchPage(url) {
+  const res = await scanSearchPageIn(url, false);
+  // 뒤쪽 탭에서 목록이 안 그려졌으면 작은 창으로 한 번 더
+  // ('결과 없음' 문구도 목록이 그려지기 전 빈 화면일 수 있어 다시 확인)
+  if (!res.items.length && !res.login && $("#visibleRetry").checked) {
+    log("  ↳ 뒤쪽 탭에서 글을 못 읽어 작은 창으로 다시 확인합니다");
+    const again = await scanSearchPageIn(url, true);
+    again.retried = true;
+    return again;
+  }
+  return res;
+}
+
+async function scanSearchPageIn(url, visible) {
   return withTab(url, async (tabId) => {
     let last = { items: [], noResult: false, login: false, title: "", hints: [] };
     let emptyInRow = 0;
@@ -355,7 +396,16 @@ async function scanSearchPage(url) {
     last.hints = await runInFrames(tabId, cafeSlugHintsInFrame);
     if (!last.title) last.title = last.hints.find((h) => h.top)?.title || "";
     return last;
-  });
+  }, { visible });
+}
+
+// 못 읽은 화면 요약 (로그에 그대로 보이게)
+function snapshotSummary(snap) {
+  if (!snap?.length) return "";
+  const top = snap.find((f) => f.top) || snap[0];
+  const textLen = snap.reduce((n, f) => n + (f.text || "").length, 0);
+  const links = snap.reduce((n, f) => n + (f.counts?.a || 0), 0);
+  return ` [프레임 ${snap.length}개 · 글자 ${textLen}자 · 링크 ${links}개 · 목록 줄 ${snap.reduce((n, f) => n + (f.counts?.rows || 0), 0)}개 · 탭 ${top.visibility}]`;
 }
 
 async function readArticleTime(url) {
@@ -426,7 +476,7 @@ async function search() {
       const keys = pageItems.map((x) => x.articleId).join(",");
       if (!pageItems.length || keys === prevKeys) {
         if (!pageItems.length && res.snapshot) diagnostics.push({ cafeId, page, url: searchUrl(cafeId, q, page), frames: res.snapshot });
-        log(`· ${cafeNames[cafeId] || cafeId}: ${page}페이지 ${pageItems.length ? "(앞 페이지와 같음)" : res.noResult ? "검색 결과 없음" : "글 목록을 읽지 못함"}`);
+        log(`· ${cafeNames[cafeId] || cafeId}: ${page}페이지 ${pageItems.length ? "(앞 페이지와 같음)" : res.noResult ? "검색 결과 없음" : `글 목록을 읽지 못함${snapshotSummary(res.snapshot)}`}`);
         break;
       }
       prevKeys = keys;
@@ -819,7 +869,7 @@ async function init() {
   renderCafeInfo();
   renderYoutube();
   loadListFile(null);
-  for (const id of ["cafeList", "include", "exclude", "searchUrl", "maxPages", "query"]) {
+  for (const id of ["cafeList", "include", "exclude", "searchUrl", "maxPages", "query", "visibleRetry"]) {
     $(`#${id}`).addEventListener("change", async () => {
       if (id === "searchUrl") $("#searchUrl").value = normalizeSearchUrl($("#searchUrl").value);
       await saveSettings();
@@ -862,6 +912,11 @@ async function init() {
   $("#toComments").addEventListener("click", toComments);
   $("#withYoutube").addEventListener("change", updateCounts);
   $("#ytAdd").addEventListener("click", addYoutube);
+  $("#ytReset").addEventListener("click", () => {
+    if (!confirm(`유튜브 목록을 기본 ${DEFAULT_YOUTUBE.length}개로 되돌릴까요? (지금 목록은 지워집니다)`)) return;
+    youtube = [...DEFAULT_YOUTUBE];
+    saveYoutube();
+  });
   $("#diag").addEventListener("click", () => {
     const blob = new Blob([JSON.stringify({ version: chrome.runtime.getManifest().version, at: new Date().toString(), diagnostics }, null, 1)], { type: "application/json" });
     const a = document.createElement("a");

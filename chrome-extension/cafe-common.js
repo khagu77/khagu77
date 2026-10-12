@@ -127,7 +127,7 @@ function cafeSlugHintsInFrame() {
   for (const a of document.querySelectorAll("a[href]")) {
     const label = (a.innerText || a.getAttribute("aria-label") || "").replace(/\s+/g, "");
     const cls = String(a.className || "") + " " + String(a.parentElement?.className || "");
-    if (/카페홈|카페메인/.test(label) || /cafe_name|cafe-name|cafeName|CafeName|cafe_info|home/i.test(cls)) fromUrl(a.href, strong);
+    if (/카페홈|카페메인/.test(label) || /cafe_name|cafe-name|cafeName|CafeName|cafe_info|cafe_link|home/i.test(cls)) fromUrl(a.href, strong);
     else fromUrl(a.href, weak);
   }
   return { strong, weak, href: location.href, top: window === window.top, title: window === window.top ? document.title : "" };
@@ -151,8 +151,21 @@ function pickSlug(hintsList) {
 // 화면(탭) 열어서 읽기
 // ---------------------------------------------------------------------------
 
-async function withTab(url, fn) {
-  const tab = await chrome.tabs.create({ url, active: false });
+// 이 확장이 연 카페 화면 표시(#lx3bg): bg-render.js 가 이 탭에서만 '보이는 탭'처럼 그리게 한다
+function markUrl(url) {
+  return /^https?:\/\/(?:[\w-]+\.)?(?:cafe\.naver\.com|naver\.me)\//.test(url) && !url.includes("#") ? `${url}#lx3bg` : url;
+}
+
+// visible: true 면 뒤쪽 탭 대신 작은 창을 잠깐 띄워서 연다(뒤쪽 탭에서 화면이 안 그려질 때)
+async function withTab(url, fn, { visible = false } = {}) {
+  let tab;
+  let win = null;
+  if (visible) {
+    win = await chrome.windows.create({ url: markUrl(url), focused: false, type: "popup", width: 1000, height: 760 });
+    tab = win.tabs[0];
+  } else {
+    tab = await chrome.tabs.create({ url: markUrl(url), active: false });
+  }
   try {
     await new Promise((resolve) => {
       const timer = setTimeout(done, 30000);
@@ -169,7 +182,8 @@ async function withTab(url, fn) {
     await sleep(3000); // 카페 화면(iframe/스크립트)이 그려질 시간
     return await fn(tab.id);
   } finally {
-    chrome.tabs.remove(tab.id).catch(() => {});
+    if (win) chrome.windows.remove(win.id).catch(() => {});
+    else chrome.tabs.remove(tab.id).catch(() => {});
   }
 }
 

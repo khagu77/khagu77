@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "팰리세이드(LX3) 전동 시트 관련 카페·유튜브 게시물 및 댓글 수집기",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "동호회(네이버 카페)에서 팰리세이드 전동 시트 관련 글을 찾아 엑셀로 정리하고, 카페 글·유튜브 영상의 댓글을 모아 엑셀(.xlsx)로 저장합니다.",
   "icons": {
     "16": "icons/icon16.png",
@@ -32,5 +32,19 @@
     "https://m.cafe.naver.com/*",
     "https://*.naver.com/*",
     "https://www.youtube.com/*"
-  ]
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://cafe.naver.com/*"
+      ],
+      "js": [
+        "bg-render.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    }
+  ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAl5xUaL+af4gfk41noPs+aMv2jevMASoWs+y2+YtGULiin0HChZuZIj8HJ4qocPMLCyGi2H8haVL45/Q1yeliqALBxc+GkoQejXMcKjYaDABRoK4EAyNrdNiBRDCUhNwUiFR+kDNu2kNdGDytx/ug2VkAxhYdnlD9Sg4PCq/3VOC5F0KN+KsoFKl/uJfqF5fHlkijkqm7eWz/eyAgU+wZFDrug7o9z78aEyHc4wSNpDqCT1jdL267/D4/HP2DoImD5x7rYpH3Po8BCaKP+rWHuCJHq2FZHFJJJ0nAq3Qp+ACrwE2shzd+cv0DYbpDFoLT7/8AQCtJaYedfXiuadswWwIDAQAB"
 }

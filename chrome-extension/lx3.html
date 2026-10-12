@@ -38,6 +38,7 @@
         <label for="searchUrl">카페 검색 주소 형식 <span class="hint">(검색이 안 되면 카페에서 직접 검색한 주소창 주소를 그대로 붙여 넣으세요)</span></label>
         <input type="text" id="searchUrl" class="full" spellcheck="false">
         <label class="inline">카페마다 최대 <input type="number" id="maxPages" min="1" max="20" class="tiny"> 페이지까지 봅니다</label>
+        <label class="inline"><input type="checkbox" id="visibleRetry"> 뒤쪽 탭에서 글 목록을 못 읽으면 작은 창을 잠깐 띄워 다시 읽기</label>
         <div class="buttons"><button id="resetSettings" class="small">설정 처음 값으로</button></div>
       </details>
 
@@ -78,7 +79,7 @@
         <button id="ytAdd" class="small">추가</button>
       </div>
       <ol id="ytList" class="ytlist"></ol>
-      <div class="buttons"><button id="ytCollect" disabled>유튜브 목록 댓글 수집하기 →</button></div>
+      <div class="buttons"><button id="ytCollect" disabled>유튜브 목록 댓글 수집하기 →</button><button id="ytReset" class="small">기본 목록(23개)으로 되돌리기</button></div>
     </section>
 
     <p class="note">
