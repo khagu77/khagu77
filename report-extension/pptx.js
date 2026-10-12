@@ -164,7 +164,8 @@
   // ---------- 전체 만들기 ----------
   // items: [{ title, code, spec, kind, level, progress, cafe, url, views, commentCount, body, reaction, noReaction,
   //           short, duplicate, region, focus, pictures: [{ blob, ext, x, y, w, h, name }] }]
-  async function build(templateBytes, { dateText, items }) {
+  // startNo: 첫 글의 연번, totalRows: 요약표 칸 수 (startNo 앞 칸은 연번만 있는 빈 칸)
+  async function build(templateBytes, { dateText, items, startNo = 1, totalRows = items.length }) {
     const files = await Zip.read(templateBytes);
     const pres = parse(files.get("ppt/presentation.xml"));
     const presRelsPath = "ppt/_rels/presentation.xml.rels";
@@ -220,10 +221,16 @@
       const trs = kids(tbl, A, "tr");
       const proto = trs[1];
       for (const tr of trs.slice(1)) tbl.removeChild(tr);
-      items.forEach((it, i) => {
+      for (let no = 1; no <= Math.max(totalRows, startNo - 1 + items.length); no++) {
+        const it = items[no - startNo];
         const tr = proto.cloneNode(true);
         const tcs = kids(tr, A, "tc");
-        setCell(tcs[0], String(i + 1));
+        setCell(tcs[0], String(no));
+        if (!it) {
+          for (const tc of tcs.slice(1)) setCell(tc, "");
+          tbl.appendChild(tr);
+          continue;
+        }
         setCell(tcs[1], orTodo(it.code));
         setCell(tcs[2], it.kind || "품질");
         setCell(tcs[3], orTodo(it.short));
@@ -232,7 +239,7 @@
         setCell(tcs[6], it.region || "-");
         setCell(tcs[7], it.focus || "-");
         tbl.appendChild(tr);
-      });
+      }
       files.set(path, ser(d));
     }
 
@@ -281,7 +288,7 @@
         return id;
       };
       const linkRid = addRel(T_LINK, it.url, true);
-      fillDetail(doc, it, i + 1, linkRid);
+      fillDetail(doc, it, startNo + i, linkRid);
       for (const pic of it.pictures || []) {
         const media = nextName(`ppt/media/report_${i + 1}_#.${pic.ext}`);
         files.set(media, new Uint8Array(await pic.blob.arrayBuffer()));

@@ -110,8 +110,8 @@ AI_RESULT = {
     "issue": "공조기 자동 작동 및 OFF 불가",
     "spec": "EV",
     "short": "공조기 자동 작동 및 OFF 불가 발생",
-    # 일부러 55자를 넘김 → 확장이 한 번 더 줄여 달라고 요청해야 함
-    "body": "출고 2주 된 신차에서 시동을 걸 때마다 공조기가 자동으로 작동하고 OFF 버튼을 눌러도 꺼지지 않는다며 증상에 대해 문의하는 내용",
+    # 일부러 72자를 넘김 → 확장이 한 번 더 맞춰 달라고 요청해야 함
+    "body": "출고 2주 된 신차에서 시동을 걸 때마다 공조기가 자동으로 작동하고 OFF 버튼을 눌러도 꺼지지 않아 블루핸즈 예약을 마쳤다며 증상에 대해 문의하는 내용",
     "reaction": "‘저도 같은 증상이에요., 사업소에 가세요.’ 등의 여론",
     "level": "경고",
     "duplicate": "중복 2건",
@@ -121,7 +121,7 @@ AI_RESULT = {
 
 
 SHORTENED = {
-    "body": "출고 2주 된 차량에서 공조기가 자동 작동하고 OFF가 안 된다며 증상에 대해 문의하는 내용",
+    "body": "출고 2주 된 신차에서 시동 시마다 공조기가 자동으로 작동하고 OFF 버튼도 듣지 않아 동일 증상 여부 및 해결 방안 문의",
     "reaction": AI_RESULT["reaction"],
 }
 
@@ -272,7 +272,7 @@ def start_fake_cafe(tmp_path: Path):
     return server
 
 
-def run_report(tmp_path: Path, template: Path, excel: Path, out_dir: Path, ai_key="sk-ant-test"):
+def run_report(tmp_path: Path, template: Path, excel: Path, out_dir: Path, ai_key="sk-ant-test", count=None):
     from playwright.sync_api import sync_playwright
 
     server = start_fake_cafe(tmp_path)
@@ -315,6 +315,10 @@ def run_report(tmp_path: Path, template: Path, excel: Path, out_dir: Path, ai_ke
             page.fill("#aiKey", ai_key)
             page.dispatch_event("#aiKey", "change")
         page.fill("#reportDate", "2026-10-07")
+        if count:  # (총 칸 수, 작성 개수)
+            page.uncheck("#countAll")
+            page.fill("#countTotal", str(count[0]))
+            page.fill("#countMine", str(count[1]))
         page.set_input_files("#excelFile", str(excel))
         page.wait_for_selector("#start:not([disabled])")
         page.click("#start")
@@ -443,9 +447,17 @@ def test_report_old_cafe_iframe(tmp_path):
     make_template(template)
     make_excel(excel, [["아이오닉9 오너스", "ME1", "2026-10-06", "품질", "https://cafe.naver.com/framecafe/7",
                         "신차 검수 시 블랙잉크 차량 크롬 몰딩 조립", "+"]])
-    out, ai_requests, _ = run_report(tmp_path, template, excel, tmp_path, ai_key="")
+    # 작성 개수: 총 10칸 중 1개 작성 → 요약표 10칸(1~9번은 연번만), 상세는 No.10 한 장
+    out, ai_requests, _ = run_report(tmp_path, template, excel, tmp_path, ai_key="", count=(10, 1))
     assert ai_requests == []
-    d1 = list(Presentation(out).slides)[3]
+    slides = list(Presentation(out).slides)
+    assert len(slides) == 4
+    rows = [[c.text for c in r.cells] for r in [sh for sh in slides[1].shapes if sh.has_table][0].table.rows]
+    assert [r[0] for r in rows[1:]] == [str(n) for n in range(1, 11)]
+    assert all(all(c == "" for c in r[1:]) for r in rows[1:10])
+    assert rows[10][1] == "ME1"
+    d1 = slides[3]
+    assert "No.10" in [sh.text_frame.text for sh in d1.shapes if sh.has_text_frame]
     texts = [sh.text_frame.text for sh in d1.shapes if sh.has_text_frame]
     assert "■ 아이오닉9(ME1) 신차 검수 시 블랙잉크 차량 크롬 몰딩 조립" in texts
     tbl = [sh for sh in d1.shapes if sh.has_table][0].table

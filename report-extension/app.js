@@ -22,6 +22,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<
 let excelItems = [];
 let items = [];
 let stopRequested = false;
+let plan = { all: true };
 
 // ---------------------------------------------------------------------------
 // 차종·제원
@@ -51,6 +52,12 @@ async function loadSettings() {
   for (const [id, label] of AI_MODELS) $("#aiModel").add(new Option(label, id));
   const s = await chrome.storage.local.get(["aiKey", "aiModel", "fileName", "ppi", "templateName", "templateSavedAt"]).catch(() => ({}));
   if (s.ppi) $("#ppi").value = String(s.ppi);
+  const c = await chrome.storage.local.get(["countAll", "countTotal", "countMine"]).catch(() => ({}));
+  if (c.countAll === false) $("#countAll").checked = false;
+  if (c.countTotal) $("#countTotal").value = c.countTotal;
+  if (c.countMine) $("#countMine").value = c.countMine;
+  for (const el of ["#countAll", "#countTotal", "#countMine"]) $(el).addEventListener("input", updateCountUi);
+  updateCountUi();
   $("#aiKey").value = s.aiKey || "";
   if (s.aiModel && AI_MODELS.some(([id]) => id === s.aiModel)) $("#aiModel").value = s.aiModel;
   if (s.fileName) $("#fileName").value = s.fileName;
@@ -137,6 +144,25 @@ async function onExcelFile() {
     $("#excelInfo").className = "hint err";
   }
   refreshButtons();
+}
+
+// 작성 개수: 전체 / 총 N칸 중 마지막 K칸 작성 (앞 칸은 연번만 있는 빈 칸)
+function countPlan() {
+  if ($("#countAll").checked) return { all: true };
+  const total = Math.min(12, Math.max(1, Number($("#countTotal").value) || 1));
+  const mine = Math.min(total, Math.max(1, Number($("#countMine").value) || 1));
+  return { all: false, total, mine, startNo: total - mine + 1 };
+}
+
+function updateCountUi() {
+  const plan = countPlan();
+  $("#countOpts").classList.toggle("off", plan.all);
+  $("#countHint").textContent = plan.all
+    ? ""
+    : `→ 요약표 ${plan.total}칸, ${plan.startNo > 1 ? `1~${plan.startNo - 1}번은 연번만 있는 빈 칸, ` : ""}${plan.startNo}~${plan.total}번 작성`;
+  chrome.storage.local
+    .set({ countAll: $("#countAll").checked, countTotal: $("#countTotal").value, countMine: $("#countMine").value })
+    .catch(() => {});
 }
 
 function refreshButtons(running = false) {
@@ -250,23 +276,40 @@ async function processItem(it) {
 
 async function start() {
   stopRequested = false;
-  items = excelItems.map((row, i) => ({ no: i + 1, row, ready: false }));
+  plan = countPlan();
+  items = excelItems.map((row) => ({ no: null, row, ready: false }));
   $("#items").innerHTML = "";
   for (const it of items) renderItem(it);
   refreshButtons(true);
+  const need = plan.all ? items.length : plan.mine;
+  let nextNo = plan.all ? 1 : plan.startNo;
   let done = 0;
+  let written = 0;
   for (const it of items) {
     if (stopRequested) break;
-    setSummary(`처리 중… ${done} / ${items.length}`);
+    if (written >= need) {
+      it.skipped = true; // 정한 개수를 채워서 작성하지 않음
+      setItemStatus(it, "작성 안 함 (정한 개수 초과)");
+      continue;
+    }
+    setSummary(`처리 중… ${written} / ${need}건`);
     await processItem(it);
     done++;
+    if (!it.deleted) {
+      it.no = nextNo++;
+      written++;
+      renderItem(it);
+      setItemStatus(it, it.error ? "완료(확인 필요)" : "완료", it.error ? "err" : "ok");
+    }
     const next = items[items.indexOf(it) + 1];
-    if (next && isCafeUrl(next.row.url) && !stopRequested) await sleep(ARTICLE_DELAY[0] + Math.random() * (ARTICLE_DELAY[1] - ARTICLE_DELAY[0]));
+    if (next && written < need && isCafeUrl(next.row.url) && !stopRequested) {
+      await sleep(ARTICLE_DELAY[0] + Math.random() * (ARTICLE_DELAY[1] - ARTICLE_DELAY[0]));
+    }
   }
   const failed = items.filter((it) => it.error).length;
   const deleted = items.filter((it) => it.deleted).length;
   setSummary(
-    stopRequested ? `중지했습니다 (${done} / ${items.length}). 끝난 글로 PPT 를 받을 수 있습니다.` : `완료: ${items.length - deleted}건${deleted ? ` (삭제된 게시물 ${deleted}건 제외)` : ""}${failed ? ` · 확인 필요 ${failed}건` : ""}. 내용을 확인한 뒤 [PPT 받기]를 누르세요.`,
+    stopRequested ? `중지했습니다 (${done} / ${items.length}). 끝난 글로 PPT 를 받을 수 있습니다.` : `완료: ${items.filter((it) => it.ready && !it.deleted).length}건${deleted ? ` (삭제된 게시물 ${deleted}건 제외)` : ""}${failed ? ` · 확인 필요 ${failed}건` : ""}. 내용을 확인한 뒤 [PPT 받기]를 누르세요.`,
     failed ? "err" : "ok",
   );
   refreshButtons(false);
@@ -284,8 +327,8 @@ const FIELD_DEFS = [
   ["progress", "경과", "select", ["초기", "진행", "타결"]],
   ["views", "조회수", "text"],
   ["commentCount", "댓글수", "text"],
-  ["body", "본문 요약", "textarea", "한 줄 (최대 55자)", BODY_MAX],
-  ["reaction", "댓글 반응", "textarea", "한 줄 (최대 50자). 비우면 '댓글 반응 없음'(댓글이 없을 때) 또는 확인 필요", REACTION_MAX],
+  ["body", "본문 요약", "textarea", `첫 줄을 꽉 채우게 (${BODY_MIN}~${BODY_MAX}자)`, BODY_MAX],
+  ["reaction", "댓글 반응", "textarea", `한 줄 (최대 ${REACTION_MAX}자). 비우면 '댓글 반응 없음'(댓글이 없을 때) 또는 확인 필요`, REACTION_MAX],
   ["short", "요약표 내용", "text"],
   ["duplicate", "신규/중복", "text", "예: 신규, 중복 2건"],
   ["region", "입고/운행지역", "text", "본문에 명시된 경우만 (예: 부산 사상구)"],
@@ -306,7 +349,7 @@ function renderItem(it) {
     it.el.className = "item";
     $("#items").appendChild(it.el);
   }
-  const head = `<div class="item-head"><span class="no">No.${it.no}</span><span>${esc(it.row.car)} · ${esc(it.row.cafe)}</span>
+  const head = `<div class="item-head"><span class="no">${it.no ? `No.${it.no}` : ""}</span><span>${esc(it.row.car)} · ${esc(it.row.cafe)}</span>
     <a href="${esc(it.row.url)}" target="_blank" rel="noopener">${esc(it.row.url)}</a><span class="status">대기</span></div>`;
   if (!it.ready || it.deleted) {
     it.el.innerHTML = head + `<div class="hint">${esc(it.row.main)}</div>`;
@@ -463,12 +506,14 @@ async function buildPpt() {
   try {
     setSummary("PPT 만드는 중…");
     const template = await loadTemplate();
-    const ready = items.filter((it) => it.ready && !it.deleted);
+    const ready = items.filter((it) => it.ready && !it.deleted && it.no);
     if (!ready.length) throw new Error("보고서에 넣을 게시물이 없습니다(모두 삭제된 게시물)");
     const list = [];
     for (const it of ready) list.push({ ...it.fields, noReaction: it.noReaction, pictures: await pictures(it) });
     const { y, m, d } = reportDate();
-    const bytes = await Pptx.build(template, { dateText: `${y}.${pad(m)}.${pad(d)}`, items: list });
+    const startNo = plan.all ? 1 : plan.startNo;
+    const totalRows = plan.all ? list.length : plan.total;
+    const bytes = await Pptx.build(template, { dateText: `${y}.${pad(m)}.${pad(d)}`, items: list, startNo, totalRows });
     const name = ($("#fileName").value.trim() || "{날짜}_현대차 온라인 이슈 보고서").replace("{날짜}", `${String(y).slice(2)}${pad(m)}${pad(d)}`);
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }));

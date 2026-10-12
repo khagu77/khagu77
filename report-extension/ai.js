@@ -8,8 +8,9 @@ const AI_MODELS = [
 ];
 
 // 내용 요약 칸은 반드시 2줄(본문 요약 1줄 + 댓글 반응 1줄)이 되도록 길이를 제한한다
-const BODY_MAX = 55;
-const REACTION_MAX = 50; // "댓글 반응 : " 뒤에 들어가는 글자 수
+const BODY_MIN = 60; // 한 줄(약 75자)을 꽉 채우도록
+const BODY_MAX = 72;
+const REACTION_MAX = 60; // "댓글 반응 : " 뒤에 들어가는 글자 수
 
 const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작성하는 모니터링 담당자입니다.
 자동차 동호회(네이버 카페) 게시글의 제목·본문·댓글을 읽고, 보고서 칸에 들어갈 문구를 작성합니다.
@@ -33,7 +34,10 @@ const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작�
 [작성 항목]
 - issue: 슬라이드 제목의 증상 부분. 차명은 빼고 10글자 내외의 명사형. 예) "엔진 경고등 점등", "펜더 부식", "선루프 개폐 오류 및 각종 불량"
 - short: 첫 장 요약표의 '내용 요약'. 한 줄(35자 이내) 명사형. 예) "시동 시 엔진 소음 및 진동 발생 후 엔진 경고등 점등"
-- body: 상세 슬라이드의 본문 요약. 위 문장 시작·끝맺음 유형을 따른 한 문장. 반드시 ${BODY_MAX}자 이내(한 줄에 들어가야 함). 넘으면 덜 중요한 정황을 빼고 줄입니다.
+- body: 상세 슬라이드의 본문 요약 한 문장. 첫 줄 한 줄을 꽉 채우도록 반드시 ${BODY_MIN}~${BODY_MAX}자로 씁니다.
+  너무 짧게 쓰지 말고 게시글의 주요 내용을 풍부하게, 포인트를 잘 잡아 담습니다:
+  차량 상태(출고 시기·주행거리 등) → 언제·어떤 상황에서 → 어떤 증상이 → 어떤 조치(입고·교체·진단 결과)를 받았고 → 작성자가 무엇을 원하는지/어떤 불만인지.
+  위 문장 시작·끝맺음 유형을 따릅니다. ${BODY_MAX}자를 넘으면 덜 중요한 정황부터 뺍니다.
 - reaction: 댓글 반응 한 줄. 캡처할 댓글(comment_picks) 2개를 고른 순서대로 요약합니다. 말 그대로 '여론'이므로 댓글의 말투를 따릅니다.
   · 댓글을 그대로 옮기지 말고 오탈자·맞춤법을 고쳐 핵심만 자연스럽게 다듬습니다.
   · 댓글이 존댓말이면 존댓말로, 반말이면 반말로 씁니다. (예: "못 해요"는 "못 해요"로, "안 되네"는 "안 되네"로)
@@ -128,8 +132,8 @@ async function aiSummarize(row, info, { apiKey, model, recentBodies = [] }) {
   if (!out.comment_picks.length) out.comment_picks = defaultPicks(info);
   for (const k of ["issue", "spec", "short", "body", "reaction", "duplicate", "region"]) out[k] = String(out[k] || "").trim();
 
-  // 내용 요약 2줄 엄수: 글자 수를 넘으면 한 번 더 줄여 달라고 한다 (말투·마침표·쉼표 규칙은 그대로)
-  if (out.body.length > BODY_MAX || out.reaction.length > REACTION_MAX) {
+  // 내용 요약 2줄 엄수 + 첫 줄 꽉 채우기: 본문 요약이 너무 짧거나 길면, 댓글 반응이 길면 한 번 더 맞춰 달라고 한다
+  if (out.body.length > BODY_MAX || out.body.length < BODY_MIN || out.reaction.length > REACTION_MAX) {
     try {
       const short = await askJson(client, model, {
         model,
@@ -140,13 +144,16 @@ async function aiSummarize(row, info, { apiKey, model, recentBodies = [] }) {
           {
             role: "user",
             content:
-              `아래 body 는 ${BODY_MAX}자 이내, reaction 은 ${REACTION_MAX}자 이내가 되도록 덜 중요한 말을 빼서 줄여 주세요. ` +
-              `이미 짧은 것은 그대로 둡니다. 문장 유형, 댓글 말투(존댓말), 마침표·쉼표·‘ ’ 등의 여론 형식은 그대로 지킵니다.\n\n` +
-              JSON.stringify({ body: out.body, reaction: out.reaction }),
+              `아래 body 는 ${BODY_MIN}~${BODY_MAX}자가 되도록 고쳐 주세요. 짧으면 게시글 본문에서 핵심 정황(차량 상태·상황·조치·요구)을 더해 ` +
+              `풍부하게, 길면 덜 중요한 말을 빼서 줄입니다. reaction 은 ${REACTION_MAX}자를 넘으면 줄이고 아니면 그대로 둡니다. ` +
+              `문장 유형, 댓글 말투(존댓말), 마침표·쉼표·‘ ’ 등의 여론 형식은 그대로 지킵니다.\n\n` +
+              JSON.stringify({ body: out.body, reaction: out.reaction, 게시글본문: (info.bodyText || "").slice(0, 3000) }),
           },
         ],
       });
-      if (short.body && short.body.trim().length <= out.body.length) out.body = short.body.trim();
+      const nb = (short.body || "").trim();
+      const dist = (n) => (n < BODY_MIN ? BODY_MIN - n : n > BODY_MAX ? n - BODY_MAX : 0);
+      if (nb && dist(nb.length) <= dist(out.body.length)) out.body = nb;
       if (out.reaction && short.reaction && short.reaction.trim().length <= out.reaction.length) out.reaction = short.reaction.trim();
     } catch {
       /* 줄이지 못하면 원래 문장 (미리보기에서 글자 수가 빨갛게 표시됨) */

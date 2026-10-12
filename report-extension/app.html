@@ -39,6 +39,16 @@
     <label for="reportDate">보고서 날짜</label>
     <input type="date" id="reportDate">
 
+    <label>작성 개수 <span class="hint">(2페이지 요약표 칸 수)</span></label>
+    <div class="count-row">
+      <label class="inline"><input type="checkbox" id="countAll" checked> 전체 <span class="hint">(+ 표시된 글을 차례대로 전부)</span></label>
+      <span id="countOpts">
+        총 <input type="number" id="countTotal" min="1" max="12" value="10">개 중
+        <input type="number" id="countMine" min="1" max="12" value="5">개 작성
+        <span class="hint" id="countHint"></span>
+      </span>
+    </div>
+
     <div class="buttons">
       <button id="start" class="primary" disabled>캡처·요약 시작</button>
       <button id="stop" disabled>중지</button>

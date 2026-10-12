@@ -99,3 +99,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .cnt { font-weight: 400; color: var(--muted); margin-left: 4px; } .cnt.err { color: var(--red); font-weight: 600; }
 .item.deleted { opacity: 0.55; }
 #ppi { min-width: 260px; }
+.count-row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
+label.inline { display: inline-flex; gap: 4px; align-items: center; margin: 0; font-weight: 600; }
+#countOpts input[type="number"] { width: 52px; padding: 3px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+#countOpts.off { opacity: 0.4; pointer-events: none; }
