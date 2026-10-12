@@ -157,7 +157,9 @@ async function processCaptures(cap) {
 }
 
 function fieldsFrom(row, info, ai) {
-  const { code, spec } = splitCar(row.car);
+  // 제원: 엑셀 차종에 EV/HEV 표기가 있거나 전기차 전용 모델이면 그 값, 아니면 AI 가 게시글·작성자 인증글에서 확인한 값, 없으면 '-'
+  const { code, spec: carSpec } = splitCar(row.car);
+  const spec = carSpec !== "-" ? carSpec : ai.spec || "-";
   return {
     title: `${modelName(row.car)}(${row.car}) ${ai.issue}`.trim(),
     code,

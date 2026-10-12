@@ -103,6 +103,7 @@ DELETED_HTML = ("<html><body><script>alert('삭제되었거나 존재하지 않�
 
 AI_RESULT = {
     "issue": "공조기 자동 작동 및 OFF 불가",
+    "spec": "EV",
     "short": "공조기 자동 작동 및 OFF 불가 발생",
     "body": "출고 2주 된 차량에서 공조기가 자동으로 작동하고 OFF가 되지 않는다며 증상에 대해 문의하는 내용",
     "reaction": "‘저도 같은 증상이에요., 사업소에 가세요.’ 등의 여론",
@@ -226,11 +227,14 @@ def start_fake_cafe(tmp_path: Path):
                 return
             # 예전 카페 화면: 바깥 페이지 안의 cafe_main 틀(iframe)에 게시글이 들어 있다
             if "/members/" in self.path or "/menus/" in self.path:
-                titles = (["[파주] 출고 후기", "타이어 공기압 문의"] if "/members/" in self.path
+                titles = (["[출고인증] ST1 카고 받았습니다", "타이어 공기압 문의"] if "/members/" in self.path
                           else ["공조기 자동으로 켜짐", "공조기 OFF 안 됨", "와이퍼 소음"])
                 body = ("<html><body><ul>" + "".join(
                     f'<li><a href="/ca-fe/cafes/1/articles/{100 + i}">{t}</a> <span>2026.09.2{i}.</span></li>'
                     for i, t in enumerate(titles)) + "</ul></body></html>").encode()
+            elif self.path == "/ca-fe/cafes/1/articles/100":  # 작성자의 출고 인증 글
+                body = ('<html><body><div class="se-main-container"><p>드디어 ST1 카고 <b>EV 롱레인지</b> 출고했습니다.</p>'
+                        "</div></body></html>").encode()
             elif self.path == "/deleted1":
                 body = DELETED_HTML.encode()
             elif "/framecafe/" in self.path:
@@ -330,7 +334,9 @@ def test_report_end_to_end(tmp_path):
     assert [(c["text"], c["hasSticker"]) for c in sent["comments"]] == [
         ("저도 같은 증상이에요", False), ("사업소 가세요", False), ("ㅋㅋ", True)]
     assert sent["author"] == "파주ll작성자" and sent["postDate"] == "2026-10-06"
-    assert [p["title"] for p in sent["authorPosts"]] == ["[파주] 출고 후기", "타이어 공기압 문의"]
+    assert [p["title"] for p in sent["authorPosts"]] == ["[출고인증] ST1 카고 받았습니다", "타이어 공기압 문의"]
+    # 제원 확인용: 작성자의 출고 인증 글 본문을 읽어 보낸다
+    assert sent["authorCertPosts"] == [{"title": "[출고인증] ST1 카고 받았습니다", "text": "드디어 ST1 카고 EV 롱레인지 출고했습니다."}]
     assert len(sent["boardPosts"]) == 3 and sent["boardPosts"][0]["date"].startswith("2026.09.2")
 
     prs = Presentation(out)

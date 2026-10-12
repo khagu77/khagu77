@@ -35,6 +35,9 @@ const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작�
   예) ‘이건 제작이 잘못된 것 같습니다., 블루핸즈 말고 사업소에 가서 강하게 항의하세요!’ 등의 여론
   예) ‘업데이트되면 아무것도 못 해요., 업데이트하면 딱 멈춰 버리네요.’ 등의 여론
   댓글이 없거나 의미 있는 반응이 없으면 빈 문자열.
+- spec: 제원. "2.5T", "3.5T", "1.6T", "2.0", "2.5", "HEV", "EV", "LPI", "디젤" 처럼 짧게.
+  게시글 본문에서 먼저 찾고, 없으면 authorPosts(작성자의 다른 글 제목)와 authorCertPosts(작성자의 계약인증·출고인증 글 본문)에서 확인하거나 유추합니다.
+  하이브리드는 "HEV", 전기차는 "EV". 아무리 봐도 근거가 없으면 "-".
 - level: 불만 단계. 대부분은 "주의"입니다.
   주의 = 일반적인 품질 불만·문의 (도장 불량, 단차, 소음, 경고등, 기능 오작동 등 대부분)
   경고 = 악성 민원(강한 항의·집단 행동·언론 제보 예고 등) 또는 주요하고 심각한 이슈 (주행 중 시동 꺼짐, 차가 움직이지 않음 등 운행에 직접 영향)
@@ -53,6 +56,7 @@ const AI_SCHEMA = {
   type: "object",
   properties: {
     issue: { type: "string" },
+    spec: { type: "string" },
     short: { type: "string" },
     body: { type: "string" },
     reaction: { type: "string" },
@@ -61,7 +65,7 @@ const AI_SCHEMA = {
     region: { type: "string" },
     comment_picks: { type: "array", items: { type: "integer" } },
   },
-  required: ["issue", "short", "body", "reaction", "level", "duplicate", "region", "comment_picks"],
+  required: ["issue", "spec", "short", "body", "reaction", "level", "duplicate", "region", "comment_picks"],
   additionalProperties: false,
 };
 
@@ -92,8 +96,9 @@ async function aiSummarize(row, info, { apiKey, model }) {
     postDate: info.postDate || "",
     body: info.bodyText || "",
     comments,
-    authorPosts: (info.authorPosts || []).slice(0, 30),
-    boardPosts: info.boardPosts || [],
+    authorPosts: (info.authorPosts || []).slice(0, 30).map((p) => ({ title: p.title, date: p.date })),
+    authorCertPosts: info.authorCertPosts || [],
+    boardPosts: (info.boardPosts || []).map((p) => ({ title: p.title, date: p.date })),
   };
   const params = {
     model,
@@ -117,7 +122,7 @@ async function aiSummarize(row, info, { apiKey, model }) {
   const valid = new Set(comments.map((c) => c.index));
   out.comment_picks = [...new Set((out.comment_picks || []).filter((i) => valid.has(i)))].slice(0, 2);
   if (!out.comment_picks.length) out.comment_picks = defaultPicks(info);
-  for (const k of ["issue", "short", "body", "reaction", "duplicate", "region"]) out[k] = String(out[k] || "").trim();
+  for (const k of ["issue", "spec", "short", "body", "reaction", "duplicate", "region"]) out[k] = String(out[k] || "").trim();
   return out;
 }
 
@@ -134,6 +139,7 @@ function excelDraft(row, info) {
   const main = (row.main || "").trim();
   return {
     issue: main,
+    spec: "",
     short: main,
     body: main,
     reaction: "",

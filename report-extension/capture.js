@@ -362,7 +362,7 @@ async function cafeListProbe(limit) {
       seen.add(title);
       const row = a.closest("tr, li, [class*='item'], [class*='Item']") || a.parentElement;
       const date = ((row && row.innerText.match(DATE)) || [""])[0];
-      out.push({ title: title.slice(0, 80), date });
+      out.push({ title: title.slice(0, 80), date, href: a.href });
       if (out.length >= limit) break;
     }
     return out;
@@ -450,6 +450,36 @@ async function readList(tabId, url) {
   }
 }
 
+// 게시글 본문 글자만 읽기 (작성자의 계약·출고 인증 글에서 제원 확인용)
+async function articleTextProbe() {
+  const frame = document.querySelector("iframe#cafe_main");
+  let doc = document;
+  try {
+    if (frame && frame.contentDocument && frame.contentDocument.body) doc = frame.contentDocument;
+  } catch {
+    /* 다른 도메인 틀 */
+  }
+  for (let t = 0; t < 10; t++) {
+    const el = doc.querySelector(".se-main-container, .ContentRenderer, .article_viewer, #tbody, #postContent");
+    if (el && el.innerText.trim()) return el.innerText.replace(/\s+/g, " ").trim().slice(0, 1500);
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return "";
+}
+
+async function readArticleText(tabId, url) {
+  try {
+    await gotoAndWait(tabId, url);
+    const [res] = await withTimeout(chrome.scripting.executeScript({ target: { tabId }, func: articleTextProbe }), 15000);
+    return (res && res.result) || "";
+  } catch {
+    return "";
+  }
+}
+
+const CERT_RE = /계약|출고|인수|인증|구매|탁송/;
+const MAX_CERT_POSTS = 2;
+
 async function probe(tabId, mode, target) {
   const [res] = await chrome.scripting.executeScript({
     target: { tabId },
@@ -533,6 +563,13 @@ async function captureCafePost(url, onStep = () => {}) {
     onStep("작성글·게시판 목록 확인 중");
     await sleep(1000 + Math.random() * 1500);
     info.authorPosts = await readList(tabId, info.authorLink);
+    // 제원(2.5T·1.6T·HEV 등) 확인용: 작성자의 계약·출고 인증 글을 최대 2개 열어 본문을 읽는다
+    info.authorCertPosts = [];
+    for (const p of info.authorPosts.filter((p) => CERT_RE.test(p.title) && p.href).slice(0, MAX_CERT_POSTS)) {
+      await sleep(1000 + Math.random() * 1500);
+      const text = await readArticleText(tabId, p.href);
+      if (text) info.authorCertPosts.push({ title: p.title, text });
+    }
     if (info.boardLink) await sleep(1000 + Math.random() * 1500);
     info.boardPosts = await readList(tabId, info.boardLink);
     return out;
