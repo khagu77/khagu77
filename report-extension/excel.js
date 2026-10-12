@@ -1,19 +1,26 @@
 // 일일 부정 이슈 수집 엑셀(.xlsx/.xltx)에서 '+' 표시된 게시물만 골라낸다.
-// 머리글 이름으로 열을 찾으므로 열 순서가 바뀌어도 된다.
+// - 모든 시트를 읽는다 (차종별로 시트가 나뉜 파일도 됨)
+// - 머리글 이름에 'URL·링크·주소' 등이 들어간 열을 URL 열로 본다. 머리글이 없으면 http 주소가 든 열을 찾는다.
+// - 칸 글자 대신 하이퍼링크로만 걸린 주소도 읽는다.
 (function (global) {
   const NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
   const REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  const PKG_NS = "http://schemas.openxmlformats.org/package/2006/relationships";
 
+  // 머리글에 이 말이 들어 있으면 그 열로 본다 (앞에 있는 것부터)
   const HEADERS = {
-    cafe: ["커뮤니티명", "커뮤니티", "매체", "카페명"],
-    car: ["차종"],
-    date: ["게시일", "작성일"],
-    kind: ["구분", "유형"],
-    url: ["URL", "url", "링크"],
-    main: ["주요 내용", "주요내용", "내용"],
+    url: [/url/i, /링크/, /주소/, /게시글\s*위치/, /link/i],
+    cafe: [/커뮤니티/, /카페/, /매체/, /동호회/, /채널/],
+    car: [/차종/, /모델/],
+    date: [/게시일/, /작성일/, /날짜/, /일자/],
+    kind: [/구분/, /유형/],
+    main: [/주요\s*내용/, /내용/, /요약/, /제목/],
   };
+  const PLUS = /^[+＋]$/;
+  const HTTP = /^https?:\/\//i;
 
   const parseXml = (u8) => new DOMParser().parseFromString(Zip.text(u8), "application/xml");
+  const els = (doc, name) => [...doc.getElementsByTagNameNS(NS, name)];
 
   function colIndex(ref) {
     const letters = ref.replace(/\d+/g, "");
@@ -36,69 +43,124 @@
   function serialToDate(s) {
     const n = Number(s);
     if (!Number.isFinite(n) || n < 20000) return String(s || "");
-    const d = new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000);
-    return d.toISOString().slice(0, 10);
+    return new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000).toISOString().slice(0, 10);
   }
 
-  async function readRows(bytes) {
+  function relTargets(files, relsPath, basePath) {
+    const map = {};
+    if (!files.has(relsPath)) return map;
+    for (const r of parseXml(files.get(relsPath)).getElementsByTagNameNS(PKG_NS, "Relationship")) {
+      const target = r.getAttribute("Target");
+      if (r.getAttribute("TargetMode") === "External") map[r.getAttribute("Id")] = target;
+      else map[r.getAttribute("Id")] = target.startsWith("/") ? target.slice(1) : `${basePath}/${target}`;
+    }
+    return map;
+  }
+
+  // → [{ name, rows: [[{text, link}]] }]
+  async function readSheets(bytes) {
     const files = await Zip.read(bytes);
     const shared = [];
     if (files.has("xl/sharedStrings.xml")) {
-      for (const si of parseXml(files.get("xl/sharedStrings.xml")).getElementsByTagNameNS(NS, "si")) {
+      for (const si of els(parseXml(files.get("xl/sharedStrings.xml")), "si")) {
         shared.push([...si.getElementsByTagNameNS(NS, "t")].map((x) => x.textContent).join(""));
       }
     }
-    // 첫 번째 시트
     const wb = parseXml(files.get("xl/workbook.xml"));
-    const sheet = wb.getElementsByTagNameNS(NS, "sheet")[0];
-    const rid = sheet.getAttributeNS(REL_NS, "id");
-    const rels = parseXml(files.get("xl/_rels/workbook.xml.rels"));
-    let target = "worksheets/sheet1.xml";
-    for (const r of rels.getElementsByTagName("Relationship")) {
-      if (r.getAttribute("Id") === rid) target = r.getAttribute("Target");
+    const wbRels = relTargets(files, "xl/_rels/workbook.xml.rels", "xl");
+    const sheets = [];
+    for (const sh of els(wb, "sheet")) {
+      if (sh.getAttribute("state") === "hidden" || sh.getAttribute("state") === "veryHidden") continue;
+      const path = wbRels[sh.getAttributeNS(REL_NS, "id")];
+      if (!path || !files.has(path)) continue;
+      const doc = parseXml(files.get(path));
+      // 하이퍼링크: 칸 위치 → 주소
+      const links = {};
+      const sheetRels = relTargets(files, path.replace(/([^/]+)$/, "_rels/$1.rels"), path.replace(/\/[^/]+$/, ""));
+      for (const h of els(doc, "hyperlink")) {
+        const target = sheetRels[h.getAttributeNS(REL_NS, "id")];
+        if (target && HTTP.test(target)) links[h.getAttribute("ref").split(":")[0]] = target;
+      }
+      const rows = [];
+      for (const row of els(doc, "row")) {
+        const arr = [];
+        for (const c of row.getElementsByTagNameNS(NS, "c")) {
+          const ref = c.getAttribute("r");
+          arr[colIndex(ref)] = { text: String(cellText(c, shared) ?? "").trim(), link: links[ref] || "" };
+        }
+        rows.push(Array.from(arr, (x) => x || { text: "", link: "" }));
+      }
+      sheets.push({ name: sh.getAttribute("name"), rows });
     }
-    const path = target.startsWith("/") ? target.slice(1) : `xl/${target}`;
-    const doc = parseXml(files.get(path));
-    const rows = [];
-    for (const row of doc.getElementsByTagNameNS(NS, "row")) {
-      const arr = [];
-      for (const c of row.getElementsByTagNameNS(NS, "c")) arr[colIndex(c.getAttribute("r"))] = cellText(c, shared);
-      rows.push(arr.map((v) => (v == null ? "" : String(v))));
-    }
-    return rows;
+    return sheets;
   }
 
-  // → { items: [{cafe, car, date, kind, url, main, row}], total }
-  async function readMarked(bytes) {
-    const rows = await readRows(bytes);
-    const headerAt = rows.findIndex((r) => r.some((v) => /^url$/i.test(v.trim())));
-    if (headerAt < 0) throw new Error("엑셀에서 'URL' 머리글을 찾지 못했습니다");
-    const header = rows[headerAt].map((v) => v.trim());
-    const col = {};
-    for (const [key, names] of Object.entries(HEADERS)) {
-      col[key] = header.findIndex((h) => names.includes(h));
+  function findColumns(rows) {
+    // 1) 머리글 행: 앞 20줄 중 URL 계열 머리글이 있는 첫 행
+    for (let i = 0; i < Math.min(20, rows.length); i++) {
+      const head = rows[i].map((c) => c.text);
+      const urlCol = head.findIndex((h) => h && h.length <= 20 && HEADERS.url.some((re) => re.test(h)));
+      if (urlCol < 0) continue;
+      const col = { url: urlCol };
+      for (const [key, pats] of Object.entries(HEADERS)) {
+        if (key === "url") continue;
+        col[key] = -1;
+        for (const re of pats) {
+          const k = head.findIndex((h, j) => j !== urlCol && h && h.length <= 20 && re.test(h) && !Object.values(col).includes(j));
+          if (k >= 0) {
+            col[key] = k;
+            break;
+          }
+        }
+      }
+      return { headerAt: i, col };
     }
-    if (col.url < 0) throw new Error("엑셀에서 'URL' 열을 찾지 못했습니다");
-    const get = (r, k) => (col[k] >= 0 ? (r[col[k]] || "").trim() : "");
+    // 2) 머리글이 없으면: http 주소(글자 또는 하이퍼링크)가 가장 많은 열
+    const count = {};
+    rows.forEach((r) => r.forEach((c, j) => {
+      if (HTTP.test(c.text) || c.link) count[j] = (count[j] || 0) + 1;
+    }));
+    const best = Object.keys(count).sort((a, b) => count[b] - count[a])[0];
+    if (best == null) return null;
+    return { headerAt: -1, col: { url: Number(best), cafe: -1, car: -1, date: -1, kind: -1, main: -1 } };
+  }
+
+  // → { items: [{cafe, car, date, kind, url, main, row, sheet}], total, sheets: [이름] }
+  async function readMarked(bytes) {
+    const sheets = await readSheets(bytes);
     const items = [];
     let total = 0;
-    rows.slice(headerAt + 1).forEach((r, i) => {
-      const url = get(r, "url");
-      if (!url) return;
-      total++;
-      if (!r.some((v) => v.trim() === "+")) return;
-      items.push({
-        cafe: get(r, "cafe"),
-        car: get(r, "car"),
-        date: serialToDate(get(r, "date")),
-        kind: get(r, "kind") || "품질",
-        url,
-        main: get(r, "main"),
-        row: headerAt + i + 2,
+    const used = [];
+    for (const sheet of sheets) {
+      const found = findColumns(sheet.rows);
+      if (!found) continue;
+      const { headerAt, col } = found;
+      const get = (r, k) => (col[k] >= 0 && r[col[k]] ? r[col[k]].text : "");
+      let marked = 0;
+      sheet.rows.slice(headerAt + 1).forEach((r, i) => {
+        const cell = r[col.url];
+        if (!cell) return;
+        const url = HTTP.test(cell.text) ? cell.text : cell.link;
+        if (!url) return;
+        total++;
+        if (!r.some((c) => PLUS.test(c.text))) return;
+        marked++;
+        items.push({
+          cafe: get(r, "cafe"),
+          car: get(r, "car"),
+          date: serialToDate(get(r, "date")),
+          kind: get(r, "kind") || "품질",
+          url: url.trim(),
+          main: get(r, "main"),
+          row: headerAt + i + 2,
+          sheet: sheet.name,
+        });
       });
-    });
-    return { items, total };
+      if (marked) used.push(sheet.name);
+    }
+    if (!total) throw new Error("엑셀에서 게시글 주소(URL) 열을 찾지 못했습니다");
+    return { items, total, sheets: used };
   }
 
-  global.Excel = { readMarked, readRows };
+  global.Excel = { readMarked, readSheets };
 })(typeof window !== "undefined" ? window : self);

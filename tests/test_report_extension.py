@@ -1,4 +1,4 @@
-"""온라인 이슈 보고서 작성기(report-extension) 통합 테스트.
+"""온라인 오전동향 PPT 보고서 작성기(report-extension) 통합 테스트.
 
 가짜 카페 게시글(로컬 HTTPS 서버를 cafe.naver.com 으로 연결)과 가짜 Claude 응답으로
 엑셀 선택 → 캡처 → AI 요약 → PPT 받기까지 확인한다.
@@ -440,3 +440,56 @@ def test_report_old_cafe_iframe(tmp_path):
     assert tbl.cell(3, 1).text.startswith("신차 검수 시 블랙잉크")
     pics = [sh for sh in d1.shapes if sh.shape_type == 13]
     assert len(pics) == 5  # 제목 + 본문 + 댓글 2(이모티콘 없는 짧은 댓글) + 이미지 1
+
+
+def read_marked_in_extension(tmp_path, paths):
+    """확장 화면에서 Excel.readMarked 를 그대로 실행해 결과를 돌려준다."""
+    import base64
+
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile_x"), executable_path=CHROMIUM, headless=True,
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}"])
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        page = ctx.new_page()
+        page.goto(f"chrome-extension://{sw.url.split('/')[2]}/app.html")
+        out = [page.evaluate(
+            """async (b64) => {
+                const bin = atob(b64); const u8 = new Uint8Array(bin.length);
+                for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+                try { return await Excel.readMarked(u8); } catch (e) { return { error: e.message }; }
+            }""", base64.b64encode(Path(x).read_bytes()).decode()) for x in paths]
+        ctx.close()
+    return out
+
+
+def test_excel_layouts(tmp_path):
+    """요약 시트가 먼저 있고 차종별 시트로 나뉜 파일, 'URL' 이 아닌 머리글, 하이퍼링크로만 걸린 주소, 전각 ＋."""
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    summary = wb.active
+    summary.title = "요약"
+    summary.append(["차종", "건수"])
+    summary.append(["ME1", 2])
+    ioniq = wb.create_sheet("ME1")
+    ioniq.append(["2026.10.12 차종별 온라인 동향"])  # 머리글 위 제목 줄
+    ioniq.append(["커뮤니티명", "차종", "게시일", "구분", "게시글 URL", "주요 내용", "선정"])
+    ioniq.append(["아이오닉9 오너스", "ME1", "2026-10-11", "품질", "https://naver.me/AAA", "업데이트 중 시동 불가", "+"])
+    ioniq.append(["아이오닉9 오너스", "ME1", "2026-10-11", "품질", "https://naver.me/BBB", "선정 안 됨", ""])
+    gv = wb.create_sheet("JK")
+    gv.append(["카페명", "모델", "작성일", "유형", "링크", "내용", "체크"])
+    gv.append(["GV70 클럽", "JK EV", "2026-10-11", "품질", "바로가기", "가속 시 충격", "＋"])
+    gv.cell(row=2, column=5).hyperlink = "https://cafe.naver.com/gv70club/123"
+    path = tmp_path / "차종별.xlsx"
+    wb.save(path)
+
+    [res] = read_marked_in_extension(tmp_path, [path])
+    assert "error" not in res, res
+    assert res["total"] == 3 and res["sheets"] == ["ME1", "JK"]
+    assert [(i["car"], i["url"], i["main"], i["cafe"]) for i in res["items"]] == [
+        ("ME1", "https://naver.me/AAA", "업데이트 중 시동 불가", "아이오닉9 오너스"),
+        ("JK EV", "https://cafe.naver.com/gv70club/123", "가속 시 충격", "GV70 클럽"),
+    ]

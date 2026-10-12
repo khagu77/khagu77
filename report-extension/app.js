@@ -1,4 +1,4 @@
-// 온라인 이슈 보고서 작성기 - 작업 화면
+// 온라인 오전동향 PPT 보고서 작성기 - 작업 화면
 // 엑셀(+ 표시 행) → 카페 글 캡처 → AI 요약 → 미리보기에서 확인·수정 → PPT 받기
 
 const ARTICLE_DELAY = [4000, 8000]; // 글과 글 사이 쉬는 시간 (사람처럼 천천히)
@@ -118,9 +118,12 @@ async function onExcelFile() {
   const file = $("#excelFile").files[0];
   if (!file) return;
   try {
-    const { items: marked, total } = await Excel.readMarked(new Uint8Array(await file.arrayBuffer()));
+    const { items: marked, total, sheets } = await Excel.readMarked(new Uint8Array(await file.arrayBuffer()));
     excelItems = marked;
-    $("#excelInfo").textContent = `전체 ${total}건 중 + 표시 ${marked.length}건` + (marked.length ? `: ${marked.map((m) => m.car).join(", ")}` : "");
+    $("#excelInfo").textContent =
+      `전체 ${total}건 중 + 표시 ${marked.length}건` +
+      (marked.length ? `: ${marked.map((m) => m.car || "?").join(", ")}` : " (+ 표시된 행이 없습니다)") +
+      (sheets.length > 1 ? ` · 시트 ${sheets.join(", ")}` : "");
     $("#excelInfo").className = marked.length ? "hint ok" : "hint err";
   } catch (e) {
     excelItems = [];
