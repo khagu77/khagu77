@@ -184,6 +184,14 @@
       <h2>엑셀 파일 이름 <span class="hint">{날짜} 자리에 수집 끝 날짜(예: 261011)가 들어갑니다</span></h2>
       <input type="text" id="fileName" spellcheck="false">
 
+      <h2>엑셀 저장 폴더 <span class="hint">지정하지 않으면 크롬 다운로드 폴더에 저장됩니다. 지정한 폴더는 바로 적용되고 기억됩니다</span></h2>
+      <div class="buttons small">
+        <button id="pickSaveDir">폴더 선택</button>
+        <button id="grantSaveDir" hidden>저장 권한 다시 허용</button>
+        <button id="clearSaveDir" hidden>다운로드 폴더로 되돌리기</button>
+        <span id="saveDirInfo" class="hint"></span>
+      </div>
+
       <h2>보고 필요 우선 차종 <span class="hint">신규 출시 차종 코드, 쉼표로 구분. 이 차종의 심각한 이슈를 '보고 필요'로 먼저 고릅니다 (네이버 카페 글만)</span></h2>
       <input type="text" id="priorityCars" spellcheck="false">
 

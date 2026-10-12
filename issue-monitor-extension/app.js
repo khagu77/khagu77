@@ -548,7 +548,113 @@ function reportFilename(range, ascii = false) {
   return `${prefix}${name || ymd}.xlsx`;
 }
 
-async function downloadReport(rows = state.rows, range = state.range) {
+// ---------------------------------------------------------------------------
+// 엑셀 저장 폴더: 크롬 다운로드 기능은 다운로드 폴더 안에만 저장할 수 있어서,
+// 사용자가 고른 폴더(File System Access)를 IndexedDB 에 기억해 두고 그 폴더에 직접 쓴다.
+// ---------------------------------------------------------------------------
+
+function idbHandles(mode, fn) {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open("issueMonitor", 1);
+    open.onupgradeneeded = () => open.result.createObjectStore("handles");
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const tx = open.result.transaction("handles", mode);
+      const req = fn(tx.objectStore("handles"));
+      tx.oncomplete = () => resolve(req && req.result);
+      tx.onerror = () => reject(tx.error);
+    };
+  });
+}
+const getSaveDir = () => idbHandles("readonly", (st) => st.get("saveDir")).catch(() => null);
+const setSaveDir = (h) => idbHandles("readwrite", (st) => (h ? st.put(h, "saveDir") : st.delete("saveDir")));
+
+async function saveDirPermission(dir, ask) {
+  const opts = { mode: "readwrite" };
+  let p = await dir.queryPermission(opts);
+  if (p !== "granted" && ask) p = await dir.requestPermission(opts).catch(() => "denied");
+  return p === "granted";
+}
+
+async function uniqueFileName(dir, name) {
+  const dot = name.lastIndexOf(".");
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  for (let i = 0; i < 100; i++) {
+    const n = i ? `${base} (${i})${ext}` : name;
+    try {
+      await dir.getFileHandle(n);
+    } catch {
+      return n; // 없음 → 이 이름 사용
+    }
+  }
+  return `${base} (${Date.now()})${ext}`;
+}
+
+async function renderSaveDir() {
+  const dir = await getSaveDir();
+  $("#clearSaveDir").hidden = !dir;
+  if (!dir) {
+    $("#grantSaveDir").hidden = true;
+    $("#saveDirInfo").textContent = "지금: 크롬 다운로드 폴더";
+    return;
+  }
+  const ok = await saveDirPermission(dir, false).catch(() => false);
+  $("#grantSaveDir").hidden = ok;
+  $("#saveDirInfo").textContent = ok ? `지금: '${dir.name}' 폴더에 저장` : `'${dir.name}' 폴더 저장 권한이 필요합니다 → '저장 권한 다시 허용'을 눌러 주세요 (그 전까지는 다운로드 폴더에 저장)`;
+  $("#saveDirInfo").classList.toggle("err", !ok);
+}
+
+$("#pickSaveDir").addEventListener("click", async () => {
+  if (!window.showDirectoryPicker) return alert("이 크롬 버전은 폴더 지정을 지원하지 않습니다. 크롬을 최신으로 업데이트해 주세요.");
+  try {
+    const dir = await window.showDirectoryPicker({ id: "reportDir", mode: "readwrite", startIn: "desktop" });
+    await saveDirPermission(dir, true);
+    await setSaveDir(dir);
+  } catch (e) {
+    if (e.name !== "AbortError") alert(`폴더를 지정하지 못했습니다: ${e.message}`);
+  }
+  renderSaveDir();
+});
+$("#grantSaveDir").addEventListener("click", async () => {
+  const dir = await getSaveDir();
+  if (dir) await saveDirPermission(dir, true);
+  renderSaveDir();
+});
+$("#clearSaveDir").addEventListener("click", async () => {
+  await setSaveDir(null);
+  renderSaveDir();
+});
+
+// 저장한 곳을 돌려준다 (기록용). interactive=true 면(버튼 클릭) 권한이 없을 때 허용을 묻는다.
+async function downloadReport(rows = state.rows, range = state.range, interactive = true) {
+  const dir = await getSaveDir();
+  if (dir) {
+    let ok = false;
+    try {
+      ok = await saveDirPermission(dir, interactive);
+    } catch {}
+    if (ok) {
+      const bytes = ReportXlsx.build(rows);
+      let lastErr = null;
+      // 한글 파일명을 못 쓰는 환경이면 영문 이름으로
+      for (const ascii of [false, true]) {
+        try {
+          const name = await uniqueFileName(dir, reportFilename(range, ascii));
+          const fh = await dir.getFileHandle(name, { create: true });
+          const w = await fh.createWritable();
+          await w.write(bytes);
+          await w.close();
+          return `'${dir.name}' 폴더 (${name})`;
+        } catch (e) {
+          lastErr = e;
+        }
+      }
+      log(`지정한 '${dir.name}' 폴더에 저장하지 못해 다운로드 폴더에 저장합니다: ${lastErr && lastErr.message}`, "err");
+    } else {
+      log(`'${dir.name}' 폴더 저장 권한이 없어 다운로드 폴더에 저장합니다 (설정 → 엑셀 저장 폴더에서 '저장 권한 다시 허용')`, "err");
+    }
+  }
   const bytes = ReportXlsx.build(rows);
   const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
@@ -562,8 +668,13 @@ async function downloadReport(rows = state.rows, range = state.range) {
   } finally {
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
+  return "다운로드 폴더";
 }
-$("#download").addEventListener("click", () => downloadReport(state.rows, state.range).catch((e) => log(`엑셀 저장 실패: ${e.message}`, "err")));
+$("#download").addEventListener("click", () =>
+  downloadReport(state.rows, state.range)
+    .then((where) => log(`엑셀을 ${where}에 저장했습니다`))
+    .catch((e) => log(`엑셀 저장 실패: ${e.message}`, "err"))
+);
 
 // ---------------------------------------------------------------------------
 // 수집
@@ -1100,9 +1211,9 @@ async function runCollection() {
     } else {
       try {
         if (settings.workdayReport) await buildWorkdayReport(ai, settings);
-        await downloadReport(state.rows, state.range);
+        const where = await downloadReport(state.rows, state.range, false);
         await chrome.storage.local.set({ lastReportAt: finishedAt });
-        log("엑셀을 다운로드 폴더에 저장했습니다");
+        log(`엑셀을 ${where}에 저장했습니다`);
       } catch (e) {
         log(`엑셀 저장 실패: ${e.message}`, "err");
       }
@@ -1225,6 +1336,7 @@ function renderSettings() {
   $("#keywords").value = s.keywords || "";
   $("#terms").value = s.terms || "";
   $("#fileName").value = s.fileName || "";
+  renderSaveDir();
   $("#priorityCars").value = s.priorityCars || "";
   renderCafeTable();
   renderCommunityTable();
