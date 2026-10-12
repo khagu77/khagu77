@@ -346,6 +346,34 @@
       this.texts.set(path, xml.replace(re, (m, open, close) => `${open}${esc(quoted)}!$${c1}$${r1}:$${c2}$${r2}${close}`));
     }
 
+    // 셀에 바깥 링크를 건다. links: { "A2": "https://…", ... } (양식에 시트 관계 파일이 있어야 함)
+    async addHyperlinks(name, links) {
+      const path = this._sheetPath(name);
+      const relsPath = path.replace(/([^/]+)$/, "_rels/$1.rels");
+      let rels = await this.text(relsPath);
+      if (rels === null) throw new Error(`'${name}' 시트에 링크를 넣을 수 없는 양식입니다.`);
+      let xml = await this.text(path);
+      const used = new Set([...rels.matchAll(/\bId="([^"]+)"/g)].map((m) => m[1]));
+      let n = 0;
+      let tags = "";
+      let relXml = "";
+      for (const [ref, url] of Object.entries(links)) {
+        let id;
+        do id = `rIdL${++n}`;
+        while (used.has(id));
+        relXml += `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${esc(url)}" TargetMode="External"/>`;
+        tags += `<hyperlink ref="${ref}" r:id="${id}"/>`;
+      }
+      if (!tags) return;
+      rels = rels.replace(/<Relationships\b([^>]*?)\s*\/>/, "<Relationships$1></Relationships>").replace("</Relationships>", relXml + "</Relationships>");
+      if (/<hyperlinks>/.test(xml)) xml = xml.replace("</hyperlinks>", tags + "</hyperlinks>");
+      else xml = xml.replace(/(<printOptions\b|<pageMargins\b|<pageSetup\b|<\/worksheet>)/, `<hyperlinks>${tags}</hyperlinks>$1`);
+      if (!/\bxmlns:r=/.test(xml.slice(0, xml.indexOf(">", xml.indexOf("<worksheet")))))
+        xml = xml.replace(/<worksheet\b/, '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"');
+      this.texts.set(relsPath, rels);
+      this.texts.set(path, xml);
+    }
+
     // 시트의 셀 글자를 바꾼다. updates: { "F12": "새 글자", ... } (셀 서식은 그대로, 없는 셀은 건너뜀)
     async setCellTexts(name, updates) {
       const path = this._sheetPath(name);

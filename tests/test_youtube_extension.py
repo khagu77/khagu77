@@ -631,34 +631,35 @@ def test_ai_correction(tmp_path: Path):
 
 
 def make_review_xlsx(path: Path):
-    """사용자의 스크립트 분석 RAW 파일처럼 생긴 엑셀: '스크립트 RAW'(머리글 없음, A~H) + 다른 시트 2개."""
+    """사용자의 스크립트 분석 RAW 파일처럼 생긴 엑셀: '스크립트 RAW'(머리글 없음, A~H) + 분석 결과 + 분할 원문 시트."""
     from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Font
 
     wb = Workbook()
     ws = wb.active
     ws.title = "스크립트 RAW"
+    url = lambda v: f"https://www.youtube.com/watch?v={v}"
     rows = [
-        (1, "채널A", "팰리세이드 시승기", "2026-10-10", "https://www.youtube.com/watch?v=aaa",
+        (1, "채널A", "팰리세이드 시승기", "2026-10-10", url("aaaaaaaaaaa"),
          "[0:00] 안녕하세요 여러분\n[0:05] 오늘은 시승기 입니다\n[1:02:03] 할수있다", "비판", "negative"),
-        (2, "채널B", "관련 없는 영상", "2026-10-10", "https://www.youtube.com/watch?v=bbb",
-         "[0:00] 해당없는 내용", "해당없음", "non_negative"),
-        (3, "채널C", "ASMR", "2026-10-10", "https://www.youtube.com/watch?v=ccc", "ASMR 영상", "ASMR 영상", "non_negative"),
-        (4, "채널D", "칭찬 영상", "2026-10-10", "https://www.youtube.com/watch?v=ddd",
-         "[0:00] 좋아요\n\n[0:10] 정말 됬어요", "긍정", "non_negative"),
+        (2, "채널B", "관련 없는 영상", "2026-10-10", url("bbbbbbbbbbb"), "[0:00] 해당없는 내용", "해당없음", "non_negative"),
+        (3, "채널C", "ASMR", "2026-10-10", url("ccccccccccc"), "ASMR 영상", "ASMR 영상", "non_negative"),
+        (4, "채널D", "긴 영상", "2026-10-10", url("ddddddddddd"), "[0:00] 잘린 앞부분", "부정/비난", "negative"),
     ]
     for row in rows:
         ws.append(row)
-    for r in range(1, 5):
-        ws[f"F{r}"].alignment = Alignment(wrap_text=True)
-        ws[f"F{r}"].font = Font(name="맑은 고딕", size=9)
     wb.create_sheet("전체 분석 결과").append(["항목", "값"])
-    wb.create_sheet("전체 스크립트 분할 원문").append(["[0:00] 안녕하세요 여러분"])
+    split = wb.create_sheet("전체 스크립트 분할 원문")
+    split.append(["URL", "제목", "분할 순번", "원문"])
+    split.append([url("aaaaaaaaaaa"), "팰리세이드 시승기", "1", rows[0][5]])
+    split.append([url("bbbbbbbbbbb"), "관련 없는 영상", "1", rows[1][5]])
+    split.append([url("ddddddddddd"), "긴 영상", "2", " 이어지는 뒷부분\n[9:00] 정말 됬어요"])
+    split.append([url("ddddddddddd"), "긴 영상", "1", "[0:00] 좋아요\n\n[0:10] 앞부분 끝"])
     wb.save(path)
 
 
 def test_ai_review(tmp_path: Path):
-    """스크립트 AI 검열: G열 '해당없음'·스크립트 없는 행은 그대로, 나머지 F열만 시간 표시를 살려 교정, _modify.xlsx 로 받기."""
+    """스크립트 AI 검열: G열 '해당없음'·스크립트 없는 행은 빼고, 나머지를 시간 표시를 살려 교정해
+    모니터링 사이트 양식('스크립트 입력': URL / 스크립트 / 분할번호 + '작성 안내')의 _modify.xlsx 로 받는다."""
     src = tmp_path / "20261011_스크립트분석_RAW.xlsx"
     make_review_xlsx(src)
     sent = []
@@ -688,6 +689,7 @@ def test_ai_review(tmp_path: Path):
         page.click("#start")
         page.locator("#summary", has_text="2 / 2행 교정").wait_for(timeout=60000)
         assert "예상 요금" in dialogs[0] and "AI 검토를 마쳤습니다" in dialogs[1], dialogs
+        assert "완료 (2조각)" in page.locator("#progress tbody tr").nth(1).inner_text()
         with page.expect_download(timeout=10000) as dl:
             page.click("#saveModify")
         out = tmp_path / dl.value.suggested_filename
@@ -698,17 +700,29 @@ def test_ai_review(tmp_path: Path):
     assert out.name == "20261011_스크립트분석_RAW_modify.xlsx"
     flat = [t for chunk in sent for t in chunk]
     assert "해당없는 내용" not in flat and "할 수 있다" in flat and "정말 됐어요" in flat, flat  # 기본 교정 후 AI 에 보냄
+    assert "잘린 앞부분" not in flat  # 분할 원문이 있으면 잘린 F열 대신 조각을 쓴다
     wb = load_workbook(out)
-    assert wb.sheetnames == ["스크립트 RAW", "전체 분석 결과", "전체 스크립트 분할 원문"]
-    ws = wb["스크립트 RAW"]
-    assert ws["F1"].value == "[0:00] AI:안녕하세요 여러분\n[0:05] AI:오늘은 시승기 입니다\n[1:02:03] AI:할 수 있다", ws["F1"].value
-    assert ws["F2"].value == "[0:00] 해당없는 내용"  # 해당없음 은 그대로
-    assert ws["F3"].value == "ASMR 영상"
-    assert ws["F4"].value == "[0:00] AI:좋아요\n\n[0:10] AI:정말 됐어요", ws["F4"].value
-    assert ws["A1"].value == 1 and ws["G1"].value == "비판" and ws["H4"].value == "non_negative"
-    assert ws["F1"].alignment.wrap_text and ws["F1"].font.name == "맑은 고딕" and ws["F1"].font.sz == 9
-    assert wb["전체 분석 결과"]["B1"].value == "값"
-    assert wb["전체 스크립트 분할 원문"]["A1"].value == "[0:00] 안녕하세요 여러분"
+    assert wb.sheetnames == ["스크립트 입력", "작성 안내"]
+    ws = wb["스크립트 입력"]
+    assert [c.value for c in ws[1]] == ["URL", "스크립트", "분할번호"]
+    got = [[c.value for c in r] for r in ws.iter_rows(min_row=2)]
+    assert got == [
+        ["https://www.youtube.com/watch?v=aaaaaaaaaaa",
+         "[0:00] AI:안녕하세요 여러분\n[0:05] AI:오늘은 시승기 입니다\n[1:02:03] AI:할 수 있다", None],
+        ["https://www.youtube.com/watch?v=ddddddddddd", "[0:00] AI:좋아요\n\n[0:10] AI:앞부분 끝", 1],
+        ["https://www.youtube.com/watch?v=ddddddddddd", " AI:이어지는 뒷부분\n[9:00] AI:정말 됐어요", 2],
+    ], got
+    # 양식 서식 그대로: 머리글 남색·흰 굵은 맑은 고딕 10, 내용 맑은 고딕 10 가운데(세로), 열 너비, 틀 고정, URL 링크
+    h = ws["A1"]
+    assert h.font.b and h.font.sz == 10 and h.font.color.rgb == "FFFFFFFF" and h.fill.fgColor.rgb == "FF003082"
+    assert h.alignment.horizontal == "center"
+    for ref in ("A2", "B2", "A4", "B4"):
+        c = ws[ref]
+        assert c.font.name == "맑은 고딕" and c.font.sz == 10 and c.alignment.vertical == "center", ref
+        assert c.border.left.style is None and c.fill.fill_type is None, ref
+    assert [ws.column_dimensions[c].width for c in "ABC"] == [55, 120, 12] and ws.freeze_panes == "A2"
+    assert ws["A3"].hyperlink.target == "https://www.youtube.com/watch?v=ddddddddddd"
+    assert wb["작성 안내"]["A1"].value == "URL은 유지하고 스크립트만 수정하세요. 빈 스크립트는 기존 값을 보존합니다."
 
 
 @pytest.mark.skipif(not Path(FONT).exists(), reason="한글 글꼴 없음")
