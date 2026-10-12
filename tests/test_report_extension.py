@@ -83,11 +83,16 @@ li.CommentItem{{list-style:none;padding:8px 0;border-bottom:1px solid #eee}}
 <button class="copy" onclick="navigator.clipboard.writeText('https://cafe.naver.com/allfm01/2157343')">URL 복사</button>
 </div>
 <div class="article_container"><div class="se-main-container">
+<div class="se-component se-text"><p>📍 함께하는 [ST1 클럽] 카페</p><p><br></p>
+<p>질문은 질문 답변 게시판 이용해 주세요.</p><p>글쓰기에서 해당 게시판이 안 보이면 등업이 필요합니다.</p><p><br></p>
+<p>카페 활동 예의를 지켜주세요.</p><p>경우에 따라 카페 운영 회칙에 의거 활동 정지 또는 탈퇴 처리될 수 있습니다.</p></div>
+<div class="se-component se-horizontalLine"><hr style="width:360px;margin:0"></div>
+<div class="se-component se-text">
 <p>출고 2주 된 ST1 입니다.</p><p><br></p><p><br></p>
 <p>시동만 걸면 공조기가 자동으로 켜지고</p><p><br></p><p><br></p><p><br></p>
-<p>OFF 버튼을 눌러도 꺼지지 않습니다.</p>
+<p>OFF 버튼을 눌러도 꺼지지 않습니다.</p></div>
 <div class="se-component se-image"><img src="{PHOTO}"></div>
-<p>블루핸즈 예약했습니다.</p></div></div>
+<div class="se-component se-text"><p>블루핸즈 예약했습니다.</p></div></div></div>
 <div class="article_writer"><div class="profile_area"><span class="avatar"></span> 파주ll작성자 님의 게시글 더보기 &gt;</div></div>
 <div class="ArticleTool"><a class="button_comment">댓글 5</a></div>
 <div class="CommentBox"><ul>
@@ -330,6 +335,8 @@ def test_report_end_to_end(tmp_path):
     assert len(ai_requests) == 1  # 카페 글만 AI 요약 (보배드림은 캡처·요약 안 함)
     sent = json.loads(ai_requests[0]["messages"][0]["content"].split("\n\n", 1)[1])
     assert "OFF 버튼을 눌러도" in sent["body"]
+    # 카페 공통 안내 문구(게시판 글쓰기 양식)는 본문에서 뺀다
+    assert sent["body"].startswith("출고 2주 된 ST1") and "등업" not in sent["body"]
     # 대댓글·작성자 댓글은 빼고, 이모티콘 댓글은 표시해서 보낸다
     assert [(c["text"], c["hasSticker"]) for c in sent["comments"]] == [
         ("저도 같은 증상이에요", False), ("사업소 가세요", False), ("ㅋㅋ", True)]
@@ -394,6 +401,9 @@ def test_report_end_to_end(tmp_path):
     rows_with_avatar = sum(1 for y in range(him.height) if any(is_light(*him.getpixel((x, y))) for x in range(0, 80)))
     expect = 40 * him.width / 868  # 40px 아이콘이 이미지에서 차지하는 높이
     assert rows_with_avatar >= expect * 0.85, (rows_with_avatar, expect)
+    # 본문 캡처에도 안내 문구가 없다: 글자 4줄 높이만 (안내 문구 7줄이 들어가면 훨씬 높아짐)
+    body_pic = [p for p in pics if 4.5 < p.left / cm < 4.6][0]
+    assert body_pic.height < 1.8 * cm, body_pic.height / cm
     # 본문 사진: 원본 비율(4:3) 그대로, 오른쪽 영역에 150ppi 로
     photo = max(pics, key=lambda p: p.left)
     assert abs(photo.width / photo.height - 4 / 3) < 0.01

@@ -18,7 +18,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 게시글 화면 안에서 실행되는 함수 (확장 바깥 변수는 쓸 수 없음)
 // mode: "info" → 글 정보 + 요소 표시, "rect" → 요소 위치(문서 좌표), "restore" → 숨김 해제
 // ---------------------------------------------------------------------------
-async function cafePageProbe(mode, target, maxComments, maxImages) {
+async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerplates) {
   const SEL = {
     header: [".article_header", ".ArticleContentBox .ArticleTitle", ".ArticleTitle", ".tit-box"],
     title: [".title_text", ".ArticleTitle h3", ".tit-box .b"],
@@ -124,6 +124,8 @@ async function cafePageProbe(mode, target, maxComments, maxImages) {
     if (target === "body") {
       // 본문 글자만 찍기 위해 첨부 이미지·영상·스티커를 가린다 (빈 공간은 나중에 줄여 붙임)
       el.querySelectorAll("img, video, iframe, canvas, .se-image, .se-sticker, .se-video, .se-oglink, .se-map, .se-file").forEach(hide);
+      // 카페 게시판 양식으로 자동으로 들어간 맨 위 안내 문구도 가린다 (작성자가 쓴 본문만)
+      el.querySelectorAll("[data-rpt-boiler]").forEach(hide);
     } else if (target.startsWith("comment")) {
       // 댓글: 작성자 아이콘·하트·… 버튼은 그대로 두고 이모티콘(스티커)만 가린다 → 빈 자리는 줄여 붙여 작성일시가 글 바로 밑에 붙음
       el.querySelectorAll("[class*='sticker' i]").forEach(hide);
@@ -169,6 +171,63 @@ async function cafePageProbe(mode, target, maxComments, maxImages) {
   const titleEl = pick(doc, SEL.title);
   const authorEl = pick(doc, SEL.author);
   body.setAttribute("data-rpt", "body");
+
+  // ---- 카페 공통 안내 문구(게시판 글쓰기 양식) 찾기: 본문 맨 위에 자동으로 들어가는 운영 안내 ----
+  const norm = (t) => (t || "").replace(/\s+/g, "");
+  let comps = [...body.querySelectorAll(".se-component")].filter((c) => !c.parentElement.closest(".se-component"));
+  if (!comps.length) comps = [...body.children];
+  const KW = /카페|게시판|등업|회칙|예의|공지|이용해\s*주세요|말머리|탈퇴|활동\s*정지|양식|규칙|운영진|매니저|필독|작성\s*요령|글쓰기|강퇴|친목/g;
+  const hits = (t) => ((t || "").match(KW) || []).length;
+  const isDivider = (c) =>
+    c.classList.contains("se-horizontalLine") || !!c.querySelector("hr") || /^[\s_\-─━=~—＿]{5,}$/.test(c.innerText.trim());
+  let cut = -1;
+  // ① 전에 찾아 둔 안내 문구와 같은 글로 시작하면
+  for (const k of knownBoilerplates || []) {
+    let acc = "";
+    for (let i = 0; i < Math.min(15, comps.length) && cut < 0; i++) {
+      if (isDivider(comps[i])) continue;
+      acc += norm(comps[i].innerText);
+      if (acc.length >= k.length) {
+        if (acc.startsWith(k)) cut = i;
+        break;
+      }
+    }
+    if (cut >= 0) break;
+  }
+  // ② 앞부분 구분선 위가 운영 안내 말이면 구분선까지
+  if (cut < 0) {
+    for (let i = 1; i < Math.min(12, comps.length); i++) {
+      if (!isDivider(comps[i])) continue;
+      if (hits(comps.slice(0, i).map((c) => c.innerText).join(" ")) >= 2) cut = i;
+      break;
+    }
+  }
+  // ③ 구분선이 없어도 맨 앞 짧은 단락들이 운영 안내 말로만 되어 있으면
+  if (cut < 0) {
+    let total = 0;
+    let last = -1;
+    for (let i = 0; i < Math.min(10, comps.length); i++) {
+      const t = comps[i].innerText.trim();
+      if (!t) continue;
+      if (t.length > 200 || !hits(t)) break;
+      total += hits(t);
+      last = i;
+    }
+    if (last >= 1 && total >= 3) cut = last;
+  }
+  let boilerplateText = "";
+  if (cut >= 0 && cut < comps.length - 1) {
+    if (comps[cut + 1] && isDivider(comps[cut + 1])) cut++; // 바로 뒤 구분선까지
+    const boiler = comps.slice(0, cut + 1);
+    boiler.forEach((c) => c.setAttribute("data-rpt-boiler", ""));
+    boilerplateText = norm(boiler.filter((c) => !isDivider(c)).map((c) => c.innerText).join("")).slice(0, 300);
+  }
+  const bodyText = comps
+    .filter((c) => !c.hasAttribute("data-rpt-boiler"))
+    .map((c) => c.innerText)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   if (header) header.setAttribute("data-rpt", "header");
 
   const headText = (header ? header.innerText : "") + " " + (doc.querySelector(".article_info")?.innerText || "");
@@ -207,6 +266,7 @@ async function cafePageProbe(mode, target, maxComments, maxImages) {
   const images = [];
   for (const img of body.querySelectorAll("img")) {
     if (images.length >= maxImages) break;
+    if (img.closest("[data-rpt-boiler]")) continue;
     if (img.closest(".se-sticker, .se-oglink, .se-video, .se-map")) continue;
     const r = img.getBoundingClientRect();
     if (r.width < 80 || r.height < 60 || img.naturalWidth < 80) continue;
@@ -266,7 +326,8 @@ async function cafePageProbe(mode, target, maxComments, maxImages) {
     author,
     views,
     commentCount,
-    bodyText: body.innerText.replace(/\n{3,}/g, "\n\n").trim().slice(0, 6000),
+    bodyText: bodyText.slice(0, 6000),
+    boilerplateText,
     comments,
     images,
   };
@@ -480,11 +541,14 @@ async function readArticleText(tabId, url) {
 const CERT_RE = /계약|출고|인수|인증|구매|탁송/;
 const MAX_CERT_POSTS = 2;
 
+// 전에 찾아 둔 카페 안내 문구 (다음 글에서도 바로 빼기 위해 기억)
+let knownBoilerplates = [];
+
 async function probe(tabId, mode, target) {
   const [res] = await chrome.scripting.executeScript({
     target: { tabId },
     func: cafePageProbe,
-    args: [mode, target || null, MAX_COMMENTS, MAX_IMAGES],
+    args: [mode, target || null, MAX_COMMENTS, MAX_IMAGES, knownBoilerplates],
   });
   return res ? res.result : null;
 }
@@ -523,6 +587,8 @@ const DELETED_RE = /삭제되었거나|존재하지 않는 게시글|삭제된 �
 
 // → { info, header, body, comments: [Blob|null], images: [Blob|null], dpr }
 async function captureCafePost(url, onStep = () => {}) {
+  const saved = await chrome.storage.local.get(["boilerplates"]).catch(() => ({}));
+  knownBoilerplates = saved.boilerplates || [];
   onStep("게시글 여는 중");
   const { tabId, dialogs, close } = await openWindow(url);
   try {
@@ -539,6 +605,12 @@ async function captureCafePost(url, onStep = () => {}) {
     if (!info) throw new CaptureError(dialogs.length ? `게시글을 열 수 없음: ${dialogs[0]}` : "게시글 화면을 읽지 못했습니다");
     if (info.error === "login") throw new CaptureError("네이버 로그인이 필요합니다");
     if (info.error) throw new CaptureError("본문을 찾지 못함 (카페 가입이 필요한 글일 수 있음)");
+
+    // 새로 찾은 안내 문구는 기억해 두었다가 다음 글에서도 뺀다 (최근 50개)
+    if (info.boilerplateText && info.boilerplateText.length >= 15 && !knownBoilerplates.includes(info.boilerplateText)) {
+      knownBoilerplates = [info.boilerplateText, ...knownBoilerplates].slice(0, 50);
+      await chrome.storage.local.set({ boilerplates: knownBoilerplates }).catch(() => {});
+    }
 
     // 게시글 위치: 'URL 복사' 버튼이 주는 주소를 우선 사용
     try {
