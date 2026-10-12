@@ -1,6 +1,7 @@
 """배포용 압축 파일을 만든다.
 
   dist/댓글수집기_윈도우용.zip
+  dist/댓글수집기_맥용.zip
   dist/유튜브추출기_윈도우용.zip
   dist/유튜브추출기_맥용.zip
 
@@ -24,6 +25,11 @@ PACKAGES = [
     {
         "zip": "댓글수집기_윈도우용",
         "guide": ("windows/guide_comments.html", "설치안내서_댓글수집기_윈도우용.pdf"),
+        "items": [(ROOT / "chrome-extension", "댓글수집기_확장프로그램")],
+    },
+    {
+        "zip": "댓글수집기_맥용",
+        "guide": ("mac/guide_comments.html", "설치안내서_댓글수집기_맥용.pdf"),
         "items": [(ROOT / "chrome-extension", "댓글수집기_확장프로그램")],
     },
     {

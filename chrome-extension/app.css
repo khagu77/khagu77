@@ -73,3 +73,34 @@ td.title { color: var(--muted); display: block; }
 .note { margin-top: 20px; color: var(--muted); font-size: 12px; }
 input[type="file"] { font-size: 14px; }
 #templateInfo { margin-top: 6px; font-size: 13px; }
+
+/* 위쪽 메뉴 · LX3 화면 */
+main.wide { max-width: 1180px; }
+nav.menu { display: flex; gap: 4px; margin: -4px 0 16px; border-bottom: 1px solid var(--border); }
+nav.menu a { padding: 7px 14px; color: var(--muted); text-decoration: none; border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; font-weight: 600; font-size: 14px; }
+nav.menu a.on { color: var(--text); border-color: var(--border); background: var(--bg); }
+h2 { font-size: 16px; margin: 22px 0 8px; }
+section { margin-top: 8px; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+label.inline { display: inline-flex; gap: 6px; align-items: center; margin: 0; font-weight: 600; }
+input[type="text"], input[type="number"], input[type="datetime-local"] {
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 13px;
+}
+input.full { flex: 1; width: 100%; min-width: 240px; }
+input.short { width: 90px; }
+input.tiny { width: 56px; }
+input.slug { width: 130px; }
+button.small { padding: 4px 10px; font-size: 12.5px; }
+details { margin: 12px 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; }
+details summary { cursor: pointer; font-weight: 600; }
+table.compact td, table.compact th { padding: 3px 6px; }
+#results tr.off td { opacity: 0.45; }
+#results td.note { color: var(--muted); font-size: 12px; }
+td.nowrap { white-space: nowrap; }
+.log { max-height: 160px; overflow: auto; font-size: 12px; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+.summary.ok { color: var(--green); }
+.summary.err { color: var(--red); }
+.ytlist { margin: 8px 0; padding-left: 22px; font-size: 13px; }
+.ytlist li { margin: 3px 0; }
+.ytlist a { color: var(--text); word-break: break-all; }
+.handoff { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--green); margin-bottom: 8px; font-weight: 600; }

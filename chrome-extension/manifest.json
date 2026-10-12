@@ -1,10 +1,22 @@
 {
   "manifest_version": 3,
-  "name": "카페·유튜브 댓글 수집기",
-  "version": "1.1.0",
-  "description": "네이버 카페 게시글·유튜브 영상 URL을 입력하면 댓글/답글을 모두 모아 엑셀(.xlsx)로 저장합니다.",
+  "name": "팰리세이드(LX3) 전동 시트 관련 카페·유튜브 게시물 및 댓글 수집기",
+  "version": "1.2.0",
+  "description": "동호회(네이버 카페)에서 팰리세이드 전동 시트 관련 글을 찾아 엑셀로 정리하고, 카페 글·유튜브 영상의 댓글을 모아 엑셀(.xlsx)로 저장합니다.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "action": {
-    "default_title": "카페·유튜브 댓글 수집기"
+    "default_title": "팰리세이드(LX3) 전동 시트 관련 카페·유튜브 게시물 및 댓글 수집기",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   },
   "background": {
     "service_worker": "background.js"
@@ -12,7 +24,8 @@
   "permissions": [
     "declarativeNetRequest",
     "scripting",
-    "cookies"
+    "cookies",
+    "storage"
   ],
   "host_permissions": [
     "https://cafe.naver.com/*",

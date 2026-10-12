@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LX3 팰리세이드 전동 시트 관련 - 팰리세이드(LX3) 전동 시트 관련 카페·유튜브 게시물 및 댓글 수집기</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <main class="wide">
+    <h1>팰리세이드(LX3) 전동 시트 관련 카페·유튜브 게시물 및 댓글 수집기</h1>
+    <nav class="menu"><a href="lx3.html" class="on">LX3 팰리세이드 전동 시트 관련</a><a href="app.html">댓글 수집</a></nav>
+
+    <div id="login" class="login">로그인 상태 확인 중…</div>
+
+    <section>
+      <h2>1. 카페 게시물 찾기</h2>
+      <div class="row">
+        <label class="inline">시작 <input type="datetime-local" id="from"></label>
+        <label class="inline">끝 <input type="datetime-local" id="to"></label>
+        <label class="inline">검색어 <input type="text" id="query" class="short"></label>
+        <button id="resetRange" class="small" title="전일 오후 12시 ~ 당일 오후 12시">기본 시간으로</button>
+      </div>
+      <div class="hint">화면을 새로 열면(새로고침) 시간은 <b>전일 오후 12시 ~ 당일 오후 12시</b>로 돌아갑니다.</div>
+
+      <details id="settings">
+        <summary>동호회 목록 · 관련 단어 설정</summary>
+        <label for="cafeList">동호회 목록 <span class="hint">(한 줄에 하나, 이 순서대로 엑셀에 씁니다)</span></label>
+        <textarea id="cafeList" rows="6" spellcheck="false"></textarea>
+        <table id="cafeInfo" class="compact">
+          <thead><tr><th>#</th><th>카페 번호</th><th>동호회 명 <span class="hint">(카페 제목에서 자동)</span></th><th>영문 카페 주소 <span class="hint">(자동, 직접 고칠 수 있음)</span></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <label for="include">관련 글 단어 <span class="hint">(제목·미리보기에 하나라도 있으면 '포함'으로 체크, 쉼표로 구분)</span></label>
+        <textarea id="include" rows="2" spellcheck="false"></textarea>
+        <label for="exclude">관련 없는 글 단어 <span class="hint">(있으면 체크 해제)</span></label>
+        <textarea id="exclude" rows="1" spellcheck="false"></textarea>
+        <label for="searchUrl">카페 검색 주소 형식 <span class="hint">(검색이 안 되면 카페에서 직접 검색한 주소창 주소를 그대로 붙여 넣으세요)</span></label>
+        <input type="text" id="searchUrl" class="full" spellcheck="false">
+        <label class="inline">카페마다 최대 <input type="number" id="maxPages" min="1" max="20" class="tiny"> 페이지까지 봅니다</label>
+        <div class="buttons"><button id="resetSettings" class="small">설정 처음 값으로</button></div>
+      </details>
+
+      <div class="buttons">
+        <button id="search" class="primary">게시물 찾기</button>
+        <button id="stop" disabled>중지</button>
+      </div>
+      <div id="summary" class="summary"></div>
+      <div id="log" class="log" hidden></div>
+    </section>
+
+    <section id="resultBox" hidden>
+      <h2>2. 결과 확인 · 엑셀 받기</h2>
+      <div class="hint">필요 없는 글은 <b>삭제</b>하거나 체크를 푸세요. 체크된 글만 날짜순 → 위 동호회 순으로 엑셀에 들어갑니다.</div>
+      <table id="results">
+        <thead><tr><th><input type="checkbox" id="checkAll" title="모두 체크/해제"></th><th>게시일</th><th>동호회</th><th>제목</th><th>URL</th><th>비고</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="resultCount" class="hint"></div>
+
+      <label for="listFile">기존 엑셀 파일 <span class="hint">(가장 최근에 받은 '채널별 버즈량 현황' 파일 · 선택하면 마지막 순번 다음에 이어 씁니다)</span></label>
+      <input type="file" id="listFile" accept=".xlsx">
+      <div id="listFileInfo" class="hint"></div>
+      <div class="buttons">
+        <button id="saveList" class="primary" disabled>엑셀 받기</button>
+        <button id="toComments" disabled>체크한 글 댓글 수집하기 →</button>
+        <label class="inline"><input type="checkbox" id="withYoutube" checked> 아래 유튜브 목록도 함께</label>
+      </div>
+      <div id="saveInfo" class="hint"></div>
+    </section>
+
+    <section>
+      <h2>3. 유튜브 영상 목록</h2>
+      <div class="hint">저장해 두고 매일 댓글을 수집할 유튜브 영상 주소입니다(이 PC 크롬에 저장).</div>
+      <div class="row">
+        <input type="text" id="ytInput" class="full" placeholder="https://www.youtube.com/watch?v=… (여러 개는 줄바꿈·띄어쓰기로 구분)" spellcheck="false">
+        <button id="ytAdd" class="small">추가</button>
+      </div>
+      <ol id="ytList" class="ytlist"></ol>
+      <div class="buttons"><button id="ytCollect" disabled>유튜브 목록 댓글 수집하기 →</button></div>
+    </section>
+
+    <p class="note">
+      네이버 카페는 계정 보호를 위해 검색 화면과 게시글을 탭으로 열어 사람처럼 천천히 읽습니다(카페 하나에 10~20초, 수집 중 탭이 잠깐 열렸다 닫힘).
+      어제 날짜로만 보이는 글은 정확한 시간을 확인하려고 글을 한 번 열어 봅니다. 내가 열람할 수 있는 글만 찾을 수 있습니다(로그인 필요).
+    </p>
+  </main>
+  <script src="xlsx.js"></script>
+  <script src="template.js"></script>
+  <script src="cafe-common.js"></script>
+  <script src="lx3.js"></script>
+</body>
+</html>

@@ -314,6 +314,15 @@
         return `<dimension ref="A1:${endCol}${Math.max(1, lastRow)}"/>`;
       });
 
+      // 필터 범위(머리글부터)도 마지막 행까지 늘리거나 줄인다 - 시트와 통합문서의 숨은 이름 둘 다
+      let filterRef = null;
+      xml = xml.replace(/(<autoFilter\b[^>]*\bref=")([A-Z]+)(\d+):([A-Z]+)\d+(")/, (m, pre, c1, r1, c2, post) => {
+        if (Number(r1) > keepUntil) return m;
+        filterRef = [c1, Number(r1), c2, Math.max(Number(r1) + 1, lastRow)];
+        return `${pre}${c1}${r1}:${c2}${filterRef[3]}${post}`;
+      });
+      if (filterRef) await this._setFilterName(name, filterRef);
+
       // 지운 행을 가리키던 하이퍼링크 제거
       xml = xml.replace(/<hyperlink\b[^>]*\bref="[A-Z]+(\d+)(?::[A-Z]+\d+)?"[^>]*\/>/g, (m, r) =>
         Number(r) > keepUntil ? "" : m
@@ -326,6 +335,60 @@
       xml = xml.replace(/(<selection\b[^>]*\bactiveCell=")[A-Z]+\d+("[^>]*\bsqref=")[^"]*(")/g, `$1A${focus}$2A${focus}$3`);
 
       this.texts.set(path, xml);
+    }
+
+    async _setFilterName(name, [c1, r1, c2, r2]) {
+      const path = "xl/workbook.xml";
+      const xml = await this.text(path);
+      const idx = this.sheetNames().indexOf(name);
+      const re = new RegExp(`(<definedName\\b[^>]*name="_xlnm\\._FilterDatabase"[^>]*localSheetId="${idx}"[^>]*>)[^<]*(</definedName>)`);
+      const quoted = `'${name.replace(/'/g, "''")}'`;
+      this.texts.set(path, xml.replace(re, (m, open, close) => `${open}${esc(quoted)}!$${c1}$${r1}:$${c2}$${r2}${close}`));
+    }
+
+    // 셀에 바깥 링크를 건다. links: { "A2": "https://…", ... } (양식에 시트 관계 파일이 있어야 함)
+    async addHyperlinks(name, links) {
+      const path = this._sheetPath(name);
+      const relsPath = path.replace(/([^/]+)$/, "_rels/$1.rels");
+      let rels = await this.text(relsPath);
+      if (rels === null) throw new Error(`'${name}' 시트에 링크를 넣을 수 없는 양식입니다.`);
+      let xml = await this.text(path);
+      const used = new Set([...rels.matchAll(/\bId="([^"]+)"/g)].map((m) => m[1]));
+      let n = 0;
+      let tags = "";
+      let relXml = "";
+      for (const [ref, url] of Object.entries(links)) {
+        let id;
+        do id = `rIdL${++n}`;
+        while (used.has(id));
+        relXml += `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${esc(url)}" TargetMode="External"/>`;
+        tags += `<hyperlink ref="${ref}" r:id="${id}"/>`;
+      }
+      if (!tags) return;
+      rels = rels.replace(/<Relationships\b([^>]*?)\s*\/>/, "<Relationships$1></Relationships>").replace("</Relationships>", relXml + "</Relationships>");
+      if (/<hyperlinks>/.test(xml)) xml = xml.replace("</hyperlinks>", tags + "</hyperlinks>");
+      else xml = xml.replace(/(<printOptions\b|<pageMargins\b|<pageSetup\b|<\/worksheet>)/, `<hyperlinks>${tags}</hyperlinks>$1`);
+      if (!/\bxmlns:r=/.test(xml.slice(0, xml.indexOf(">", xml.indexOf("<worksheet")))))
+        xml = xml.replace(/<worksheet\b/, '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"');
+      this.texts.set(relsPath, rels);
+      this.texts.set(path, xml);
+    }
+
+    // 시트의 셀 글자를 바꾼다. updates: { "F12": "새 글자", ... } (셀 서식은 그대로, 없는 셀은 건너뜀)
+    async setCellTexts(name, updates) {
+      const path = this._sheetPath(name);
+      let xml = await this.text(path);
+      let changed = 0;
+      for (const [ref, value] of Object.entries(updates)) {
+        const re = new RegExp(`<c r="${ref}"(\\s[^>]*?)?(?:/>|>[\\s\\S]*?</c>)`);
+        xml = xml.replace(re, (m, attrs) => {
+          changed++;
+          const keep = (attrs || "").replace(/\s+t="[^"]*"/, "");
+          return `<c r="${ref}"${keep} t="inlineStr"><is><t xml:space="preserve">${esc(value)}</t></is></c>`;
+        });
+      }
+      this.texts.set(path, xml);
+      return changed;
     }
 
     async save() {
