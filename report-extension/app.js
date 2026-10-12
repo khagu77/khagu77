@@ -1,0 +1,462 @@
+// 온라인 이슈 보고서 작성기 - 작업 화면
+// 엑셀(+ 표시 행) → 카페 글 캡처 → AI 요약 → 미리보기에서 확인·수정 → PPT 받기
+
+const ARTICLE_DELAY = [4000, 8000]; // 글과 글 사이 쉬는 시간 (사람처럼 천천히)
+const DEFAULT_IMAGES = 4; // 처음에 체크해 두는 본문 이미지 수
+
+// 차종 코드 → 차명 (작성 가이드 부록 + 기존 보고서)
+const MODEL_NAMES = {
+  "NE N": "아이오닉5 N", NE: "아이오닉5", CE: "아이오닉6", ME1: "아이오닉9",
+  TM: "싼타페", MX5: "싼타페", NX4: "투싼", IG: "그랜저", GN7: "그랜저", QX: "베뉴",
+  JW: "GV60", JK: "GV70", JX: "GV80", IK: "G70", RG3: "G80", RS4: "G90",
+  DN8: "쏘나타", CN7: "아반떼", CN8: "아반떼", FE: "넥쏘", AX: "캐스퍼", SX2: "코나", OS: "코나",
+  LX2: "팰리세이드", LX3: "팰리세이드", US4: "스타리아", ST1: "ST1", HR: "포터", ST: "스타렉스",
+};
+const EV_ONLY = new Set(["NE", "CE", "ME1", "JW", "ST1"]);
+const SPEC_WORDS = ["FCEV", "PHEV", "HEV", "EV"];
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const pad = (n) => String(n).padStart(2, "0");
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+let excelItems = [];
+let items = [];
+let stopRequested = false;
+
+// ---------------------------------------------------------------------------
+// 차종·제원
+// ---------------------------------------------------------------------------
+function splitCar(car) {
+  const parts = String(car || "").trim().split(/\s+/).filter(Boolean);
+  let spec = "";
+  if (parts.length > 1 && SPEC_WORDS.includes(parts[parts.length - 1].toUpperCase())) spec = parts.pop().toUpperCase();
+  const code = parts.join(" ");
+  if (!spec && EV_ONLY.has(parts[0])) spec = "EV";
+  return { code, spec: spec || "-" };
+}
+
+function modelName(car) {
+  const parts = String(car || "").trim().split(/\s+/);
+  return MODEL_NAMES[parts.slice(0, 2).join(" ")] || MODEL_NAMES[parts[0]] || parts[0] || "";
+}
+
+function isCafeUrl(url) {
+  return /^https?:\/\/((m\.)?cafe\.naver\.com|naver\.me)\//i.test(url.trim());
+}
+
+// ---------------------------------------------------------------------------
+// 설정 (이 PC 크롬에만 저장)
+// ---------------------------------------------------------------------------
+async function loadSettings() {
+  for (const [id, label] of AI_MODELS) $("#aiModel").add(new Option(label, id));
+  const s = await chrome.storage.local.get(["aiKey", "aiModel", "fileName", "templateName", "templateSavedAt"]).catch(() => ({}));
+  $("#aiKey").value = s.aiKey || "";
+  if (s.aiModel && AI_MODELS.some(([id]) => id === s.aiModel)) $("#aiModel").value = s.aiModel;
+  if (s.fileName) $("#fileName").value = s.fileName;
+  showTemplateInfo(s.templateName, s.templateSavedAt);
+  for (const el of ["#aiKey", "#aiModel", "#fileName"]) {
+    $(el).addEventListener("change", () =>
+      chrome.storage.local.set({ aiKey: $("#aiKey").value.trim(), aiModel: $("#aiModel").value, fileName: $("#fileName").value.trim() }),
+    );
+  }
+  if (!s.templateName) $("#settings").open = true;
+  updateSettingsState();
+}
+
+function showTemplateInfo(name, at) {
+  $("#templateInfo").textContent = name ? `저장된 템플릿: ${name} (${at || ""})` : "아직 템플릿이 없습니다. 완성된 보고서 PPT 를 한 번 넣어 주세요.";
+  $("#templateInfo").className = name ? "hint ok" : "hint err";
+}
+
+async function updateSettingsState() {
+  const s = await chrome.storage.local.get(["templateName"]).catch(() => ({}));
+  const parts = [s.templateName ? "템플릿 있음" : "템플릿 없음", $("#aiKey").value.trim() ? "AI 요약 켜짐" : "AI 요약 꺼짐(API 키 없음)"];
+  $("#settingsState").textContent = `— ${parts.join(" · ")}`;
+}
+
+function toBase64(u8) {
+  let s = "";
+  for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+function fromBase64(b64) {
+  const bin = atob(b64);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+}
+
+async function onTemplateFile() {
+  const file = $("#templateFile").files[0];
+  if (!file) return;
+  const u8 = new Uint8Array(await file.arrayBuffer());
+  try {
+    const files = await Zip.read(u8);
+    if (!files.has("ppt/presentation.xml")) throw new Error("PPT 파일이 아닙니다");
+  } catch (e) {
+    $("#templateInfo").textContent = `템플릿을 읽지 못했습니다: ${e.message}`;
+    $("#templateInfo").className = "hint err";
+    return;
+  }
+  const at = new Date().toLocaleString("ko-KR");
+  await chrome.storage.local.set({ templateB64: toBase64(u8), templateName: file.name, templateSavedAt: at });
+  showTemplateInfo(file.name, at);
+  updateSettingsState();
+  refreshButtons();
+}
+
+async function loadTemplate() {
+  const s = await chrome.storage.local.get(["templateB64"]);
+  if (!s.templateB64) throw new Error("설정에서 보고서 템플릿 PPT 를 먼저 넣어 주세요");
+  return fromBase64(s.templateB64);
+}
+
+// ---------------------------------------------------------------------------
+// 엑셀
+// ---------------------------------------------------------------------------
+async function onExcelFile() {
+  const file = $("#excelFile").files[0];
+  if (!file) return;
+  try {
+    const { items: marked, total } = await Excel.readMarked(new Uint8Array(await file.arrayBuffer()));
+    excelItems = marked;
+    $("#excelInfo").textContent = `전체 ${total}건 중 + 표시 ${marked.length}건` + (marked.length ? `: ${marked.map((m) => m.car).join(", ")}` : "");
+    $("#excelInfo").className = marked.length ? "hint ok" : "hint err";
+  } catch (e) {
+    excelItems = [];
+    $("#excelInfo").textContent = `엑셀을 읽지 못했습니다: ${e.message}`;
+    $("#excelInfo").className = "hint err";
+  }
+  refreshButtons();
+}
+
+function refreshButtons(running = false) {
+  $("#start").disabled = running || !excelItems.length;
+  $("#stop").disabled = !running;
+  $("#build").disabled = running || !items.some((it) => it.ready);
+}
+
+function setSummary(text, cls = "") {
+  $("#summary").textContent = text;
+  $("#summary").className = `summary ${cls}`;
+}
+
+// ---------------------------------------------------------------------------
+// 게시물 처리: 캡처 → 이미지 다듬기 → AI 요약
+// ---------------------------------------------------------------------------
+async function processCaptures(cap) {
+  const v = { header: null, body: null, comments: [], images: [] };
+  const dpr = cap.dpr;
+  if (cap.header) v.header = ImageProc.compactText(await ImageProc.toBitmap(cap.header), dpr);
+  if (cap.body) v.body = ImageProc.compactText(await ImageProc.toBitmap(cap.body), dpr);
+  for (const b of cap.comments) v.comments.push(b ? ImageProc.compactText(await ImageProc.toBitmap(b), dpr) : null);
+  for (const b of cap.images) v.images.push(b ? ImageProc.photo(await ImageProc.toBitmap(b), dpr) : null);
+  for (const x of [v.header, v.body, ...v.comments, ...v.images]) if (x) x.url = await ImageProc.previewUrl(x.canvas);
+  return v;
+}
+
+function fieldsFrom(row, info, ai) {
+  const { code, spec } = splitCar(row.car);
+  return {
+    title: `${modelName(row.car)}(${row.car}) ${ai.issue}`.trim(),
+    code,
+    spec,
+    kind: row.kind || "품질",
+    level: ai.level || "주의",
+    progress: "초기",
+    cafe: row.cafe,
+    url: row.url,
+    views: info?.views || "",
+    commentCount: info?.commentCount || "",
+    body: ai.body,
+    reaction: ai.reaction,
+    short: ai.short,
+    duplicate: ai.duplicate,
+    region: ai.region && ai.region !== "-" ? ai.region : "",
+    focus: "-",
+  };
+}
+
+async function processItem(it) {
+  it.ready = false;
+  it.error = "";
+  const row = it.row;
+  let info = null;
+  if (isCafeUrl(row.url)) {
+    setItemStatus(it, "캡처 준비");
+    try {
+      const cap = await captureCafePost(row.url, (step) => setItemStatus(it, step));
+      info = cap.info;
+      setItemStatus(it, "이미지 다듬는 중");
+      it.visuals = await processCaptures(cap);
+    } catch (e) {
+      it.error = `캡처 실패: ${e.message || e}`;
+      it.visuals = { header: null, body: null, comments: [], images: [] };
+    }
+  } else {
+    it.error = "네이버 카페 글이 아니라 캡처하지 않았습니다(텍스트만)";
+    it.visuals = { header: null, body: null, comments: [], images: [] };
+  }
+  it.info = info;
+
+  const key = $("#aiKey").value.trim();
+  let ai;
+  if (key && info) {
+    setItemStatus(it, "AI 요약 중");
+    try {
+      ai = await aiSummarize(row, info, { apiKey: key, model: $("#aiModel").value });
+    } catch (e) {
+      it.error = [it.error, `AI 요약 실패: ${aiErrorMessage(e)} (엑셀 내용으로 초안)`].filter(Boolean).join(" · ");
+      ai = excelDraft(row, info);
+    }
+  } else {
+    ai = excelDraft(row, info);
+  }
+  it.fields = fieldsFrom(row, info, ai);
+  it.noReaction = !!info && !(info.comments || []).length;
+  it.sel = {
+    header: true,
+    body: true,
+    comments: new Set(ai.comment_picks || []),
+    images: new Set(it.visuals.images.map((_, i) => i).filter((i) => it.visuals.images[i]).slice(0, DEFAULT_IMAGES)),
+  };
+  it.ready = true;
+  renderItem(it);
+  setItemStatus(it, it.error ? "완료(확인 필요)" : "완료", it.error ? "err" : "ok");
+}
+
+async function start() {
+  stopRequested = false;
+  items = excelItems.map((row, i) => ({ no: i + 1, row, ready: false }));
+  $("#items").innerHTML = "";
+  for (const it of items) renderItem(it);
+  refreshButtons(true);
+  let done = 0;
+  for (const it of items) {
+    if (stopRequested) break;
+    setSummary(`처리 중… ${done} / ${items.length}`);
+    await processItem(it);
+    done++;
+    const next = items[items.indexOf(it) + 1];
+    if (next && isCafeUrl(next.row.url) && !stopRequested) await sleep(ARTICLE_DELAY[0] + Math.random() * (ARTICLE_DELAY[1] - ARTICLE_DELAY[0]));
+  }
+  const failed = items.filter((it) => it.error).length;
+  setSummary(
+    stopRequested ? `중지했습니다 (${done} / ${items.length}). 끝난 글로 PPT 를 받을 수 있습니다.` : `완료: ${items.length}건${failed ? ` (확인 필요 ${failed}건)` : ""}. 내용을 확인한 뒤 [PPT 받기]를 누르세요.`,
+    failed ? "err" : "ok",
+  );
+  refreshButtons(false);
+}
+
+// ---------------------------------------------------------------------------
+// 미리보기 카드
+// ---------------------------------------------------------------------------
+const FIELD_DEFS = [
+  ["title", "페이지 제목", "text", "■ 뒤에 들어갈 '차명(모델명) 증상'"],
+  ["code", "차종", "text"],
+  ["spec", "제원", "text"],
+  ["level", "불만 구분", "select", ["주의", "경고", "심각"]],
+  ["progress", "경과", "select", ["초기", "진행", "타결"]],
+  ["views", "조회수", "text"],
+  ["commentCount", "댓글수", "text"],
+  ["body", "본문 요약", "textarea"],
+  ["reaction", "댓글 반응", "textarea", "비우면 '댓글 반응 없음'(댓글이 없을 때) 또는 확인 필요"],
+  ["short", "요약표 내용", "text"],
+  ["duplicate", "신규/중복", "text", "예: 신규, 중복 2건"],
+  ["region", "입고/운행지역", "text", "본문에 명시된 경우만 (예: 부산 사상구)"],
+  ["focus", "집중관리고객", "text"],
+];
+
+function setItemStatus(it, text, cls = "") {
+  const el = it.el && $(".status", it.el);
+  if (el) {
+    el.textContent = text + (it.error && it.ready ? ` — ${it.error}` : "");
+    el.className = `status ${cls}`;
+  }
+}
+
+function renderItem(it) {
+  if (!it.el) {
+    it.el = document.createElement("section");
+    it.el.className = "item";
+    $("#items").appendChild(it.el);
+  }
+  const head = `<div class="item-head"><span class="no">No.${it.no}</span><span>${esc(it.row.car)} · ${esc(it.row.cafe)}</span>
+    <a href="${esc(it.row.url)}" target="_blank" rel="noopener">${esc(it.row.url)}</a><span class="status">대기</span></div>`;
+  if (!it.ready) {
+    it.el.innerHTML = head + `<div class="hint">${esc(it.row.main)}</div>`;
+    return;
+  }
+  const f = it.fields;
+  const fields = FIELD_DEFS.map(([k, label, type, extra]) => {
+    const v = esc(f[k] ?? "");
+    let input;
+    if (type === "select") input = `<select data-k="${k}">${extra.map((o) => `<option${o === f[k] ? " selected" : ""}>${o}</option>`).join("")}</select>`;
+    else if (type === "textarea") input = `<textarea data-k="${k}" rows="2" placeholder="${esc(extra || "")}">${v}</textarea>`;
+    else input = `<input type="text" data-k="${k}" value="${v}" placeholder="${esc(extra || "")}">`;
+    return `<label>${label}</label>${input}`;
+  }).join("");
+
+  const v = it.visuals;
+  const shot = (kind, i, x, label, checked, cls = "") =>
+    x
+      ? `<label class="shot ${cls}${checked ? "" : " off"}"><span><input type="checkbox" data-kind="${kind}" data-i="${i}"${checked ? " checked" : ""}> ${esc(label)}</span><img src="${x.url}"></label>`
+      : "";
+  const comments = (it.info?.comments || [])
+    .map((c, i) => (v.comments[i] ? shot("comment", c.index, v.comments[i], `${c.isReply ? "└ " : ""}${c.text.slice(0, 40)}`, it.sel.comments.has(c.index)) : ""))
+    .join("");
+  const images = v.images.map((x, i) => shot("image", i, x, `이미지 ${i + 1}`, it.sel.images.has(i), "images")).join("");
+  const shots = `<div class="shots">
+    ${v.header || v.body ? `<h4>제목·본문 캡처</h4>${shot("header", 0, v.header, "제목", it.sel.header)}${shot("body", 0, v.body, "본문", it.sel.body)}` : ""}
+    ${comments ? `<h4>댓글 캡처 (AI 추천이 체크됨 · 2~3개 권장)</h4>${comments}` : ""}
+    ${images ? `<h4>본문 첨부 이미지</h4>${images}` : ""}
+  </div>`;
+
+  it.el.innerHTML = head + `<div class="item-body"><div class="fields">${fields}</div>
+    <div class="preview"><canvas width="600" height="415"></canvas><div class="buttons"><button data-act="retry">다시 캡처·요약</button></div></div></div>` + shots;
+
+  for (const el of it.el.querySelectorAll("[data-k]")) {
+    el.addEventListener("input", () => {
+      it.fields[el.dataset.k] = el.value;
+    });
+  }
+  for (const el of it.el.querySelectorAll("input[data-kind]")) {
+    el.addEventListener("change", () => {
+      const { kind, i } = el.dataset;
+      if (kind === "header" || kind === "body") it.sel[kind] = el.checked;
+      else {
+        const set = kind === "comment" ? it.sel.comments : it.sel.images;
+        el.checked ? set.add(Number(i)) : set.delete(Number(i));
+      }
+      el.closest(".shot").classList.toggle("off", !el.checked);
+      drawPreview(it);
+    });
+  }
+  $('[data-act="retry"]', it.el).addEventListener("click", async () => {
+    refreshButtons(true);
+    await processItem(it);
+    refreshButtons(false);
+  });
+  drawPreview(it);
+}
+
+function selectedVisuals(it) {
+  const v = it.visuals;
+  const commentIdx = (it.info?.comments || []).map((c, i) => [c.index, i]).filter(([ci]) => it.sel.comments.has(ci)).map(([, i]) => i);
+  return {
+    header: it.sel.header ? v.header : null,
+    body: it.sel.body ? v.body : null,
+    comments: commentIdx.map((i) => v.comments[i]).filter(Boolean),
+    images: [...it.sel.images].sort((a, b) => a - b).map((i) => v.images[i]).filter(Boolean),
+  };
+}
+
+// 슬라이드 모양 미리보기 (안내선 + 캡처 배치)
+function drawPreview(it) {
+  const canvas = $(".preview canvas", it.el);
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const W = 9906000;
+  const H = 6858000;
+  const s = canvas.width / W;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = "#c8ccd2";
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  const g = Layout.G;
+  for (const x of [g.xText, g.xBody, g.xRight, g.xImg, g.xImgR]) {
+    ctx.beginPath();
+    ctx.moveTo(x * s, 0);
+    ctx.lineTo(x * s, canvas.height);
+    ctx.stroke();
+  }
+  for (const y of [g.yTop, g.yImg, g.yBottom]) {
+    ctx.beginPath();
+    ctx.moveTo(0, y * s);
+    ctx.lineTo(canvas.width, y * s);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.fillStyle = "#1b1d21";
+  ctx.font = "bold 13px sans-serif";
+  ctx.fillText(`■ ${it.fields.title}`.slice(0, 48), 404327 * s, 420000 * s);
+  ctx.fillStyle = "#f1f2f4";
+  ctx.fillRect(343851 * s, 653393 * s, 9228818 * s, (g.yTop - 653393 - 60000) * s);
+  const { placements } = Layout.layout(selectedVisuals(it));
+  for (const p of placements) {
+    const src = p.item.canvas;
+    const sh = p.crop && p.crop < 1 ? src.height * p.crop : src.height;
+    ctx.drawImage(src, 0, 0, src.width, sh, p.x * s, p.y * s, p.w * s, p.h * s);
+    ctx.strokeStyle = { header: "#5b9bd5", body: "#ed7d31", comment: "#70ad47", image: "#e00000" }[p.kind];
+    ctx.strokeRect(p.x * s, p.y * s, p.w * s, p.h * s);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PPT 만들기
+// ---------------------------------------------------------------------------
+async function pictures(it) {
+  const { placements } = Layout.layout(selectedVisuals(it));
+  const out = [];
+  for (const p of placements) {
+    let item = p.item;
+    let h = p.h;
+    if (p.crop && p.crop < 1) {
+      item = ImageProc.cropHeight(item, Math.floor(item.canvas.height * p.crop));
+      h = (p.w * item.canvas.height) / item.canvas.width;
+    }
+    const isPhoto = p.kind === "image";
+    const enc = await ImageProc.encodeAtPpi(item.canvas, p.w / Layout.CM, h / Layout.CM, { type: isPhoto ? "image/jpeg" : "image/png" });
+    out.push({ blob: enc.blob, ext: isPhoto ? "jpeg" : "png", x: p.x, y: p.y, w: p.w, h, name: "그림" });
+  }
+  return out;
+}
+
+function reportDate() {
+  const v = $("#reportDate").value;
+  const [y, m, d] = v ? v.split("-").map(Number) : [new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate()];
+  return { y, m, d };
+}
+
+async function buildPpt() {
+  $("#build").disabled = true;
+  try {
+    setSummary("PPT 만드는 중…");
+    const template = await loadTemplate();
+    const ready = items.filter((it) => it.ready);
+    const list = [];
+    for (const it of ready) list.push({ ...it.fields, noReaction: it.noReaction, pictures: await pictures(it) });
+    const { y, m, d } = reportDate();
+    const bytes = await Pptx.build(template, { dateText: `${y}.${pad(m)}.${pad(d)}`, items: list });
+    const name = ($("#fileName").value.trim() || "{날짜}_현대차 온라인 이슈 보고서").replace("{날짜}", `${String(y).slice(2)}${pad(m)}${pad(d)}`);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }));
+    a.download = `${name.replace(/[<>:"/\\|?*]/g, "_")}.pptx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setSummary(`저장했습니다: ${a.download} (${list.length}건, ${(bytes.length / 1024 / 1024).toFixed(1)}MB)`, "ok");
+  } catch (e) {
+    setSummary(`PPT 를 만들지 못했습니다: ${e.message || e}`, "err");
+  } finally {
+    refreshButtons(false);
+  }
+}
+
+// ---------------------------------------------------------------------------
+document.addEventListener("DOMContentLoaded", async () => {
+  const now = new Date();
+  $("#reportDate").value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  await loadSettings();
+  $("#templateFile").addEventListener("change", onTemplateFile);
+  $("#excelFile").addEventListener("change", onExcelFile);
+  $("#aiKey").addEventListener("change", updateSettingsState);
+  $("#start").addEventListener("click", start);
+  $("#stop").addEventListener("click", () => {
+    stopRequested = true;
+    $("#stop").disabled = true;
+    setSummary("지금 글까지만 끝내고 멈춥니다…");
+  });
+  $("#build").addEventListener("click", buildPpt);
+});
