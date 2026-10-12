@@ -221,8 +221,9 @@
       const trs = kids(tbl, A, "tr");
       const proto = trs[1];
       for (const tr of trs.slice(1)) tbl.removeChild(tr);
-      for (let no = 1; no <= Math.max(totalRows, startNo - 1 + items.length); no++) {
-        const it = items[no - startNo];
+      const byNo = new Map(items.map((it, i) => [it.no || startNo + i, it]));
+      for (let no = 1; no <= Math.max(totalRows, ...byNo.keys()); no++) {
+        const it = byNo.get(no);
         const tr = proto.cloneNode(true);
         const tcs = kids(tr, A, "tc");
         setCell(tcs[0], String(no));
@@ -288,7 +289,7 @@
         return id;
       };
       const linkRid = addRel(T_LINK, it.url, true);
-      fillDetail(doc, it, startNo + i, linkRid);
+      fillDetail(doc, it, it.no || startNo + i, linkRid);
       for (const pic of it.pictures || []) {
         const media = nextName(`ppt/media/report_${i + 1}_#.${pic.ext}`);
         files.set(media, new Uint8Array(await pic.blob.arrayBuffer()));

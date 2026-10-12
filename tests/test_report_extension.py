@@ -315,12 +315,15 @@ def run_report(tmp_path: Path, template: Path, excel: Path, out_dir: Path, ai_ke
             page.fill("#aiKey", ai_key)
             page.dispatch_event("#aiKey", "change")
         page.fill("#reportDate", "2026-10-07")
-        if count:  # (총 칸 수, 작성 개수)
-            page.uncheck("#countAll")
-            page.fill("#countTotal", str(count[0]))
-            page.fill("#countMine", str(count[1]))
         page.set_input_files("#excelFile", str(excel))
         page.wait_for_selector("#start:not([disabled])")
+        if count:  # (총 칸 수, 작성 개수) — 엑셀을 넣으면 총 칸 수는 + 개수로 자동 입력됨
+            page.uncheck("#countAll")
+            assert page.input_value("#countTotal") == str(count[2]) if len(count) > 2 else True
+            page.fill("#countTotal", str(count[0]))
+            page.fill("#countMine", str(count[1]))
+            if len(count) > 3:
+                page.check(f'input[name="countPart"][value="{count[3]}"]')
         page.click("#start")
         page.wait_for_selector("#build:not([disabled])", timeout=180000)
         page.wait_for_selector("#stop[disabled]", timeout=180000)
@@ -527,3 +530,42 @@ def test_excel_layouts(tmp_path):
         ("LX3", "https://naver.me/G4d8mM0i", "엔진 경고등 점등", "팰리세이드 피플"),
         ("AX", "https://naver.me/xtNJKRiE", "", "캐스퍼 매니아"),
     ]
+
+
+def test_report_count_last_k(tmp_path):
+    """'3개 중 2개 작성': + 글 3개 중 뒤의 2개를 2·3번으로. 1번 글은 캡처하지 않고 연번만 있는 빈 칸.
+    2번 자리 글이 삭제된 글이면 그 칸은 빈 칸으로 두고 3번 글은 그대로 3번."""
+    from pptx import Presentation
+
+    template = tmp_path / "template.pptx"
+    excel = tmp_path / "issues.xlsx"
+    make_template(template)
+    make_excel(excel)  # + 글: ST1 카페 글 / 삭제된 글 / 보배드림 글
+    out, ai_requests, _ = run_report(tmp_path, template, excel, tmp_path, count=(3, 2, 3))
+    assert ai_requests == []  # 1번(ST1 카페 글)은 다른 담당자 몫이라 열지도 않음
+    slides = list(Presentation(out).slides)
+    assert len(slides) == 4  # 상세는 보배드림 글 한 장
+    rows = [[c.text for c in r.cells] for r in [sh for sh in slides[1].shapes if sh.has_table][0].table.rows]
+    assert [r[0] for r in rows[1:]] == ["1", "2", "3"]
+    assert all(c == "" for c in rows[1][1:]) and all(c == "" for c in rows[2][1:])
+    assert rows[3][1] == "GN7 PE"
+    assert "No.3" in [sh.text_frame.text for sh in slides[3].shapes if sh.has_text_frame]
+
+
+def test_report_count_first_k(tmp_path):
+    """'3개 중 1개 앞부분 작성': + 글 중 첫 번째만 1번으로, 2·3번은 연번만 있는 빈 칸."""
+    from pptx import Presentation
+
+    template = tmp_path / "template.pptx"
+    excel = tmp_path / "issues.xlsx"
+    make_template(template)
+    make_excel(excel)  # + 글: ST1 카페 글 / 삭제된 글 / 보배드림 글
+    out, ai_requests, _ = run_report(tmp_path, template, excel, tmp_path, count=(3, 1, 3, "front"))
+    assert len(ai_requests) >= 1  # 1번 ST1 카페 글만 캡처·요약
+    slides = list(Presentation(out).slides)
+    assert len(slides) == 4
+    rows = [[c.text for c in r.cells] for r in [sh for sh in slides[1].shapes if sh.has_table][0].table.rows]
+    assert [r[0] for r in rows[1:]] == ["1", "2", "3"]
+    assert rows[1][1] == "ST1"
+    assert all(c == "" for c in rows[2][1:]) and all(c == "" for c in rows[3][1:])
+    assert "No.1" in [sh.text_frame.text for sh in slides[3].shapes if sh.has_text_frame]

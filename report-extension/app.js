@@ -52,11 +52,13 @@ async function loadSettings() {
   for (const [id, label] of AI_MODELS) $("#aiModel").add(new Option(label, id));
   const s = await chrome.storage.local.get(["aiKey", "aiModel", "fileName", "ppi", "templateName", "templateSavedAt"]).catch(() => ({}));
   if (s.ppi) $("#ppi").value = String(s.ppi);
-  const c = await chrome.storage.local.get(["countAll", "countTotal", "countMine"]).catch(() => ({}));
+  const c = await chrome.storage.local.get(["countAll", "countTotal", "countMine", "countPart"]).catch(() => ({}));
+  if (c.countPart === "front") document.querySelector('input[name="countPart"][value="front"]').checked = true;
   if (c.countAll === false) $("#countAll").checked = false;
   if (c.countTotal) $("#countTotal").value = c.countTotal;
   if (c.countMine) $("#countMine").value = c.countMine;
   for (const el of ["#countAll", "#countTotal", "#countMine"]) $(el).addEventListener("input", updateCountUi);
+  document.querySelectorAll('input[name="countPart"]').forEach((el) => el.addEventListener("change", updateCountUi));
   updateCountUi();
   $("#aiKey").value = s.aiKey || "";
   if (s.aiModel && AI_MODELS.some(([id]) => id === s.aiModel)) $("#aiModel").value = s.aiModel;
@@ -133,6 +135,12 @@ async function onExcelFile() {
   try {
     const { items: marked, total, sheets } = await Excel.readMarked(new Uint8Array(await file.arrayBuffer()));
     excelItems = marked;
+    // '총 N개' 는 + 표시 개수로 채워 둔다 (작성 개수만 정하면 되게)
+    if (marked.length) {
+      $("#countTotal").value = String(Math.min(12, marked.length));
+      if (Number($("#countMine").value) > marked.length) $("#countMine").value = String(Math.min(12, marked.length));
+      updateCountUi();
+    }
     $("#excelInfo").textContent =
       `전체 ${total}건 중 + 표시 ${marked.length}건` +
       (marked.length ? `: ${marked.map((m) => m.car || "?").join(", ")}` : " (+ 표시된 행이 없습니다)") +
@@ -151,7 +159,8 @@ function countPlan() {
   if ($("#countAll").checked) return { all: true };
   const total = Math.min(12, Math.max(1, Number($("#countTotal").value) || 1));
   const mine = Math.min(total, Math.max(1, Number($("#countMine").value) || 1));
-  return { all: false, total, mine, startNo: total - mine + 1 };
+  const part = document.querySelector('input[name="countPart"]:checked')?.value === "front" ? "front" : "back";
+  return { all: false, total, mine, part, startNo: part === "front" ? 1 : total - mine + 1 };
 }
 
 function updateCountUi() {
@@ -159,9 +168,19 @@ function updateCountUi() {
   $("#countOpts").classList.toggle("off", plan.all);
   $("#countHint").textContent = plan.all
     ? ""
-    : `→ 요약표 ${plan.total}칸, ${plan.startNo > 1 ? `1~${plan.startNo - 1}번은 연번만 있는 빈 칸, ` : ""}${plan.startNo}~${plan.total}번 작성`;
+    : `→ 요약표 ${plan.total}칸. + 글 중 ${plan.part === "front" ? "앞" : "뒤"}에서 ${plan.mine}개를 ` +
+      `${plan.startNo}~${plan.startNo + plan.mine - 1}번으로 작성` +
+      (plan.part === "front"
+        ? plan.mine < plan.total ? `, ${plan.mine + 1}~${plan.total}번은 연번만 있는 빈 칸` : ""
+        : plan.startNo > 1 ? `, 1~${plan.startNo - 1}번은 연번만 있는 빈 칸` : "") +
+      (excelItems.length && excelItems.length !== plan.total ? ` (엑셀 + 표시는 ${excelItems.length}개)` : "");
   chrome.storage.local
-    .set({ countAll: $("#countAll").checked, countTotal: $("#countTotal").value, countMine: $("#countMine").value })
+    .set({
+      countAll: $("#countAll").checked,
+      countTotal: $("#countTotal").value,
+      countMine: $("#countMine").value,
+      countPart: countPlan().part || "back",
+    })
     .catch(() => {});
 }
 
@@ -281,28 +300,33 @@ async function start() {
   $("#items").innerHTML = "";
   for (const it of items) renderItem(it);
   refreshButtons(true);
-  const need = plan.all ? items.length : plan.mine;
+  // 'N개 중 K개 작성': 뒷부분이면 + 글 중 뒤에서 K개를 (N−K+1)~N번으로, 앞부분이면 앞에서 K개를 1~K번으로.
+  // 나머지 글은 다른 담당자 몫이라 열지 않는다
+  const mine = plan.all ? items : plan.part === "front" ? items.slice(0, plan.mine) : items.slice(-plan.mine);
+  for (const it of items) {
+    if (!mine.includes(it)) {
+      it.skipped = true;
+      setItemStatus(it, "작성 안 함 (다른 담당자 몫)");
+    }
+  }
+  const need = mine.length;
   let nextNo = plan.all ? 1 : plan.startNo;
   let done = 0;
   let written = 0;
-  for (const it of items) {
+  for (const it of mine) {
     if (stopRequested) break;
-    if (written >= need) {
-      it.skipped = true; // 정한 개수를 채워서 작성하지 않음
-      setItemStatus(it, "작성 안 함 (정한 개수 초과)");
-      continue;
-    }
-    setSummary(`처리 중… ${written} / ${need}건`);
+    setSummary(`처리 중… ${done} / ${need}건`);
     await processItem(it);
     done++;
     if (!it.deleted) {
-      it.no = nextNo++;
+      // 전체: 삭제 글을 빼고 1번부터 이어서 / N개 중 K개: + 글 순서 그대로의 번호 (삭제 글 자리는 빈 칸)
+      it.no = plan.all ? nextNo++ : plan.startNo + mine.indexOf(it);
       written++;
       renderItem(it);
       setItemStatus(it, it.error ? "완료(확인 필요)" : "완료", it.error ? "err" : "ok");
     }
-    const next = items[items.indexOf(it) + 1];
-    if (next && written < need && isCafeUrl(next.row.url) && !stopRequested) {
+    const next = mine[mine.indexOf(it) + 1];
+    if (next && isCafeUrl(next.row.url) && !stopRequested) {
       await sleep(ARTICLE_DELAY[0] + Math.random() * (ARTICLE_DELAY[1] - ARTICLE_DELAY[0]));
     }
   }
@@ -509,7 +533,7 @@ async function buildPpt() {
     const ready = items.filter((it) => it.ready && !it.deleted && it.no);
     if (!ready.length) throw new Error("보고서에 넣을 게시물이 없습니다(모두 삭제된 게시물)");
     const list = [];
-    for (const it of ready) list.push({ ...it.fields, noReaction: it.noReaction, pictures: await pictures(it) });
+    for (const it of ready) list.push({ ...it.fields, no: it.no, noReaction: it.noReaction, pictures: await pictures(it) });
     const { y, m, d } = reportDate();
     const startNo = plan.all ? 1 : plan.startNo;
     const totalRows = plan.all ? list.length : plan.total;
