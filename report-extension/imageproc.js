@@ -6,7 +6,8 @@
 (function (global) {
   const LINE_GAP_CSS = 5; // 줄여 붙일 때 줄 사이 간격 (화면 px)
   const PAD_CSS = 3; // 잘라낸 뒤 남기는 가장자리 여백 (화면 px)
-  const INK_DIFF = 48; // 배경색과 이만큼 다르면 글자(잉크)로 본다
+  // 배경색과 이만큼 다르면 내용으로 본다. 연한 회색 기본 프로필 아이콘(동그라미)도 잘리지 않게 낮게 잡는다.
+  const INK_DIFF = 12;
 
   async function toBitmap(blob) {
     return createImageBitmap(blob);
@@ -37,6 +38,8 @@
       for (let x = 0; x < w; x++) if (isInk((y * w + x) * 4)) n++;
       rowInk[y] = n;
     }
+    // 폭 대부분을 덮는 가로선(칸 구분선·테두리)은 줄 단위로 지운다
+    for (let y = 0; y < h; y++) if (rowInk[y] > w * 0.8) rowInk[y] = 0;
     // 잉크 줄 묶음(band) 찾기
     let bands = [];
     let start = -1;

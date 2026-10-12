@@ -19,6 +19,7 @@
   const IMG_GAP = 0.2 * CM;
   const TITLE_W = [15 * CM, 12 * CM];
   const TITLE_MAX_H = 2.7 * CM; // 15cm 로 놓았을 때 이보다 높으면 12cm 로
+  const TITLE_CROP_H = 3.2 * CM; // 12cm 로도 이보다 높으면 아래를 자름
   // 원본 화면 1px 이 슬라이드에서 차지하는 길이 (100% 기준).
   // 윈도우 125% 화면에서 캡처해 붙여넣은(96dpi) 기존 보고서와 같은 글자 크기가 되도록 맞춘 값.
   const CSS_PX_EMU = (1.25 / 96) * 2.54 * CM;
@@ -75,8 +76,10 @@
         w = TITLE_W[1];
         h = (w * visuals.header.cssHeight) / visuals.header.cssWidth;
       }
-      placements.push({ kind: "header", item: visuals.header, x: G.xText, y, w, h });
-      y += h + GAP;
+      // 제목 영역이 너무 높으면(이상 캡처) 아래를 잘라 슬라이드 밖으로 넘치지 않게
+      const crop = h > TITLE_CROP_H ? TITLE_CROP_H / h : 1;
+      placements.push({ kind: "header", item: visuals.header, x: G.xText, y, w, h: h * crop, crop });
+      y += h * crop + GAP;
     }
 
     const comments = [...(visuals.comments || [])];
@@ -97,7 +100,7 @@
       if (chosen.fits) break;
     }
     if (!chosen.fits) chosen = plan(Math.min(2, n), SCALES[1]);
-    if (visuals.body && chosen.body) {
+    if (visuals.body && chosen.body && chosen.avail > 0.5 * CM) {
       const b = chosen.body;
       const crop = b.h > chosen.avail ? chosen.avail / b.h : 1;
       placements.push({ kind: "body", item: visuals.body, x: G.xBody, y, w: b.w, h: b.h * crop, crop });

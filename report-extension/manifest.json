@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "온라인 이슈 보고서 작성기",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "일일 부정 이슈 엑셀에서 + 표시된 카페 게시물을 캡처·요약해 현대차 온라인 이슈 보고서(.pptx)를 만듭니다.",
   "action": {
     "default_title": "온라인 이슈 보고서 작성기"

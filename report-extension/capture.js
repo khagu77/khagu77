@@ -67,10 +67,18 @@ async function cafePageProbe(mode, target, maxComments, maxImages) {
     return { left: l, top: t, width: r - l, height: b - t };
   }
 
-  function toPage(els) {
-    const r = unionRect(els);
-    if (!Number.isFinite(r.left)) return null;
-    const pad = 4;
+  function toPage(el, pad = 2) {
+    const own = el.getBoundingClientRect();
+    const u = unionRect([el]);
+    if (!Number.isFinite(u.left)) return null;
+    const M = 40; // 칸 밖으로 튀어나온 아이콘·버튼은 이 정도까지만 포함
+    const l = Math.max(u.left, own.left - M);
+    const t = Math.max(u.top, own.top - M);
+    const rr = Math.min(u.left + u.width, own.right + M);
+    const bb = Math.min(u.top + u.height, own.bottom + M);
+    const r = { left: Math.min(l, own.left), top: Math.min(t, own.top), width: 0, height: 0 };
+    r.width = Math.max(rr, own.right) - r.left;
+    r.height = Math.max(bb, own.bottom) - r.top;
     let x = r.left + window.scrollX - pad;
     let y = r.top + window.scrollY - pad;
     if (doc !== document) {
@@ -130,14 +138,8 @@ async function cafePageProbe(mode, target, maxComments, maxImages) {
       await new Promise((r) => setTimeout(r, 100));
     }
     await new Promise((r) => setTimeout(r, 300));
-    // 제목 캡처: 게시판 이름 · 제목 · 작성자 아이콘 · 닉네임 · 작성일을 한 장으로 (아이콘 위쪽이 잘리지 않게)
-    if (target === "header") {
-      const box = el.closest(".ArticleContentBox, .article_wrap, .ArticleContent") || el.parentElement || doc;
-      const extra = [...box.querySelectorAll(".link_board, .WriterInfo, .profile_area, .article_writer, .article_info")]
-        .filter((e) => !el.contains(e) && !e.closest("[data-rpt='body'], .CommentBox"));
-      return toPage([el, ...extra]);
-    }
-    const rect = toPage([el]);
+    // 본문은 여유 없이(바로 아래 영역이 섞이지 않게), 나머지는 2px 여유
+    const rect = toPage(el, target === "body" ? 0 : 2);
     // 아주 긴 본문은 캡처 크기 한계를 넘지 않게 위쪽 일부만 (슬라이드에도 다 들어가지 않음)
     if (rect && target === "body") rect.height = Math.min(rect.height, 6000);
     return rect;
@@ -146,7 +148,11 @@ async function cafePageProbe(mode, target, maxComments, maxImages) {
   // ---- mode === "info" ----
   if (/nid\.naver\.com/.test(location.href)) return { error: "login" };
   const body = pick(doc, SEL.body);
-  if (!body) return { error: "nobody", href: location.href };
+  if (!body) {
+    const pageText = `${document.body?.innerText || ""} ${doc.body?.innerText || ""}`;
+    if (/삭제되었거나|존재하지 않는 게시글|삭제된 게시글|삭제된 게시물/.test(pageText)) return { error: "deleted" };
+    return { error: "nobody", href: location.href };
+  }
 
   // 늦게 불러오는 그림·댓글이 나오도록 끝까지 천천히 내렸다가 올린다
   const total = Math.max(document.body.scrollHeight, doc.body.scrollHeight);
@@ -226,6 +232,18 @@ async function cafePageProbe(mode, target, maxComments, maxImages) {
     const m = location.href.match(SHORT);
     if (m && !/^(ca-fe|f-e)$/.test(m[1])) canonicalUrl = `https://cafe.naver.com/${m[1]}/${m[2]}`;
   }
+  if (!canonicalUrl) {
+    const hrefs = [location.href, ...(doc !== document ? [doc.location.href] : [])].join(" ");
+    const articleId = (hrefs.match(/articles\/(\d+)/) || hrefs.match(/articleid=(\d+)/i) || [])[1];
+    const RESERVED = new Set(["ca-fe", "f-e", "section", "cafesearch", "mycafeintro", "joincafe", "ca-fe-mobile"]);
+    const count = {};
+    for (const a of [...document.links, ...(doc !== document ? doc.links : [])]) {
+      const m = a.href.match(/^https?:\/\/cafe\.naver\.com\/([A-Za-z][A-Za-z0-9_\-]{2,})\/?(?:[?#].*)?$/);
+      if (m && !RESERVED.has(m[1].toLowerCase())) count[m[1]] = (count[m[1]] || 0) + 1;
+    }
+    const name = Object.keys(count).sort((a, b) => count[b] - count[a])[0];
+    if (articleId && name) canonicalUrl = `https://cafe.naver.com/${name}/${articleId}`;
+  }
 
   // 작성자의 '작성글 보기' 와 이 글이 있는 게시판 목록 주소 (지역·중복 판단용)
   const abs = (a) => (a ? new URL(a.getAttribute("href"), doc.baseURI).href : "");
@@ -252,6 +270,75 @@ async function cafePageProbe(mode, target, maxComments, maxImages) {
     comments,
     images,
   };
+}
+
+// 게시글의 'URL 복사' 버튼을 눌러 복사되는 주소(https://cafe.naver.com/카페주소/글번호)를 가로챈다.
+// 실제 클립보드에는 아무것도 넣지 않는다. (페이지 자체 스크립트 영역에서 실행)
+async function copyUrlProbe() {
+  const wins = [window];
+  const fr = document.querySelector("iframe#cafe_main");
+  try {
+    if (fr && fr.contentWindow && fr.contentWindow.document) wins.push(fr.contentWindow);
+  } catch {
+    /* 다른 도메인 틀 */
+  }
+  let copied = "";
+  const restores = [];
+  for (const w of wins) {
+    const d = w.document;
+    const grab = () => {
+      const ae = d.activeElement;
+      return (d.getSelection && d.getSelection().toString()) || (ae && "value" in ae ? ae.value : "") || "";
+    };
+    const clip = w.navigator.clipboard;
+    if (clip) {
+      const orig = clip.writeText;
+      try {
+        clip.writeText = (t) => {
+          copied = copied || String(t);
+          return Promise.resolve();
+        };
+        restores.push(() => {
+          clip.writeText = orig;
+        });
+      } catch {
+        /* 바꿀 수 없음 */
+      }
+    }
+    const origExec = d.execCommand;
+    d.execCommand = function (cmd, ...rest) {
+      if (String(cmd).toLowerCase() === "copy") {
+        copied = copied || grab();
+        return true;
+      }
+      return origExec.call(this, cmd, ...rest);
+    };
+    restores.push(() => {
+      d.execCommand = origExec;
+    });
+  }
+  let btn = null;
+  for (const w of wins) {
+    for (const el of w.document.querySelectorAll("button, a, span")) {
+      if (el.innerText && el.innerText.replace(/\s+/g, "") === "URL복사") {
+        btn = el.closest("button, a") || el;
+        break;
+      }
+    }
+    if (btn) break;
+  }
+  if (btn) {
+    btn.click();
+    for (let i = 0; i < 15 && !copied; i++) await new Promise((r) => setTimeout(r, 100));
+  }
+  restores.forEach((f) => {
+    try {
+      f();
+    } catch {
+      /* 무시 */
+    }
+  });
+  return copied;
 }
 
 // 글 목록 화면(작성자의 작성글 / 게시판 목록) 안에서 실행: 보이는 글 제목과 날짜를 모은다
@@ -296,29 +383,41 @@ function cdp(tabId, method, params = {}) {
   return chrome.debugger.sendCommand({ tabId }, method, params);
 }
 
+// 창을 열고 바로 크롬 디버거를 붙인다: 화면 배율 고정 + 삭제 안내 같은 알림창(alert)을 자동으로 닫고 문구를 기록
 async function openWindow(url) {
   const win = await chrome.windows.create({
-    url,
+    url: "about:blank",
     focused: false,
     type: "normal",
     width: CAPTURE_WIDTH,
     height: CAPTURE_HEIGHT,
   });
-  const tab = win.tabs[0];
-  await new Promise((resolve) => {
-    const timer = setTimeout(done, 30000);
-    function done() {
-      clearTimeout(timer);
-      chrome.tabs.onUpdated.removeListener(listener);
-      resolve();
-    }
-    function listener(id, info) {
-      if (id === tab.id && info.status === "complete") done();
-    }
-    chrome.tabs.onUpdated.addListener(listener);
+  const tabId = win.tabs[0].id;
+  const dialogs = [];
+  const onEvent = (src, method, params) => {
+    if (src.tabId !== tabId || method !== "Page.javascriptDialogOpening") return;
+    dialogs.push(params.message || "");
+    cdp(tabId, "Page.handleJavaScriptDialog", { accept: true }).catch(() => {});
+  };
+  chrome.debugger.onEvent.addListener(onEvent);
+  await chrome.debugger.attach({ tabId }, "1.3");
+  await cdp(tabId, "Page.enable");
+  await cdp(tabId, "Emulation.setDeviceMetricsOverride", {
+    width: CAPTURE_WIDTH,
+    height: CAPTURE_HEIGHT,
+    deviceScaleFactor: CAPTURE_DPR,
+    mobile: false,
   });
-  return { windowId: win.id, tabId: tab.id };
+  await gotoAndWait(tabId, url);
+  const close = async () => {
+    chrome.debugger.onEvent.removeListener(onEvent);
+    await chrome.debugger.detach({ tabId }).catch(() => {});
+    await chrome.windows.remove(win.id).catch(() => {});
+  };
+  return { tabId, dialogs, close };
 }
+
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("시간 초과")), ms))]);
 
 async function gotoAndWait(tabId, url) {
   await new Promise((resolve) => {
@@ -341,7 +440,10 @@ async function readList(tabId, url) {
   if (!url) return [];
   try {
     await gotoAndWait(tabId, url);
-    const [res] = await chrome.scripting.executeScript({ target: { tabId }, func: cafeListProbe, args: [LIST_LIMIT] });
+    const [res] = await withTimeout(
+      chrome.scripting.executeScript({ target: { tabId }, func: cafeListProbe, args: [LIST_LIMIT] }),
+      20000,
+    );
     return (res && res.result) || [];
   } catch {
     return [];
@@ -386,44 +488,46 @@ async function fetchImage(src) {
 }
 
 // → { info, header, body, comments: [Blob|null], images: [Blob|null], dpr }
+class DeletedPostError extends CaptureError {}
+const DELETED_RE = /삭제되었거나|존재하지 않는 게시글|삭제된 게시글|삭제된 게시물/;
+
+// → { info, header, body, comments: [Blob|null], images: [Blob|null], dpr }
 async function captureCafePost(url, onStep = () => {}) {
   onStep("게시글 여는 중");
-  const { windowId, tabId } = await openWindow(url);
-  let attached = false;
+  const { tabId, dialogs, close } = await openWindow(url);
   try {
-    await sleep(2500); // 카페 화면(틀·스크립트)이 그려질 시간
     let info = null;
     for (let attempt = 0; attempt < 6; attempt++) {
-      info = await probe(tabId, "info").catch(() => null);
-      if (info && !info.error) break;
-      if (info && info.error === "login") break;
+      if (dialogs.some((m) => DELETED_RE.test(m))) break;
+      info = await withTimeout(probe(tabId, "info"), 40000).catch(() => null);
+      if (info && (!info.error || info.error === "login" || info.error === "deleted")) break;
       await sleep(1500);
     }
-    if (!info) throw new CaptureError("게시글 화면을 읽지 못했습니다");
+    if (dialogs.some((m) => DELETED_RE.test(m)) || (info && info.error === "deleted")) {
+      throw new DeletedPostError("삭제된 게시물");
+    }
+    if (!info) throw new CaptureError(dialogs.length ? `게시글을 열 수 없음: ${dialogs[0]}` : "게시글 화면을 읽지 못했습니다");
     if (info.error === "login") throw new CaptureError("네이버 로그인이 필요합니다");
-    if (info.error) throw new CaptureError("본문을 찾지 못함 (카페 가입이 필요하거나 삭제된 글일 수 있음)");
+    if (info.error) throw new CaptureError("본문을 찾지 못함 (카페 가입이 필요한 글일 수 있음)");
+
+    // 게시글 위치: 'URL 복사' 버튼이 주는 주소를 우선 사용
+    try {
+      const [res] = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: copyUrlProbe });
+      const m = String((res && res.result) || "").match(/https?:\/\/cafe\.naver\.com\/([A-Za-z0-9_\-]+)\/(\d+)/);
+      if (m && !/^(ca-fe|f-e)$/.test(m[1])) info.canonicalUrl = `https://cafe.naver.com/${m[1]}/${m[2]}`;
+    } catch {
+      /* 링크에서 찾은 주소 사용 */
+    }
 
     onStep("캡처 중");
-    await chrome.debugger.attach({ tabId }, "1.3");
-    attached = true;
-    await cdp(tabId, "Emulation.setDeviceMetricsOverride", {
-      width: CAPTURE_WIDTH,
-      height: CAPTURE_HEIGHT,
-      deviceScaleFactor: CAPTURE_DPR,
-      mobile: false,
-    });
-    await sleep(600);
-
-    const take = async (target) => shot(tabId, await probe(tabId, "rect", target));
+    const take = async (target) => shot(tabId, await withTimeout(probe(tabId, "rect", target), 20000).catch(() => null));
     const out = { info, dpr: CAPTURE_DPR, comments: [], images: [] };
     out.header = await take("header");
     // 본문 사진은 원본 파일을 직접 받는다 (선명하고 여백·비율 왜곡 없음). 못 받으면 화면 캡처로 대신.
     for (const im of info.images) out.images.push((await fetchImage(im.src)) || (await take(`image${im.index}`)));
     for (const c of info.comments) out.comments.push(await take(`comment${c.index}`));
     out.body = await take("body"); // 마지막: 본문 이미지를 가린 상태로 찍음
-    await probe(tabId, "restore");
-    await chrome.debugger.detach({ tabId }).catch(() => {});
-    attached = false;
+    await probe(tabId, "restore").catch(() => {});
 
     // 지역(작성자의 다른 글)·중복(같은 게시판 최근 글) 판단용 목록. 사람처럼 잠깐씩 쉬며 같은 창에서 연다.
     onStep("작성글·게시판 목록 확인 중");
@@ -433,7 +537,6 @@ async function captureCafePost(url, onStep = () => {}) {
     info.boardPosts = await readList(tabId, info.boardLink);
     return out;
   } finally {
-    if (attached) await chrome.debugger.detach({ tabId }).catch(() => {});
-    await chrome.windows.remove(windowId).catch(() => {});
+    await close();
   }
 }

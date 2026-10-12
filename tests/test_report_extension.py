@@ -38,57 +38,74 @@ def _photo_png():
 
 PHOTO = _photo_png()
 
-PROFILE = ("data:image/svg+xml;base64," + __import__("base64").b64encode(
-    b'<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36"><circle cx="18" cy="18" r="18" fill="#cc00ff"/></svg>').decode())
-STICKER = ("data:image/svg+xml;base64," + __import__("base64").b64encode(
-    b'<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#00ff00"/></svg>').decode())
+def _svg(body, w, h):
+    import base64
+    return "data:image/svg+xml;base64," + base64.b64encode(
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}">{body}</svg>'.encode()).decode()
 
 
-def comment_li(nick, text, cls="", extra=""):
+PROFILE = _svg('<circle cx="18" cy="18" r="18" fill="#cc00ff"/>', 36, 36)  # 사진 프로필(보라)
+# 네이버 기본 프로필처럼 아주 연한 회색 동그라미 — 배경으로 오인해 잘라내면 안 된다
+LIGHT = (224, 232, 240)
+DEFAULT_PROFILE = _svg('<circle cx="18" cy="18" r="18" fill="#e0e8f0"/>', 36, 36)
+STICKER = _svg('<rect width="80" height="80" fill="#00ff00"/>', 80, 80)
+
+
+def comment_li(nick, text, cls="", extra="", profile=PROFILE):
     # 하트·… 버튼(주황)은 댓글 칸 오른쪽 밖으로 살짝 튀어나와 있다
     return (f'<li class="CommentItem {cls}" style="position:relative">'
             '<button class="comment_tool" style="position:absolute;right:-30px;top:0;width:16px;height:16px;'
-            f'border:0;background:#ff8800"></button><div class="comment_thumb"><img src="{PROFILE}" width="36" height="36"></div>'
+            f'border:0;background:#ff8800"></button><div class="comment_thumb"><img src="{profile}" width="36" height="36"></div>'
             f'<a class="comment_nickname">{nick}</a>{extra}<span class="text_comment">{text}</span>'
             '<span class="comment_info_date">2026.10.06. 11:00</span></li>')
 
 
-# 한 줄씩 띄어 쓴 본문 + 첨부 이미지 1장 + 댓글 3개
-ARTICLE_HTML = f"""<html><head><meta charset="utf-8"><meta property="og:url" content="https://cafe.naver.com/allfm01/2157343"><style>
+# 새 카페 화면(f-e) 흉내: og:url 이 없고, 'URL 복사' 버튼이 짧은 주소를 복사한다.
+# 제목 영역(article_header) 안에 게시판 이름·제목·작성자(연회색 기본 프로필)·작성일·URL 복사가 있고,
+# 글 아래에는 '님의 게시글 더보기' 작성자 영역(article_writer)이 따로 있다.
+ARTICLE_HTML = f"""<html><head><meta charset="utf-8"><style>
 body{{margin:0;font:16px/1.6 sans-serif;color:#222;background:#fff}}
 .top{{position:fixed;top:0;left:0;right:0;height:40px;background:#03c75a}}
 .wrap{{width:860px;margin:60px auto}}
-.article_header{{border-bottom:1px solid #ddd;padding:10px 0}}
-.avatar{{display:inline-block;width:40px;height:40px;border-radius:50%;background:#00ccaa;vertical-align:middle}}
+.article_header{{border-bottom:1px solid #ddd;padding:10px 0;position:relative}}
+.avatar{{display:inline-block;width:40px;height:40px;border-radius:50%;background:#e0e8f0;vertical-align:middle}}
 .title_text{{font-size:26px;margin:0}}
+.copy{{position:absolute;right:0;top:60px}}
 .se-main-container p{{margin:0}}
 .se-image img{{width:400px;height:300px;display:block}}
 li.CommentItem{{list-style:none;padding:8px 0;border-bottom:1px solid #eee}}
-</style></head><body><div class="top"></div><div class="wrap">
-<div class="ArticleContentBox"><a class="link_board" href="/ca-fe/cafes/1/menus/5">ST1 질문 게시판 &gt;</a>
-<div class="article_header"><h3 class="title_text">ST1 공조기가 혼자 켜집니다</h3></div>
+</style></head><body><div class="top"><a href="https://cafe.naver.com/wrongname">카페 홈</a></div><div class="wrap">
+<div class="ArticleContentBox"><div class="article_header">
+<a class="link_board" href="/ca-fe/cafes/1/menus/5">ST1 질문 게시판 &gt;</a>
+<h3 class="title_text">ST1 공조기가 혼자 켜집니다</h3>
 <div class="WriterInfo"><span class="avatar"></span><a href="/ca-fe/cafes/1/members/abc"><span class="nickname">파주ll작성자</span></a></div>
 <div class="article_info"><span class="date">2026.10.06. 10:00</span> <span class="count">조회 1,234</span></div>
+<button class="copy" onclick="navigator.clipboard.writeText('https://cafe.naver.com/allfm01/2157343')">URL 복사</button>
+</div>
 <div class="article_container"><div class="se-main-container">
 <p>출고 2주 된 ST1 입니다.</p><p><br></p><p><br></p>
 <p>시동만 걸면 공조기가 자동으로 켜지고</p><p><br></p><p><br></p><p><br></p>
 <p>OFF 버튼을 눌러도 꺼지지 않습니다.</p>
 <div class="se-component se-image"><img src="{PHOTO}"></div>
 <p>블루핸즈 예약했습니다.</p></div></div>
+<div class="article_writer"><div class="profile_area"><span class="avatar"></span> 파주ll작성자 님의 게시글 더보기 &gt;</div></div>
 <div class="ArticleTool"><a class="button_comment">댓글 5</a></div>
 <div class="CommentBox"><ul>
 {comment_li("회원1", "저도 같은 증상이에요")}
 {comment_li("회원2", "저도요 ㅠ", "CommentItem--reply")}
 {comment_li("파주ll작성자", "감사합니다", extra='<em class="comment_writer">작성자</em>')}
-{comment_li("회원3", "사업소 가세요")}
+{comment_li("회원3", "사업소 가세요", profile=DEFAULT_PROFILE)}
 {comment_li("회원4", "ㅋㅋ", extra=f'<div class="CommentItem__sticker"><img src="{STICKER}" width="80" height="80"></div>')}
 </ul></div></div></div></body></html>"""
+
+DELETED_HTML = ("<html><body><script>alert('삭제되었거나 존재하지 않는 게시글입니다.');</script>"
+                "<p>삭제되었거나 존재하지 않는 게시글입니다.</p></body></html>")
 
 AI_RESULT = {
     "issue": "공조기 자동 작동 및 OFF 불가",
     "short": "공조기 자동 작동 및 OFF 불가 발생",
     "body": "출고 2주 된 차량에서 공조기가 자동으로 작동하고 OFF가 되지 않는다며 증상에 대해 문의하는 내용",
-    "reaction": "'저도 같은 증상이다, 사업소에 가라' 등의 여론",
+    "reaction": "‘저도 같은 증상이에요., 사업소에 가세요.’ 등의 여론",
     "level": "경고",
     "duplicate": "중복 2건",
     "region": "-",
@@ -176,6 +193,7 @@ def make_template(path: Path):
 DEFAULT_ROWS = [
     ["전기차 동호회", "NE", "2026-10-06", "품질", "https://cafe.naver.com/testcafe/1", "표시 안 된 글"],
     ["스타리아EV & ST1 클럽", "ST1", "2026-10-06", "품질", "https://naver.me/xSBkYEbW", "공조기 자동 작동 및 off 불가 발생 불만", "+"],
+    ["아이오닉9 오너스", "ME1", "2026-10-06", "품질", "https://naver.me/deleted1", "삭제된 글", "+"],
     ["보배드림", "GN7 PE", "2026-10-06", "품질", "https://www.bobaedream.co.kr/view?No=1", "주행 중 시동 꺼짐", "+"],
 ]
 
@@ -201,6 +219,11 @@ def start_fake_cafe(tmp_path: Path):
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            if self.path == "/xSBkYEbW":  # naver.me 단축 주소 → 새 카페 화면 주소로 이동
+                self.send_response(302)
+                self.send_header("Location", "https://cafe.naver.com/f-e/cafes/1/articles/45176")
+                self.end_headers()
+                return
             # 예전 카페 화면: 바깥 페이지 안의 cafe_main 틀(iframe)에 게시글이 들어 있다
             if "/members/" in self.path or "/menus/" in self.path:
                 titles = (["[파주] 출고 후기", "타이어 공기압 문의"] if "/members/" in self.path
@@ -208,6 +231,8 @@ def start_fake_cafe(tmp_path: Path):
                 body = ("<html><body><ul>" + "".join(
                     f'<li><a href="/ca-fe/cafes/1/articles/{100 + i}">{t}</a> <span>2026.09.2{i}.</span></li>'
                     for i, t in enumerate(titles)) + "</ul></body></html>").encode()
+            elif self.path == "/deleted1":
+                body = DELETED_HTML.encode()
             elif "/framecafe/" in self.path:
                 body = ('<html><body style="margin:0"><div style="height:120px;background:#eee">카페 메뉴</div>'
                         '<iframe id="cafe_main" name="cafe_main" src="/inner" style="width:1000px;height:1600px;border:0">'
@@ -258,6 +283,8 @@ def run_report(tmp_path: Path, template: Path, excel: Path, out_dir: Path, ai_ke
                           body=sse_body(json.dumps(AI_RESULT, ensure_ascii=False)))
 
         ctx.route("https://api.anthropic.com/**", anthropic)
+        # 삭제 안내 알림창은 확장이 직접 닫는다 (Playwright 의 자동 닫기와 겹치지 않게 빈 처리기를 둔다)
+        ctx.on("page", lambda pg: pg.on("dialog", lambda d: None))
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext_id = sw.url.split("/")[2]
         page = ctx.new_page()
@@ -308,13 +335,13 @@ def test_report_end_to_end(tmp_path):
 
     prs = Presentation(out)
     slides = list(prs.slides)
-    assert len(slides) == 5  # 표지 / 요약표 / 구분 정의 / 상세 2건
+    assert len(slides) == 5  # 표지 / 요약표 / 구분 정의 / 상세 2건 (삭제된 게시물 제외)
     assert any("2026.10.07" in sh.text_frame.text for sh in slides[0].shapes if sh.has_text_frame)
     summary_tbl = [sh for sh in slides[1].shapes if sh.has_table][0].table
     rows = [[c.text for c in r.cells] for r in summary_tbl.rows]
     assert rows[1][:6] == ["1", "ST1", "품질", "공조기 자동 작동 및 OFF 불가 발생", "5", "중복 2건"]
     assert rows[2][:2] == ["2", "GN7 PE"] and rows[2][4] == "확인"
-    assert len(rows) == 3
+    assert len(rows) == 3  # 삭제된 게시물은 요약표에도 없다
 
     d1 = slides[3]
     texts = [sh.text_frame.text for sh in d1.shapes if sh.has_text_frame]
@@ -332,7 +359,7 @@ def test_report_end_to_end(tmp_path):
     assert link_run.hyperlink.address == "https://cafe.naver.com/allfm01/2157343"
     assert tbl.cell(2, 5).text == "1,234건" and tbl.cell(2, 6).text == "5건"
     assert tbl.cell(3, 1).text.startswith("출고 2주 된 차량에서")
-    assert "댓글 반응 : '저도 같은 증상이다" in tbl.cell(3, 1).text
+    assert tbl.cell(3, 1).text.split("\n")[1] == "댓글 반응 : ‘저도 같은 증상이에요., 사업소에 가세요.’ 등의 여론"
 
     pics = [sh for sh in d1.shapes if sh.shape_type == 13]
     # 제목 + 본문 + 댓글 2개(AI 추천 0, 2) + 첨부 이미지 1
@@ -346,12 +373,21 @@ def test_report_end_to_end(tmp_path):
     comment_pics = [p for p in pics if 3.6 < p.left / cm < 3.7 and p.top > 2133600 + 100000]
     assert len(comment_pics) == 2
     has = lambda pic, f: any(f(*px) for px in Image.open(io.BytesIO(pic.image.blob)).convert("RGB").getdata())
+    is_light = lambda r, g, b: abs(r - LIGHT[0]) < 8 and abs(g - LIGHT[1]) < 8 and abs(b - LIGHT[2]) < 8
+    is_purple = lambda r, g, b: r > 150 and g < 80 and b > 200
+    # 사진 프로필이든 연회색 기본 프로필이든 모든 댓글에 아이콘이 들어간다
+    assert sorted(has(p, is_purple) for p in comment_pics) == [False, True]
+    assert all(has(p, is_light) or has(p, is_purple) for p in comment_pics)
     for p in comment_pics:
-        assert has(p, lambda r, g, b: r > 150 and g < 80 and b > 200), "댓글 프로필 아이콘 없음"
         assert has(p, lambda r, g, b: r > 200 and 90 < g < 170 and b < 80), "하트·… 버튼이 잘림"
-    # 제목 캡처에 게시판 이름 아래 제목 · 작성자 아이콘(청록)이 한 장으로
+    # 제목 캡처: 게시판 이름·제목·작성자 아이콘(연회색)이 한 장으로, 아이콘 위아래가 잘리지 않고,
+    # 글 아래 '게시글 더보기' 영역까지 늘어나지 않는다
     header_pic = min(pics, key=lambda p: p.top)
-    assert has(header_pic, lambda r, g, b: r < 60 and g > 170 and 130 < b < 210), "제목 캡처에 작성자 아이콘 없음"
+    assert header_pic.height < 3.3 * cm
+    him = Image.open(io.BytesIO(header_pic.image.blob)).convert("RGB")
+    rows_with_avatar = sum(1 for y in range(him.height) if any(is_light(*him.getpixel((x, y))) for x in range(0, 80)))
+    expect = 40 * him.width / 868  # 40px 아이콘이 이미지에서 차지하는 높이
+    assert rows_with_avatar >= expect * 0.85, (rows_with_avatar, expect)
     # 본문 사진: 원본 비율(4:3) 그대로, 오른쪽 영역에 150ppi 로
     photo = max(pics, key=lambda p: p.left)
     assert abs(photo.width / photo.height - 4 / 3) < 0.01

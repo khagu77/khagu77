@@ -147,7 +147,8 @@ function setSummary(text, cls = "") {
 async function processCaptures(cap) {
   const v = { header: null, body: null, comments: [], images: [] };
   const dpr = cap.dpr;
-  if (cap.header) v.header = ImageProc.compactText(await ImageProc.toBitmap(cap.header), dpr);
+  // 제목 영역은 모양 그대로(줄 간격을 줄이지 않음) — 작성자 아이콘이 잘리지 않게
+  if (cap.header) v.header = ImageProc.compactText(await ImageProc.toBitmap(cap.header), dpr, { collapse: false });
   if (cap.body) v.body = ImageProc.compactText(await ImageProc.toBitmap(cap.body), dpr);
   for (const b of cap.comments) v.comments.push(b ? ImageProc.compactText(await ImageProc.toBitmap(b), dpr) : null);
   for (const b of cap.images) v.images.push(b ? ImageProc.photo(await ImageProc.toBitmap(b), dpr, !!b.isOriginal) : null);
@@ -179,6 +180,7 @@ function fieldsFrom(row, info, ai) {
 
 async function processItem(it) {
   it.ready = false;
+  it.deleted = false;
   it.error = "";
   const row = it.row;
   let info = null;
@@ -190,6 +192,14 @@ async function processItem(it) {
       setItemStatus(it, "이미지 다듬는 중");
       it.visuals = await processCaptures(cap);
     } catch (e) {
+      if (e instanceof DeletedPostError) {
+        // 삭제된 게시물은 보고서에 넣지 않는다
+        it.deleted = true;
+        it.ready = true;
+        renderItem(it);
+        setItemStatus(it, "삭제된 게시물 — 보고서에서 제외", "err");
+        return;
+      }
       it.error = `캡처 실패: ${e.message || e}`;
       it.visuals = { header: null, body: null, comments: [], images: [] };
     }
@@ -241,8 +251,9 @@ async function start() {
     if (next && isCafeUrl(next.row.url) && !stopRequested) await sleep(ARTICLE_DELAY[0] + Math.random() * (ARTICLE_DELAY[1] - ARTICLE_DELAY[0]));
   }
   const failed = items.filter((it) => it.error).length;
+  const deleted = items.filter((it) => it.deleted).length;
   setSummary(
-    stopRequested ? `중지했습니다 (${done} / ${items.length}). 끝난 글로 PPT 를 받을 수 있습니다.` : `완료: ${items.length}건${failed ? ` (확인 필요 ${failed}건)` : ""}. 내용을 확인한 뒤 [PPT 받기]를 누르세요.`,
+    stopRequested ? `중지했습니다 (${done} / ${items.length}). 끝난 글로 PPT 를 받을 수 있습니다.` : `완료: ${items.length - deleted}건${deleted ? ` (삭제된 게시물 ${deleted}건 제외)` : ""}${failed ? ` · 확인 필요 ${failed}건` : ""}. 내용을 확인한 뒤 [PPT 받기]를 누르세요.`,
     failed ? "err" : "ok",
   );
   refreshButtons(false);
@@ -261,7 +272,7 @@ const FIELD_DEFS = [
   ["views", "조회수", "text"],
   ["commentCount", "댓글수", "text"],
   ["body", "본문 요약", "textarea", "한 줄 (최대 55자)", BODY_MAX],
-  ["reaction", "댓글 반응", "textarea", "한 줄 (최대 48자). 비우면 '댓글 반응 없음'(댓글이 없을 때) 또는 확인 필요", REACTION_MAX],
+  ["reaction", "댓글 반응", "textarea", "한 줄 (최대 50자). 비우면 '댓글 반응 없음'(댓글이 없을 때) 또는 확인 필요", REACTION_MAX],
   ["short", "요약표 내용", "text"],
   ["duplicate", "신규/중복", "text", "예: 신규, 중복 2건"],
   ["region", "입고/운행지역", "text", "본문에 명시된 경우만 (예: 부산 사상구)"],
@@ -284,10 +295,12 @@ function renderItem(it) {
   }
   const head = `<div class="item-head"><span class="no">No.${it.no}</span><span>${esc(it.row.car)} · ${esc(it.row.cafe)}</span>
     <a href="${esc(it.row.url)}" target="_blank" rel="noopener">${esc(it.row.url)}</a><span class="status">대기</span></div>`;
-  if (!it.ready) {
+  if (!it.ready || it.deleted) {
     it.el.innerHTML = head + `<div class="hint">${esc(it.row.main)}</div>`;
+    if (it.deleted) it.el.classList.add("deleted");
     return;
   }
+  it.el.classList.remove("deleted");
   const f = it.fields;
   const fields = FIELD_DEFS.map(([k, label, type, extra, max]) => {
     const v = esc(f[k] ?? "");
@@ -436,7 +449,8 @@ async function buildPpt() {
   try {
     setSummary("PPT 만드는 중…");
     const template = await loadTemplate();
-    const ready = items.filter((it) => it.ready);
+    const ready = items.filter((it) => it.ready && !it.deleted);
+    if (!ready.length) throw new Error("보고서에 넣을 게시물이 없습니다(모두 삭제된 게시물)");
     const list = [];
     for (const it of ready) list.push({ ...it.fields, noReaction: it.noReaction, pictures: await pictures(it) });
     const { y, m, d } = reportDate();
