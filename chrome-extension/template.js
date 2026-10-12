@@ -351,7 +351,12 @@
       const path = this._sheetPath(name);
       const relsPath = path.replace(/([^/]+)$/, "_rels/$1.rels");
       let rels = await this.text(relsPath);
-      if (rels === null) throw new Error(`'${name}' 시트에 링크를 넣을 수 없는 양식입니다.`);
+      if (rels === null) {
+        // 링크가 하나도 없던 시트(다른 프로그램으로 저장한 파일 등): 관계 파일을 새로 만든다
+        rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>';
+        this.entries.set(relsPath, { method: 0, crc: 0, size: 0, raw: new Uint8Array() });
+        this.orig.set(relsPath, "");
+      }
       let xml = await this.text(path);
       const used = new Set([...rels.matchAll(/\bId="([^"]+)"/g)].map((m) => m[1]));
       let n = 0;

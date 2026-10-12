@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "블루핸즈/하이테크센터 정비 예약 관련 수집 시스템",
+  "version": "1.0.0",
+  "description": "기사목록 엑셀의 네이버 카페 글 작성자를 확인해 주간 '정비 예약' 보고서 엑셀에 날짜순으로 이어 쓰고, 받은 보고서를 DB 목록으로 모읍니다.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "블루핸즈/하이테크센터 정비 예약 관련 수집 시스템",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "scripting",
+    "cookies",
+    "storage",
+    "unlimitedStorage",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://cafe.naver.com/*",
+    "https://m.cafe.naver.com/*",
+    "https://search.naver.com/*",
+    "https://*.naver.com/*"
+  ]
+}

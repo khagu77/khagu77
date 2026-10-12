@@ -4,6 +4,7 @@
   dist/댓글수집기_맥용.zip
   dist/유튜브추출기_윈도우용.zip
   dist/유튜브추출기_맥용.zip
+  dist/블루핸즈수집기.zip (윈도우·맥 공통)
 
 각 압축 파일 안에는 크롬에 올릴 확장프로그램 폴더와 설치안내서 PDF(docs/windows, docs/mac 의 html 을 변환)가 들어간다.
 유튜브추출기에는 빠른 다운로드 도우미(윈도우: windows-helper, 맥: '유튜브 도우미 설치.app')도 함께 넣는다.
@@ -22,6 +23,11 @@ DIST = ROOT / "dist"
 SKIP = {".DS_Store", "__pycache__", "Thumbs.db"}
 
 PACKAGES = [
+    {
+        "zip": "블루핸즈수집기",
+        "guide": ("windows/guide_bluehands.html", "설치안내서_블루핸즈수집기.pdf"),
+        "items": [(ROOT / "bluehands-extension", "블루핸즈수집기_확장프로그램")],
+    },
     {
         "zip": "댓글수집기_윈도우용",
         "guide": ("windows/guide_comments.html", "설치안내서_댓글수집기_윈도우용.pdf"),
