@@ -569,3 +569,52 @@ def test_report_count_first_k(tmp_path):
     assert rows[1][1] == "ST1"
     assert all(c == "" for c in rows[2][1:]) and all(c == "" for c in rows[3][1:])
     assert "No.1" in [sh.text_frame.text for sh in slides[3].shapes if sh.has_text_frame]
+
+
+def se_post(*paras):
+    """네이버 에디터처럼: 하나의 글 상자(se-text) 안에 문단(se-text-paragraph)이 이어짐. '___' 는 밑줄 구분선 문단."""
+    ps = "".join(f'<p class="se-text-paragraph">{p or "<br>"}</p>' for p in paras)
+    return (f'<html><body><div class="se-main-container"><div class="se-component se-text">{ps}</div>'
+            "</div></body></html>")
+
+
+NOTICE_A = ["📍함께하는 [아이오닉9 오너스] 카페", "카페 활동 예의를 지켜주세요.",
+            "경우에 따라 카페 운영 회칙에 의거 활동 정지 또는 탈퇴 처리될 수 있습니다.", "______________"]
+NOTICE_B = ["📍 함께하는 [아이오닉9 오너스] 카페", "질문은 질문 답변 게시판 이용해 주세요.",
+            "글쓰기에서 해당 게시판이 안 보이면 등업이 필요합니다. (글 2개, 댓글 5개, 방문 5회, 좋아요 10회)",
+            "카페 활동 예의를 지켜주세요.", "경우에 따라 카페 운영 회칙에 의거 활동 정지 또는 탈퇴 처리될 수 있습니다.",
+            "______________"]
+
+
+@pytest.mark.parametrize("paras, expected_start, gone", [
+    # 안내 + 빈 질문 양식 + 구분선들 → 질문 한 줄만 남음
+    (NOTICE_A + ["질문에 필요할 경우 작성해주세요.", "______________", "1. 구동방식:", "2. 인승:", "3. 색상:", "4. 등급:",
+                 "5. 기타:", "______________", "마이현대앱을 보니 경고등? 점검? 파란손에 가는거 맞을까요?"],
+     "마이현대앱을 보니", ["카페", "구동방식", "작성해주세요"]),
+    # 안내 + 구분선 → 작성자 본문만
+    (NOTICE_B + ["차량 받고 비닐도 안뜯었는데..충전도 안되고 경고등 떠서 하이테크 보내고 6일만에 받았습니다.",
+                 "반짝반짝할때 보냈는데 비맞은 자국에 꾸질거리는 모습으로 돌아왔네요.."],
+     "차량 받고 비닐도", ["등업", "예의"]),
+    # 구분선 없이 안내 문단만 앞에 → 작성자 본문만
+    (NOTICE_B[:-1] + ["", "연휴기간 강원도 인제 돔배령 산행후,", "양양에서 차박 하면서 새벽부터 이상증상발생."],
+     "연휴기간 강원도", ["회칙", "게시판"]),
+    # 양식에 값을 채웠으면 작성자 정보라 남긴다
+    (NOTICE_A + ["1. 구동방식: AWD", "2. 인승: 7인승", "______________", "주행 중 소음이 납니다."],
+     "1. 구동방식: AWD", ["회칙"]),
+])
+def test_cafe_notice_removed(paras, expected_start, gone):
+    from playwright.sync_api import sync_playwright
+
+    code = (EXT_DIR / "capture.js").read_text()
+    with sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=CHROMIUM, headless=True)
+        page = browser.new_page()
+        page.set_content(se_post(*paras))
+        page.add_script_tag(content=code)
+        info = page.evaluate("cafePageProbe('info', null, 20, 8, [])")
+        hidden = page.evaluate("[...document.querySelectorAll('[data-rpt-boiler]')].length")
+        browser.close()
+    assert info["bodyText"].startswith(expected_start), info["bodyText"]
+    for word in gone:
+        assert word not in info["bodyText"], (word, info["bodyText"])
+    assert hidden > 0

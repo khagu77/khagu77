@@ -172,21 +172,40 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
   const authorEl = pick(doc, SEL.author);
   body.setAttribute("data-rpt", "body");
 
-  // ---- 카페 공통 안내 문구(게시판 글쓰기 양식) 찾기: 본문 맨 위에 자동으로 들어가는 운영 안내 ----
+  // ---- 카페 공통 안내 문구(게시판 글쓰기 양식) 찾기: 본문 맨 위에 자동으로 들어가는 운영 안내·빈 질문 양식 ----
+  // 안내 문구와 작성자 본문이 같은 글 상자 안에 문단으로 이어져 있는 경우가 많아 '문단' 단위로 본다.
   const norm = (t) => (t || "").replace(/\s+/g, "");
   let comps = [...body.querySelectorAll(".se-component")].filter((c) => !c.parentElement.closest(".se-component"));
   if (!comps.length) comps = [...body.children];
-  const KW = /카페|게시판|등업|회칙|예의|공지|이용해\s*주세요|말머리|탈퇴|활동\s*정지|양식|규칙|운영진|매니저|필독|작성\s*요령|글쓰기|강퇴|친목/g;
+  const units = [];
+  for (const c of comps) {
+    const paras = [...c.querySelectorAll(".se-text-paragraph")];
+    if (paras.length) units.push(...paras);
+    else if (c.children.length > 1 && [...c.children].every((x) => /^(P|DIV)$/.test(x.tagName) && !x.querySelector("img"))) {
+      units.push(...c.children);
+    } else units.push(c);
+  }
+  const KW = /카페|게시판|등업|회칙|예의|공지|이용해\s*주세요|작성해\s*주세요|지켜\s*주세요|말머리|탈퇴|활동\s*정지|양식|규칙|운영진|매니저|필독|작성\s*요령|글쓰기|강퇴|친목/g;
   const hits = (t) => ((t || "").match(KW) || []).length;
-  const isDivider = (c) =>
-    c.classList.contains("se-horizontalLine") || !!c.querySelector("hr") || /^[\s_\-─━=~—＿]{5,}$/.test(c.innerText.trim());
+  const text = (u) => (u.innerText || "").trim();
+  const isDivider = (u) =>
+    u.classList.contains("se-horizontalLine") || !!u.querySelector("hr") || /^[\s_\-─━=~—＿]{3,}$/.test(text(u));
+  // 빈 질문 양식 줄: "1. 구동방식:", "색상 :" 처럼 항목 이름만 있고 값이 없는 줄
+  const isEmptyFormLine = (t) => /^(\d+\s*[.)]\s*)?[^:：]{1,12}[:：]\s*$/.test(t);
+  const isBoilerSegment = (seg) => {
+    const lines = seg.map(text).filter(Boolean);
+    if (!lines.length) return true;
+    const formLines = lines.filter(isEmptyFormLine).length;
+    if (formLines >= 2 && formLines >= lines.length - 1) return true; // 빈 질문 양식 (+ 안내 한 줄)
+    return hits(lines.join(" ")) >= 1 && lines.every((l) => l.length <= 120);
+  };
   let cut = -1;
-  // ① 전에 찾아 둔 안내 문구와 같은 글로 시작하면
+  // ① 전에 찾아 둔 안내 문구와 같은 글로 시작하면 (구분선이 없어도)
   for (const k of knownBoilerplates || []) {
     let acc = "";
-    for (let i = 0; i < Math.min(15, comps.length) && cut < 0; i++) {
-      if (isDivider(comps[i])) continue;
-      acc += norm(comps[i].innerText);
+    for (let i = 0; i < Math.min(40, units.length) && cut < 0; i++) {
+      if (isDivider(units[i])) continue;
+      acc += norm(text(units[i]));
       if (acc.length >= k.length) {
         if (acc.startsWith(k)) cut = i;
         break;
@@ -194,37 +213,47 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     }
     if (cut >= 0) break;
   }
-  // ② 앞부분 구분선 위가 운영 안내 말이면 구분선까지
+  // ② 앞부분 구분선들: 맨 앞부터 이어지는 '안내 문구/빈 양식' 구간의 마지막 구분선까지
   if (cut < 0) {
-    for (let i = 1; i < Math.min(12, comps.length); i++) {
-      if (!isDivider(comps[i])) continue;
-      if (hits(comps.slice(0, i).map((c) => c.innerText).join(" ")) >= 2) cut = i;
-      break;
+    let segStart = 0;
+    let first = true;
+    for (let i = 0; i < Math.min(40, units.length); i++) {
+      if (!isDivider(units[i])) continue;
+      const seg = units.slice(segStart, i);
+      const ok = first ? hits(seg.map(text).join(" ")) >= 2 && isBoilerSegment(seg) : isBoilerSegment(seg);
+      if (!ok) break;
+      cut = i;
+      segStart = i + 1;
+      first = false;
     }
   }
-  // ③ 구분선이 없어도 맨 앞 짧은 단락들이 운영 안내 말로만 되어 있으면
+  // ③ 구분선이 없어도 맨 앞 짧은 문단들이 운영 안내 말로만 되어 있으면
   if (cut < 0) {
     let total = 0;
     let last = -1;
-    for (let i = 0; i < Math.min(10, comps.length); i++) {
-      const t = comps[i].innerText.trim();
-      if (!t) continue;
-      if (t.length > 200 || !hits(t)) break;
+    for (let i = 0; i < Math.min(25, units.length); i++) {
+      const t = text(units[i]);
+      if (!t || isDivider(units[i])) continue;
+      if (isEmptyFormLine(t)) {
+        last = i; // 빈 질문 양식 줄도 안내 문구에 포함
+        continue;
+      }
+      if (t.length > 120 || !hits(t)) break;
       total += hits(t);
       last = i;
     }
     if (last >= 1 && total >= 3) cut = last;
   }
   let boilerplateText = "";
-  if (cut >= 0 && cut < comps.length - 1) {
-    if (comps[cut + 1] && isDivider(comps[cut + 1])) cut++; // 바로 뒤 구분선까지
-    const boiler = comps.slice(0, cut + 1);
-    boiler.forEach((c) => c.setAttribute("data-rpt-boiler", ""));
-    boilerplateText = norm(boiler.filter((c) => !isDivider(c)).map((c) => c.innerText).join("")).slice(0, 300);
+  if (cut >= 0 && units.slice(cut + 1).some((u) => text(u))) {
+    while (units[cut + 1] && (isDivider(units[cut + 1]) || !text(units[cut + 1]))) cut++; // 바로 뒤 구분선·빈 줄까지
+    const boiler = units.slice(0, cut + 1);
+    boiler.forEach((u) => u.setAttribute("data-rpt-boiler", ""));
+    boilerplateText = norm(boiler.filter((u) => !isDivider(u)).map(text).join("")).slice(0, 300);
   }
-  const bodyText = comps
-    .filter((c) => !c.hasAttribute("data-rpt-boiler"))
-    .map((c) => c.innerText)
+  const bodyText = units
+    .filter((u) => !u.hasAttribute("data-rpt-boiler"))
+    .map((u) => u.innerText)
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
