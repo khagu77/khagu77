@@ -748,7 +748,8 @@ class NaverCollector {
   }
 
   // 게시글 본문 읽기 → { title, body, ts|null, via }
-  // 카페에서 바로 열면 안 보이는 글(넥쏘 카페·영운모 등)은 네이버 검색 카페 탭에서 제목으로 찾아 그 링크로 들어가 읽는다.
+  // 기본 규칙: 카페에서 바로 열어 본문이 안 보이는 글은 (모든 카페 공통, 넥쏘 카페·영운모는 처음부터)
+  // 네이버 검색 카페 탭에서 제목으로 찾아 그 링크로 들어가 읽는다. 그래도 확인이 안 되면 PassError 로 넘긴다.
   async readArticle(post, cafe = {}) {
     if (!cafe.viaSearch) {
       await this.openChecked(post.url);
@@ -757,7 +758,8 @@ class NaverCollector {
     }
     const viaSearch = await this.readViaSearch(post, cafe);
     if (viaSearch) return viaSearch;
-    throw new Error(cafe.viaSearch ? "네이버 검색으로도 글을 찾지 못함" : "글을 볼 수 없음 (권한 제한·삭제) → 네이버 검색으로도 찾지 못함");
+    // 규칙: 검색 경유로도 본문을 확인하지 못한 글은 판정하지 않고 넘긴다(pass)
+    throw new PassError(cafe.viaSearch ? "네이버 검색으로도 본문 확인 불가" : "본문 안 보임 → 네이버 검색으로도 확인 불가");
   }
 
   // PE 여부 등 차종이 애매할 때: 작성자 정보(작성 글 목록) 화면을 열어 그 사람이 쓴 다른 글 제목을 모은다
@@ -788,7 +790,6 @@ class NaverCollector {
       `https://search.naver.com/search.naver?ssc=tab.cafe.all&query=${encodeURIComponent(query)}`,
       `https://search.naver.com/search.naver?where=article&query=${encodeURIComponent(query)}`,
     ];
-    let snippet = "";
     for (const url of urls) {
       await this.openChecked(url);
       let found = null;
@@ -797,7 +798,6 @@ class NaverCollector {
         if (!found) await sleep(1200);
       }
       if (!found) continue;
-      snippet = found.snippet || snippet;
       // 사람처럼 검색 결과의 링크를 눌러 들어간다 (검색을 거쳐 들어가야 보이는 글)
       const loaded = waitForTabLoad(this.tab.tabId);
       await this.tab.runMain(clickSearchResult, [found.index]);
@@ -811,8 +811,7 @@ class NaverCollector {
       if (info) return { ...info, via: "검색" };
       break;
     }
-    // 글에는 못 들어갔지만 검색 결과 요약 글이 있으면 그거라도 판정에 쓴다
-    if (snippet) return { title: post.title, body: `(검색 결과 요약) ${snippet}`, ts: null, via: "검색 요약" };
+    // 검색 결과 요약 글만으로는 판정하지 않는다 (본문 확인 불가 → pass)
     return null;
   }
 

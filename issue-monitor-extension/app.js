@@ -706,6 +706,7 @@ async function processSource(src, posts, readBody, ctx) {
 
   const items = [];
   let read = 0;
+  let passed = 0;
   for (const post of candidates) {
     if (state.stopRequested) throw new StopError("중지됨");
     try {
@@ -729,9 +730,12 @@ async function processSource(src, posts, readBody, ctx) {
       });
     } catch (e) {
       if (e instanceof StopError || e instanceof BlockedError) throw e;
-      log(`${src.name} ${post.url} 본문 읽기 실패: ${e.message}`, "err");
+      if (e instanceof PassError) {
+        passed++;
+        log(`${src.name} 「${post.title}」 본문 확인 불가 → 패스 (${e.message}) ${post.url}`);
+      } else log(`${src.name} ${post.url} 본문 읽기 실패: ${e.message}`, "err");
     }
-    updateSource(src.key, { read, status: `본문 확인 중 ${read}/${candidates.length}` });
+    updateSource(src.key, { read, status: `본문 확인 중 ${read}/${candidates.length}${passed ? ` · 패스 ${passed}` : ""}` });
     if (src.kind === "cafe") await ctx.naverWait(delays.article);
     else await ctx.communityWait(delays.community);
   }
@@ -779,7 +783,7 @@ async function processSource(src, posts, readBody, ctx) {
   sortRows();
   renderResults();
   saveLastResult();
-  updateSource(src.key, { issues: added, status: "완료" });
+  updateSource(src.key, { issues: added, status: passed ? `완료 (본문 확인 불가 패스 ${passed})` : "완료" });
 }
 
 // 이어서 작성한 기존 행은 원래 순서 그대로 앞에, 이번 수집 행은 카페·커뮤니티 순서 → 게시 시각 순
@@ -1148,6 +1152,7 @@ function renderPrompt() {
   $("#customPrompt").value = s.customPrompt || "";
   $("#promptUpdated").textContent = s.customPromptUpdatedAt ? `최종 업데이트: ${fmtDateTime(new Date(s.customPromptUpdatedAt))}` : "아직 추가 지시사항 없음";
   $("#promptBuilt").textContent = `(기본 규칙 업데이트: ${PROMPT_BUILT_AT})`;
+  $("#collectRules").textContent = COLLECT_RULES.map((r, i) => `${i + 1}. ${r}`).join("\n");
   $("#promptTriage").textContent = triageSystem(s);
   $("#promptClassify").textContent = classifySystem(s);
   $("#promptReport").textContent = reportSystem(s.priorityCars, s);

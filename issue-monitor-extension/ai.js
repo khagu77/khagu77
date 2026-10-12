@@ -11,7 +11,7 @@ const ISSUE_DEFINITION = `부정 이슈는 다음 3가지다. (지난 보고서 
 3) 결품: 입고했는데 부품 재고 부족·부품 수급 문제로 정비가 지연되는 불만.`;
 
 // 기본 프롬프트(아래 규칙)를 마지막으로 고친 때 - '명령 프롬프트' 화면에 표시
-const PROMPT_BUILT_AT = "2026-10-12 (v1.8.6)";
+const PROMPT_BUILT_AT = "2026-10-12 (v1.8.7)";
 
 // '명령 프롬프트' 화면에서 사용자가 추가한 지시사항 (모든 AI 단계에 붙고, 기본 규칙보다 우선)
 function customInstructions(settings) {
