@@ -270,13 +270,7 @@ async function modifyWorkbook(fixed) {
 
 function download() {
   if (!output) return;
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([output.bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-  a.download = output.name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  clickDownload(new Blob([output.bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), output.name);
 }
 
 async function init() {

@@ -165,3 +165,26 @@ function menu(active) {
   }
   $("h1").after(nav);
 }
+
+// 파일 받기: blob: 주소 대신 data: 주소로 받는다.
+// (blob: 로 받으면 크롬이 맥 파일 정보 '출처'에 chrome-extension://… 주소를 남기는데, data: 주소는 출처를 남기지 않음)
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+async function clickDownload(blob, name) {
+  const a = document.createElement("a");
+  a.href = await blobToDataUrl(blob);
+  a.download = name;
+  a.rel = "noreferrer";
+  a.referrerPolicy = "no-referrer";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}

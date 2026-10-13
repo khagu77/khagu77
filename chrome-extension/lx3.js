@@ -969,10 +969,7 @@ async function init() {
   });
   $("#diag").addEventListener("click", () => {
     const blob = new Blob([JSON.stringify({ version: chrome.runtime.getManifest().version, at: new Date().toString(), diagnostics }, null, 1)], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${today()}_LX3_진단.json`;
-    a.click();
+    clickDownload(blob, `${today()}_LX3_진단.json`);
   });
   $("#ytInput").addEventListener("keydown", (e) => e.key === "Enter" && addYoutube());
   $("#ytCollect").addEventListener("click", () =>

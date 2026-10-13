@@ -533,6 +533,7 @@ def test_lx3(tmp_path: Path):
             page.click("#saveList")
         appended = tmp_path / "appended.xlsx"
         dl.value.save_as(appended)
+        assert page.evaluate("window.__dl.url.slice(0, 5)") == "data:"  # blob: 이 아니어야 맥 파일 정보 '출처'가 남지 않음
         assert page.evaluate("window.__dl.filename") == f"팰리세이드 모니터링/일일보고/{seoul_today():%Y%m%d}_팰리세이드 북미 사망사고 관련 채널별 버즈량.xlsx"
         assert "다운로드 / 팰리세이드 모니터링/일일보고 폴더에" in page.inner_text("#saveInfo")
 

@@ -264,24 +264,40 @@ function saveWhereText({ folder, ask }) {
   return ask ? "받을 때마다 위치를 묻습니다" : `다운로드${folder ? ` / ${folder}` : ""} 폴더`;
 }
 
+// 파일 받기: blob: 주소 대신 data: 주소로 받는다.
+// (blob: 로 받으면 크롬이 맥 파일 정보 '출처'에 chrome-extension://… 주소를 남기는데, data: 주소는 출처를 남기지 않음)
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+async function clickDownload(blob, name) {
+  const a = document.createElement("a");
+  a.href = await blobToDataUrl(blob);
+  a.download = name;
+  a.rel = "noreferrer";
+  a.referrerPolicy = "no-referrer";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 async function downloadBytes(bytes, name) {
   const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const { folder, ask } = await saveOptions();
   if (folder || ask) {
-    const url = URL.createObjectURL(blob);
     try {
+      const url = await blobToDataUrl(blob);
       await chrome.downloads.download({ url, filename: folder ? `${folder}/${name}` : name, saveAs: ask, conflictAction: "uniquify" });
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
       return;
     } catch {
-      URL.revokeObjectURL(url); // 아래 기본 방식으로
+      /* 아래 기본 방식으로 */
     }
   }
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  await clickDownload(blob, name);
 }

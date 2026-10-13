@@ -64,13 +64,7 @@ function rms(a) {
 function downloadText(text, name) {
   // 메모장에서 그대로 열리도록 Windows 줄바꿈(CRLF) + UTF-8 BOM
   const blob = new Blob(["\ufeff" + text.replace(/\n/g, "\r\n") + "\r\n"], { type: "text/plain;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  return clickDownload(blob, name);
 }
 
 // ---------------------------------------------------------------------------
@@ -875,13 +869,7 @@ function failedIndexes() {
 }
 
 function downloadBytes(bytes, name, type) {
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([bytes], { type }));
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  return clickDownload(new Blob([bytes], { type }), name);
 }
 
 // 첨부 양식('스크립트 입력' 시트, A: URL / B: 스크립트)에 영상마다 한 줄씩 채운 엑셀
