@@ -173,39 +173,78 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
   body.setAttribute("data-rpt", "body");
 
   // ---- 카페 공통 안내 문구(게시판 글쓰기 양식) 찾기: 본문 맨 위에 자동으로 들어가는 운영 안내·빈 질문 양식 ----
-  // 안내 문구와 작성자 본문이 같은 글 상자 안에 문단으로 이어져 있는 경우가 많아 '문단' 단위로 본다.
-  const norm = (t) => (t || "").replace(/\s+/g, "");
-  let comps = [...body.querySelectorAll(".se-component")].filter((c) => !c.parentElement.closest(".se-component"));
-  if (!comps.length) comps = [...body.children];
-  const units = [];
-  for (const c of comps) {
-    const paras = [...c.querySelectorAll(".se-text-paragraph")];
-    if (paras.length) units.push(...paras);
-    else if (c.children.length > 1 && [...c.children].every((x) => /^(P|DIV)$/.test(x.tagName) && !x.querySelector("img"))) {
-      units.push(...c.children);
-    } else units.push(c);
-  }
+  // 카페마다 화면 구조가 달라(문단으로 나뉘거나, 한 문단 안에서 줄바꿈으로만 이어지거나) '화면에 보이는 줄' 단위로 본다.
+  // 비교용: 글자·숫자만 (띄어쓰기·이모지·문장부호 차이는 무시)
+  const norm = (t) => (t || "").replace(/[^\p{L}\p{N}]/gu, "");
+  const BLOCK = /^(P|DIV|LI|UL|OL|TABLE|TBODY|TR|TD|H[1-6]|SECTION|BLOCKQUOTE|FIGURE)$/;
+  const lines = [];
+  let cur = { nodes: [], els: [], text: "" };
+  const flush = () => {
+    if (cur.nodes.length) lines.push(cur);
+    cur = { nodes: [], els: [], text: "" };
+  };
+  const walk = (n) => {
+    if (n.nodeType === 3) {
+      if (n.nodeValue.trim()) {
+        cur.nodes.push(n);
+        cur.text += n.nodeValue;
+      }
+      return;
+    }
+    if (n.nodeType !== 1) return;
+    const el = n;
+    if (el.tagName === "BR") return flush();
+    if (el.tagName === "HR" || el.classList.contains("se-horizontalLine")) {
+      flush();
+      lines.push({ nodes: [], els: [el], text: "", divider: true });
+      return;
+    }
+    // 작은 그림(이모지·아이콘)은 글자 줄의 일부로 본다
+    if (el.tagName === "IMG") {
+      const r = el.getBoundingClientRect();
+      if (r.width < 40 && r.height < 40) {
+        cur.els.push(el);
+        return;
+      }
+    }
+    if (/^(IMG|VIDEO|IFRAME|CANVAS)$/.test(el.tagName) || el.classList.contains("se-video") || el.classList.contains("se-image")) {
+      flush();
+      lines.push({ nodes: [], els: [el], text: "", media: true });
+      return;
+    }
+    if (win.getComputedStyle(el).display === "none") return;
+    const block = BLOCK.test(el.tagName) || el.classList.contains("se-component");
+    if (block) flush();
+    for (const c of el.childNodes) walk(c);
+    if (block) flush();
+  };
+  walk(body);
+  flush();
+
   const KW = /카페|게시판|등업|회칙|예의|공지|이용해\s*주세요|작성해\s*주세요|지켜\s*주세요|말머리|탈퇴|활동\s*정지|양식|규칙|운영진|매니저|필독|작성\s*요령|글쓰기|강퇴|친목/g;
   const hits = (t) => ((t || "").match(KW) || []).length;
-  const text = (u) => (u.innerText || "").trim();
-  const isDivider = (u) =>
-    u.classList.contains("se-horizontalLine") || !!u.querySelector("hr") || /^[\s_\-─━=~—＿]{3,}$/.test(text(u));
+  const text = (l) => (l.text || "").trim();
+  const isDivider = (l) => !!l.divider || /^[\s_\-─━=~—＿]{3,}$/.test(text(l));
   // 빈 질문 양식 줄: "1. 구동방식:", "색상 :" 처럼 항목 이름만 있고 값이 없는 줄
   const isEmptyFormLine = (t) => /^(\d+\s*[.)]\s*)?[^:：]{1,12}[:：]\s*$/.test(t);
   const isBoilerSegment = (seg) => {
-    const lines = seg.map(text).filter(Boolean);
-    if (!lines.length) return true;
-    const formLines = lines.filter(isEmptyFormLine).length;
-    if (formLines >= 2 && formLines >= lines.length - 1) return true; // 빈 질문 양식 (+ 안내 한 줄)
-    return hits(lines.join(" ")) >= 1 && lines.every((l) => l.length <= 120);
+    const ls = seg.map(text).filter(Boolean);
+    if (!ls.length) return true;
+    const formLines = ls.filter(isEmptyFormLine).length;
+    if (formLines >= 2 && formLines >= ls.length - 1) return true; // 빈 질문 양식 (+ 안내 한 줄)
+    return hits(ls.join(" ")) >= 1 && ls.every((l) => l.length <= 120);
   };
+  const LIMIT = Math.min(40, lines.length);
   let cut = -1;
-  // ① 전에 찾아 둔 안내 문구와 같은 글로 시작하면 (구분선이 없어도)
-  for (const k of knownBoilerplates || []) {
+  // ① 전에 찾아 둔(또는 미리 알려 준) 안내 문구와 같은 글로 시작하면
+  for (const k0 of knownBoilerplates || []) {
+    const k = norm(k0);
+    if (k.length < 10) continue;
     let acc = "";
-    for (let i = 0; i < Math.min(40, units.length) && cut < 0; i++) {
-      if (isDivider(units[i])) continue;
-      acc += norm(text(units[i]));
+    for (let i = 0; i < LIMIT && cut < 0; i++) {
+      if (lines[i].media) break;
+      if (isDivider(lines[i])) continue;
+      acc += norm(text(lines[i]));
       if (acc.length >= k.length) {
         if (acc.startsWith(k)) cut = i;
         break;
@@ -217,9 +256,10 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
   if (cut < 0) {
     let segStart = 0;
     let first = true;
-    for (let i = 0; i < Math.min(40, units.length); i++) {
-      if (!isDivider(units[i])) continue;
-      const seg = units.slice(segStart, i);
+    for (let i = 0; i < LIMIT; i++) {
+      if (lines[i].media) break;
+      if (!isDivider(lines[i])) continue;
+      const seg = lines.slice(segStart, i);
       const ok = first ? hits(seg.map(text).join(" ")) >= 2 && isBoilerSegment(seg) : isBoilerSegment(seg);
       if (!ok) break;
       cut = i;
@@ -227,15 +267,16 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
       first = false;
     }
   }
-  // ③ 구분선이 없어도 맨 앞 짧은 문단들이 운영 안내 말로만 되어 있으면
+  // ③ 구분선이 없어도 맨 앞 짧은 줄들이 운영 안내 말(또는 빈 양식)로만 되어 있으면
   if (cut < 0) {
     let total = 0;
     let last = -1;
-    for (let i = 0; i < Math.min(25, units.length); i++) {
-      const t = text(units[i]);
-      if (!t || isDivider(units[i])) continue;
+    for (let i = 0; i < LIMIT; i++) {
+      const t = text(lines[i]);
+      if (lines[i].media) break;
+      if (!t || isDivider(lines[i])) continue;
       if (isEmptyFormLine(t)) {
-        last = i; // 빈 질문 양식 줄도 안내 문구에 포함
+        last = i;
         continue;
       }
       if (t.length > 120 || !hits(t)) break;
@@ -245,15 +286,57 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     if (last >= 1 && total >= 3) cut = last;
   }
   let boilerplateText = "";
-  if (cut >= 0 && units.slice(cut + 1).some((u) => text(u))) {
-    while (units[cut + 1] && (isDivider(units[cut + 1]) || !text(units[cut + 1]))) cut++; // 바로 뒤 구분선·빈 줄까지
-    const boiler = units.slice(0, cut + 1);
-    boiler.forEach((u) => u.setAttribute("data-rpt-boiler", ""));
-    boilerplateText = norm(boiler.filter((u) => !isDivider(u)).map(text).join("")).slice(0, 300);
+  if (cut >= 0 && lines.slice(cut + 1).some((l) => text(l) && !isDivider(l))) {
+    // 바로 뒤에 이어지는 구분선·빈 질문 양식(과 그 안내 한 줄)까지
+    for (;;) {
+      const nx = lines[cut + 1];
+      if (!nx || nx.media) break;
+      if (isDivider(nx) || !text(nx) || isEmptyFormLine(text(nx))) {
+        cut++;
+        continue;
+      }
+      // "질문에 필요할 경우 작성해주세요." 처럼 짧은 안내 줄은 바로 뒤가 구분선·빈 양식일 때만
+      const after = lines.slice(cut + 2).find((l) => text(l) || l.divider);
+      if (hits(text(nx)) && text(nx).length <= 60 && after && (isDivider(after) || isEmptyFormLine(text(after)))) {
+        cut++;
+        continue;
+      }
+      break;
+    }
+    const boiler = lines.slice(0, cut + 1);
+    const hiddenNodes = new Set();
+    for (const l of boiler) {
+      for (const el of l.els) el.setAttribute("data-rpt-boiler", "");
+      for (const tn of l.nodes) {
+        // 글자 조각을 감싸서 가린다 (같은 문단 안 작성자 글은 그대로)
+        const span = doc.createElement("span");
+        span.setAttribute("data-rpt-boiler", "");
+        tn.parentNode.insertBefore(span, tn);
+        span.appendChild(tn);
+        hiddenNodes.add(tn);
+      }
+    }
+    // 안내 문구만 들어 있는 상자는 통째로 가린다 (밑줄·테두리·배경까지)
+    for (const el of body.querySelectorAll("p, div, li, blockquote, table")) {
+      if (el.hasAttribute("data-rpt-boiler")) continue;
+      const tw = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let any = false;
+      let onlyBoiler = true;
+      for (let t = tw.nextNode(); t; t = tw.nextNode()) {
+        if (!t.nodeValue.trim()) continue;
+        any = true;
+        if (!hiddenNodes.has(t)) {
+          onlyBoiler = false;
+          break;
+        }
+      }
+      if (any && onlyBoiler && !el.querySelector("img, video, iframe")) el.setAttribute("data-rpt-boiler", "");
+    }
+    boilerplateText = norm(boiler.filter((l) => !isDivider(l)).map(text).join("")).slice(0, 300);
   }
-  const bodyText = units
-    .filter((u) => !u.hasAttribute("data-rpt-boiler"))
-    .map((u) => u.innerText)
+  const bodyText = lines
+    .filter((l, i) => !(i <= cut && boilerplateText) && !l.media)
+    .map((l) => l.text)
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -581,6 +664,13 @@ async function readArticleText(tabId, url) {
 const CERT_RE = /계약|출고|인수|인증|구매|탁송/;
 const MAX_CERT_POSTS = 2;
 
+// 담당자가 알려 준 카페 공통 안내 문구 (빈칸 없이 이어 붙인 글자). 이 글로 시작하면 바로 뺀다.
+const SEED_BOILERPLATES = [
+  // 아이오닉9 오너스 자유게시판
+  "📍함께하는[아이오닉9오너스]카페질문은질문답변게시판이용해주세요.글쓰기에서해당게시판이안보이면등업이필요합니다.(글2개,댓글5개,방문5회,좋아요10회)카페활동예의를지켜주세요.경우에따라카페운영회칙에의거활동정지또는탈퇴처리될수있습니다.",
+  // 아이오닉9 오너스 질문 게시판 (뒤에 빈 질문 양식이 붙음)
+  "📍함께하는[아이오닉9오너스]카페카페활동예의를지켜주세요.경우에따라카페운영회칙에의거활동정지또는탈퇴처리될수있습니다.",
+];
 // 전에 찾아 둔 카페 안내 문구 (다음 글에서도 바로 빼기 위해 기억)
 let knownBoilerplates = [];
 
@@ -628,7 +718,7 @@ const DELETED_RE = /삭제되었거나|존재하지 않는 게시글|삭제된 �
 // → { info, header, body, comments: [Blob|null], images: [Blob|null], dpr }
 async function captureCafePost(url, onStep = () => {}) {
   const saved = await chrome.storage.local.get(["boilerplates"]).catch(() => ({}));
-  knownBoilerplates = saved.boilerplates || [];
+  knownBoilerplates = [...SEED_BOILERPLATES, ...(saved.boilerplates || []).filter((k) => !SEED_BOILERPLATES.includes(k))];
   onStep("게시글 여는 중");
   const { tabId, dialogs, close } = await openWindow(url);
   try {
@@ -648,8 +738,9 @@ async function captureCafePost(url, onStep = () => {}) {
 
     // 새로 찾은 안내 문구는 기억해 두었다가 다음 글에서도 뺀다 (최근 50개)
     if (info.boilerplateText && info.boilerplateText.length >= 15 && !knownBoilerplates.includes(info.boilerplateText)) {
-      knownBoilerplates = [info.boilerplateText, ...knownBoilerplates].slice(0, 50);
-      await chrome.storage.local.set({ boilerplates: knownBoilerplates }).catch(() => {});
+      const learned = [info.boilerplateText, ...knownBoilerplates.filter((k) => !SEED_BOILERPLATES.includes(k))].slice(0, 50);
+      knownBoilerplates = [...SEED_BOILERPLATES, ...learned];
+      await chrome.storage.local.set({ boilerplates: learned }).catch(() => {});
     }
 
     // 게시글 위치: 'URL 복사' 버튼이 주는 주소를 우선 사용

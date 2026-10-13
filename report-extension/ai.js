@@ -19,6 +19,8 @@ const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작�
 - 게시글에 작성된 현상만 간결한 보고체로 씁니다. 전후 사정보다 증상 전달에 초점을 둡니다.
 - 자극적·부정적 표현 대신 사실 중심의 순화된 표현을 씁니다. 표준어의 쉬운 표현으로 씁니다.
 - "에러", "결함"은 쓰지 않습니다. "증상", "현상", "오류", "불량", "고장", "문제" 등으로 바꿉니다.
+- 작성자가 "내비", "네비"라고 썼어도 보고서에는 반드시 "내비게이션"으로 씁니다.
+- "돼", "됐" 줄임 표현은 쓰지 않고 "되어", "되었"으로 풀어 씁니다. (예: 확인돼 → 확인되어, 점등됐다며 → 점등되었다며)
 - 문장 시작 유형: [출고] "최근 출고한 차량에서", "출고 후 3개월 된 차량에서" / [주행 중] "주행 중에", "정차 중에", "주차 중에" / [차량의] "차량의 ○○ 부분에서"
 - 문장 끝맺음은 글의 성격에 맞게 아래 유형을 골고루 섞어 씁니다. 모든 글을 "~하는 내용"으로 끝내지 않습니다.
   · 불만을 강하게 표출한 글: "~며 품질 관련 불만글 게재", "~에 대한 불만글 게재", "~며 품질에 대해 불만 토로" (응대 불만이면 "응대 관련")
@@ -33,7 +35,9 @@ const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작�
 
 [작성 항목]
 - issue: 슬라이드 제목의 증상 부분. 차명은 빼고 10글자 내외의 명사형. 예) "엔진 경고등 점등", "펜더 부식", "선루프 개폐 오류 및 각종 불량"
-- short: 첫 장 요약표의 '내용 요약'. 한 줄(35자 이내) 명사형. 예) "시동 시 엔진 소음 및 진동 발생 후 엔진 경고등 점등"
+- short: 첫 장 요약표의 '내용 요약'. 구구절절한 설명·미사여구 없이 깔끔하게, 필요한 내용만 키워드 중심의 명사형으로 (35자 이내).
+  담당자가 직접 다듬은 예) "타이어 공기압 경고등 및 도장·루프 필러 조립 불량" / "라디에이터 캡 냉각수 누수" /
+  "HUD 부품 결품으로 2개월 수리 지연" / "테일게이트 부위 부식 발생" / "시동 시 내비게이션 디스플레이 불량 발생"
 - body: 상세 슬라이드의 본문 요약 한 문장. 첫 줄 한 줄을 꽉 채우도록 반드시 ${BODY_MIN}~${BODY_MAX}자로 씁니다.
   너무 짧게 쓰지 말고 게시글의 주요 내용을 풍부하게, 포인트를 잘 잡아 담습니다:
   차량 상태(출고 시기·주행거리 등) → 언제·어떤 상황에서 → 어떤 증상이 → 어떤 조치(입고·교체·진단 결과)를 받았고 → 작성자가 무엇을 원하는지/어떤 불만인지.
@@ -131,6 +135,7 @@ async function aiSummarize(row, info, { apiKey, model, recentBodies = [] }) {
   out.comment_picks = [...new Set((out.comment_picks || []).filter((i) => valid.has(i)))].slice(0, 2);
   if (!out.comment_picks.length) out.comment_picks = defaultPicks(info);
   for (const k of ["issue", "spec", "short", "body", "reaction", "duplicate", "region"]) out[k] = String(out[k] || "").trim();
+  fixWording(out);
 
   // 내용 요약 2줄 엄수 + 첫 줄 꽉 채우기: 본문 요약이 너무 짧거나 길면, 댓글 반응이 길면 한 번 더 맞춰 달라고 한다
   if (out.body.length > BODY_MAX || out.body.length < BODY_MIN || out.reaction.length > REACTION_MAX) {
@@ -159,6 +164,16 @@ async function aiSummarize(row, info, { apiKey, model, recentBodies = [] }) {
       /* 줄이지 못하면 원래 문장 (미리보기에서 글자 수가 빨갛게 표시됨) */
     }
   }
+  fixWording(out);
+  return out;
+}
+
+// 보고서 표기 규칙을 한 번 더 확실히: 내비/네비 → 내비게이션, 돼/됐 → 되어/되었 (댓글 반응은 댓글 말투를 따르므로 내비게이션만)
+function fixWording(out) {
+  const nav = (t) => String(t || "").replace(/(내비|네비)(게이션)?/g, "내비게이션");
+  const doe = (t) => String(t || "").replace(/됐/g, "되었").replace(/돼/g, "되어");
+  for (const k of ["issue", "short", "body"]) if (out[k]) out[k] = doe(nav(out[k]));
+  if (out.reaction) out.reaction = nav(out.reaction);
   return out;
 }
 
@@ -188,7 +203,7 @@ function defaultPicks(info) {
 
 // API 키가 없을 때: 엑셀 '주요 내용'으로 초안만 채운다 (나머지는 미리보기에서 직접 입력)
 function excelDraft(row, info) {
-  const main = (row.main || "").trim();
+  const main = fixWording({ short: (row.main || "").trim() }).short;
   return {
     issue: main,
     spec: "",

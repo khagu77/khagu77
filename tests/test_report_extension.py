@@ -668,3 +668,48 @@ def test_cafe_notice_removed(paras, expected_start, gone):
     for word in gone:
         assert word not in info["bodyText"], (word, info["bodyText"])
     assert hidden > 0
+
+
+TODAY_TEXT = ["아침 출근까지 멀쩡했는데", "저녁 퇴근때 시동걸었더니", "내비 화면이 지지직거리면서 계속 깜박거리다를",
+              "계속 반복하고 시동껐다켜도 똑같고", "리셋버튼 눌러도 소용이 없네요..", "파란손 가야하는건지...ㅠㅠ"]
+
+
+@pytest.mark.parametrize("html, expected_start, gone", [
+    # 오늘 사례: 안내와 본문이 한 문단 안에서 줄바꿈(<br>)으로만 이어지고, 안내 아래 짧은 가로줄
+    ('<div class="se-main-container"><div class="se-component se-text"><p class="se-text-paragraph">'
+     + "<br>".join(NOTICE_B[:-1]) + '</p><hr style="width:300px"><p class="se-text-paragraph">'
+     + "<br>".join(TODAY_TEXT) + "</p></div></div>", "아침 출근까지", ["카페", "등업", "회칙"]),
+    # 안내 상자에 밑줄(테두리)이 있는 경우
+    ('<div class="se-main-container"><div style="border-bottom:1px solid #000;width:300px">'
+     + "".join(f"<p>{t}</p>" for t in NOTICE_B[:-1]) + "</div>"
+     + "".join(f"<p>{t}</p>" for t in TODAY_TEXT) + "</div>", "아침 출근까지", ["예의"]),
+    # 📍 가 이모지 그림으로 들어간 경우 (미리 알려 준 안내 문구와 글자만 비교)
+    ('<div class="se-main-container"><p><img src="x.png" width="1" height="1">함께하는 [아이오닉9 오너스] 카페</p>'
+     + "".join(f"<p>{t}</p>" for t in NOTICE_B[1:-1]) + "".join(f"<p>{t}</p>" for t in TODAY_TEXT) + "</div>",
+     "아침 출근까지", ["함께하는"]),
+    # 안내 문구가 없는 보통 글은 그대로 (카페라는 말이 있어도)
+    ('<div class="se-main-container"><p>카페 회원분들 도움 부탁드립니다.</p><p>주행 중 소음이 계속 납니다.</p>'
+     '<p>원인을 모르겠어요.</p></div>', "카페 회원분들", []),
+])
+def test_cafe_notice_removed_structures(html, expected_start, gone):
+    from playwright.sync_api import sync_playwright
+
+    code = (EXT_DIR / "capture.js").read_text()
+    with sync_playwright() as p:
+        browser = p.chromium.launch(executable_path=CHROMIUM, headless=True)
+        page = browser.new_page()
+        page.set_content(f"<html><body>{html}</body></html>")
+        page.add_script_tag(content=code)
+        info = page.evaluate("cafePageProbe('info', null, 20, 8, SEED_BOILERPLATES)")
+        # 가린 뒤 화면에 보이는 글자에도 안내 문구가 없어야 함
+        visible = page.evaluate("""() => { const b = document.querySelector('[data-rpt="body"]');
+            document.querySelectorAll('[data-rpt-boiler]').forEach(e => e.style.visibility = 'hidden');
+            const tw = document.createTreeWalker(b, NodeFilter.SHOW_TEXT); let s = '';
+            for (let t = tw.nextNode(); t; t = tw.nextNode()) {
+              if (getComputedStyle(t.parentElement).visibility !== 'hidden') s += t.nodeValue; }
+            return s; }""")
+        browser.close()
+    assert info["bodyText"].startswith(expected_start), info["bodyText"]
+    for word in gone:
+        assert word not in info["bodyText"], (word, info["bodyText"])
+        assert word not in visible, (word, visible)
