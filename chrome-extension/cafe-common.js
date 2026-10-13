@@ -245,8 +245,38 @@ function datedFileName(baseName) {
   return /^\d{8}/.test(name) ? today() + name.slice(8) : `${today()}_${name}`;
 }
 
-function downloadBytes(bytes, name) {
+// 저장 위치: 크롬 '다운로드' 폴더 안의 폴더 이름(예: 팰리세이드 모니터링/일일보고) · 받을 때마다 위치 묻기
+// (확장프로그램은 다운로드 폴더 밖의 위치를 직접 정할 수 없어, 그 밖은 '매번 묻기'로 고른다)
+function cleanFolder(f) {
+  return String(f || "")
+    .split(/[\\/]+/)
+    .map((p) => p.trim().replace(/[<>:"|?*\x00-\x1f]/g, "").replace(/^\.+$/, ""))
+    .filter(Boolean)
+    .join("/");
+}
+
+async function saveOptions() {
+  const s = await chrome.storage.local.get(["saveFolder", "saveAsk"]).catch(() => ({}));
+  return { folder: cleanFolder(s.saveFolder), ask: !!s.saveAsk };
+}
+
+function saveWhereText({ folder, ask }) {
+  return ask ? "받을 때마다 위치를 묻습니다" : `다운로드${folder ? ` / ${folder}` : ""} 폴더`;
+}
+
+async function downloadBytes(bytes, name) {
   const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const { folder, ask } = await saveOptions();
+  if (folder || ask) {
+    const url = URL.createObjectURL(blob);
+    try {
+      await chrome.downloads.download({ url, filename: folder ? `${folder}/${name}` : name, saveAs: ask, conflictAction: "uniquify" });
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      return;
+    } catch {
+      URL.revokeObjectURL(url); // 아래 기본 방식으로
+    }
+  }
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = name;

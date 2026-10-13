@@ -516,14 +516,7 @@ async function buildOutput(results, tpl) {
 }
 
 function downloadWorkbook(bytes, name) {
-  const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  return downloadBytes(bytes, name);
 }
 
 // ---------------------------------------------------------------------------
@@ -677,6 +670,18 @@ async function start() {
     );
     if (!ok) return;
   }
+  if (!template) {
+    const go = confirm(
+      "기존 raw data 엑셀 파일을 고르지 않았습니다.\n\n" +
+        "· [확인]: 파일 없이 진행 (그날 수집한 댓글만 담은 새 파일로 저장)\n" +
+        "· [취소]: 기존 파일을 먼저 고르기 (이어 쓰기·중복 제외)",
+    );
+    if (!go) {
+      $("#templateFile").scrollIntoView({ block: "center" });
+      $("#templateFile").click();
+      return;
+    }
+  }
   if (cafeCount) await checkLogin();
   stopRequested = false;
   $("#start").disabled = true;
@@ -764,6 +769,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#download").addEventListener("click", () => lastWorkbook && downloadWorkbook(lastWorkbook.bytes, lastWorkbook.name));
   $("#templateFile").addEventListener("change", (e) => loadTemplate(e.target.files[0]));
   loadTemplate(null);
+  saveOptions().then((o) => ($("#saveWhere").textContent = `저장 위치: ${saveWhereText(o)} (LX3 화면의 설정에서 바꿀 수 있음)`));
   window.addEventListener("focus", checkLogin);
   checkLogin();
 });

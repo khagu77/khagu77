@@ -49,6 +49,8 @@ let listFile = null; // { name, bytes, urls:Set, info }
 let cafeSlugs = {};
 let cafeNames = {};
 let lastSaved = null;
+let lastSearchAt = 0;
+let lastRange = {};
 let diagnostics = []; // 글을 못 읽은 화면의 구조 (진단 파일)
 
 // ---------------------------------------------------------------------------
@@ -57,7 +59,7 @@ let diagnostics = []; // 글을 못 읽은 화면의 구조 (진단 파일)
 
 async function loadSettings() {
   const s = await chrome.storage.local
-    .get(["lx3VisibleRetry", "lx3Cafes", "lx3Query", "lx3Include", "lx3Exclude", "lx3SearchUrl", "lx3MaxPages", "lx3CafeNames", "lx3Youtube"])
+    .get(["saveFolder", "saveAsk", "lx3VisibleRetry", "lx3Cafes", "lx3Query", "lx3Include", "lx3Exclude", "lx3SearchUrl", "lx3MaxPages", "lx3CafeNames", "lx3Youtube"])
     .catch(() => ({}));
   $("#cafeList").value = (s.lx3Cafes || DEFAULT_CAFES).join("\n");
   $("#query").value = s.lx3Query ?? DEFAULT_QUERY;
@@ -66,6 +68,8 @@ async function loadSettings() {
   $("#searchUrl").value = s.lx3SearchUrl || DEFAULT_SEARCH_URL;
   $("#maxPages").value = s.lx3MaxPages || DEFAULT_MAX_PAGES;
   $("#visibleRetry").checked = s.lx3VisibleRetry ?? true;
+  $("#saveFolder").value = s.saveFolder || "";
+  $("#saveAsk").checked = !!s.saveAsk;
   cafeNames = Object.fromEntries(Object.entries(s.lx3CafeNames || {}).map(([k, v]) => [k, cleanCafeName(v)]));
   cafeSlugs = await loadCafeSlugs();
   youtube = s.lx3Youtube || [...DEFAULT_YOUTUBE];
@@ -81,6 +85,8 @@ function saveSettings() {
       lx3SearchUrl: normalizeSearchUrl($("#searchUrl").value),
       lx3MaxPages: Math.max(1, Math.min(20, Number($("#maxPages").value) || DEFAULT_MAX_PAGES)),
       lx3VisibleRetry: $("#visibleRetry").checked,
+      saveFolder: cleanFolder($("#saveFolder").value),
+      saveAsk: $("#saveAsk").checked,
     })
     .catch(() => {});
 }
@@ -545,9 +551,9 @@ async function search() {
   renderCafeInfo();
   markDuplicates();
   renderResults();
-  await chrome.storage.local
-    .set({ lx3Last: { at: Date.now(), from: $("#from").value, to: $("#to").value, items: items.map(serializeItem) } })
-    .catch(() => {});
+  lastSearchAt = Date.now();
+  lastRange = { from: $("#from").value, to: $("#to").value };
+  await saveLast();
   const checked = items.filter((x) => x.checked).length;
   setSummary(
     `${stopRequested ? "중지됨 - " : ""}찾은 글 ${items.length}개 (관련 글로 체크 ${checked}개)` +
@@ -559,6 +565,13 @@ async function search() {
   $("#search").disabled = false;
   $("#stop").disabled = true;
   updateCounts();
+}
+
+// 결과 표(삭제 반영)를 저장해 두어 화면을 다시 열어도 그대로 보이게
+function saveLast() {
+  return chrome.storage.local
+    .set({ lx3Last: { at: lastSearchAt || Date.now(), from: lastRange.from || $("#from").value, to: lastRange.to || $("#to").value, items: items.map(serializeItem) } })
+    .catch(() => {});
 }
 
 function serializeItem(x) {
@@ -612,6 +625,7 @@ function renderResults() {
     tr.querySelector(".del").addEventListener("click", () => {
       items = items.filter((x) => x !== item);
       renderResults();
+      saveLast();
     });
     tbody.appendChild(tr);
   }
@@ -622,6 +636,8 @@ function updateCounts() {
   const n = items.filter((x) => x.checked).length;
   $("#resultCount").textContent = items.length ? `전체 ${items.length}개 중 ${n}개 체크` : "";
   $("#saveList").disabled = !n || running;
+  $("#selDelete").disabled = !n || running;
+  $("#selDelete").textContent = n ? `선택 삭제 (${n}개)` : "선택 삭제";
   $("#toComments").disabled = (!n && !($("#withYoutube").checked && youtube.length)) || running;
   $("#checkAll").checked = !!items.length && n === items.length;
 }
@@ -639,8 +655,10 @@ function normUrl(u) {
 function markDuplicates() {
   const have = listFile ? listFile.urls : new Set();
   for (const item of items) {
+    const was = item.dup;
     item.dup = have.has(normUrl(articleUrl(item)));
-    if (item.dup && !item.touched) item.checked = false;
+    // 새로 '이미 파일에 있음'이 된 글은 (먼저 직접 체크했더라도) 체크를 푼다 - 다시 체크하면 넣을 수 있음
+    if (item.dup && (!was || !item.touched)) item.checked = false;
   }
 }
 
@@ -741,13 +759,25 @@ async function buildList(selected) {
 async function saveList() {
   const selected = sortedItems().filter((x) => x.checked);
   if (!selected.length) return;
+  if (!listFile) {
+    const go = confirm(
+      "기존 '채널별 버즈량 현황' 엑셀 파일을 첨부하지 않았습니다.\n\n" +
+        "· [확인]: 첨부 없이 진행 (이번에 고른 글만 담은 새 파일, 순번 1부터)\n" +
+        "· [취소]: 기존 파일을 먼저 첨부하기 (마지막 순번 다음에 이어 쓰기·이미 있는 글 제외)",
+    );
+    if (!go) {
+      $("#listFile").scrollIntoView({ block: "center" });
+      $("#listFile").click();
+      return;
+    }
+  }
   try {
     const out = await buildList(selected);
     const name = datedFileName(listFile ? listFile.name : rememberedListName());
-    downloadBytes(out.bytes, name);
+    await downloadBytes(out.bytes, name);
     lastSaved = selected;
     $("#saveInfo").className = "hint ok";
-    $("#saveInfo").textContent = `✔ ${name} - ${selected.length}개 추가 (순번 ${out.from}~${out.to}). '체크한 글 댓글 수집하기'로 바로 댓글을 모을 수 있습니다.`;
+    $("#saveInfo").textContent = `✔ ${saveWhereText(await saveOptions())}에 ${name} - ${selected.length}개 추가 (순번 ${out.from}~${out.to}). '체크한 글 댓글 수집하기'로 바로 댓글을 모을 수 있습니다.`;
     const noSlug = selected.filter((x) => !(cafeSlugs[x.cafeId] || x.slug));
     if (noSlug.length) {
       $("#saveInfo").className = "hint err";
@@ -856,6 +886,8 @@ async function restoreLast() {
   const { lx3Last } = await chrome.storage.local.get("lx3Last").catch(() => ({}));
   if (!lx3Last?.items?.length) return;
   items = lx3Last.items.map((x) => ({ ...x, date: x.date ? new Date(x.date) : null }));
+  lastSearchAt = lx3Last.at;
+  lastRange = { from: lx3Last.from, to: lx3Last.to };
   markDuplicates();
   renderResults();
   setSummary(
@@ -869,9 +901,10 @@ async function init() {
   renderCafeInfo();
   renderYoutube();
   loadListFile(null);
-  for (const id of ["cafeList", "include", "exclude", "searchUrl", "maxPages", "query", "visibleRetry"]) {
+  for (const id of ["cafeList", "include", "exclude", "searchUrl", "maxPages", "query", "visibleRetry", "saveFolder", "saveAsk"]) {
     $(`#${id}`).addEventListener("change", async () => {
       if (id === "searchUrl") $("#searchUrl").value = normalizeSearchUrl($("#searchUrl").value);
+      if (id === "saveFolder") $("#saveFolder").value = cleanFolder($("#saveFolder").value);
       await saveSettings();
       if (id === "cafeList") renderCafeInfo();
       if (id === "include" || id === "exclude") {
@@ -899,6 +932,23 @@ async function init() {
     stopRequested = true;
     $("#stop").disabled = true;
     setSummary("중지하는 중… (지금 보는 화면까지 마칩니다)");
+  });
+  const setChecks = (fn) => {
+    for (const x of items) {
+      x.checked = fn(x);
+      x.touched = true;
+    }
+    renderResults();
+  };
+  $("#selAll").addEventListener("click", () => setChecks(() => true));
+  $("#selNone").addEventListener("click", () => setChecks(() => false));
+  $("#selInvert").addEventListener("click", () => setChecks((x) => !x.checked));
+  $("#selDelete").addEventListener("click", () => {
+    const n = items.filter((x) => x.checked).length;
+    if (!n || !confirm(`체크한 게시물 ${n}개를 목록에서 삭제할까요?`)) return;
+    items = items.filter((x) => !x.checked);
+    renderResults();
+    saveLast();
   });
   $("#checkAll").addEventListener("change", () => {
     for (const x of items) {

@@ -330,8 +330,12 @@
       xml = xml.replace(/<hyperlinks>\s*<\/hyperlinks>/, "");
 
       // 파일을 열었을 때 보이는 위치: 새 데이터 첫 행(또는 맨 위)
-      const focus = focusFirstNew && newRows.length ? keepUntil + 1 : 2;
-      xml = xml.replace(/(<pane\b[^>]*\btopLeftCell=")[A-Z]+\d+(")/, `$1A${Math.max(2, focus - 3)}$2`);
+      // 틀 고정(ySplit)이 있으면 스크롤 시작·선택 칸은 고정된 행 아래여야 한다(아니면 엑셀이 '복구' 경고를 띄움)
+      const pane = xml.match(/<pane\b[^>]*>/)?.[0] || "";
+      const firstFree = Math.floor(Number(pane.match(/\bySplit="([\d.]+)"/)?.[1] || 0)) + 1;
+      const minRow = Math.max(2, firstFree);
+      const focus = Math.max(minRow, focusFirstNew && newRows.length ? keepUntil + 1 : 2);
+      xml = xml.replace(/(<pane\b[^>]*\btopLeftCell=")[A-Z]+\d+(")/, `$1A${Math.max(minRow, focus - 3)}$2`);
       xml = xml.replace(/(<selection\b[^>]*\bactiveCell=")[A-Z]+\d+("[^>]*\bsqref=")[^"]*(")/g, `$1A${focus}$2A${focus}$3`);
 
       this.texts.set(path, xml);

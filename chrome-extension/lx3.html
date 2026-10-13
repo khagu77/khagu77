@@ -24,7 +24,10 @@
       <div class="hint">화면을 새로 열면(새로고침) 시간은 <b>전일 오후 12시 ~ 당일 오후 12시</b>로 돌아갑니다.</div>
 
       <details id="settings">
-        <summary>동호회 목록 · 관련 단어 설정</summary>
+        <summary>설정 (동호회 목록 · 관련 단어 · 저장 위치)</summary>
+        <label for="saveFolder">엑셀 저장 위치 <span class="hint">(이 화면과 댓글 수집 화면에서 받는 엑셀 모두)</span></label>
+        <div class="row"><span class="hint">크롬 다운로드 폴더 /</span><input type="text" id="saveFolder" class="full" spellcheck="false" placeholder="비우면 다운로드 폴더에 바로 저장 (예: 팰리세이드 모니터링/일일보고)"></div>
+        <label class="inline"><input type="checkbox" id="saveAsk"> 받을 때마다 저장 위치 묻기 (원하는 폴더를 직접 고름 · 크롬이 마지막 폴더를 기억)</label>
         <label for="cafeList">동호회 목록 <span class="hint">(한 줄에 하나, 이 순서대로 엑셀에 씁니다)</span></label>
         <textarea id="cafeList" rows="6" spellcheck="false"></textarea>
         <table id="cafeInfo" class="compact">
@@ -54,6 +57,12 @@
     <section id="resultBox" hidden>
       <h2>2. 결과 확인 · 엑셀 받기</h2>
       <div class="hint">필요 없는 글은 <b>삭제</b>하거나 체크를 푸세요. 체크된 글만 날짜순 → 위 동호회 순으로 엑셀에 들어갑니다.</div>
+      <div class="row">
+        <button id="selAll" class="small">모두 선택</button>
+        <button id="selNone" class="small">모두 해제</button>
+        <button id="selInvert" class="small" title="체크된 글은 해제, 해제된 글은 체크">선택 반전</button>
+        <button id="selDelete" class="small danger" title="체크한 게시물을 목록에서 한꺼번에 지웁니다">선택 삭제</button>
+      </div>
       <table id="results">
         <thead><tr><th><input type="checkbox" id="checkAll" title="모두 체크/해제"></th><th>게시일</th><th>동호회</th><th>제목</th><th>URL</th><th>비고</th><th></th></tr></thead>
         <tbody></tbody>

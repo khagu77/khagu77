@@ -211,6 +211,8 @@ def run_extension(tmp_path: Path, urls, template=None, fail_video=None):
         ext_id = sw.url.split("/")[2]
         page = ctx.new_page()
         page.goto(f"chrome-extension://{ext_id}/app.html")
+        dialogs = []
+        page.on("dialog", lambda d: (dialogs.append(d.message), d.accept()))
         if template:
             page.set_input_files("#templateFile", str(template))
             page.locator("#templateInfo", has_text="✔").wait_for()
@@ -223,6 +225,8 @@ def run_extension(tmp_path: Path, urls, template=None, fail_video=None):
         summary = page.inner_text("#summary")
         ctx.close()
     server.shutdown()
+    # 기존 파일 없이 시작하면 먼저 묻는다
+    assert any("기존 raw data 엑셀 파일을 고르지 않았습니다" in m for m in dialogs) == (template is None), dialogs
     assert naver_api_calls == []  # 네이버 API 는 한 번도 직접 부르지 않는다
     return path, summary, requested_tokens
 
@@ -468,8 +472,31 @@ def test_lx3(tmp_path: Path):
             ("2026-10-12 09:30", "AA 동호회", "팰리세이드 전동시트 끼임 사고 무섭네요", "https://cafe.naver.com/aacafe/1001", True),
         ], (got, summary, page.inner_text("#log"))
         assert "찾은 글 5개 (관련 글로 체크 4개)" in summary, summary
+        # 선택 반전: 체크된 글은 해제, 해제된 글은 체크 → 다시 반전하면 원래대로
+        checks = lambda: [rows.nth(i).locator("input").is_checked() for i in range(rows.count())]
+        before = checks()
+        page.click("#selInvert")
+        assert checks() == [not c for c in before] and "5개 중 1개 체크" in page.inner_text("#resultCount")
+        page.click("#selInvert")
+        assert checks() == before
+        page.click("#selNone")
+        assert checks() == [False] * 5
+        page.click("#selInvert")
+        assert checks() == [True] * 5
+        for i, c in enumerate(before):  # 원래 체크 상태로
+            if not c:
+                rows.nth(i).locator("input").uncheck()
+        assert checks() == before
+        # 선택 삭제: 반전으로 관련 없는 글(카시트)만 체크 → 한꺼번에 삭제, 화면을 다시 열어도 그대로
+        page.click("#selInvert")
+        assert page.inner_text("#selDelete") == "선택 삭제 (1개)"
+        page.click("#selDelete")
+        assert rows.count() == 4 and "카시트" not in page.inner_text("#results")
+        page.reload()
+        assert rows.count() == 4 and checks() == [False] * 4
+        page.click("#selAll")
         # 동호회 이름·영문 주소가 설정 표에 채워진다
-        assert page.locator("#cafeInfo tbody tr").nth(1).locator("td").nth(2).inner_text() == "BB 오너스 - 비비"
+        assert page.locator("#cafeInfo tbody tr").nth(1).locator("td").nth(2).text_content() == "BB 오너스 - 비비"
         assert page.locator("#cafeInfo tbody tr").nth(0).locator("input").input_value() == "aacafe"
 
         # 새 파일로 받기
@@ -484,13 +511,20 @@ def test_lx3(tmp_path: Path):
         make_buzz_file(buzz)
         page.set_input_files("#listFile", str(buzz))
         page.locator("#listFileInfo", has_text="✔").wait_for()
-        assert "이미 파일에 있음" in rows.nth(4).inner_text() and not rows.nth(4).locator("input").is_checked()
+        assert "이미 파일에 있음" in rows.nth(3).inner_text() and not rows.nth(3).locator("input").is_checked()
         rows.nth(0).locator("button.del").click()  # 필요 없는 글 삭제
+        page.locator("#settings summary").click()
+        page.fill("#saveFolder", "팰리세이드 모니터링/../일일보고")
+        page.locator("#saveFolder").dispatch_event("change")
+        assert page.input_value("#saveFolder") == "팰리세이드 모니터링/일일보고"
+        # 크롬 다운로드 기능에 넘기는 저장 경로 확인 (Playwright 는 받은 파일 이름을 임의로 바꾸므로)
+        page.evaluate("const _dl = chrome.downloads.download.bind(chrome.downloads); chrome.downloads.download = (o) => { window.__dl = o; return _dl(o); }; 0")
         with page.expect_download() as dl:
             page.click("#saveList")
-        appended = tmp_path / dl.value.suggested_filename
+        appended = tmp_path / "appended.xlsx"
         dl.value.save_as(appended)
-        assert appended.name == f"{seoul_today():%Y%m%d}_팰리세이드 북미 사망사고 관련 채널별 버즈량.xlsx"
+        assert page.evaluate("window.__dl.filename") == f"팰리세이드 모니터링/일일보고/{seoul_today():%Y%m%d}_팰리세이드 북미 사망사고 관련 채널별 버즈량.xlsx"
+        assert "다운로드 / 팰리세이드 모니터링/일일보고 폴더에" in page.inner_text("#saveInfo")
 
         # 체크한 글 + 유튜브 목록 → 댓글 수집 화면
         page.click("#toComments")
@@ -510,6 +544,15 @@ def test_lx3(tmp_path: Path):
     server.shutdown()
     assert naver_api == []
     assert not any("page=4" in r for r in server.requests), server.requests  # 모두 기간 이전인 3페이지에서 멈춤
+
+    # 엑셀 '복구' 경고가 나지 않게: 틀 고정(3행) 아래에서 화면이 시작해야 한다
+    import re
+    import zipfile
+    for f in (new_file, appended):
+        view = re.search(r"<sheetView\b.*?</sheetView>", zipfile.ZipFile(f).read("xl/worksheets/sheet1.xml").decode()).group(0)
+        split = int(float(re.search(r'ySplit="([\d.]+)"', view).group(1)))
+        assert int(re.search(r'topLeftCell="[A-Z]+(\d+)"', view).group(1)) > split, view
+        assert int(re.search(r'activeCell="[A-Z]+(\d+)"', view).group(1)) > split, view
 
     ws = load_workbook(new_file)["채널별 버즈량 현황"]
     data = [[c.value for c in r[1:7]] for r in ws.iter_rows(min_row=4)]
