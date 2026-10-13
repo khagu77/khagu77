@@ -92,6 +92,8 @@ li.CommentItem{{list-style:none;padding:8px 0;border-bottom:1px solid #eee}}
 <p>시동만 걸면 공조기가 자동으로 켜지고</p><p><br></p><p><br></p><p><br></p>
 <p>OFF 버튼을 눌러도 꺼지지 않습니다.</p></div>
 <div class="se-component se-image"><img src="{PHOTO}"></div>
+<div class="se-component se-video" style="width:300px;height:500px;background:#334455;position:relative">
+<img src="{PROFILE}" style="position:absolute;left:130px;top:230px;width:40px;height:40px"><span style="color:#fff">00:11</span></div>
 <div class="se-component se-text"><p>블루핸즈 예약했습니다.</p></div></div></div>
 <div class="article_writer"><div class="profile_area"><span class="avatar"></span> 파주ll작성자 님의 게시글 더보기 &gt;</div></div>
 <div class="ArticleTool"><a class="button_comment">댓글 5</a></div>
@@ -201,6 +203,20 @@ def make_template(path: Path):
         tbl.cell(4, 1).merge(tbl.cell(4, 7))
         s.shapes.add_picture(str(img), Emu(1360196), Emu(2112190), Emu(5400000), Emu(794492))
     prs.save(path)
+    # 실제 PowerPoint 템플릿처럼 표 행마다 a16:rowId 를 넣는다 (복제 후 중복되면 PowerPoint 에서 표 수정 불가)
+    import re as _re
+    import zipfile
+    tmp = path.with_suffix(".tmp")
+    with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == "ppt/slides/slide2.xml":
+                n = iter(range(10000, 99999))
+                data = _re.sub(rb"</a:tr>", lambda m: (b'<a:extLst><a:ext uri="{0D108BD9-81ED-4DB2-BD59-A6C34878D82A}">'
+                               b'<a16:rowId xmlns:a16="http://schemas.microsoft.com/office/drawing/2014/main" val="%d"/>'
+                               b"</a:ext></a:extLst></a:tr>" % next(n)), data)
+            zout.writestr(item, data)
+    tmp.replace(path)
 
 
 DEFAULT_ROWS = [
@@ -379,7 +395,7 @@ def test_report_end_to_end(tmp_path):
         ("저도 같은 증상이에요", False), ("사업소 가세요", False), ("ㅋㅋ", True)]
     assert sent["author"] == "파주ll작성자" and sent["postDate"] == "2026-10-06"
     # 끝맺음을 고르는 데 쓰는 정보: 첨부 사진 수, 같은 보고서의 앞선 본문 요약(첫 글이라 비어 있음)
-    assert sent["photoCount"] == 1 and sent["recentBodies"] == []
+    assert sent["photoCount"] == 2 and sent["recentBodies"] == []  # 사진 1 + 영상 1
     assert [p["title"] for p in sent["authorPosts"]] == ["[출고인증] ST1 카고 받았습니다", "타이어 공기압 문의"]
     # 제원 확인용: 작성자의 출고 인증 글 본문을 읽어 보낸다
     assert sent["authorCertPosts"] == [{"title": "[출고인증] ST1 카고 받았습니다", "text": "드디어 ST1 카고 EV 롱레인지 출고했습니다."}]
@@ -391,6 +407,13 @@ def test_report_end_to_end(tmp_path):
     assert any("2026.10.07" in sh.text_frame.text for sh in slides[0].shapes if sh.has_text_frame)
     summary_tbl = [sh for sh in slides[1].shapes if sh.has_table][0].table
     rows = [[c.text for c in r.cells] for r in summary_tbl.rows]
+    import re as _re
+    import zipfile
+    ids = _re.findall(rb'rowId[^>]*val="(\d+)"', zipfile.ZipFile(out).read("ppt/slides/slide2.xml"))
+    assert len(ids) == len(rows) and len(set(ids)) == len(ids)  # 행 ID 중복 없음
+    # 칸 수와 상관없이 표 아래 끝선은 템플릿 표 틀 높이에 맞춤
+    frame = [sh for sh in slides[1].shapes if sh.has_table][0]
+    assert abs(sum(r.height for r in summary_tbl.rows) - frame.height) < 20
     assert rows[1][:6] == ["1", "ST1", "품질", "공조기 자동 작동 및 OFF 불가 발생", "5", "중복 2건"]
     assert rows[2][:2] == ["2", "GN7 PE"] and rows[2][4] == "확인"
     assert len(rows) == 3  # 삭제된 게시물은 요약표에도 없다
@@ -414,8 +437,8 @@ def test_report_end_to_end(tmp_path):
     assert tbl.cell(3, 1).text.split("\n")[1] == "댓글 반응 : ‘저도 같은 증상이에요., 사업소에 가세요.’ 등의 여론"
 
     pics = [sh for sh in d1.shapes if sh.shape_type == 13]
-    # 제목 + 본문 + 댓글 2개(AI 추천 0, 2) + 첨부 이미지 1
-    assert len(pics) == 5
+    # 제목 + 본문 + 댓글 2개(AI 추천) + 첨부 사진 1 + 영상 플레이어 1
+    assert len(pics) == 6
     cm = 360000
     xs = sorted(round(p.left / cm, 2) for p in pics)
     assert xs[0] == 3.66 and 4.56 in xs and xs[-1] >= 19.86
@@ -443,8 +466,15 @@ def test_report_end_to_end(tmp_path):
     # 본문 캡처에도 안내 문구가 없다: 글자 4줄 높이만 (안내 문구 7줄이 들어가면 훨씬 높아짐)
     body_pic = [p for p in pics if 4.5 < p.left / cm < 4.6][0]
     assert body_pic.height < 1.8 * cm, body_pic.height / cm
-    # 본문 사진: 원본 비율(4:3) 그대로, 오른쪽 영역에 330ppi 로
-    photo = max(pics, key=lambda p: p.left)
+    # 영상 플레이어 화면도 첨부 이미지처럼 오른쪽 영역에 (세로로 긴 영상은 반 폭)
+    right = [p for p in pics if p.left >= 19.8 * cm]
+    assert len(right) == 2
+    video = [p for p in right if p.height > p.width][0]
+    # 본문 사진: 원본 비율(4:3) 그대로, 가로로 긴 사진은 오른쪽 영역 전체 폭(5.8cm), 330ppi
+    photo = [p for p in right if p.width > p.height][0]
+    # 넘치면 함께 같은 비율로 줄어듦: 사진 ≤ 5.8cm, 세로 영상 폭 = (5.8 − 0.2) / 2 비율
+    assert photo.width <= 5.8 * cm + 10
+    assert abs(video.width / photo.width - (5.6 / 2) / 5.8) < 0.01
     assert abs(photo.width / photo.height - 4 / 3) < 0.01
     assert abs(photo.image.size[0] / photo.image.size[1] - 4 / 3) < 0.01
     assert abs(photo.image.size[0] / (photo.width / cm / 2.54) - 330) < 2
@@ -486,7 +516,7 @@ def test_report_old_cafe_iframe(tmp_path):
     assert tbl.cell(2, 5).text == "1,234건" and tbl.cell(2, 6).text == "5건"
     assert tbl.cell(3, 1).text.startswith("신차 검수 시 블랙잉크")
     pics = [sh for sh in d1.shapes if sh.shape_type == 13]
-    assert len(pics) == 5  # 제목 + 본문 + 댓글 2(이모티콘 없는 짧은 댓글) + 이미지 1
+    assert len(pics) == 6  # 제목 + 본문 + 댓글 2(이모티콘 없는 짧은 댓글) + 사진 1 + 영상 1
 
 
 def read_marked_in_extension(tmp_path, paths):

@@ -222,9 +222,19 @@
       const proto = trs[1];
       for (const tr of trs.slice(1)) tbl.removeChild(tr);
       const byNo = new Map(items.map((it, i) => [it.no || startNo + i, it]));
+      // 복제한 행마다 PowerPoint 행 ID(a16:rowId)를 새로 매긴다. 같으면 PowerPoint 가 표를 손상된 것으로 보고
+      // 글자 수정·크기 조절이 안 된다.
+      const usedIds = new Set(all(tbl, "http://schemas.microsoft.com/office/drawing/2014/main", "rowId").map((e) => e.getAttribute("val")));
+      const newRowId = () => {
+        let v;
+        do v = String(Math.floor(Math.random() * 4294967295)); while (usedIds.has(v));
+        usedIds.add(v);
+        return v;
+      };
       for (let no = 1; no <= Math.max(totalRows, ...byNo.keys()); no++) {
         const it = byNo.get(no);
         const tr = proto.cloneNode(true);
+        for (const rid of all(tr, "http://schemas.microsoft.com/office/drawing/2014/main", "rowId")) rid.setAttribute("val", newRowId());
         const tcs = kids(tr, A, "tc");
         setCell(tcs[0], String(no));
         if (!it) {
@@ -240,6 +250,18 @@
         setCell(tcs[6], it.region || "-");
         setCell(tcs[7], it.focus || "-");
         tbl.appendChild(tr);
+      }
+      // 칸 수(8·10·12개 …)와 상관없이 표 아래 끝선이 템플릿 표와 같은 위치에 오도록
+      // 표 틀 높이에서 머리글 행을 뺀 만큼을 데이터 행에 똑같이 나눈다
+      let frame = tbl.parentNode;
+      while (frame && frame.localName !== "graphicFrame") frame = frame.parentNode;
+      const ext = frame && all(frame, A, "ext").find((e) => e.parentNode.localName === "xfrm");
+      const rowsNow = kids(tbl, A, "tr");
+      if (ext && rowsNow.length > 1) {
+        const frameH = Number(ext.getAttribute("cy"));
+        const headH = Number(rowsNow[0].getAttribute("h"));
+        const each = Math.floor((frameH - headH) / (rowsNow.length - 1));
+        if (each > 0) rowsNow.slice(1).forEach((tr) => tr.setAttribute("h", String(each)));
       }
       files.set(path, ser(d));
     }

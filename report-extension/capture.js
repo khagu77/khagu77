@@ -292,12 +292,23 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
   }
   if (!commentCount) commentCount = String(doc.querySelectorAll(SEL.commentItem.join(",")).length);
 
+  // 첨부 사진과 영상(플레이어 화면)을 글에 나온 순서대로
   const images = [];
-  for (const img of body.querySelectorAll("img")) {
+  const VIDEO_SEL = ".se-component.se-video, .se-component.se-oembed, .se-module-video, video";
+  const media = [...body.querySelectorAll(`img, ${VIDEO_SEL}`)].filter((el) => {
+    if (el.closest("[data-rpt-boiler]")) return false;
+    if (el.tagName === "IMG") return !el.closest(`.se-sticker, .se-oglink, .se-map, ${VIDEO_SEL}`);
+    return !el.parentElement.closest(VIDEO_SEL); // 영상은 가장 바깥 영상 칸 하나만
+  });
+  for (const img of media) {
     if (images.length >= maxImages) break;
-    if (img.closest("[data-rpt-boiler]")) continue;
-    if (img.closest(".se-sticker, .se-oglink, .se-video, .se-map")) continue;
     const r = img.getBoundingClientRect();
+    if (img.tagName !== "IMG") {
+      if (r.width < 80 || r.height < 60) continue;
+      img.setAttribute("data-rpt", `image${images.length}`);
+      images.push({ index: images.length, width: r.width, height: r.height, src: "", video: true });
+      continue;
+    }
     if (r.width < 80 || r.height < 60 || img.naturalWidth < 80) continue;
     img.setAttribute("data-rpt", `image${images.length}`);
     // 원본 주소: 늦게 불러오기 전 흐린 미리보기(type=w80_blur 등) 대신 큰 이미지로

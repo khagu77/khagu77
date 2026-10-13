@@ -31,37 +31,45 @@
     return { w, h: (w * item.cssHeight) / item.cssWidth };
   };
 
-  // 오른쪽 이미지 격자: 칸 수를 바꿔 가며 그림이 가장 크게 들어가는 배치를 고른다
-  function layoutImages(images, top) {
+  // 오른쪽 이미지 영역: 가로로 긴 그림은 모두 같은 폭(영역 전체 폭)으로 한 줄씩,
+  // 세로로 긴 그림은 같은 폭으로 두 개씩 나란히. 넘치면 전체를 같은 비율로 줄인다 (폭이 그림마다 들쭉날쭉하지 않게).
+  function layoutImagesUniform(images, top) {
     const areaW = G.xImgR - G.xImg;
     const areaH = G.yBottom - top;
-    let best = null;
-    for (let cols = 1; cols <= Math.min(3, images.length); cols++) {
-      const rows = Math.ceil(images.length / cols);
-      const cellW = (areaW - (cols - 1) * IMG_GAP) / cols;
-      const cellH = (areaH - (rows - 1) * IMG_GAP) / rows;
-      const boxes = images.map((im, i) => {
-        const s = Math.min(cellW / im.cssWidth, cellH / im.cssHeight);
-        return { i, w: im.cssWidth * s, h: im.cssHeight * s, col: i % cols, row: Math.floor(i / cols) };
-      });
-      const area = boxes.reduce((s, b) => s + b.w * b.h, 0);
-      if (!best || area > best.area) best = { area, boxes, cols, cellW };
+    const rows = [];
+    for (let i = 0; i < images.length; i++) {
+      const im = images[i];
+      const portrait = im.cssHeight > im.cssWidth;
+      const nxt = images[i + 1];
+      if (portrait && nxt && nxt.cssHeight > nxt.cssWidth) {
+        rows.push([i, i + 1]);
+        i++;
+      } else rows.push([i]);
     }
-    // 줄마다 그 줄의 가장 큰 그림 높이만큼만 쓰고 위로 붙인다
-    const out = [];
-    let y = top;
-    const rows = Math.ceil(images.length / best.cols);
-    for (let r = 0; r < rows; r++) {
-      const row = best.boxes.filter((b) => b.row === r);
-      const rowW = row.reduce((s, b) => s + b.w, 0) + (row.length - 1) * IMG_GAP;
-      let x = G.xImg + (areaW - rowW) / 2;
-      for (const b of row) {
-        out.push({ i: b.i, x, y, w: b.w, h: b.h });
-        x += b.w + IMG_GAP;
+    const place = (s) => {
+      const out = [];
+      let y = top;
+      for (const row of rows) {
+        const w = row.length === 2 || images[row[0]].cssHeight > images[row[0]].cssWidth ? ((areaW - IMG_GAP) / 2) * s : areaW * s;
+        const hs = row.map((i) => (w * images[i].cssHeight) / images[i].cssWidth);
+        const rowW = row.length * w + (row.length - 1) * IMG_GAP;
+        let x = G.xImg + (areaW - rowW) / 2;
+        row.forEach((i, k) => {
+          out.push({ i, x, y, w, h: hs[k] });
+          x += w + IMG_GAP;
+        });
+        y += Math.max(...hs) + IMG_GAP;
       }
-      y += Math.max(...row.map((b) => b.h)) + IMG_GAP;
+      return { placed: out, height: y - IMG_GAP - top };
+    };
+    let s = 1;
+    let res = place(s);
+    if (res.height > areaH) {
+      s = areaH / res.height; // 대략 맞추고
+      for (let k = 0; k < 20 && place(s).height > areaH; k++) s *= 0.97; // 틈 때문에 넘치면 조금씩 더 줄임
+      res = place(s);
     }
-    return { placed: out, area: best.area };
+    return { ...res, scale: s };
   }
 
   // visuals: { header, body, comments: [], images: [] } (각각 ImageProc 결과 또는 null)
@@ -115,9 +123,9 @@
 
     const images = visuals.images || [];
     if (images.length) {
-      const normal = layoutImages(images, G.yImg);
-      const tall = layoutImages(images, G.yTop);
-      const use = tall.area > normal.area * 1.3 ? tall : normal; // 크거나 많으면 위로 확장
+      const normal = layoutImagesUniform(images, G.yImg);
+      const tall = layoutImagesUniform(images, G.yTop);
+      const use = normal.scale >= 0.999 ? normal : tall.scale > normal.scale * 1.1 ? tall : normal; // 크거나 많으면 위로 확장
       for (const p of use.placed) placements.push({ kind: "image", item: images[p.i], x: p.x, y: p.y, w: p.w, h: p.h });
     }
     return { placements, scale: chosen.scale, dropped: comments.length - chosen.cs.length };
