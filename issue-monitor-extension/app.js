@@ -336,6 +336,7 @@ function renderResults() {
   $("#resultCount").textContent = `${state.rows.length}건 · 보고 필요 ${state.rows.filter((r) => r.report).length}건`;
   updateSelection();
   $("#download").disabled = !state.rows.length && !state.range;
+  $("#downloadPlain").disabled = $("#download").disabled;
 }
 
 const serializeRows = (rows) => rows.map(({ selected, ...r }) => ({ ...r, date: r.date ? r.date.getTime() : null }));
@@ -569,10 +570,15 @@ function idbHandles(mode, fn) {
 const getSaveDir = () => idbHandles("readonly", (st) => st.get("saveDir")).catch(() => null);
 const setSaveDir = (h) => idbHandles("readwrite", (st) => (h ? st.put(h, "saveDir") : st.delete("saveDir")));
 
+// 맥 권한 창 등에서 멈춰도 엑셀을 못 받는 일이 없게 시간 제한을 둔다
+function withTimeout(promise, ms, what) {
+  return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error(`${what} 응답 없음 (${ms / 1000}초)`)), ms))]);
+}
+
 async function saveDirPermission(dir, ask) {
   const opts = { mode: "readwrite" };
-  let p = await dir.queryPermission(opts);
-  if (p !== "granted" && ask) p = await dir.requestPermission(opts).catch(() => "denied");
+  let p = await withTimeout(dir.queryPermission(opts), 5000, "권한 확인");
+  if (p !== "granted" && ask) p = await withTimeout(dir.requestPermission(opts), 30000, "권한 허용").catch(() => "denied");
   return p === "granted";
 }
 
@@ -593,6 +599,7 @@ async function uniqueFileName(dir, name) {
 
 async function renderSaveDir() {
   const dir = await getSaveDir();
+  $("#downloadPlain").hidden = !dir;
   $("#clearSaveDir").hidden = !dir;
   if (!dir) {
     $("#grantSaveDir").hidden = true;
@@ -627,8 +634,8 @@ $("#clearSaveDir").addEventListener("click", async () => {
 });
 
 // 저장한 곳을 돌려준다 (기록용). interactive=true 면(버튼 클릭) 권한이 없을 때 허용을 묻는다.
-async function downloadReport(rows = state.rows, range = state.range, interactive = true) {
-  const dir = await getSaveDir();
+async function downloadReport(rows = state.rows, range = state.range, interactive = true, plain = false) {
+  const dir = plain ? null : await withTimeout(getSaveDir(), 5000, "저장 폴더 읽기").catch(() => null);
   if (dir) {
     let ok = false;
     try {
@@ -641,10 +648,16 @@ async function downloadReport(rows = state.rows, range = state.range, interactiv
       for (const ascii of [false, true]) {
         try {
           const name = await uniqueFileName(dir, reportFilename(range, ascii));
-          const fh = await dir.getFileHandle(name, { create: true });
-          const w = await fh.createWritable();
-          await w.write(bytes);
-          await w.close();
+          await withTimeout(
+            (async () => {
+              const fh = await dir.getFileHandle(name, { create: true });
+              const w = await fh.createWritable();
+              await w.write(bytes);
+              await w.close();
+            })(),
+            20000,
+            "폴더 저장"
+          );
           return `'${dir.name}' 폴더 (${name})`;
         } catch (e) {
           lastErr = e;
@@ -670,11 +683,20 @@ async function downloadReport(rows = state.rows, range = state.range, interactiv
   }
   return "다운로드 폴더";
 }
-$("#download").addEventListener("click", () =>
-  downloadReport(state.rows, state.range)
-    .then((where) => log(`엑셀을 ${where}에 저장했습니다`))
-    .catch((e) => log(`엑셀 저장 실패: ${e.message}`, "err"))
-);
+function downloadClick(plain) {
+  setSummary("엑셀 저장 중…");
+  downloadReport(state.rows, state.range, true, plain)
+    .then((where) => {
+      log(`엑셀을 ${where}에 저장했습니다`);
+      setSummary(`엑셀을 ${where}에 저장했습니다 (${state.rows.length}건 · 보고 필요 ${state.rows.filter((r) => r.report).length}건)`);
+    })
+    .catch((e) => {
+      log(`엑셀 저장 실패: ${e.message}`, "err");
+      setSummary(`엑셀 저장 실패: ${e.message} → '다운로드 폴더로 받기'를 눌러 보세요`);
+    });
+}
+$("#download").addEventListener("click", () => downloadClick(false));
+$("#downloadPlain").addEventListener("click", () => downloadClick(true));
 
 // ---------------------------------------------------------------------------
 // 수집
