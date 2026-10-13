@@ -208,9 +208,11 @@
       const sstRel = Object.values(relMap).find((r) => r.type.endsWith("/sharedStrings"));
       this.sstPath = sstRel ? resolvePath("xl/workbook.xml", sstRel.target) : null;
       this.sst = [];
+      this.sstRaw = []; // 공유 문자열 원본 XML (글자에 직접 준 글꼴 등 서식을 따라 하기 위해)
       if (this.sstPath) {
         const sst = parseXml(await this.text(this.sstPath));
         for (const si of sst.getElementsByTagName("si")) this.sst.push(siText(si));
+        this.sstRaw = (await this.text(this.sstPath)).match(/<si\b[^>]*?(?:\/>|>[\s\S]*?<\/si>)/g) || [];
       }
     }
 
@@ -272,12 +274,27 @@
       // 서식 견본: 행 속성(높이 등)과 열별 셀 서식 번호
       let rowAttrs = "";
       const cellStyles = {};
+      const runProps = {}; // 열 → 견본 셀 글자에 직접 준 서식(<rPr>, 예: 셀 글꼴과 다른 글꼴)
+      const sameShared = {}; // 열 → 견본 셀의 공유 문자열 { idx, text } (같은 글자면 그대로 재사용)
       if (styleXml) {
         const open = styleXml.match(/^<row\b([^>]*?)\/?>/)[1];
         rowAttrs = open.replace(/\s*\br="\d+"/, "").replace(/\s*\bspans="[^"]*"/, "");
-        for (const c of styleXml.matchAll(/<c\b[^>]*\br="([A-Z]+)\d+"[^>]*>/g)) {
-          const s = c[0].match(/\bs="(\d+)"/);
-          if (s) cellStyles[c[1]] = s[1];
+        for (const c of styleXml.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+          const col = (c[1].match(/\br="([A-Z]+)\d+"/) || [])[1];
+          if (!col) continue;
+          const s = c[1].match(/\bs="(\d+)"/);
+          if (s) cellStyles[col] = s[1];
+          const t = (c[1].match(/\bt="([^"]*)"/) || [])[1];
+          let raw = "";
+          if (t === "s") {
+            const idx = Number((c[2] || "").match(/<v>(\d+)<\/v>/)?.[1]);
+            if (Number.isFinite(idx)) {
+              raw = this.sstRaw[idx] || "";
+              sameShared[col] = { idx, text: this.sst[idx] };
+            }
+          } else if (t === "inlineStr") raw = c[2] || "";
+          const rPr = raw.match(/<r>\s*<rPr>([\s\S]*?)<\/rPr>/);
+          if (rPr) runProps[col] = rPr[1];
         }
       }
 
@@ -294,6 +311,9 @@
           }
           maxCol = Math.max(maxCol, ci + 1);
           if (typeof v === "number" && isFinite(v)) cells += `<c r="${col}${r}"${s}><v>${v}</v></c>`;
+          else if (sameShared[col] && sameShared[col].text === String(v)) cells += `<c r="${col}${r}"${s} t="s"><v>${sameShared[col].idx}</v></c>`;
+          else if (runProps[col])
+            cells += `<c r="${col}${r}"${s} t="inlineStr"><is><r><rPr>${runProps[col]}</rPr><t xml:space="preserve">${esc(v)}</t></r></is></c>`;
           else cells += `<c r="${col}${r}"${s} t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
         });
         return `<row r="${r}"${rowAttrs ? " " + rowAttrs.trim() : ""}>${cells}</row>`;

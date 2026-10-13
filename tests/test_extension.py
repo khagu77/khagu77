@@ -112,6 +112,12 @@ def make_template(path: Path):
     cafe.cell(row=2, column=5).hyperlink = "https://cafe.naver.com/old/1"
     for c in range(1, 6):
         cafe.cell(row=3, column=c).font = Font(name="맑은 고딕", size=10)
+    # 사용자 파일처럼: '채널' 칸의 셀 글꼴은 Helvetica Neue 인데 '동호회' 글자에만 현대산스 글꼴을 직접 줌
+    from openpyxl.cell.rich_text import CellRichText, TextBlock
+    from openpyxl.cell.text import InlineFont
+
+    cafe.cell(row=3, column=2).font = Font(name="Helvetica Neue", size=10)
+    cafe.cell(row=3, column=2).value = CellRichText(TextBlock(InlineFont(rFont="현대산스 Text Medium", sz=10), "동호회"))
     cafe.cell(row=3, column=4).alignment = Alignment(wrap_text=True)
     cafe.row_dimensions[3].height = 20
     cafe.freeze_panes = "A2"
@@ -278,6 +284,10 @@ def test_continue_template(tmp_path: Path):
     assert [(r[3], r[4]) for r in cafe[6:]] == [
         ("답글", "https://cafe.naver.com/mycafe/789"), ("둘째 페이지", "https://cafe.naver.com/mycafe/789")]
     assert cafe_ws.cell(row=4, column=1).font.name == "맑은 고딕"  # 마지막 행 서식 따라감
+    rich = load_workbook(path, rich_text=True)["동호회"]
+    for r in range(4, 8):  # 새 행의 '동호회' 글자도 마지막 행처럼 현대산스 글꼴
+        v = rich.cell(row=r, column=2).value
+        assert str(v) == "동호회" and v[0].font.rFont == "현대산스 Text Medium", (r, v)
     assert cafe_ws.cell(row=4, column=4).alignment.wrap_text
     assert cafe_ws.row_dimensions[4].height == 20
     assert cafe_ws.cell(row=2, column=5).hyperlink.target == "https://cafe.naver.com/old/1"
