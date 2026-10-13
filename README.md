@@ -218,7 +218,7 @@ CHROMIUM_PATH=/path/to/chromium python -m pytest tests
 3. `transcribe.bat` 을 더블클릭합니다. 처음 한 번은 음성인식 모델(약 1.5GB)을 내려받느라 몇 분 더 걸립니다.
 4. `subtitles` 폴더에 영상마다 두 파일이 생깁니다.
    - `.srt` — 시간 정보가 있는 자막 파일 (영상 플레이어·유튜브 스튜디오에 올릴 수 있음)
-   - `.txt` — `00:00 스크립트 내용` 형식의 스크립트
+   - `.txt` — `[00:00] 스크립트 내용` 형식의 스크립트
 
 - 그래픽카드가 없는 PC에서는 영상 길이와 비슷하거나 더 걸립니다. 빠르게 하려면 `transcribe.bat --model small`, 더 정확하게 하려면 `transcribe.bat --model large-v3` 로 실행합니다.
 - 음성인식 결과라 고유명사·전문용어는 틀릴 수 있으니 한 번 훑어보고 고쳐 주세요.

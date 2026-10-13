@@ -33,12 +33,12 @@ const MODELS = {
   },
 };
 
-// 줄 → "00:00 내용", 챕터는 "챕터 N: 제목"
+// 줄 → "[00:00] 내용", 챕터는 "챕터 N: 제목"
 function scriptText(lines) {
   let ch = 0;
   return lines
     .map((l) => {
-      if (!l.chapter) return `${fmtTime(l.t)} ${l.text}`;
+      if (!l.chapter) return `[${fmtTime(l.t)}] ${l.text}`;
       ch++;
       return /^챕터\s*\d+/.test(l.text) ? l.text : `챕터 ${ch}: ${l.text}`;
     })

@@ -1,10 +1,10 @@
 """'YouTube 스크립트 및 영상 파일 추출' 확장 통합 테스트.
 
 www.youtube.com 을 로컬 HTTPS 서버로 돌려 가짜 영상 화면(소리 나는 짧은 영상)을 보여주고,
-- 스크립트 추출: 영상 소리를 받아 구간으로 잘라 음성인식에 넘기고 "00:00 내용" 줄로 저장하는지
+- 스크립트 추출: 영상 소리를 받아 구간으로 잘라 음성인식에 넘기고 "[00:00] 내용" 줄로 저장하는지
   (음성인식 모델은 내려받을 수 없으므로 작업자만 가짜로 바꿔 넣는다)
 - 화면 자막 인식: 화면 아래 한글 자막(움직이는 배경 위, 상자 모양, 영문 번역 줄 포함)을 읽어
-  한글 줄만 "00:00 자막" 줄로 저장하는지
+  한글 줄만 "[00:00] 자막" 줄로 저장하는지
 - 영상 파일 다운로드: "날짜_제목.mp4" 파일이 화면·소리를 담아 저장되는지
 를 확인한다. 확장 로딩에는 일반 Chromium 이 필요하므로 CHROMIUM_PATH 가 없으면 건너뛴다.
 """
@@ -275,9 +275,9 @@ def test_script(tmp_path: Path):
     lines = raw.decode("utf-8-sig").strip().split("\r\n")
     assert lines == output.split("\n"), status
     assert len(lines) == 2, lines
-    assert lines[0].startswith("00:00 구간1 길이2") and lines[0].endswith("소리있음")
+    assert lines[0].startswith("[00:00] 구간1 길이2") and lines[0].endswith("소리있음")
     t2 = lines[1].split(" ")[0]
-    assert t2 in ("00:21", "00:22", "00:23"), lines  # 무음 구간에서 잘림
+    assert t2 in ("[00:21]", "[00:22]", "[00:23]"), lines  # 무음 구간에서 잘림
     assert lines[1].endswith("소리있음")
 
 
@@ -504,11 +504,11 @@ def test_youtube_transcript(tmp_path: Path):
     assert [n for n, _ in row_files] == [f"{base}.txt", f"{base}_원본.txt"], row_files
     fixed0, original = read(row_files[0][1]), read(row_files[1][1])
     # 교정본: 겹친 공백·줄바꿈 정리, 됬→됐, 할수있다→할 수 있다 / 원본: 패널 글자 그대로
-    fixed = ["00:00 안녕하세요 여러분", "00:05 오늘은 팰리세이드 시승기입니다",
-             "00:09 이렇게 됐어요 할 수 있다", "1:02:03 끝까지 봐주셔서 감사합니다"]
+    fixed = ["[00:00] 안녕하세요 여러분", "[00:05] 오늘은 팰리세이드 시승기입니다",
+             "[00:09] 이렇게 됐어요 할 수 있다", "[1:02:03] 끝까지 봐주셔서 감사합니다"]
     # 1번 영상은 챕터가 있어 "챕터 N: 제목" 줄이 들어간다
     assert fixed0 == ["챕터 1: 오프닝", *fixed[:3], "챕터 2: 마무리", fixed[3]], fixed0
-    assert original[3] == "00:09 이렇게 됬어요 할수있다", original
+    assert original[3] == "[00:09] 이렇게 됬어요 할수있다", original
     assert output.split("\n") == fixed0  # 화면 출력칸도 교정본
 
     assert all_name == f"{date.today():%Y%m%d}_유튜브스크립트_6개.txt"
@@ -524,10 +524,10 @@ def test_youtube_transcript(tmp_path: Path):
     assert blocks[0].split("\n")[4:] == fixed0
     # 새 스크립트 화면: 줄 앞의 읽어주기용 시간 글자('9초', '1시간 2분 3초')는 빠진다
     assert blocks[1].split("\n")[4:] == fixed, blocks[1]
-    assert blocks[3].split("\n")[4:] == ["00:00 자막 데이터로 받았어요", "01:05 두 번째 줄 할 수 있다"], blocks[3]
+    assert blocks[3].split("\n")[4:] == ["[00:00] 자막 데이터로 받았어요", "[01:05] 두 번째 줄 할 수 있다"], blocks[3]
     assert blocks[4].split("\n")[4:] == fixed, blocks[4]
     assert blocks[5].split("\n")[4:] == [
-        "00:00 모바일 앱 방식으로 '받았어요'", "01:02 며칠 걸렸어요"], blocks[5]
+        "[00:00] 모바일 앱 방식으로 '받았어요'", "[01:02] 며칠 걸렸어요"], blocks[5]
     assert "안녕하세요 반갑습니다" in blocks[2] and "오늘은 날씨가 좋습니다" in blocks[2], blocks[2]
 
     # 엑셀: 첨부 양식('스크립트 입력' 시트, A: URL / B: 스크립트) 그대로, 영상마다 한 줄
@@ -613,8 +613,8 @@ def test_ai_correction(tmp_path: Path):
     server.shutdown()
 
     # AI 결과가 그대로 반영 (시간·챕터 줄 구성은 유지)
-    assert output == ["챕터 1: AI:오프닝", "00:00 AI:안녕하세요 여러분", "00:05 AI:오늘은 팰리세이드 시승기입니다",
-                      "00:09 AI:이렇게 됐어요 할 수 있다", "챕터 2: AI:마무리", "1:02:03 AI:끝까지 봐주셔서 감사합니다"], output
+    assert output == ["챕터 1: AI:오프닝", "[00:00] AI:안녕하세요 여러분", "[00:05] AI:오늘은 팰리세이드 시승기입니다",
+                      "[00:09] AI:이렇게 됐어요 할 수 있다", "챕터 2: AI:마무리", "[1:02:03] AI:끝까지 봐주셔서 감사합니다"], output
     req = calls[0]
     assert req["headers"]["x-api-key"] == "sk-ant-test-key"
     assert "server-side-fallback-2026-07-01" in req["headers"].get("anthropic-beta", "")
@@ -627,7 +627,7 @@ def test_ai_correction(tmp_path: Path):
     sent = json.loads(body["messages"][0]["content"].split("\n\n", 1)[1])["lines"]
     assert "이렇게 됐어요 할 수 있다" in sent  # 기본 규칙 교정본을 AI 에 보낸다
     assert "API 키가 올바르지 않습니다" in failed_status and "기본 교정본 사용" in failed_status, failed_status
-    assert "00:09 이렇게 됐어요 할 수 있다" in failed_output and not any("AI:" in l for l in failed_output)
+    assert "[00:09] 이렇게 됐어요 할 수 있다" in failed_output and not any("AI:" in l for l in failed_output)
 
 
 def make_review_xlsx(path: Path):
@@ -749,13 +749,13 @@ def test_screen_captions(tmp_path: Path):
     print("\n".join(lines))
     assert len(lines) == 4, lines  # 같은 자막을 여러 번 적지 않고, 자막 없는 구간은 비운다
     assert lines == [
-        f"{lines[0][:5]} 안녕하세요 반갑습니다",
-        f"{lines[1][:5]} 오늘은 날씨가 좋습니다",
-        f"{lines[2][:5]} 상자 모양 자막도 읽습니다",
-        f"{lines[3][:5]} 실내도 승차감도 좋아졌습니다",
+        f"{lines[0][:7]} 안녕하세요 반갑습니다",
+        f"{lines[1][:7]} 오늘은 날씨가 좋습니다",
+        f"{lines[2][:7]} 상자 모양 자막도 읽습니다",
+        f"{lines[3][:7]} 실내도 승차감도 좋아졌습니다",
     ], lines
     for line, times in zip(lines, [("00:00", "00:01"), ("00:07", "00:08"), ("00:11", "00:12"), ("00:16", "00:17")]):
-        assert line[:5] in times, lines
+        assert line[:7] in [f"[{t}]" for t in times], lines
     # 하단 가운데 자막이 아닌 글자(댓글 캡처, 옆 효과 글자, 위쪽 글자)와 영문 번역 줄은 옮기지 않는다
     for decoy in ("댓글", "인용", "깜짝", "효과", "문구", "weather", "ride", "soft"):
         assert decoy not in "\n".join(lines), lines
