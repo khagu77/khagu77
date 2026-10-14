@@ -18,12 +18,13 @@ async function openApp(auto) {
   const url = auto ? `${APP_URL}?auto=1` : APP_URL;
   const tabs = await appTabs();
   if (!auto && tabs.length) {
-    await chrome.tabs.update(tabs[0].id, { active: true });
-    await chrome.windows.update(tabs[0].windowId, { focused: true });
+    const t = tabs.find((x) => x.url.includes("auto=1")) || tabs[0]; // 자동 수집 탭이 있으면 그쪽으로
+    await chrome.tabs.update(t.id, { active: true });
+    await chrome.windows.update(t.windowId, { focused: true });
     return;
   }
   if (auto && tabs.some((t) => t.url.includes("auto=1"))) return; // 이미 자동 수집 중
-  await chrome.tabs.create({ url, active: false });
+  await chrome.tabs.create({ url, active: !auto });
 }
 
 chrome.action.onClicked.addListener(() => openApp(false));

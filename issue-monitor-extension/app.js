@@ -47,12 +47,19 @@ function log(msg, cls = "") {
 // - 진행 신호(heartbeat)를 남겨, 백그라운드가 오래 멈춘 걸 보면 이 탭을 앞으로 가져와 깨운다
 // ---------------------------------------------------------------------------
 let lastBeat = 0;
+const RUN_OWNER = `${Date.now()}-${Math.random().toString(36).slice(2)}`; // 이 탭의 수집 표시
 function heartbeat(msg) {
   if (!state || !state.running) return;
   const now = Date.now();
   if (now - lastBeat < 15000) return;
   lastBeat = now;
-  chrome.storage.local.set({ runHeartbeat: { at: now, msg: String(msg || "").slice(0, 120) } }).catch(() => {});
+  chrome.storage.local.set({ runHeartbeat: { at: now, owner: RUN_OWNER, msg: String(msg || "").slice(0, 120) } }).catch(() => {});
+}
+
+// 다른 탭에서 수집 중인지 (진행 신호가 10분 안에 있었으면 수집 중으로 본다)
+async function otherRunActive() {
+  const { runHeartbeat: hb } = await chrome.storage.local.get("runHeartbeat");
+  return hb && hb.owner && hb.owner !== RUN_OWNER && Date.now() - hb.at < 10 * 60 * 1000 ? hb : null;
 }
 
 async function runGuard(on) {
@@ -66,10 +73,12 @@ async function runGuard(on) {
   } catch {}
   lastBeat = 0;
   if (on) {
-    await chrome.storage.local.set({ runHeartbeat: { at: Date.now(), msg: "수집 시작" } }).catch(() => {});
+    await chrome.storage.local.set({ runHeartbeat: { at: Date.now(), owner: RUN_OWNER, msg: "수집 시작" } }).catch(() => {});
     chrome.runtime.sendMessage({ type: "runStarted" }).catch(() => {});
   } else {
-    await chrome.storage.local.remove("runHeartbeat").catch(() => {});
+    const { runHeartbeat: hb } = await chrome.storage.local.get("runHeartbeat").catch(() => ({}));
+    if (!hb || !hb.owner || hb.owner === RUN_OWNER) await chrome.storage.local.remove("runHeartbeat").catch(() => {});
+    document.title = state.stopRequested ? "⏹ 중지됨 - 부정 이슈 모니터링" : "✅ 수집 완료 - 부정 이슈 모니터링";
     chrome.runtime.sendMessage({ type: "runEnded" }).catch(() => {});
   }
 }
@@ -269,6 +278,18 @@ function updateSource(key, { listed, candidates, read, issues, status, error } =
     td[5].textContent = status;
     td[5].className = error ? "err" : "";
   }
+  showProgress(tr);
+}
+
+// 수집 중 진행 상황: 요약 줄과 탭 제목에 "몇 곳 중 몇 곳 끝" 을 보여 준다 (멈춘 것처럼 보이지 않게)
+function showProgress(current) {
+  if (!state.running) return;
+  const rows = [...sourceRows.values()];
+  const done = rows.filter((tr) => /^(완료|실패|건너뜀|중지)/.test(tr.children[5].textContent)).length;
+  const name = current ? current.children[0].textContent : "";
+  const st = current ? current.children[5].textContent : "";
+  setSummary(`수집 진행 중: ${rows.length}곳 중 ${done}곳 끝 · 지금 ${name} ${st} · 지금까지 부정 이슈 ${state.rows.length}건 (결과는 한 곳씩 끝날 때마다 늘어나고, 전체는 보통 20~40분 걸립니다)`);
+  document.title = `⏳ ${done}/${rows.length} 수집 중 - 부정 이슈 모니터링`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1099,6 +1120,14 @@ async function runCollection() {
     return;
   }
   const useAi = $("#useAi").checked && !!settings.apiKey;
+  // 두 탭에서 동시에 수집하면 네이버에 두 배로 접속하고 서로 방해하므로 막는다
+  const other = await otherRunActive();
+  if (other) {
+    const msg = `다른 탭에서 이미 수집 중입니다 (마지막 진행: ${fmtDateTime(new Date(other.at))} ${other.msg || ""}). 그 탭이 끝난 뒤 다시 시작해 주세요. 확장 아이콘을 누르면 수집 중인 탭으로 이동합니다.`;
+    setSummary(msg);
+    log(msg, "err");
+    return;
+  }
 
   state.running = true;
   state.stopRequested = false;
