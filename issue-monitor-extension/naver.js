@@ -80,6 +80,7 @@ class WorkerTab {
     if (tabId === null) {
       const tab = await chrome.tabs.create({ url: "about:blank", active: false });
       this.tabId = tabId = tab.id;
+      chrome.tabs.update(tabId, { autoDiscardable: false }).catch(() => {}); // 메모리 절약으로 버려지지 않게
       await sleep(500);
     }
     const loaded = waitForTabLoad(tabId);

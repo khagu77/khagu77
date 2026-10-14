@@ -4,9 +4,19 @@ importScripts("defaults.js");
 const APP_URL = chrome.runtime.getURL("app.html");
 const ALARM = "daily-collect";
 
+// 열려 있는 수집 화면 탭들 (tabs 권한 없이도 확장 자신의 화면은 getContexts 로 찾을 수 있다)
+async function appTabs() {
+  try {
+    const ctxs = await chrome.runtime.getContexts({ contextTypes: ["TAB"] });
+    return ctxs.filter((c) => c.tabId >= 0 && String(c.documentUrl || "").startsWith(APP_URL)).map((c) => ({ id: c.tabId, windowId: c.windowId, url: c.documentUrl }));
+  } catch {
+    return [];
+  }
+}
+
 async function openApp(auto) {
   const url = auto ? `${APP_URL}?auto=1` : APP_URL;
-  const tabs = await chrome.tabs.query({ url: `${APP_URL}*` });
+  const tabs = await appTabs();
   if (!auto && tabs.length) {
     await chrome.tabs.update(tabs[0].id, { active: true });
     await chrome.windows.update(tabs[0].windowId, { focused: true });
@@ -71,7 +81,31 @@ chrome.storage.onChanged.addListener((changes) => {
   if (changes.settings) schedule();
 });
 
+// 수집 감시: 진행 신호가 5분 넘게 없으면(크롬이 뒤쪽 탭을 얼렸거나 맥이 잠들었다 깬 경우) 수집 탭을 앞으로 가져와 깨운다
+const WATCHDOG = "run-watchdog";
+const STALL_MS = 5 * 60 * 1000;
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== WATCHDOG) return;
+  const { runHeartbeat, watchdogNudgedAt = 0 } = await chrome.storage.local.get(["runHeartbeat", "watchdogNudgedAt"]);
+  const tabs = await appTabs();
+  if (!runHeartbeat || !tabs.length) {
+    await chrome.alarms.clear(WATCHDOG);
+    return;
+  }
+  const now = Date.now();
+  if (now - runHeartbeat.at < STALL_MS || now - watchdogNudgedAt < STALL_MS) return;
+  await chrome.storage.local.set({ watchdogNudgedAt: now });
+  const tab = tabs.find((t) => t.url.includes("auto=1")) || tabs[0];
+  try {
+    await chrome.tabs.update(tab.id, { active: true });
+    await chrome.windows.update(tab.windowId, { focused: true, drawAttention: true });
+  } catch {}
+});
+
 chrome.runtime.onMessage.addListener((msg) => {
+  if (msg && msg.type === "runStarted") chrome.alarms.create(WATCHDOG, { periodInMinutes: 1 });
+  if (msg && msg.type === "runEnded") chrome.alarms.clear(WATCHDOG);
   if (msg && msg.type === "autoRunDone") {
     chrome.notifications.create({
       type: "basic",
@@ -81,7 +115,7 @@ chrome.runtime.onMessage.addListener((msg) => {
         ? `${msg.count}건 수집 (${msg.holiday}) → 다음 근무일 아침 보고서에 합쳐집니다.`
         : msg.blocked
           ? `${msg.count}건 저장 (주의: ${msg.blocked})`
-          : `${msg.count}건을 엑셀로 다운로드 폴더에 저장했습니다.`,
+          : `${msg.count}건을 엑셀로 저장했습니다.`,
     });
   }
 });

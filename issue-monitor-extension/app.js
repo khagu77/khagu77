@@ -37,6 +37,41 @@ function log(msg, cls = "") {
   pre.append(cls === "err" ? el("span", { class: "err", text: line + "\n" }) : line + "\n");
   pre.scrollTop = pre.scrollHeight;
   console.log(line);
+  heartbeat(msg);
+}
+
+// ---------------------------------------------------------------------------
+// 수집 중 안전장치
+// - 맥이 잠자기로 들어가지 않게 (화면은 꺼져도 됨)
+// - 크롬이 이 탭을 메모리 절약으로 버리지 않게
+// - 진행 신호(heartbeat)를 남겨, 백그라운드가 오래 멈춘 걸 보면 이 탭을 앞으로 가져와 깨운다
+// ---------------------------------------------------------------------------
+let lastBeat = 0;
+function heartbeat(msg) {
+  if (!state || !state.running) return;
+  const now = Date.now();
+  if (now - lastBeat < 15000) return;
+  lastBeat = now;
+  chrome.storage.local.set({ runHeartbeat: { at: now, msg: String(msg || "").slice(0, 120) } }).catch(() => {});
+}
+
+async function runGuard(on) {
+  try {
+    if (on) chrome.power && chrome.power.requestKeepAwake("system");
+    else chrome.power && chrome.power.releaseKeepAwake();
+  } catch {}
+  try {
+    const me = await chrome.tabs.getCurrent();
+    if (me) await chrome.tabs.update(me.id, { autoDiscardable: !on });
+  } catch {}
+  lastBeat = 0;
+  if (on) {
+    await chrome.storage.local.set({ runHeartbeat: { at: Date.now(), msg: "수집 시작" } }).catch(() => {});
+    chrome.runtime.sendMessage({ type: "runStarted" }).catch(() => {});
+  } else {
+    await chrome.storage.local.remove("runHeartbeat").catch(() => {});
+    chrome.runtime.sendMessage({ type: "runEnded" }).catch(() => {});
+  }
 }
 
 function setSummary(text) {
@@ -222,6 +257,7 @@ function initSourceTable(sources) {
 }
 
 function updateSource(key, { listed, candidates, read, issues, status, error } = {}) {
+  heartbeat(status);
   const tr = sourceRows.get(key);
   if (!tr) return;
   const td = tr.children;
@@ -1066,6 +1102,7 @@ async function runCollection() {
 
   state.running = true;
   state.stopRequested = false;
+  await runGuard(true);
   // 이어서 작성: 기존 행을 먼저 넣고(중복은 처음 것만), 이번 수집 결과를 뒤에 붙인다
   state.rows = [];
   state.seenKeys = new Set();
@@ -1219,6 +1256,7 @@ async function runCollection() {
   });
 
   state.running = false;
+  runGuard(false);
   $("#start").disabled = false;
   $("#stop").disabled = true;
   $("#download").disabled = false;
@@ -1253,6 +1291,7 @@ $("#start").addEventListener("click", () => {
   runCollection().catch((e) => {
     log(`오류: ${e.message}`, "err");
     state.running = false;
+    runGuard(false);
     $("#start").disabled = false;
     $("#stop").disabled = true;
   });
