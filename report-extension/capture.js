@@ -9,6 +9,7 @@ const CAPTURE_HEIGHT = 1000;
 const MAX_COMMENTS = 20; // 미리보기에서 고를 수 있도록 찍어 두는 댓글 수
 const MAX_IMAGES = 8; // 본문 첨부 이미지 최대 개수
 const LIST_LIMIT = 50; // 작성자 작성글 · 게시판 목록에서 읽는 글 제목 수
+const BODY_CHUNK = 3000; // 긴 본문은 이 높이(화면 px)씩 나눠 찍는다
 
 class CaptureError extends Error {}
 
@@ -89,7 +90,19 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     return { x: Math.max(0, x), y: Math.max(0, y), width: r.width + pad * 2, height: r.height + pad * 2 };
   }
 
+  const unhideAll = () => {
+    doc.querySelectorAll("[data-rpt-hide]").forEach((m) => {
+      m.style.visibility = m.dataset.rptHide === "-" ? "" : m.dataset.rptHide;
+      delete m.dataset.rptHide;
+    });
+    doc.querySelectorAll("[data-rpt-disp]").forEach((m) => {
+      m.style.display = m.dataset.rptDisp === "-" ? "" : m.dataset.rptDisp;
+      delete m.dataset.rptDisp;
+    });
+  };
+
   if (mode === "restore") {
+    unhideAll();
     for (const d of [document, doc]) d.getElementById("__rpt_style")?.remove();
     doc.querySelectorAll("[data-rpt-hide]").forEach((el) => {
       el.style.visibility = el.dataset.rptHide === "-" ? "" : el.dataset.rptHide;
@@ -113,19 +126,24 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     }
     const el = doc.querySelector(`[data-rpt="${target}"]`);
     if (!el) return null;
-    doc.querySelectorAll("[data-rpt-hide]").forEach((m) => {
-      m.style.visibility = m.dataset.rptHide === "-" ? "" : m.dataset.rptHide;
-      delete m.dataset.rptHide;
-    });
+    unhideAll();
+    // 자리까지 없애기 (본문: 사진·영상·안내 문구가 차지하던 높이도 없애 글자만 이어지게)
+    const remove = (m) => {
+      if (m.dataset.rptDisp == null) m.dataset.rptDisp = m.style.display || "-";
+      m.style.display = "none";
+    };
     const hide = (m) => {
       if (m.dataset.rptHide == null) m.dataset.rptHide = m.style.visibility || "-";
       m.style.visibility = "hidden";
     };
     if (target === "body") {
-      // 본문 글자만 찍기 위해 첨부 이미지·영상·스티커를 가린다 (빈 공간은 나중에 줄여 붙임)
-      el.querySelectorAll("img, video, iframe, canvas, .se-image, .se-sticker, .se-video, .se-oglink, .se-map, .se-file").forEach(hide);
-      // 카페 게시판 양식으로 자동으로 들어간 맨 위 안내 문구도 가린다 (작성자가 쓴 본문만)
-      el.querySelectorAll("[data-rpt-boiler]").forEach(hide);
+      // 본문 글자만 찍기 위해 첨부 사진·영상·스티커와 맨 위 카페 안내 문구를 자리까지 없앤다
+      // (가리기만 하면 사진이 많은 긴 글은 빈자리 때문에 캡처가 너무 길어짐)
+      el.querySelectorAll(
+        ".se-component.se-image, .se-component.se-video, .se-component.se-oembed, .se-component.se-sticker, .se-component.se-oglink, .se-component.se-map, .se-component.se-file",
+      ).forEach(remove);
+      el.querySelectorAll("img, video, iframe, canvas, .se-image, .se-sticker, .se-video, .se-oglink, .se-map, .se-file").forEach(remove);
+      el.querySelectorAll("[data-rpt-boiler]").forEach(remove);
     } else if (target.startsWith("comment")) {
       // 댓글: 작성자 아이콘·하트·… 버튼은 그대로 두고 이모티콘(스티커)만 가린다 → 빈 자리는 줄여 붙여 작성일시가 글 바로 밑에 붙음
       el.querySelectorAll("[class*='sticker' i]").forEach(hide);
@@ -142,8 +160,8 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     await new Promise((r) => setTimeout(r, 300));
     // 본문은 여유 없이(바로 아래 영역이 섞이지 않게), 나머지는 2px 여유
     const rect = toPage(el, target === "body" ? 0 : 2);
-    // 아주 긴 본문은 캡처 크기 한계를 넘지 않게 위쪽 일부만 (슬라이드에도 다 들어가지 않음)
-    if (rect && target === "body") rect.height = Math.min(rect.height, 6000);
+    // 아주 긴 본문은 여러 번 나눠 찍어 이어 붙인다 (captureBody). 이어 붙인 그림 크기 한계 때문에 최대 16000px
+    if (rect && target === "body") rect.height = Math.min(rect.height, 16000);
     return rect;
   }
 
@@ -759,7 +777,16 @@ async function captureCafePost(url, onStep = () => {}) {
     // 본문 사진은 원본 파일을 직접 받는다 (선명하고 여백·비율 왜곡 없음). 못 받으면 화면 캡처로 대신.
     for (const im of info.images) out.images.push((await fetchImage(im.src)) || (await take(`image${im.index}`)));
     for (const c of info.comments) out.comments.push(await take(`comment${c.index}`));
-    out.body = await take("body"); // 마지막: 본문 이미지를 가린 상태로 찍음
+    // 마지막: 본문 이미지를 없앤 상태로 찍음. 길면 여러 장으로 나눠 찍어 [Blob, Blob, …] (앱에서 이어 붙임)
+    {
+      const rect = await withTimeout(probe(tabId, "rect", "body"), 20000).catch(() => null);
+      if (rect && rect.height > BODY_CHUNK) {
+        out.body = [];
+        for (let y0 = 0; y0 < rect.height; y0 += BODY_CHUNK) {
+          out.body.push(await shot(tabId, { ...rect, y: rect.y + y0, height: Math.min(BODY_CHUNK, rect.height - y0) }));
+        }
+      } else out.body = await shot(tabId, rect);
+    }
     await probe(tabId, "restore").catch(() => {});
 
     // 지역(작성자의 다른 글)·중복(같은 게시판 최근 글) 판단용 목록. 사람처럼 잠깐씩 쉬며 같은 창에서 연다.

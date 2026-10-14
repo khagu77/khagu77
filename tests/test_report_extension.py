@@ -105,6 +105,19 @@ li.CommentItem{{list-style:none;padding:8px 0;border-bottom:1px solid #eee}}
 {comment_li("회원4", "ㅋㅋ", extra=f'<div class="CommentItem__sticker"><img src="{STICKER}" width="80" height="80"></div>')}
 </ul></div></div></div></body></html>"""
 
+# 아주 긴 글: 짧은 줄 120개 + 사이사이 큰 사진. 마지막 줄은 빨간 글씨 — 끝까지 캡처되어야 PPT 에 빨간 글자가 있음
+LONG_HTML = ("<html><head><meta charset='utf-8'><style>body{margin:0;font:16px/1.6 sans-serif;color:#222}"
+             ".se-main-container p{margin:0} .se-image img{width:700px;height:500px;display:block}</style></head><body>"
+             "<div class='article_header' style='width:860px;margin:20px auto'><h3 class='title_text'>아주 긴 수리 후기</h3>"
+             "<div class='article_info'>2026.10.13. 10:01 조회 1,032</div></div>"
+             "<div class='se-main-container' style='width:860px;margin:0 auto'>"
+             + "".join(
+                 f"<div class='se-component se-text'><p>{i}번째 줄 하이테크센터 수리 이야기</p></div>"
+                 + (f"<div class='se-component se-image'><img src='{PHOTO}'></div>" if i % 20 == 10 else "")
+                 for i in range(1, 120))
+             + "<div class='se-component se-text'><p style='color:#ff0000;font-weight:bold'>마지막 줄입니다 끝</p></div>"
+             "</div></body></html>")
+
 DELETED_HTML = ("<html><body><script>alert('삭제되었거나 존재하지 않는 게시글입니다.');</script>"
                 "<p>삭제되었거나 존재하지 않는 게시글입니다.</p></body></html>")
 
@@ -263,6 +276,8 @@ def start_fake_cafe(tmp_path: Path):
             elif self.path == "/ca-fe/cafes/1/articles/100":  # 작성자의 출고 인증 글
                 body = ('<html><body><div class="se-main-container"><p>드디어 ST1 카고 <b>EV 롱레인지</b> 출고했습니다.</p>'
                         "</div></body></html>").encode()
+            elif "/longcafe/" in self.path:
+                body = LONG_HTML.encode()
             elif self.path == "/deleted1":
                 body = DELETED_HTML.encode()
             elif "/framecafe/" in self.path:
@@ -754,3 +769,56 @@ def test_long_body_two_columns(tmp_path):
     assert max(left["y"] + left["h"], right["y"] + right["h"]) <= top_comment
     # 빈 줄은 없애되 줄 간격은 글자 높이의 절반 정도로 자연스럽게 (줄당 약 20~30px)
     assert 18 <= res["lineStep"] <= 32, res["lineStep"]
+
+
+def test_long_post_captured_to_the_end(tmp_path):
+    """사진이 많은 아주 긴 글도 본문을 끝까지 캡처하고(마지막 빨간 줄이 PPT 에 있음), 여러 단으로 안내선 안에 놓는다."""
+    from pptx import Presentation
+    from PIL import Image
+    import io
+
+    template = tmp_path / "template.pptx"
+    excel = tmp_path / "issues.xlsx"
+    make_template(template)
+    make_excel(excel, [["전기차 동호회", "JW", "2026-10-13", "품질", "https://cafe.naver.com/longcafe/1", "수리 후기", "+"]])
+    out, _, _ = run_report(tmp_path, template, excel, tmp_path, ai_key="")
+    d1 = list(Presentation(out).slides)[3]
+    cm = 360000
+    bodies = [p for p in d1.shapes if p.shape_type == 13 and 4.5 * cm < p.left < 18.7 * cm and p.top > 6.5 * cm]
+    assert len(bodies) >= 2, [(p.left / cm, p.top / cm) for p in d1.shapes if p.shape_type == 13]
+    for p in bodies:
+        assert p.left + p.width <= 18.66 * cm + 10 and p.top + p.height <= 17.13 * cm + 10
+    red = lambda pic: any(r > 200 and g < 80 and b < 80 for r, g, b in Image.open(io.BytesIO(pic.image.blob)).convert("RGB").getdata())
+    assert any(red(p) for p in bodies), "마지막 줄까지 캡처되지 않음"
+
+
+def test_media_only_post_layout(tmp_path):
+    """본문 글이 없는 글: 가로 영상·사진은 본문 자리(4.56cm~, 제목 아래)에 같은 폭으로, 세로 사진은 오른쪽 영역."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile_m"), executable_path=CHROMIUM, headless=True,
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}"])
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        page = ctx.new_page()
+        page.goto(f"chrome-extension://{sw.url.split('/')[2]}/app.html")
+        res = page.evaluate("""() => {
+            const it = (w, h) => ({ canvas: new OffscreenCanvas(w, h), cuts: [h], cssWidth: w, cssHeight: h, dpr: 1 });
+            const header = it(860, 120), comment = it(860, 60);
+            const { placements } = Layout.layout({ header, body: null, comments: [comment, comment],
+              images: [it(800, 450), it(800, 450), it(400, 700)] });
+            return placements.map(p => ({ kind: p.kind, x: p.x, y: p.y, w: p.w, h: p.h, tall: p.item.cssHeight > p.item.cssWidth }));
+        }""")
+        ctx.close()
+    cm = 360000
+    wide = [p for p in res if p["kind"] == "image" and not p["tall"]]
+    tall = [p for p in res if p["kind"] == "image" and p["tall"]]
+    header = [p for p in res if p["kind"] == "header"][0]
+    top_comment = min(p["y"] for p in res if p["kind"] == "comment")
+    assert len(wide) == 2 and len(tall) == 1
+    assert abs(wide[0]["w"] - wide[1]["w"]) < 1  # 같은 폭
+    for p in wide:
+        assert 4.55 * cm <= p["x"] and p["x"] + p["w"] <= 18.66 * cm + 10
+        assert p["y"] >= header["y"] + header["h"] and p["y"] + p["h"] <= top_comment
+    assert tall[0]["x"] >= 19.8 * cm  # 세로 사진은 오른쪽 영역

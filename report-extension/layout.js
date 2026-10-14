@@ -72,43 +72,81 @@
     return { ...res, scale: s };
   }
 
-  // 긴 본문을 두 단으로: 줄 경계에서 높이가 비슷하게 둘로 나누고, 각 단은 글자 끝에서 오른쪽 여백을 자른다.
-  // 두 단이 안내선 안(4.56~18.66cm, 댓글 위)에 들어가도록 필요하면 글자 크기를 조금 줄인다(최소 36%).
+  // 긴 본문을 여러 단으로: 줄 경계에서 높이가 비슷하게 나누고, 각 단은 글자 끝에서 오른쪽 여백을 자른다.
+  // 두 단을 먼저 해 보고(글자 최소 36%), 그래도 안 되면 세 단(최소 30%). 단들이 안내선 안(4.56~18.66cm, 댓글 위)에 들어오게.
   const COL_GAP = 0.4 * CM;
-  const MIN_SPLIT_SCALE = 0.36;
+  const SPLIT_TRIES = [
+    [2, 0.36],
+    [3, 0.3],
+  ];
   function splitBody(body, p, y) {
     if (!body.cuts || body.cuts.length < 4 || p.avail < 2 * CM) return null;
     const areaW = G.xRight - G.xBody;
-    const colMax = (areaW - COL_GAP) / 2;
     const H = body.canvas.height;
-    // 두 단 높이가 가장 비슷해지는 줄 경계
-    let cut = body.cuts[0];
-    for (const c of body.cuts) if (Math.max(c, H - c) < Math.max(cut, H - cut)) cut = c;
-    if (cut <= 0 || cut >= H) return null;
     const inkW = Math.max(1, body.inkWidth || body.canvas.width);
     const emuPerPx = CSS_PX_EMU / body.dpr;
-    let scale = p.scale;
-    scale = Math.min(scale, colMax / (inkW * emuPerPx)); // 한 단 폭이 절반을 넘지 않게
-    const tallest = Math.max(cut, H - cut);
-    scale = Math.min(scale, p.avail / (tallest * emuPerPx)); // 높이가 안내선 안에 들어오게
-    if (scale < MIN_SPLIT_SCALE) return null;
-    const w = inkW * emuPerPx * scale;
-    const parts = [
-      { y0: 0, y1: cut, x: G.xBody },
-      { y0: cut, y1: H, x: G.xBody + colMax + COL_GAP },
-    ];
-    return {
-      plan: { ...p, scale, fits: true, body: null },
-      placements: parts.map((q) => ({
-        kind: "body",
-        item: body,
-        region: { y0: q.y0, y1: q.y1, w: inkW },
-        x: q.x,
-        y,
-        w,
-        h: (q.y1 - q.y0) * emuPerPx * scale,
-      })),
-    };
+    for (const [k, minScale] of SPLIT_TRIES) {
+      if (body.cuts.length < k * 2) continue;
+      // k 단의 경계: 각 목표 높이(H·i/k)에 가장 가까운 줄 경계
+      const bounds = [0];
+      for (let i = 1; i < k; i++) {
+        const target = (H * i) / k;
+        let best = body.cuts[0];
+        for (const c of body.cuts) if (Math.abs(c - target) < Math.abs(best - target)) best = c;
+        if (best <= bounds[bounds.length - 1] || best >= H) break;
+        bounds.push(best);
+      }
+      bounds.push(H);
+      if (bounds.length !== k + 1) continue;
+      const colMax = (areaW - (k - 1) * COL_GAP) / k;
+      const tallest = Math.max(...bounds.slice(1).map((b, i) => b - bounds[i]));
+      let scale = Math.min(p.scale, colMax / (inkW * emuPerPx), p.avail / (tallest * emuPerPx));
+      if (scale < minScale) continue;
+      const w = inkW * emuPerPx * scale;
+      return {
+        plan: { ...p, scale, fits: true, body: null },
+        placements: bounds.slice(0, -1).map((y0, i) => ({
+          kind: "body",
+          item: body,
+          region: { y0, y1: bounds[i + 1], w: inkW },
+          x: G.xBody + i * (colMax + COL_GAP),
+          y,
+          w,
+          h: (bounds[i + 1] - y0) * emuPerPx * scale,
+        })),
+      };
+    }
+    return null;
+  }
+
+  // 본문 글이 없는 글(영상·사진만): 가로로 긴 영상·사진을 본문 자리(4.56~18.66cm, 제목 아래·댓글 위)에
+  // 같은 폭으로 한 줄에 1~3개씩. 그림이 가장 크게 들어가는 칸 수를 고르고, 넘치면 같은 비율로 줄인다.
+  function layoutBodyMedia(items, top, avail) {
+    const areaW = G.xRight - G.xBody;
+    let best = null;
+    for (let cols = 1; cols <= Math.min(3, items.length); cols++) {
+      const w0 = (areaW - (cols - 1) * IMG_GAP) / cols;
+      let total = 0;
+      for (let r = 0; r < items.length; r += cols) {
+        const row = items.slice(r, r + cols);
+        total += Math.max(...row.map((im) => (w0 * im.cssHeight) / im.cssWidth)) + (r ? IMG_GAP : 0);
+      }
+      const s = Math.min(1, avail / total);
+      if (!best || w0 * s > best.w * 1.02) best = { cols, w: w0 * s };
+    }
+    const out = [];
+    let y = top;
+    for (let r = 0; r < items.length; r += best.cols) {
+      const row = items.slice(r, r + best.cols);
+      let x = G.xBody;
+      const hs = row.map((im) => (best.w * im.cssHeight) / im.cssWidth);
+      row.forEach((im, k) => {
+        out.push({ kind: "image", item: im, x, y, w: best.w, h: hs[k] });
+        x += best.w + IMG_GAP;
+      });
+      y += Math.max(...hs) + IMG_GAP;
+    }
+    return out;
   }
 
   // visuals: { header, body, comments: [], images: [] } (각각 ImageProc 결과 또는 null)
@@ -166,7 +204,15 @@
       cy -= GAP;
     }
 
-    const images = visuals.images || [];
+    let images = visuals.images || [];
+    // 본문 글이 없으면 가로로 긴 영상·사진을 본문 자리로 (세로로 긴 것은 오른쪽 영역 그대로)
+    if (!visuals.body && images.length) {
+      const wide = images.filter((im) => im.cssWidth >= im.cssHeight);
+      if (wide.length && chosen.avail > 1.5 * CM) {
+        placements.push(...layoutBodyMedia(wide, y, chosen.avail));
+        images = images.filter((im) => !wide.includes(im));
+      }
+    }
     if (images.length) {
       const normal = layoutImagesUniform(images, G.yImg);
       const tall = layoutImagesUniform(images, G.yTop);

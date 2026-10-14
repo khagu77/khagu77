@@ -203,7 +203,27 @@ async function processCaptures(cap) {
   const dpr = cap.dpr;
   // 제목 영역은 모양 그대로(줄 간격을 줄이지 않음) — 작성자 아이콘이 잘리지 않게
   if (cap.header) v.header = ImageProc.compactText(await ImageProc.toBitmap(cap.header), dpr, { collapse: false });
-  if (cap.body) v.body = ImageProc.compactText(await ImageProc.toBitmap(cap.body), dpr);
+  if (cap.body) {
+    // 길어서 여러 장으로 나눠 찍은 본문은 위아래로 이어 붙인다
+    let bodyBlob = cap.body;
+    if (Array.isArray(cap.body)) {
+      const parts = [];
+      for (const b of cap.body) if (b) parts.push(await ImageProc.toBitmap(b));
+      const W = Math.max(...parts.map((p) => p.width));
+      const H = parts.reduce((s, p) => s + p.height, 0);
+      const c = new OffscreenCanvas(W, H);
+      const g = c.getContext("2d");
+      g.fillStyle = "#fff";
+      g.fillRect(0, 0, W, H);
+      let y = 0;
+      for (const p of parts) {
+        g.drawImage(p, 0, y);
+        y += p.height;
+      }
+      bodyBlob = await c.convertToBlob({ type: "image/png" });
+    }
+    v.body = ImageProc.compactText(await ImageProc.toBitmap(bodyBlob), dpr);
+  }
   for (const b of cap.comments) v.comments.push(b ? ImageProc.compactText(await ImageProc.toBitmap(b), dpr) : null);
   for (const b of cap.images) v.images.push(b ? ImageProc.photo(await ImageProc.toBitmap(b), dpr, !!b.isOriginal) : null);
   for (const x of [v.header, v.body, ...v.comments, ...v.images]) if (x) x.url = await ImageProc.previewUrl(x.canvas);
