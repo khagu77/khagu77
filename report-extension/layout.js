@@ -72,6 +72,45 @@
     return { ...res, scale: s };
   }
 
+  // 긴 본문을 두 단으로: 줄 경계에서 높이가 비슷하게 둘로 나누고, 각 단은 글자 끝에서 오른쪽 여백을 자른다.
+  // 두 단이 안내선 안(4.56~18.66cm, 댓글 위)에 들어가도록 필요하면 글자 크기를 조금 줄인다(최소 36%).
+  const COL_GAP = 0.4 * CM;
+  const MIN_SPLIT_SCALE = 0.36;
+  function splitBody(body, p, y) {
+    if (!body.cuts || body.cuts.length < 4 || p.avail < 2 * CM) return null;
+    const areaW = G.xRight - G.xBody;
+    const colMax = (areaW - COL_GAP) / 2;
+    const H = body.canvas.height;
+    // 두 단 높이가 가장 비슷해지는 줄 경계
+    let cut = body.cuts[0];
+    for (const c of body.cuts) if (Math.max(c, H - c) < Math.max(cut, H - cut)) cut = c;
+    if (cut <= 0 || cut >= H) return null;
+    const inkW = Math.max(1, body.inkWidth || body.canvas.width);
+    const emuPerPx = CSS_PX_EMU / body.dpr;
+    let scale = p.scale;
+    scale = Math.min(scale, colMax / (inkW * emuPerPx)); // 한 단 폭이 절반을 넘지 않게
+    const tallest = Math.max(cut, H - cut);
+    scale = Math.min(scale, p.avail / (tallest * emuPerPx)); // 높이가 안내선 안에 들어오게
+    if (scale < MIN_SPLIT_SCALE) return null;
+    const w = inkW * emuPerPx * scale;
+    const parts = [
+      { y0: 0, y1: cut, x: G.xBody },
+      { y0: cut, y1: H, x: G.xBody + colMax + COL_GAP },
+    ];
+    return {
+      plan: { ...p, scale, fits: true, body: null },
+      placements: parts.map((q) => ({
+        kind: "body",
+        item: body,
+        region: { y0: q.y0, y1: q.y1, w: inkW },
+        x: q.x,
+        y,
+        w,
+        h: (q.y1 - q.y0) * emuPerPx * scale,
+      })),
+    };
+  }
+
   // visuals: { header, body, comments: [], images: [] } (각각 ImageProc 결과 또는 null)
   // → { placements: [{ kind, item, x, y, w, h, crop }], scale, dropped }
   function layout(visuals) {
@@ -107,8 +146,14 @@
       chosen = plan(k, s);
       if (chosen.fits) break;
     }
-    if (!chosen.fits) chosen = plan(Math.min(2, n), SCALES[1]);
-    if (visuals.body && chosen.body && chosen.avail > 0.5 * CM) {
+    // 본문이 아주 길면: 댓글을 줄이거나 자르기 전에 본문을 줄 경계에서 둘로 나눠 두 단으로 나란히 놓는다
+    let split = null;
+    if (!chosen.fits && visuals.body) split = splitBody(visuals.body, plan(n, SCALES[1]), y);
+    if (split) {
+      chosen = split.plan;
+      placements.push(...split.placements);
+    } else if (!chosen.fits) chosen = plan(Math.min(2, n), SCALES[1]);
+    if (!split && visuals.body && chosen.body && chosen.avail > 0.5 * CM) {
       const b = chosen.body;
       const crop = b.h > chosen.avail ? chosen.avail / b.h : 1;
       placements.push({ kind: "body", item: visuals.body, x: G.xBody, y, w: b.w, h: b.h * crop, crop });

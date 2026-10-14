@@ -78,7 +78,23 @@
     const pad = Math.round(PAD_CSS * dpr);
     const left = Math.max(0, minX - pad);
     const right = w;
-    const gapMax = Math.round(LINE_GAP_CSS * dpr);
+    // 줄 사이 간격: 원래 글의 자연스러운 줄 간격(글자 높이의 약 절반)으로. 빈 줄만 없애고 너무 빡빡하게 붙이지 않는다.
+    const heights = bands.map(([a, b]) => b - a).sort((p, q) => p - q);
+    const medianH = heights[Math.floor(heights.length / 2)] || 10 * dpr;
+    const gapMax = Math.max(Math.round(LINE_GAP_CSS * dpr), Math.round(medianH * 0.5));
+    // 글자가 끝나는 오른쪽 위치 (두 단으로 나눌 때 오른쪽 여백을 잘라내기 위해)
+    let maxX = -1;
+    for (const [a, b] of bands) {
+      for (let y = a; y < b; y++) {
+        if (!rowInk[y]) continue;
+        for (let x = w - 1; x > maxX; x--) {
+          if (isInk((y * w + x) * 4)) {
+            maxX = x;
+            break;
+          }
+        }
+      }
+    }
 
     // 새 높이 계산 후 붙이기
     const pieces = [];
@@ -103,8 +119,16 @@
       cuts: pieces.map((p) => p.y + (p.b - p.a) + pad),
       cssWidth: out.width / dpr,
       cssHeight: out.height / dpr,
+      inkWidth: Math.min(out.width, maxX + 1 + pad - left), // 글자가 실제로 있는 폭(px)
       dpr,
     };
+  }
+
+  // 일부 영역(위 y0 ~ 아래 y1, 왼쪽부터 폭 w)만 잘라낸 새 항목
+  function region(item, y0, y1, w) {
+    const out = canvasOf(w, y1 - y0);
+    out.getContext("2d").drawImage(item.canvas, 0, y0, w, y1 - y0, 0, 0, w, y1 - y0);
+    return { ...item, canvas: out, cuts: [out.height], cssWidth: w / item.dpr, cssHeight: out.height / item.dpr };
   }
 
   // 줄 경계에서 maxPx 높이 이하로 자르기
@@ -149,5 +173,5 @@
     return URL.createObjectURL(await canvas.convertToBlob({ type: "image/png" }));
   }
 
-  global.ImageProc = { toBitmap, compactText, cropHeight, photo, encodeAtPpi, previewUrl };
+  global.ImageProc = { toBitmap, compactText, cropHeight, region, photo, encodeAtPpi, previewUrl };
 })(typeof window !== "undefined" ? window : self);

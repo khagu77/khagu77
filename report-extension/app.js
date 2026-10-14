@@ -491,8 +491,12 @@ function drawPreview(it) {
   const { placements } = Layout.layout(selectedVisuals(it));
   for (const p of placements) {
     const src = p.item.canvas;
-    const sh = p.crop && p.crop < 1 ? src.height * p.crop : src.height;
-    ctx.drawImage(src, 0, 0, src.width, sh, p.x * s, p.y * s, p.w * s, p.h * s);
+    if (p.region) {
+      ctx.drawImage(src, 0, p.region.y0, p.region.w, p.region.y1 - p.region.y0, p.x * s, p.y * s, p.w * s, p.h * s);
+    } else {
+      const sh = p.crop && p.crop < 1 ? src.height * p.crop : src.height;
+      ctx.drawImage(src, 0, 0, src.width, sh, p.x * s, p.y * s, p.w * s, p.h * s);
+    }
     ctx.strokeStyle = { header: "#5b9bd5", body: "#ed7d31", comment: "#70ad47", image: "#e00000" }[p.kind];
     ctx.strokeRect(p.x * s, p.y * s, p.w * s, p.h * s);
   }
@@ -507,7 +511,10 @@ async function pictures(it) {
   for (const p of placements) {
     let item = p.item;
     let h = p.h;
-    if (p.crop && p.crop < 1) {
+    if (p.region) {
+      item = ImageProc.region(item, p.region.y0, p.region.y1, p.region.w);
+      h = (p.w * item.canvas.height) / item.canvas.width;
+    } else if (p.crop && p.crop < 1) {
       item = ImageProc.cropHeight(item, Math.floor(item.canvas.height * p.crop));
       h = (p.w * item.canvas.height) / item.canvas.width;
     }

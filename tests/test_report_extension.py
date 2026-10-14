@@ -713,3 +713,44 @@ def test_cafe_notice_removed_structures(html, expected_start, gone):
     for word in gone:
         assert word not in info["bodyText"], (word, info["bodyText"])
         assert word not in visible, (word, visible)
+
+
+def test_long_body_two_columns(tmp_path):
+    """아주 긴 본문(짧은 줄 26개)은 두 단으로 나뉘어 안내선 안(4.56~18.66cm, 댓글 위)에 들어가고, 줄 간격은 자연스럽게."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile_l"), executable_path=CHROMIUM, headless=True,
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}"])
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        page = ctx.new_page()
+        page.goto(f"chrome-extension://{sw.url.split('/')[2]}/app.html")
+        res = page.evaluate("""async () => {
+            const dpr = 2;
+            // 본문: 860px 폭, 16px 글자, 줄 사이 10px, 문단마다 빈 줄
+            const mk = (lines, w) => { const c = new OffscreenCanvas(w * dpr, lines * 42 * dpr); const g = c.getContext('2d');
+              g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#222'; g.font = `${16 * dpr}px sans-serif`;
+              for (let i = 0; i < lines; i++) g.fillText('에어백 경고등이 간헐적으로 확인되고 ' + i, 10 * dpr, (i * 42 + 20) * dpr);
+              return c; };
+            const bmp = async (c) => createImageBitmap(await c.convertToBlob());
+            const body = ImageProc.compactText(await bmp(mk(26, 860)), dpr);
+            const header = ImageProc.compactText(await bmp(mk(3, 860)), dpr, { collapse: false });
+            const comment = ImageProc.compactText(await bmp(mk(2, 860)), dpr);
+            const { placements } = Layout.layout({ header, body, comments: [comment, comment], images: [] });
+            const gaps = []; for (let k = 1; k < body.cuts.length; k++) gaps.push(body.cuts[k] - body.cuts[k - 1]);
+            return { placements: placements.map(p => ({ kind: p.kind, x: p.x, y: p.y, w: p.w, h: p.h })), lineStep: gaps[0] / dpr };
+        }""")
+        ctx.close()
+    cm = 360000
+    bodies = [p for p in res["placements"] if p["kind"] == "body"]
+    comments = [p for p in res["placements"] if p["kind"] == "comment"]
+    assert len(bodies) == 2 and len(comments) == 2
+    left, right = sorted(bodies, key=lambda p: p["x"])
+    assert abs(left["x"] / cm - 4.56) < 0.01 and left["y"] == right["y"]
+    assert left["x"] + left["w"] < right["x"]  # 겹치지 않음
+    assert right["x"] + right["w"] <= 18.66 * cm + 10
+    top_comment = min(c["y"] for c in comments)
+    assert max(left["y"] + left["h"], right["y"] + right["h"]) <= top_comment
+    # 빈 줄은 없애되 줄 간격은 글자 높이의 절반 정도로 자연스럽게 (줄당 약 20~30px)
+    assert 18 <= res["lineStep"] <= 32, res["lineStep"]
