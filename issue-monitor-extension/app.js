@@ -840,13 +840,17 @@ function finalizeRow(row, it, src) {
   };
 }
 
-// PE 여부 등 차종이 애매하다고 AI 가 표시한 카페 글: 작성자의 다른 글을 보고 차종 코드를 다시 정한다
+// 차종을 모르거나("-") PE 여부 등이 애매한 카페 글: 작성자 닉네임 → '게시글 보기'(작성자의 다른 글)를 열어 차종 코드를 다시 정한다.
+// 작성자의 다른 글로 타사 차(예: 기아 EV6)로 확인되면 보고서에서 뺀다.
 // (네이버 화면을 더 열게 되므로 한 번 수집에 최대 AUTHOR_LOOKUP_MAX 명까지)
 const AUTHOR_LOOKUP_MAX = 60;
 async function refineUncertainCars(src, items, judged, ctx) {
   const targets = items.filter((it) => {
     const j = judged.get(it.key);
-    return j && j.relevant && (j.car_uncertain || (it.needCar && (!j.car_code || j.car_code === "-"))) && it.writer && (it.writer.href || it.writer.memberKey);
+    if (!j || !j.relevant || !(j.car_uncertain || !j.car_code || j.car_code.trim() === "-")) return false;
+    if (it.writer && (it.writer.href || it.writer.memberKey)) return true;
+    log(`${src.name}: 「${it.title}」 차종 확인을 위해 작성자 글을 보려 했지만 작성자 정보를 찾지 못함 ${it.url}`, "err");
+    return false;
   });
   if (!targets.length) return;
   const asks = [];
@@ -855,6 +859,7 @@ async function refineUncertainCars(src, items, judged, ctx) {
     ctx.authorLookups++;
     try {
       const titles = await ctx.naver.authorTitles(it, src.cafe, it.writer);
+      log(`${src.name}: 「${it.title}」 작성자(${it.writer.nick || "닉네임 모름"})의 다른 글 ${titles.length}개 확인`);
       asks.push({ key: it.key, needCar: it.needCar, title: it.title, carNow: judged.get(it.key).car_code, carHint: it.carHint, nick: it.writer.nick, authorTitles: titles, comments: it.comments });
     } catch (e) {
       if (e instanceof StopError || e instanceof BlockedError) throw e;
@@ -865,14 +870,23 @@ async function refineUncertainCars(src, items, judged, ctx) {
   try {
     const fixed = await ctx.ai.refineCars(asks);
     let changed = 0;
-    for (const [key, code] of fixed) {
+    let dropped = 0;
+    for (const [key, r] of fixed) {
       const j = judged.get(key);
-      if (j && code && code !== j.car_code) {
-        j.car_code = code;
+      if (!j) continue;
+      if (r.other_brand) {
+        j.relevant = false; // 타사 차 → 보고서에서 뺀다
+        dropped++;
+        const it = items.find((x) => x.key === key);
+        log(`${src.name}: 「${it ? it.title : key}」 작성자의 다른 글로 보아 타사 차(${r.car_code || "현대차·제네시스 아님"}) → 제외`);
+        continue;
+      }
+      if (r.car_code && r.car_code !== j.car_code) {
+        j.car_code = r.car_code;
         changed++;
       }
     }
-    log(`${src.name}: 차종이 애매한 글 ${asks.length}건 작성자 글 확인 → ${changed}건 차종 코드 수정`);
+    log(`${src.name}: 차종을 모르거나 애매한 글 ${asks.length}건 작성자 글 확인 → ${changed}건 차종 코드 수정${dropped ? `, ${dropped}건 타사 차로 제외` : ""}`);
   } catch (e) {
     log(`${src.name} 작성자 기반 차종 재판정 실패: ${e.message}`, "err");
   }

@@ -11,7 +11,7 @@ const ISSUE_DEFINITION = `부정 이슈는 다음 3가지다. (지난 보고서 
 3) 결품: 입고했는데 부품 재고 부족·부품 수급 문제로 정비가 지연되는 불만. (고장으로 입고했더라도 불만의 무게가 부품 결품·정비 지연에 있으면 결품)`;
 
 // 기본 프롬프트(아래 규칙)를 마지막으로 고친 때 - '명령 프롬프트' 화면에 표시
-const PROMPT_BUILT_AT = "2026-10-13 (v1.8.8)";
+const PROMPT_BUILT_AT = "2026-10-14 (v1.8.13)";
 
 // '명령 프롬프트' 화면에서 사용자가 추가한 지시사항 (모든 AI 단계에 붙고, 기본 규칙보다 우선)
 function customInstructions(settings) {
@@ -80,7 +80,7 @@ ${ISSUE_DEFINITION}
 - 본문에 차종·세대가 없으면 댓글에서 유추한다. [작성자] 표시가 붙은 작성자 본인 댓글(예: "저는 24년식 더 뉴예요")을 가장 믿고, 다른 사람 댓글은 "같은 차종 같은데요" 처럼 이 글의 차를 가리킬 때만 참고한다. 다른 사람이 자기 차 이야기를 한 것은 이 글의 차종으로 쓰지 않는다.
 - harsh: 글·댓글에 심한 욕설이나 회사·제품에 대한 강한 비판·분노가 있으면 true.
 - model_year: 글·댓글에 차량 연식이 드러나면 "24년식" 처럼 적는다 (연식 표현이 없고 출고 시기만 있으면 "24년 출고"). 모르면 빈 문자열.
-- car_uncertain: PE(부분변경) 여부·세대 구분이 글만으로 분명하지 않으면 true (프로그램이 작성자의 다른 글을 확인해 다시 묻는다), 분명하면 false.
+- car_uncertain: 차종을 모르거나("-") PE(부분변경) 여부·세대 구분이 글만으로 분명하지 않으면 true (프로그램이 작성자의 다른 글을 확인해 다시 묻는다), 분명하면 false.
 - 차종 코드는 가장 주의해서 정확하게 정한다. 근거 순서: 제목·본문·댓글에 적힌 차명/코드 > 게시판 이름(예: 'ST1 게시판', '스타리아EV 게시판') > 사진 설명·트림·용도(카고·냉동탑차 등) > 작성자 닉네임 > 카페 기본 차종.
 - 카페 기본 차종이 여러 개(/로 구분, 예: "US4 EV / ST1")면 그 카페에 여러 차종이 섞여 있다는 뜻이다. 근거 없이 앞쪽 것을 고르지 말고, 근거가 없으면 가장 가능성 높은 것을 쓰되 car_uncertain=true 로 한다.
 - ST1(스타리아 기반 상용 전기 밴·카고·냉동탑차)과 US4 EV(스타리아 전기 승합)는 서로 다른 차다. 'ST1', '에스티원', 카고·탑차·적재함 이야기면 ST1.
@@ -225,6 +225,8 @@ class AiClassifier {
     if (!items.length) return out;
     const system = `너는 현대자동차·제네시스 차종 코드 담당자다. 각 글의 차종 코드를, 작성자 닉네임과 작성자가 이 카페에 쓴 다른 글 제목들로 유추해 가장 정확하게 정한다.
 - 닉네임, 다른 글 제목, 이 글의 댓글(특히 [작성자] 본인 댓글)에 '더 뉴', '페리', 'PE', 연식(예: 24년식), 트림, 출고 시기가 보이면 그것으로 PE 여부·세대를 정한다.
+- 지금 추정이 "-"(차종 모름)인 글은 작성자의 다른 글 제목에 나온 차명(예: "아이오닉5 충전 문의", "EV6 타이어 교체")으로 이 작성자의 차를 찾아 코드표의 코드로 정한다. 같은 차명이 여러 번 나오거나 한 대만 언급되면 그 차로 본다.
+- 작성자의 다른 글로 보아 이 사람의 차가 현대차·제네시스가 아닌 타사 차(기아 EV6·EV9·EV3·니로·쏘렌토, 테슬라, BYD, 수입차 등)이고 이 글도 그 차 이야기로 보이면 other_brand=true, car_code 에는 그 차 이름(예: "기아 EV6")을 적는다. 현대차·제네시스 차도 함께 있어 어느 차인지 모르면 other_brand=false.
 - 근거가 없으면 지금 추정 코드를 그대로 둔다. 단, '차종 필수: 예' 글은 근거가 없으면 "-" 로 둔다 (카페 기본 차종으로 추측 금지). 하이브리드(HEV)는 표기하지 않는다.
 
 차종 코드표:
@@ -234,14 +236,14 @@ ${this.settings.carCodes}${customInstructions(this.settings)}`;
       .join("\n\n");
     const schema = {
       type: "object",
-      properties: { results: { type: "array", items: { type: "object", properties: { id: { type: "string" }, car_code: { type: "string" } }, required: ["id", "car_code"], additionalProperties: false } } },
+      properties: { results: { type: "array", items: { type: "object", properties: { id: { type: "string" }, car_code: { type: "string" }, other_brand: { type: "boolean" } }, required: ["id", "car_code", "other_brand"], additionalProperties: false } } },
       required: ["results"],
       additionalProperties: false,
     };
     const res = await this.callJson(system, text, schema);
     for (const r of res.results || []) {
       const it = items[+String(r.id).replace(/\D/g, "") - 1];
-      if (it && r.car_code) out.set(it.key, r.car_code);
+      if (it && (r.car_code || r.other_brand)) out.set(it.key, { car_code: r.car_code, other_brand: !!r.other_brand });
     }
     return out;
   }
