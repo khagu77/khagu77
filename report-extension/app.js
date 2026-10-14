@@ -74,7 +74,7 @@ async function loadSettings() {
       }),
     );
   }
-  if (!s.templateName) $("#settings").open = true;
+  if (!s.templateName) openSettings();
   updateSettingsState();
 }
 
@@ -86,7 +86,39 @@ function showTemplateInfo(name, at) {
 async function updateSettingsState() {
   const s = await chrome.storage.local.get(["templateName"]).catch(() => ({}));
   const parts = [s.templateName ? "템플릿 있음" : "템플릿 없음", $("#aiKey").value.trim() ? "AI 요약 켜짐" : "AI 요약 꺼짐(API 키 없음)"];
-  $("#settingsState").textContent = `— ${parts.join(" · ")}`;
+  $("#settingsState").textContent = parts.join(" · ");
+}
+
+function openSettings() {
+  const d = $("#settings");
+  if (!d.open) d.showModal();
+}
+
+// ---------------------------------------------------------------------------
+// 소요 시간 · 예상 AI 비용
+// ---------------------------------------------------------------------------
+let runStart = 0; // [캡처·요약 시작] 누른 시각
+let captureMs = 0; // 캡처·요약에 걸린 시간
+let statsTimer = null;
+
+function fmtDuration(ms) {
+  const t = Math.max(0, Math.round(ms / 1000));
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const sec = t % 60;
+  if (h) return `${h}시간 ${m}분 ${sec}초`;
+  return m ? `${m}분 ${sec}초` : `${sec}초`;
+}
+
+function statsText(ms) {
+  return `⏱ 소요 시간 ${fmtDuration(ms)} · 💰 예상 AI 비용 ${AiCost.text()}`;
+}
+
+function showStats() {
+  if (!runStart) return;
+  const el = $("#stats");
+  el.hidden = false;
+  el.textContent = statsText((captureMs || Date.now() - runStart));
 }
 
 function toBase64(u8) {
@@ -315,6 +347,12 @@ async function processItem(it) {
 
 async function start() {
   stopRequested = false;
+  AiCost.reset();
+  runStart = Date.now();
+  captureMs = 0;
+  clearInterval(statsTimer);
+  statsTimer = setInterval(showStats, 1000);
+  showStats();
   plan = countPlan();
   items = excelItems.map((row) => ({ no: null, row, ready: false }));
   $("#items").innerHTML = "";
@@ -350,6 +388,9 @@ async function start() {
       await sleep(ARTICLE_DELAY[0] + Math.random() * (ARTICLE_DELAY[1] - ARTICLE_DELAY[0]));
     }
   }
+  captureMs = Date.now() - runStart;
+  clearInterval(statsTimer);
+  showStats();
   const failed = items.filter((it) => it.error).length;
   const deleted = items.filter((it) => it.deleted).length;
   setSummary(
@@ -580,6 +621,7 @@ async function kvSet(key, value) {
 function showFolder(handle) {
   $("#folderInfo").textContent = handle ? `📁 ${handle.name} 에 저장` : "다운로드 폴더에 저장";
   $("#folderInfo").className = handle ? "hint ok" : "hint";
+  $("#saveWhere").textContent = handle ? `📁 ${handle.name}` : "다운로드 폴더";
 }
 
 async function pickFolder() {
@@ -629,13 +671,25 @@ async function buildPpt() {
     const name = ($("#fileName").value.trim() || "{날짜}_현대차 온라인 이슈 보고서").replace("{날짜}", `${String(y).slice(2)}${pad(m)}${pad(d)}`);
     const fileName = `${name.replace(/[<>:"/\\|?*]/g, "_")}.pptx`;
     const size = `${list.length}건, ${(bytes.length / 1024 / 1024).toFixed(1)}MB`;
+    // 저장 끝: 소요 시간(캡처·요약 시작부터 PPT 저장까지)·예상 AI 비용과 함께 완료 알림
+    const done = (where, sz) => {
+      setSummary(`저장했습니다: ${where} (${sz})`, "ok");
+      const total = runStart ? Date.now() - runStart : 0;
+      const stats = runStart ? `${statsText(total)}` : `💰 예상 AI 비용 ${AiCost.text()}`;
+      $("#stats").hidden = false;
+      $("#stats").textContent = stats + (captureMs ? ` (캡처·요약 ${fmtDuration(captureMs)})` : "");
+      $("#doneText").textContent = `${where} 에 저장했습니다 (${sz}).`;
+      $("#doneStats").textContent = $("#stats").textContent;
+      const d = $("#doneDialog");
+      if (!d.open) d.showModal();
+    };
     if (saveDir) {
       try {
         const fh = await saveDir.getFileHandle(fileName, { create: true });
         const w = await fh.createWritable();
         await w.write(bytes);
         await w.close();
-        setSummary(`저장했습니다: 📁 ${saveDir.name}/${fileName} (${size})`, "ok");
+        done(`📁 ${saveDir.name}/${fileName}`, size);
         return;
       } catch (e) {
         setSummary(`고른 폴더에 저장하지 못해 다운로드 폴더로 받습니다 (${e.message || e})`, "err");
@@ -647,7 +701,7 @@ async function buildPpt() {
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setSummary(`저장했습니다: 다운로드 폴더/${fileName} (${size})`, "ok");
+    done(`다운로드 폴더/${fileName}`, size);
   } catch (e) {
     setSummary(`PPT 를 만들지 못했습니다: ${e.message || e}`, "err");
   } finally {
@@ -670,6 +724,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     setSummary("지금 글까지만 끝내고 멈춥니다…");
   });
   $("#build").addEventListener("click", buildPpt);
+  $("#openSettings").addEventListener("click", openSettings);
+  $("#changeFolder").addEventListener("click", openSettings);
   $("#pickFolder").addEventListener("click", pickFolder);
   $("#clearFolder").addEventListener("click", async () => {
     await kvSet("saveDir", null);

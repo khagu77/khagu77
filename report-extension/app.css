@@ -74,8 +74,6 @@ button:disabled { opacity: 0.45; cursor: default; }
 .ok { color: var(--green); }
 .err { color: var(--red); }
 .note { margin-top: 14px; color: var(--muted); font-size: 11px; line-height: 1.5; }
-.settings { border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px; }
-.settings summary { cursor: pointer; font-weight: 600; }
 
 .item { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-top: 12px; }
 .item-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
@@ -105,3 +103,25 @@ label.inline { display: inline-flex; gap: 4px; align-items: center; margin: 0; f
 #countOpts.off { opacity: 0.4; pointer-events: none; }
 label.inline.part { font-weight: 400; margin-left: 6px; }
 .folder-row { align-items: center; margin-top: 2px; }
+
+/* 위쪽 제목줄 · 설정 창 · 완료 알림 */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.top h1 { margin: 0; }
+.where { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; font-size: 12px; }
+button.link { border: 0; background: none; color: var(--green); padding: 0 4px; text-decoration: underline; }
+dialog {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text);
+  padding: 14px 18px;
+  width: min(640px, calc(100vw - 32px));
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+.dlg-head { display: flex; justify-content: space-between; align-items: center; }
+dialog h2 { margin: 0; font-size: 16px; }
+.set-group { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 6px; }
+.set-group h3 { margin: 4px 0; font-size: 13.5px; }
+.stats { margin: 2px 0 4px; font-size: 12.5px; color: var(--muted); }
+.done p { margin: 10px 0; }
+.done .stats { font-size: 13.5px; color: var(--text); font-weight: 600; }

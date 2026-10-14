@@ -189,11 +189,51 @@ const SHORTEN_SCHEMA = {
   additionalProperties: false,
 };
 
+// 예상 AI 비용: 모델별 100만 토큰당 가격(달러) [입력, 출력, 캐시 읽기] — Anthropic 공개 가격 기준
+const AI_PRICES = {
+  "claude-opus-5-5": [4, 20, 0.2],
+  "claude-sonnet-5-5": [2, 10, 0.2],
+  "claude-haiku-5-5": [0.1, 0.5, 0.01],
+};
+const USD_KRW = 1400; // 원화 환산용 대략 환율
+// 이번 작업에서 쓴 토큰·비용 누계 (작업을 시작할 때 AiCost.reset())
+const AiCost = {
+  usd: 0,
+  input: 0,
+  output: 0,
+  calls: 0,
+  reset() {
+    this.usd = 0;
+    this.input = 0;
+    this.output = 0;
+    this.calls = 0;
+  },
+  add(model, usage) {
+    if (!usage) return;
+    const [pin, pout, pread] = AI_PRICES[model] || AI_PRICES["claude-opus-5-5"];
+    const input = usage.input_tokens || 0;
+    const write = usage.cache_creation_input_tokens || 0;
+    const read = usage.cache_read_input_tokens || 0;
+    const output = usage.output_tokens || 0;
+    this.usd += (input * pin + write * pin * 1.25 + read * pread + output * pout) / 1e6;
+    this.input += input + write + read;
+    this.output += output;
+    this.calls++;
+  },
+  // "약 1,230원 ($0.88)"
+  text() {
+    const won = Math.round(this.usd * USD_KRW);
+    return `약 ${won.toLocaleString("ko-KR")}원 ($${this.usd.toFixed(2)})`;
+  },
+};
+
 async function askJson(client, model, params) {
   const stream = model === "claude-haiku-5-5"
     ? client.messages.stream(params)
     : client.beta.messages.stream({ ...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" });
   const msg = await stream.finalMessage();
+  // 다른 모델로 넘어가 답한 경우(fallback)엔 실제로 답한 모델 가격으로
+  AiCost.add(AI_PRICES[msg.model] ? msg.model : model, msg.usage);
   if (msg.stop_reason === "refusal") throw new Error("Claude 가 이 글의 요약을 거절했습니다");
   return JSON.parse(msg.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
 }

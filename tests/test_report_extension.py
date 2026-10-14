@@ -145,12 +145,12 @@ def sse_body(text):
     events = [
         ("message_start", {"type": "message_start", "message": {"id": "msg_1", "type": "message", "role": "assistant",
          "model": "claude-opus-5-5", "content": [], "stop_reason": None, "stop_sequence": None,
-         "usage": {"input_tokens": 10, "output_tokens": 1}}}),
+         "usage": {"input_tokens": 20000, "output_tokens": 1}}}),
         ("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
         ("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}}),
         ("content_block_stop", {"type": "content_block_stop", "index": 0}),
         ("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None},
-         "usage": {"output_tokens": 50}}),
+         "usage": {"output_tokens": 1500}}),
         ("message_stop", {"type": "message_stop"}),
     ]
     return "".join(f"event: {e}\ndata: {json.dumps(d, ensure_ascii=False)}\n\n" for e, d in events)
@@ -341,11 +341,15 @@ def run_report(tmp_path: Path, template: Path, excel: Path, out_dir: Path, ai_ke
         page = ctx.new_page()
         page.on("console", lambda m: print("console:", m.text))
         page.goto(f"chrome-extension://{ext_id}/app.html")
+        # 템플릿이 없으면 설정 창이 저절로 열린다
+        page.wait_for_selector("#settings[open]")
         page.set_input_files("#templateFile", str(template))
         page.wait_for_selector("#templateInfo.ok")
         if ai_key:
             page.fill("#aiKey", ai_key)
             page.dispatch_event("#aiKey", "change")
+        page.click("#closeSettings")
+        page.wait_for_selector("#settings:not([open])", state="attached")
         page.fill("#reportDate", "2026-10-07")
         page.set_input_files("#excelFile", str(excel))
         page.wait_for_selector("#start:not([disabled])")
@@ -363,8 +367,11 @@ def run_report(tmp_path: Path, template: Path, excel: Path, out_dir: Path, ai_ke
         if folder:
             # 폴더 선택 창 대신 브라우저 내부 저장소 폴더를 '고른 폴더'로 쓴다
             page.evaluate("window.showDirectoryPicker = async () => navigator.storage.getDirectory()")
+            page.click("#changeFolder")  # 첫 화면 '저장 위치 변경' → 설정 창
             page.click("#pickFolder")
             page.wait_for_selector("#folderInfo.ok")
+            page.click("#closeSettings")
+            assert "📁" in page.inner_text("#saveWhere")
             page.click("#build")
             page.locator("#summary", has_text="📁").wait_for(timeout=120000)
             name = page.inner_text("#summary").split("/", 1)[1].split(" (")[0]
@@ -383,7 +390,14 @@ def run_report(tmp_path: Path, template: Path, excel: Path, out_dir: Path, ai_ke
             download = dl.value
             target = out_dir / download.suggested_filename
             download.save_as(target)
-        summary = page.inner_text("#summary")
+        # 작성 완료 알림창: 소요 시간 · 예상 AI 비용
+        page.wait_for_selector("#doneDialog[open]")
+        done_stats = page.inner_text("#doneStats")
+        assert "소요 시간" in done_stats and "예상 AI 비용" in done_stats, done_stats
+        if ai_requests:  # AI 를 부른 만큼 비용이 잡힌다
+            assert "$0.00" not in done_stats, done_stats
+        page.click("#doneOk")
+        summary = page.inner_text("#summary") + "\n" + page.inner_text("#stats")
         ctx.close()
     server.shutdown()
     return target, ai_requests, summary

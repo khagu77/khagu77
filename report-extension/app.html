@@ -8,36 +8,55 @@
 </head>
 <body>
   <main>
-    <h1>온라인 오전동향 PPT 보고서 작성기</h1>
+    <header class="top">
+      <h1>온라인 오전동향 PPT 보고서 작성기</h1>
+      <button id="openSettings" type="button">⚙ 설정</button>
+    </header>
+    <div class="where">
+      <span id="settingsState" class="hint"></span>
+      <span>PPT 저장 위치: <b id="saveWhere">다운로드 폴더</b> <button id="changeFolder" type="button" class="link">변경</button></span>
+    </div>
 
-    <details id="settings" class="settings">
-      <summary>설정 <span id="settingsState" class="hint"></span></summary>
-      <label for="templateFile">보고서 템플릿 PPT <span class="hint">(완성된 보고서 하나. 서식·안내선·4장 상세 슬라이드 모양을 그대로 따라갑니다. 한 번 넣으면 저장됩니다)</span></label>
-      <input type="file" id="templateFile" accept=".pptx">
-      <div id="templateInfo" class="hint"></div>
+    <dialog id="settings" class="settings">
+      <form method="dialog" class="dlg-head">
+        <h2>설정</h2>
+        <button id="closeSettings" value="close">닫기</button>
+      </form>
 
-      <label for="aiKey">Claude API 키 <span class="hint">(본문·댓글 요약에 사용. 이 PC 크롬에만 저장. 없으면 엑셀 '주요 내용'으로 초안만 채움)</span></label>
-      <input type="password" id="aiKey" placeholder="sk-ant-..." autocomplete="off">
-      <label for="aiModel">AI 모델</label>
-      <select id="aiModel"></select>
+      <section class="set-group">
+        <h3>PPT 저장 위치</h3>
+        <div class="hint">PPT 받기를 누르면 이 폴더에 바로 저장됩니다. 고르지 않으면 크롬 다운로드 폴더에 저장됩니다.<br>
+          예: 바탕화면 › Ryan › LINESQUARE › 현대차_2026_온라인모니터링 › 2026_오전 보고서 › <b>오전보고서_최종파일</b></div>
+        <div class="buttons folder-row">
+          <button id="pickFolder" type="button" class="primary">저장 폴더 선택</button>
+          <button id="clearFolder" type="button">다운로드 폴더로</button>
+          <span id="folderInfo" class="hint"></span>
+        </div>
+        <label for="fileName">파일 이름 <span class="hint">({날짜} 자리에 보고서 날짜가 YYMMDD 로 들어갑니다)</span></label>
+        <input type="text" id="fileName" value="{날짜}_현대차 온라인 이슈 보고서">
+      </section>
 
-      <label for="ppi">그림 해상도 <span class="hint">(높을수록 선명하고 파일이 조금 커집니다. PowerPoint '그림 압축'과 같은 기준)</span></label>
-      <select id="ppi">
-        <option value="330">고화질 330ppi (기본 · 가장 선명)</option>
-        <option value="220">인쇄 220ppi</option>
-        <option value="150">화상 150ppi (가장 작은 파일)</option>
-      </select>
+      <section class="set-group">
+        <h3>보고서 템플릿</h3>
+        <label for="templateFile">보고서 템플릿 PPT <span class="hint">(완성된 보고서 하나. 서식·안내선·4장 상세 슬라이드 모양을 그대로 따라갑니다. 한 번 넣으면 저장됩니다)</span></label>
+        <input type="file" id="templateFile" accept=".pptx">
+        <div id="templateInfo" class="hint"></div>
+        <label for="ppi">그림 해상도 <span class="hint">(높을수록 선명하고 파일이 조금 커집니다. PowerPoint '그림 압축'과 같은 기준)</span></label>
+        <select id="ppi">
+          <option value="330">고화질 330ppi (기본 · 가장 선명)</option>
+          <option value="220">인쇄 220ppi</option>
+          <option value="150">화상 150ppi (가장 작은 파일)</option>
+        </select>
+      </section>
 
-      <label>저장 폴더 <span class="hint">(PPT 받기를 누르면 이 폴더에 바로 저장. 고르지 않으면 다운로드 폴더)</span></label>
-      <div class="buttons folder-row">
-        <button id="pickFolder" type="button">저장 폴더 선택</button>
-        <button id="clearFolder" type="button">다운로드 폴더로</button>
-        <span id="folderInfo" class="hint"></span>
-      </div>
-
-      <label for="fileName">파일 이름 <span class="hint">({날짜} 자리에 보고서 날짜가 YYMMDD 로 들어갑니다)</span></label>
-      <input type="text" id="fileName" value="{날짜}_현대차 온라인 이슈 보고서">
-    </details>
+      <section class="set-group">
+        <h3>AI 요약</h3>
+        <label for="aiKey">Claude API 키 <span class="hint">(본문·댓글 요약에 사용. 이 PC 크롬에만 저장. 없으면 엑셀 '주요 내용'으로 초안만 채움)</span></label>
+        <input type="password" id="aiKey" placeholder="sk-ant-..." autocomplete="off">
+        <label for="aiModel">AI 모델 <span class="hint">(예상 비용은 모델 가격으로 계산합니다)</span></label>
+        <select id="aiModel"></select>
+      </section>
+    </dialog>
 
     <label for="excelFile">오늘 수집한 부정 이슈 엑셀 <span class="hint">(+ 표시된 행만 보고서에 들어갑니다)</span></label>
     <input type="file" id="excelFile" accept=".xlsx,.xltx,.xlsm">
@@ -64,6 +83,16 @@
       <button id="build" class="primary" disabled>PPT 받기</button>
     </div>
     <div id="summary" class="summary"></div>
+    <div id="stats" class="stats" hidden></div>
+
+    <dialog id="doneDialog" class="done">
+      <form method="dialog">
+        <h2>✅ PPT 작성 완료</h2>
+        <p id="doneText"></p>
+        <p id="doneStats" class="stats"></p>
+        <div class="buttons"><button id="doneOk" class="primary" value="ok">확인</button></div>
+      </form>
+    </dialog>
 
     <div id="items"></div>
 
