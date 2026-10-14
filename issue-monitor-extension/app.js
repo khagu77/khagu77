@@ -740,12 +740,20 @@ async function downloadReport(rows = state.rows, range = state.range, interactiv
   }
   return "다운로드 폴더";
 }
+// 저장 완료 알림창 (지정 폴더 저장은 크롬 다운로드 표시가 안 떠서 저장 안 된 줄 알기 쉬움)
+function savedAlert(where, auto = false) {
+  setTimeout(() => {
+    alert(`✅ 엑셀 저장 완료${auto ? " (자동 수집)" : ""}\n\n저장 위치: ${where}\n${state.rows.length}건 · 보고 필요 ${state.rows.filter((r) => r.report).length}건\n\n다시 받을 필요 없습니다.`);
+  }, 50);
+}
+
 function downloadClick(plain) {
   setSummary("엑셀 저장 중…");
   downloadReport(state.rows, state.range, true, plain)
     .then((where) => {
       log(`엑셀을 ${where}에 저장했습니다`);
       setSummary(`엑셀을 ${where}에 저장했습니다 (${state.rows.length}건 · 보고 필요 ${state.rows.filter((r) => r.report).length}건)`);
+      savedAlert(where);
     })
     .catch((e) => {
       log(`엑셀 저장 실패: ${e.message}`, "err");
@@ -844,6 +852,8 @@ function finalizeRow(row, it, src) {
 // 작성자의 다른 글로 타사 차(예: 기아 EV6)로 확인되면 보고서에서 뺀다.
 // (네이버 화면을 더 열게 되므로 한 번 수집에 최대 AUTHOR_LOOKUP_MAX 명까지)
 const AUTHOR_LOOKUP_MAX = 60;
+const AUTHOR_POST_READS = 3; // 제목에 차명이 없을 때 작성자의 다른 글 본문·댓글을 열어 보는 최대 수 (한 사람당)
+const AUTHOR_POST_READS_MAX = 120; // 한 번 수집에 전체 상한 (네이버 화면 수 보호)
 async function refineUncertainCars(src, items, judged, ctx) {
   const targets = items.filter((it) => {
     const j = judged.get(it.key);
@@ -858,9 +868,27 @@ async function refineUncertainCars(src, items, judged, ctx) {
     if (ctx.authorLookups >= AUTHOR_LOOKUP_MAX || state.stopRequested) break;
     ctx.authorLookups++;
     try {
-      const titles = await ctx.naver.authorTitles(it, src.cafe, it.writer);
-      log(`${src.name}: 「${it.title}」 작성자(${it.writer.nick || "닉네임 모름"})의 다른 글 ${titles.length}개 확인`);
-      asks.push({ key: it.key, needCar: it.needCar, title: it.title, carNow: judged.get(it.key).car_code, carHint: it.carHint, nick: it.writer.nick, authorTitles: titles, comments: it.comments });
+      const posts = await ctx.naver.authorPosts(it, src.cafe, it.writer);
+      const titles = posts.map((p) => p.title);
+      // 제목에 차명이 안 보이면 다른 글을 직접 열어 본문·댓글에서 찾는다 (차명이 나오면 그만)
+      const texts = [];
+      const codes = state.carCodeList || parseCarCodes(state.settings.carCodes);
+      if (!mentionsAnyCar(titles.join("\n"), codes)) {
+        for (const p of posts) {
+          if (texts.length >= AUTHOR_POST_READS || (ctx.authorPostReads || 0) >= AUTHOR_POST_READS_MAX || state.stopRequested) break;
+          ctx.authorPostReads = (ctx.authorPostReads || 0) + 1;
+          try {
+            const t = await ctx.naver.authorPostText(src.cafe, p);
+            if (!t) continue;
+            texts.push(t);
+            if (mentionsAnyCar(`${t.title}\n${t.body}\n${t.comments}`, codes)) break;
+          } catch (e) {
+            if (e instanceof StopError || e instanceof BlockedError) throw e;
+          }
+        }
+      }
+      log(`${src.name}: 「${it.title}」 작성자(${it.writer.nick || "닉네임 모름"})의 다른 글 ${titles.length}개 제목${texts.length ? `, ${texts.length}개 본문·댓글` : ""} 확인`);
+      asks.push({ key: it.key, needCar: it.needCar, title: it.title, carNow: judged.get(it.key).car_code, carHint: it.carHint, nick: it.writer.nick, authorTitles: titles, authorTexts: texts, comments: it.comments });
     } catch (e) {
       if (e instanceof StopError || e instanceof BlockedError) throw e;
       log(`${src.name} 작성자 글 확인 실패: ${e.message}`, "err");
@@ -1312,15 +1340,18 @@ async function runCollection() {
       log(`오늘은 ${off} → 엑셀은 받지 않고 데일리 DB 에 저장했습니다. 다음 근무일 아침 보고서에 합쳐집니다.`);
       chrome.runtime.sendMessage({ type: "autoRunDone", count: state.rows.length, holiday: off }).catch(() => {});
     } else {
+      let where = "";
       try {
         if (settings.workdayReport) await buildWorkdayReport(ai, settings);
-        const where = await downloadReport(state.rows, state.range, false);
+        where = await downloadReport(state.rows, state.range, false);
         await chrome.storage.local.set({ lastReportAt: finishedAt });
         log(`엑셀을 ${where}에 저장했습니다`);
+        setSummary(`${$("#summary").textContent} · 엑셀을 ${where}에 저장했습니다`);
       } catch (e) {
         log(`엑셀 저장 실패: ${e.message}`, "err");
       }
-      chrome.runtime.sendMessage({ type: "autoRunDone", count: state.rows.length, blocked: state.naverBlocked }).catch(() => {});
+      chrome.runtime.sendMessage({ type: "autoRunDone", count: state.rows.length, blocked: state.naverBlocked, where }).catch(() => {});
+      if (where) savedAlert(where, true);
     }
   }
 }

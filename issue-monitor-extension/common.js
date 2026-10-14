@@ -303,6 +303,14 @@ function keywordCategory(text) {
 }
 
 // 제목에 분명히 적힌 차종들 (서로 다른 기본 코드만, 가장 구체적인 이름 기준)
+// 현대차·제네시스 외 브랜드·차명 (작성자 차종 확인용)
+const OTHER_BRAND_RE = /기아|EV\s?[3-9]\b|니로|쏘렌토|스포티지|카니발|셀토스|모닝|K[3589]\b|테슬라|모델\s?[3YSX]\b|BYD|폴스타|벤츠|BMW|아우디|볼보|폭스바겐|토요타|렉서스|쉐보레|르노|KG|토레스/i;
+
+// 글(제목·본문)에 현대차·제네시스 차명이나 타사 차명이 나오는지
+function mentionsAnyCar(text, carCodes) {
+  return titleCarCodes(text, carCodes).length > 0 || OTHER_BRAND_RE.test(String(text || ""));
+}
+
 function titleCarCodes(title, carCodes) {
   const t = String(title || "").replace(/\s+/g, "");
   const found = new Map(); // 기본 코드 → 가장 긴 이름의 코드

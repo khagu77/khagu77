@@ -763,8 +763,12 @@ class NaverCollector {
     throw new PassError(cafe.viaSearch ? "네이버 검색으로도 본문 확인 불가" : "본문 안 보임 → 네이버 검색으로도 확인 불가");
   }
 
-  // PE 여부 등 차종이 애매할 때: 작성자 정보(작성 글 목록) 화면을 열어 그 사람이 쓴 다른 글 제목을 모은다
+  // PE 여부 등 차종이 애매할 때: 작성자 정보(작성 글 목록) 화면을 열어 그 사람이 쓴 다른 글 [{articleId, title}] 을 모은다
   async authorTitles(post, cafe, writer) {
+    return (await this.authorPosts(post, cafe, writer)).map((p) => p.title);
+  }
+
+  async authorPosts(post, cafe, writer) {
     let url = writer && /members|memberid=/i.test(writer.href || "") ? writer.href : "";
     if (!url && writer && writer.memberKey) {
       const { clubIds = {} } = await chrome.storage.local.get("clubIds");
@@ -773,14 +777,27 @@ class NaverCollector {
     if (!url) return [];
     await this.wait(this.delays.article);
     await this.openChecked(url);
-    let titles = [];
-    for (let attempt = 0; attempt < 4 && !titles.length; attempt++) {
+    let list = [];
+    for (let attempt = 0; attempt < 4 && !list.length; attempt++) {
       const datas = await this.tab.captured();
-      titles = articlesFromJson(datas, null).map((a) => a.title);
-      if (!titles.length) titles = (await this.tab.run(listArticlesInFrame)).flat().map((d) => d.title);
-      if (!titles.length) await sleep(1500);
+      list = articlesFromJson(datas, null).map((a) => ({ articleId: a.articleId, title: a.title }));
+      if (!list.length) list = (await this.tab.run(listArticlesInFrame)).flat().map((d) => ({ articleId: d.articleId, title: d.title }));
+      if (!list.length) await sleep(1500);
     }
-    return [...new Set(titles)].filter((t) => t && t !== post.title).slice(0, 30);
+    const seen = new Set();
+    return list
+      .filter((p) => p.title && p.title !== post.title && String(p.articleId) !== String(post.articleId || post.key) && !seen.has(p.title) && seen.add(p.title))
+      .slice(0, 30);
+  }
+
+  // 작성자의 다른 글 하나를 열어 본문·댓글 일부를 읽는다 (제목에 차명이 없을 때 내용에서 차종 찾기)
+  async authorPostText(cafe, p) {
+    await this.wait(this.delays.article);
+    const url = `https://cafe.naver.com/${cafe.id}/${p.articleId}`;
+    await this.openChecked(url);
+    const info = await this.readOpenedArticle({ articleId: p.articleId, title: p.title });
+    if (!info) return null;
+    return { title: info.title || p.title, body: String(info.body || "").slice(0, 600), comments: String(info.comments || "").slice(0, 400) };
   }
 
   async readViaSearch(post, cafe) {

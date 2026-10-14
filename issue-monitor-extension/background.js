@@ -116,7 +116,7 @@ chrome.runtime.onMessage.addListener((msg) => {
         ? `${msg.count}건 수집 (${msg.holiday}) → 다음 근무일 아침 보고서에 합쳐집니다.`
         : msg.blocked
           ? `${msg.count}건 저장 (주의: ${msg.blocked})`
-          : `${msg.count}건을 엑셀로 저장했습니다.`,
+          : `${msg.count}건을 엑셀로 저장했습니다${msg.where ? ` (${msg.where})` : ""}.`,
     });
   }
 });
