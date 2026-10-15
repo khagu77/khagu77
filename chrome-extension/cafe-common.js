@@ -275,7 +275,40 @@ function blobToDataUrl(blob) {
   });
 }
 
+// 맥: 받은 파일의 '출처'(다운로드한 곳) 정보를 빠른다운로드 도우미로 지운다.
+// 크롬은 내려받은 파일마다 받은 곳(chrome-extension://…)을 남기고 확장프로그램이 이를 막을 방법이 없어,
+// 저장이 끝난 뒤 도우미가 그 정보만 지운다. 도우미가 없거나 맥이 아니면 아무것도 하지 않는다.
+const META_HELPER = "com.khagu77.ytdl";
+const IS_MAC = /Mac/i.test(navigator.userAgent) || !!globalThis.__forceCleanMeta;
+
+function cleanWhereFrom(filename) {
+  const bytes = new TextEncoder().encode(filename);
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return chrome.runtime.sendNativeMessage(META_HELPER, { action: "cleanmeta", b64: btoa(s) }).catch(() => null);
+}
+
+// name 으로 막 받은 파일을 찾아, 저장이 끝나면 출처 정보를 지운다 (최대 2분 기다림)
+async function cleanAfterDownload(name, startedAfter) {
+  if (!IS_MAC || !chrome.downloads?.search) return;
+  const stem = name.replace(/\.[^.]+$/, "");
+  const ext = name.slice(stem.length);
+  const base = (p) => String(p).split(/[\\/]/).pop();
+  const matches = (item) => {
+    const b = base(item.filename || "");
+    return b === name || (b.startsWith(stem) && b.endsWith(ext) && /^ \(\d+\)$/.test(b.slice(stem.length, b.length - ext.length)));
+  };
+  for (let i = 0; i < 120; i++) {
+    const items = await chrome.downloads.search({ startedAfter, orderBy: ["-startTime"] }).catch(() => []);
+    const item = items.find(matches);
+    if (item?.state === "complete") return cleanWhereFrom(item.filename);
+    if (item?.state === "interrupted") return;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
 async function clickDownload(blob, name) {
+  const startedAfter = new Date(Date.now() - 2000).toISOString();
   const a = document.createElement("a");
   a.href = await blobToDataUrl(blob);
   a.download = name;
@@ -285,6 +318,7 @@ async function clickDownload(blob, name) {
   document.body.appendChild(a);
   a.click();
   a.remove();
+  cleanAfterDownload(name, startedAfter);
 }
 
 async function downloadBytes(bytes, name) {
@@ -293,7 +327,9 @@ async function downloadBytes(bytes, name) {
   if (folder || ask) {
     try {
       const url = await blobToDataUrl(blob);
+      const startedAfter = new Date(Date.now() - 2000).toISOString();
       await chrome.downloads.download({ url, filename: folder ? `${folder}/${name}` : name, saveAs: ask, conflictAction: "uniquify" });
+      cleanAfterDownload(name, startedAfter);
       return;
     } catch {
       /* 아래 기본 방식으로 */

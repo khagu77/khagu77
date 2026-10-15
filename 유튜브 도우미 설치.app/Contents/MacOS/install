@@ -6,6 +6,7 @@
 
 HOST_NAME="com.khagu77.ytdl"
 EXT_ID="pjmcafienhpdbpljglddhaknajaekhcm" # 확장프로그램 manifest.json 의 key 로 고정된 ID
+CMT_ID="edngphpmbgehcodhafhapdapdncnkcba" # 댓글수집기(팰리세이드 LX3) - 받은 엑셀의 '출처' 정보 지우기에만 사용
 RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
 DEST="$HOME/Library/Application Support/YTScriptHelper"
 SUPPORT="$HOME/Library/Application Support"
@@ -31,7 +32,7 @@ MANIFEST="{
   \"description\": \"YouTube 스크립트 및 영상 파일 추출 - 음성 빠른 다운로드 도우미\",
   \"path\": \"$DEST/ytdl_host.sh\",
   \"type\": \"stdio\",
-  \"allowed_origins\": [\"chrome-extension://$EXT_ID/\"]
+  \"allowed_origins\": [\"chrome-extension://$EXT_ID/\", \"chrome-extension://$CMT_ID/\"]
 }"
 
 registered=""

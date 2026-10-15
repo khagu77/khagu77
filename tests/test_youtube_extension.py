@@ -987,5 +987,65 @@ def test_helper_installer(tmp_path: Path):
     assert os.access(dest / "bin/ffmpeg", os.X_OK) and (dest / "bin/ffmpeg").read_bytes()[:4] == b"\xcf\xfa\xed\xfe"
     for b in ("Google/Chrome", "Naver/Whale"):
         m = json.loads((sup / b / "NativeMessagingHosts/com.khagu77.ytdl.json").read_text())
-        assert m["path"] == str(dest / "ytdl_host.sh") and m["allowed_origins"] == [f"chrome-extension://{EXT_ID}/"]
+        assert m["path"] == str(dest / "ytdl_host.sh") and m["allowed_origins"] == [f"chrome-extension://{EXT_ID}/", "chrome-extension://edngphpmbgehcodhafhapdapdncnkcba/"]
     assert not (sup / "Microsoft Edge").exists()  # 없는 브라우저는 건드리지 않는다
+
+
+def test_helper_cleanmeta(tmp_path: Path):
+    """맥 도우미: 받은 엑셀의 '출처'(kMDItemWhereFroms) 정보만 지운다. 내 폴더 밖·다른 형식 파일은 거부.
+    리눅스에는 xattr 명령이 없으므로 같은 이름의 가짜 명령으로 불린 인자를 확인한다."""
+    import base64
+    import struct
+
+    home = tmp_path / "home"
+    target = home / "Downloads" / "팰리세이드 모니터링" / "20261015_채널별 댓글 raw data_취합본 (1).xlsx"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"PK")
+    outside = tmp_path / "outside.xlsx"
+    outside.write_bytes(b"PK")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "xattr.log"
+    (bin_dir / "xattr").write_text(f"#!/bin/bash\nprintf '%s\\n' \"$@\" >> '{log}'\n")
+    (bin_dir / "xattr").chmod(0o755)
+
+    def ask(path):
+        msg = json.dumps({"action": "cleanmeta", "b64": base64.b64encode(str(path).encode()).decode()}).encode()
+        env = {**os.environ, "HOME": str(home), "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+        p = subprocess.run([str(HELPER_APP / "Contents/Resources/ytdl_host.sh")], input=struct.pack("<I", len(msg)) + msg,
+                           capture_output=True, env=env, timeout=30)
+        n = struct.unpack("<I", p.stdout[:4])[0]
+        return json.loads(p.stdout[4:4 + n])
+
+    assert ask(target) == {"type": "cleaned", "ok": True}
+    assert log.read_text().splitlines() == ["-d", "com.apple.metadata:kMDItemWhereFroms", str(target)]
+    log.unlink()
+    assert ask(outside) == {"type": "cleaned", "ok": False}  # 내 폴더 밖
+    assert ask(home / "Downloads" / "x.sh") == {"type": "cleaned", "ok": False}  # 엑셀·txt 가 아님
+    assert not log.exists()
+    install = (HELPER_APP / "Contents/MacOS/install").read_text()
+    assert "edngphpmbgehcodhafhapdapdncnkcba" in install  # 댓글수집기도 도우미에 등록
+
+
+def test_clean_after_download(tmp_path: Path):
+    """확장: 맥에서 파일을 받으면 저장이 끝난 뒤 그 파일 경로로 도우미에 '출처 지우기'를 부탁한다
+    ('파일 (1).xlsx' 처럼 이름이 바뀐 경우 포함, 비슷한 다른 파일은 건드리지 않음)."""
+    with sync_playwright() as p:
+        ctx = launch(p, tmp_path, EXT_DIR, 1)
+        page = ext_page(ctx, "script.html")
+        sent = page.evaluate("""async () => {
+          const sent = [];
+          const items = [
+            { filename: '/Users/a/Downloads/20261015_유튜브스크립트_3개 (2).xlsx', state: 'in_progress' },
+            { filename: '/Users/a/Downloads/20261015_유튜브스크립트_3개 다른.xlsx', state: 'complete' },
+          ];
+          let calls = 0;
+          chrome.downloads.search = async () => { if (++calls === 2) items[0].state = 'complete'; return items; };
+          chrome.runtime.sendNativeMessage = async (host, msg) => { sent.push([host, msg]); return { ok: true }; };
+          globalThis.__forceCleanMeta = true;
+          // IS_MAC 은 페이지가 뜰 때 정해지므로 같은 동작을 다시 확인
+          await (async () => { const f = cleanAfterDownload; if (!IS_MAC) { await eval('(' + f.toString().replace('if (!IS_MAC || !chrome.downloads?.search) return;', '') + ')')('20261015_유튜브스크립트_3개.xlsx', new Date().toISOString()); } else { await f('20261015_유튜브스크립트_3개.xlsx', new Date().toISOString()); } })();
+          return sent.map(([h, m]) => [h, m.action, new TextDecoder().decode(Uint8Array.from(atob(m.b64), c => c.charCodeAt(0)))]);
+        }""")
+        ctx.close()
+    assert sent == [["com.khagu77.ytdl", "cleanmeta", "/Users/a/Downloads/20261015_유튜브스크립트_3개 (2).xlsx"]], sent
