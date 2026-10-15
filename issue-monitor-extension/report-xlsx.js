@@ -131,7 +131,7 @@
       ' xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x14ac" xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac">' +
       '<sheetPr codeName="Sheet1"/>' +
       `<dimension ref="A1:${rows.some((r) => r.report) ? "G" : "F"}${lastRow}"/>` +
-      '<sheetViews><sheetView tabSelected="1" zoomScale="85" zoomScaleNormal="85" workbookViewId="0"><selection activeCell="A1" sqref="A1"/></sheetView></sheetViews>' +
+      '<sheetViews><sheetView tabSelected="1" workbookViewId="0"><selection activeCell="A1" sqref="A1"/></sheetView></sheetViews>' +
       '<sheetFormatPr defaultRowHeight="17.399999999999999" x14ac:dyDescent="0.4"/>' +
       `<cols>${cols}</cols><sheetData>${data}</sheetData>` +
       (links.length ? `<hyperlinks>${links.map((l, i) => `<hyperlink ref="${l.ref}" r:id="rId${i + 1}"/>`).join("")}</hyperlinks>` : "") +
