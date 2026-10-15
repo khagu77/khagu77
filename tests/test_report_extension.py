@@ -118,6 +118,14 @@ LONG_HTML = ("<html><head><meta charset='utf-8'><style>body{margin:0;font:16px/1
              + "<div class='se-component se-text'><p style='color:#ff0000;font-weight:bold'>마지막 줄입니다 끝</p></div>"
              "</div></body></html>")
 
+# 검색으로 들어온 영운모 글: 댓글에 사진(파랑)이 붙어 있다 → 사진은 빼고 글자·작성일시만 이어 붙여 캡처
+COMMENT_PHOTO = _svg('<rect width="250" height="180" fill="#0000ff"/>', 250, 180)
+SEARCH_ARTICLE_HTML = ARTICLE_HTML.replace("allfm01/2157343", "truckerking/1270224").replace(
+    comment_li("회원1", "저도 같은 증상이에요"),
+    comment_li("회원1", "헉...저도 차량 인도받고 30분만에 그랬었습니다...ㅠㅠ",
+               extra=f'<div class="comment_attach_image"><a href="#"><img src="{COMMENT_PHOTO}" '
+                     'style="width:250px;height:180px;border-radius:10px"></a></div>'))
+
 DELETED_HTML = ("<html><body><script>alert('삭제되었거나 존재하지 않는 게시글입니다.');</script>"
                 "<p>삭제되었거나 존재하지 않는 게시글입니다.</p></body></html>")
 
@@ -251,7 +259,8 @@ def make_excel(path: Path, rows=DEFAULT_ROWS):
     wb.save(path)
 
 
-def start_fake_cafe(tmp_path: Path):
+def start_fake_cafe(tmp_path: Path, hits=None):
+    hits = [] if hits is None else hits
     cert, key = tmp_path / "cert.pem", tmp_path / "key.pem"
     subprocess.run(
         ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=cafe.naver.com",
@@ -261,6 +270,35 @@ def start_fake_cafe(tmp_path: Path):
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
+            hits.append((self.headers.get("Host", ""), self.path, self.headers.get("Referer", "")))
+            body = None
+            # 영운모(truckerking): 비회원은 글 주소로 바로 못 보고, 네이버 검색 결과 링크(?art=…)로만 열린다
+            if self.path.startswith("/search.naver"):
+                from urllib.parse import parse_qs, urlparse
+                q = parse_qs(urlparse(self.path).query).get("query", [""])[0]
+                link = ('<a href="https://cafe.naver.com/truckerking/1270224?art=SEARCHTOKEN" target="_blank">EPB 경고등</a>'
+                        if "EPB 경고등 점등" in q else "")
+                body = f'<html><body><a href="https://cafe.naver.com/other/1">다른 글</a>{link}</body></html>'.encode()
+            elif self.path == "/truckerking":
+                body = '<html><body><a href="/f-e/cafes/777/menus/0">전체글보기</a></body></html>'.encode()
+            elif self.path.startswith("/f-e/cafes/777/menus/0"):
+                page = "page=1" in self.path
+                rows = (['<li><a href="/f-e/cafes/777/articles/1270223">다른 글 제목입니다</a></li>',
+                         '<li><a href="/f-e/cafes/777/articles/1270224">EPB 경고등 점등 및 속도 게이지 문의</a></li>',
+                         '<li><a href="/f-e/cafes/777/articles/1270225">세 번째 글 제목</a></li>'] if page else [])
+                body = ("<html><body><ul>" + "".join(rows) + "</ul></body></html>").encode()
+            elif self.path.startswith("/truckerking/1270224"):
+                if "art=SEARCHTOKEN" in self.path:
+                    body = SEARCH_ARTICLE_HTML.encode()
+                else:
+                    body = '<html><body><div class="cafe_join">카페 멤버만 볼 수 있습니다. 가입하기</div></body></html>'.encode()
+            if body is not None:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
             if self.path == "/xSBkYEbW":  # naver.me 단축 주소 → 새 카페 화면 주소로 이동
                 self.send_response(302)
                 self.send_header("Location", "https://cafe.naver.com/f-e/cafes/1/articles/45176")
@@ -836,3 +874,46 @@ def test_media_only_post_layout(tmp_path):
         assert 4.55 * cm <= p["x"] and p["x"] + p["w"] <= 18.66 * cm + 10
         assert p["y"] >= header["y"] + header["h"] and p["y"] + p["h"] <= top_comment
     assert tall[0]["x"] >= 19.8 * cm  # 세로 사진은 오른쪽 영역
+
+
+def test_search_entry_and_comment_photo_removed(tmp_path):
+    """영운모: 글 주소로 바로 안 열리는 동호회 → 카페 전체글 목록에서 제목을 찾아 네이버 검색 → 검색 결과 링크로 들어가 캡처.
+    댓글에 붙은 사진은 지우고 댓글 글자와 작성일시만 이어 붙여 찍는다."""
+    from playwright.sync_api import sync_playwright
+
+    hits = []
+    server = start_fake_cafe(tmp_path, hits)
+    port = server.server_address[1]
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile_s"), executable_path=CHROMIUM, headless=True,
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}",
+                  f"--host-resolver-rules=MAP cafe.naver.com 127.0.0.1:{port},MAP search.naver.com 127.0.0.1:{port}",
+                  "--no-proxy-server", "--ignore-certificate-errors"])
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        page = ctx.new_page()
+        page.goto(f"chrome-extension://{sw.url.split('/')[2]}/app.html")
+        res = page.evaluate("""async () => {
+            const cap = await captureCafePost("https://cafe.naver.com/truckerking/1270224", () => {}, { cafe: "영운모" });
+            const c0 = cap.info.comments.find((c) => c.text.startsWith("헉"));
+            const blob = cap.comments[cap.info.comments.indexOf(c0)];
+            const bmp = await createImageBitmap(blob);
+            const cv = new OffscreenCanvas(bmp.width, bmp.height);
+            const g = cv.getContext("2d"); g.drawImage(bmp, 0, 0);
+            const px = g.getImageData(0, 0, bmp.width, bmp.height).data;
+            let blue = 0;
+            for (let i = 0; i < px.length; i += 4) if (px[i] < 40 && px[i + 1] < 40 && px[i + 2] > 200) blue++;
+            return { url: cap.info.canonicalUrl, body: cap.info.bodyText, hasImage: c0.hasImage,
+                     h: bmp.height / cap.dpr, blue };
+        }""")
+        ctx.close()
+    server.shutdown()
+    assert res["url"] == "https://cafe.naver.com/truckerking/1270224"
+    assert "공조기" in res["body"]
+    search = [h for h in hits if h[1].startswith("/search.naver")]
+    assert search and "EPB" in __import__("urllib.parse").parse.unquote(search[0][1])
+    entered = [h for h in hits if "art=SEARCHTOKEN" in h[1]]
+    assert entered and "search.naver.com" in entered[0][2]  # 검색 결과 화면에서 들어감
+    assert not any(h[1] == "/truckerking/1270224" for h in hits)  # 글 주소로 바로 열지 않음
+    assert res["hasImage"] and res["blue"] == 0, res  # 댓글 사진은 지움
+    assert res["h"] < 110, res  # 사진 자리 없이 글자 + 작성일시만

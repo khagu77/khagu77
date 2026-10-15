@@ -14,7 +14,8 @@
     car: [/차종/, /모델/],
     date: [/게시일/, /작성일/, /날짜/, /일자/],
     kind: [/구분/, /유형/],
-    main: [/주요\s*내용/, /내용/, /요약/, /제목/],
+    title: [/제목/],
+    main: [/주요\s*내용/, /내용/, /요약/],
   };
   const PLUS = /^[+＋]$/;
   const HTTP = /^https?:\/\//i;
@@ -120,7 +121,7 @@
       }
     }
     if (bestScore < 2) headerAt = -1;
-    const col = { url: -1, cafe: -1, car: -1, date: -1, kind: -1, main: -1 };
+    const col = { url: -1, cafe: -1, car: -1, date: -1, kind: -1, title: -1, main: -1 };
     if (headerAt >= 0) {
       const head = rows[headerAt].map((c) => c.text);
       for (const [key, pats] of Object.entries(HEADERS)) {
@@ -171,7 +172,8 @@
           date: serialToDate(get(r, "date")),
           kind: get(r, "kind") || "품질",
           url: url.trim(),
-          main: get(r, "main"),
+          title: get(r, "title"), // 글 제목 (영운모·넥쏘카페 네이버 검색용)
+          main: get(r, "main") || get(r, "title"),
           row: headerAt + i + 2,
           sheet: sheet.name,
         });

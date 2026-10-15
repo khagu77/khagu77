@@ -68,6 +68,25 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     return { left: l, top: t, width: r - l, height: b - t };
   }
 
+  // 댓글에 붙은 사진·영상 (작성자 프로필 아이콘·등급 표시 같은 작은 그림은 빼고). 그림만 담은 감싸개까지 돌려준다
+  function commentMedia(li) {
+    const out = [];
+    const PROFILE = "[class*='thumb' i], [class*='profile' i], [class*='nick' i], [class*='badge' i], [class*='level' i], [class*='icon' i]";
+    for (const m of li.querySelectorAll("img, video, iframe, canvas")) {
+      if (m.closest(PROFILE) && !m.closest("[class*='attach' i], [class*='comment_image' i]")) continue;
+      const r = m.getBoundingClientRect();
+      const w = r.width || m.width || 0;
+      const h = r.height || m.height || 0;
+      if (w && h && w < 40 && h < 40) continue; // 작은 아이콘
+      let box = m;
+      while (box.parentElement && box.parentElement !== li && !box.parentElement.innerText.trim() && !box.parentElement.querySelector("button")) {
+        box = box.parentElement;
+      }
+      out.push(box);
+    }
+    return out;
+  }
+
   function toPage(el, pad = 2) {
     const own = el.getBoundingClientRect();
     const u = unionRect([el]);
@@ -145,8 +164,10 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
       el.querySelectorAll("img, video, iframe, canvas, .se-image, .se-sticker, .se-video, .se-oglink, .se-map, .se-file").forEach(remove);
       el.querySelectorAll("[data-rpt-boiler]").forEach(remove);
     } else if (target.startsWith("comment")) {
-      // 댓글: 작성자 아이콘·하트·… 버튼은 그대로 두고 이모티콘(스티커)만 가린다 → 빈 자리는 줄여 붙여 작성일시가 글 바로 밑에 붙음
-      el.querySelectorAll("[class*='sticker' i]").forEach(hide);
+      // 댓글: 작성자 아이콘·하트·… 버튼은 그대로 두고, 댓글에 붙은 사진·이모티콘(스티커)·영상은 자리까지 없앤다
+      // → 댓글 글자 바로 밑에 작성일시가 이어 붙는다
+      el.querySelectorAll("[class*='sticker' i]").forEach(remove);
+      for (const m of commentMedia(el)) remove(m);
     }
     el.scrollIntoView({ block: "center" });
     // 늦게 불러오는 그림(프로필 아이콘 등)이 다 그려질 때까지 기다린다 (최대 3초)
@@ -171,7 +192,8 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
   if (!body) {
     const pageText = `${document.body?.innerText || ""} ${doc.body?.innerText || ""}`;
     if (/삭제되었거나|존재하지 않는 게시글|삭제된 게시글|삭제된 게시물/.test(pageText)) return { error: "deleted" };
-    return { error: "nobody", href: location.href };
+    const t = pick(doc, SEL.title);
+    return { error: "nobody", href: location.href, title: t ? t.innerText.trim() : "" };
   }
 
   // 늦게 불러오는 그림·댓글이 나오도록 끝까지 천천히 내렸다가 올린다
@@ -387,8 +409,9 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     if (!text) continue;
     if (comments.length >= maxComments) break;
     const hasSticker = !!li.querySelector("[class*='sticker' i]");
+    const hasImage = commentMedia(li).length > 0;
     li.setAttribute("data-rpt", `comment${ci}`);
-    comments.push({ index: ci, nickname, text, hasSticker });
+    comments.push({ index: ci, nickname, text, hasSticker, hasImage });
     ci++;
   }
   if (!commentCount) commentCount = String(doc.querySelectorAll(SEL.commentItem.join(",")).length);
@@ -578,6 +601,98 @@ async function cafeListProbe(limit) {
 }
 
 // ---------------------------------------------------------------------------
+// 네이버 검색으로 들어가기
+// 영운모·넥쏘카페처럼 카페 가입 없이는 글 주소로 바로 열리지 않는 동호회는 네이버에서 글 제목을 검색해
+// 검색 결과의 글 링크로 들어가야 열린다 (검색 결과 링크로 들어오면 비회원도 볼 수 있게 열어 둔 카페).
+// ---------------------------------------------------------------------------
+const SEARCH_ENTRY_CAFES = [/영운모/, /넥쏘/, /truckerking/i]; // 처음부터 검색으로 들어가는 동호회 (이름 또는 카페 주소)
+const ARTICLE_URL = /^https?:\/\/(?:m\.)?cafe\.naver\.com\/([A-Za-z0-9_\-]+)\/(\d+)(?:[/?#]|$)/;
+
+function needsSearchEntry(url, cafeName) {
+  const slug = (String(url).match(ARTICLE_URL) || [])[1] || "";
+  return SEARCH_ENTRY_CAFES.some((re) => re.test(cafeName || "") || re.test(slug));
+}
+
+// 검색 결과 화면 안에서 실행: 이 글(카페 주소·글번호)로 가는 링크를 찾아 돌려준다
+async function searchResultProbe(slug, articleId, clubId) {
+  const match = (h) =>
+    h.includes(`cafe.naver.com/${slug}/${articleId}`) ||
+    new RegExp(`articleid=${articleId}(?!\\d)`, "i").test(h) ||
+    (clubId && h.includes(`/cafes/${clubId}/articles/${articleId}`));
+  for (let t = 0; t < 16; t++) {
+    const a = [...document.querySelectorAll("a[href]")].find((x) => match(x.href));
+    if (a) return a.href;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return "";
+}
+
+// 카페 첫 화면 안에서 실행: 카페 번호(clubid)
+function clubIdProbe() {
+  const html = document.documentElement.outerHTML;
+  const m =
+    html.match(/clubid=(\d+)/i) || html.match(/\/cafes\/(\d+)\//) || html.match(/g_sClubId\s*=\s*["']?(\d+)/) || html.match(/"clubId"\s*:\s*"?(\d+)/);
+  return m ? m[1] : "";
+}
+
+async function runProbe(tabId, func, args = []) {
+  const [res] = await withTimeout(chrome.scripting.executeScript({ target: { tabId }, func, args }), 20000);
+  return res && res.result;
+}
+
+// 글 제목 찾기: 엑셀 제목 → 막힌 화면에 보이는 제목 → 카페 전체글 목록에서 글번호로
+async function findTitle(tabId, slug, articleId, known) {
+  if (known && known.title) return { title: known.title, clubId: "" };
+  let clubId = "";
+  try {
+    await gotoAndWait(tabId, `https://cafe.naver.com/${slug}`);
+    clubId = (await runProbe(tabId, clubIdProbe)) || "";
+  } catch {
+    /* 목록에서 못 찾음 */
+  }
+  if (!clubId) return { title: "", clubId };
+  const same = (h) => h.includes(`/articles/${articleId}`) || new RegExp(`articleid=${articleId}(?!\\d)`, "i").test(h) || h.includes(`/${slug}/${articleId}`);
+  for (let page = 1; page <= 4; page++) {
+    for (const u of [
+      `https://cafe.naver.com/f-e/cafes/${clubId}/menus/0?viewType=L&size=50&page=${page}`,
+      `https://cafe.naver.com/ArticleList.nhn?search.clubid=${clubId}&search.boardtype=L&search.page=${page}&userDisplay=50`,
+    ]) {
+      const rows = await readList(tabId, u);
+      const hit = rows.find((r) => same(r.href || ""));
+      if (hit) return { title: hit.title, clubId };
+      if (rows.length) break; // 이 주소 형식이 통하면 다음 쪽으로
+    }
+    await sleep(800 + Math.random() * 800);
+  }
+  return { title: "", clubId };
+}
+
+// 네이버에서 제목을 검색해 검색 결과의 글 링크로 들어간다. 성공하면 true
+async function enterViaSearch(tabId, url, known, onStep) {
+  const m = String(url).match(ARTICLE_URL);
+  if (!m) return false;
+  const [, slug, articleId] = m;
+  onStep("네이버 검색으로 들어가는 중");
+  const { title, clubId } = await findTitle(tabId, slug, articleId, known);
+  if (!title) return false;
+  const clean = title.replace(/\[[^\]]*\]|\([^)]*\)/g, " ").replace(/\s+/g, " ").trim() || title;
+  const queries = [`"${title}"`, title, `${clean} ${known.cafe || ""}`.trim()];
+  for (const q of [...new Set(queries)]) {
+    for (const base of ["https://search.naver.com/search.naver?ssc=tab.cafe.all&query=", "https://search.naver.com/search.naver?where=article&query="]) {
+      await gotoAndWait(tabId, base + encodeURIComponent(q));
+      const href = await runProbe(tabId, searchResultProbe, [slug, articleId, clubId]).catch(() => "");
+      if (href) {
+        // 검색 결과 화면에서 링크를 누른 것처럼 이동 (검색에서 들어온 것으로 열림)
+        await waitLoad(tabId, () => chrome.scripting.executeScript({ target: { tabId }, func: (h) => { location.href = h; }, args: [href] }));
+        return true;
+      }
+      await sleep(600 + Math.random() * 600);
+    }
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // 창 열기 / 디버거 / 캡처
 // ---------------------------------------------------------------------------
 
@@ -622,6 +737,11 @@ async function openWindow(url) {
 const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("시간 초과")), ms))]);
 
 async function gotoAndWait(tabId, url) {
+  await waitLoad(tabId, () => chrome.tabs.update(tabId, { url }));
+}
+
+// trigger() 로 이동을 시작하고 화면을 다 불러올 때까지 기다린다
+async function waitLoad(tabId, trigger) {
   await new Promise((resolve) => {
     const timer = setTimeout(done, 30000);
     function done() {
@@ -633,7 +753,7 @@ async function gotoAndWait(tabId, url) {
       if (id === tabId && info.status === "complete") done();
     }
     chrome.tabs.onUpdated.addListener(listener);
-    chrome.tabs.update(tabId, { url }).catch(done);
+    Promise.resolve().then(trigger).catch(done);
   });
   await sleep(2000);
 }
@@ -734,25 +854,50 @@ class DeletedPostError extends CaptureError {}
 const DELETED_RE = /삭제되었거나|존재하지 않는 게시글|삭제된 게시글|삭제된 게시물/;
 
 // → { info, header, body, comments: [Blob|null], images: [Blob|null], dpr }
-async function captureCafePost(url, onStep = () => {}) {
+// known: { cafe: 동호회명, title: 엑셀에 적힌 글 제목 }
+async function captureCafePost(url, onStep = () => {}, known = {}) {
   const saved = await chrome.storage.local.get(["boilerplates"]).catch(() => ({}));
   knownBoilerplates = [...SEED_BOILERPLATES, ...(saved.boilerplates || []).filter((k) => !SEED_BOILERPLATES.includes(k))];
   onStep("게시글 여는 중");
-  const { tabId, dialogs, close } = await openWindow(url);
+  // 영운모·넥쏘카페: 글 주소로 바로 열지 않고 처음부터 네이버 검색으로 들어간다
+  const searchFirst = needsSearchEntry(url, known.cafe);
+  const { tabId, dialogs, close } = await openWindow(searchFirst ? "about:blank" : url);
   try {
-    let info = null;
-    for (let attempt = 0; attempt < 6; attempt++) {
-      if (dialogs.some((m) => DELETED_RE.test(m))) break;
-      info = await withTimeout(probe(tabId, "info"), 40000).catch(() => null);
-      if (info && (!info.error || info.error === "login" || info.error === "deleted")) break;
-      await sleep(1500);
+    const readInfo = async (tries) => {
+      let got = null;
+      for (let attempt = 0; attempt < tries; attempt++) {
+        if (dialogs.some((m) => DELETED_RE.test(m))) break;
+        got = await withTimeout(probe(tabId, "info"), 40000).catch(() => null);
+        if (got && (!got.error || got.error === "login" || got.error === "deleted")) break;
+        await sleep(1500);
+      }
+      return got;
+    };
+    let info = searchFirst ? null : await readInfo(6);
+    // 가입해야 보이는 글: 네이버에서 제목을 검색해 검색 결과 링크로 다시 들어간다
+    if (searchFirst || (info && info.error === "nobody")) {
+      const seen = { ...known, title: known.title || (info && info.title) || "" };
+      if (await enterViaSearch(tabId, url, seen, onStep).catch(() => false)) info = await readInfo(6);
+      else if (searchFirst) {
+        await gotoAndWait(tabId, url);
+        info = await readInfo(3);
+      }
+      if (info && info.error === "nobody") info.error = "nobody-search";
     }
     if (dialogs.some((m) => DELETED_RE.test(m)) || (info && info.error === "deleted")) {
       throw new DeletedPostError("삭제된 게시물");
     }
     if (!info) throw new CaptureError(dialogs.length ? `게시글을 열 수 없음: ${dialogs[0]}` : "게시글 화면을 읽지 못했습니다");
     if (info.error === "login") throw new CaptureError("네이버 로그인이 필요합니다");
+    if (info.error === "nobody-search") {
+      throw new CaptureError("본문을 찾지 못함 (네이버 제목 검색으로도 글에 들어가지 못했습니다. 엑셀에 글 제목 열이 있으면 더 잘 찾습니다)");
+    }
     if (info.error) throw new CaptureError("본문을 찾지 못함 (카페 가입이 필요한 글일 수 있음)");
+    // 검색으로 들어오면 주소에 검색 표시(?art=…)가 붙으므로 원래 글 주소 모양으로
+    if (!info.canonicalUrl || /[?#]/.test(info.canonicalUrl)) {
+      const m = String(url).match(ARTICLE_URL);
+      if (m) info.canonicalUrl = `https://cafe.naver.com/${m[1]}/${m[2]}`;
+    }
 
     // 새로 찾은 안내 문구는 기억해 두었다가 다음 글에서도 뺀다 (최근 50개)
     if (info.boilerplateText && info.boilerplateText.length >= 15 && !knownBoilerplates.includes(info.boilerplateText)) {

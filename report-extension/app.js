@@ -295,7 +295,7 @@ async function processItem(it) {
   if (isCafeUrl(row.url)) {
     setItemStatus(it, "캡처 준비");
     try {
-      const cap = await captureCafePost(row.url, (step) => setItemStatus(it, step));
+      const cap = await captureCafePost(row.url, (step) => setItemStatus(it, step), { cafe: row.cafe, title: row.title });
       info = cap.info;
       setItemStatus(it, "이미지 다듬는 중");
       it.visuals = await processCaptures(cap);
