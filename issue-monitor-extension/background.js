@@ -3,6 +3,7 @@ importScripts("defaults.js");
 
 const APP_URL = chrome.runtime.getURL("app.html");
 const ALARM = "daily-collect";
+const RETRY = "daily-collect-retry";
 
 // 열려 있는 수집 화면 탭들 (tabs 권한 없이도 확장 자신의 화면은 getContexts 로 찾을 수 있다)
 async function appTabs() {
@@ -23,8 +24,21 @@ async function openApp(auto) {
     await chrome.windows.update(t.windowId, { focused: true });
     return;
   }
-  if (auto && tabs.some((t) => t.url.includes("auto=1"))) return; // 이미 자동 수집 중
+  if (auto) {
+    // 지난 자동 수집 탭이 남아 있으면 새 탭을 늘리지 않고 그 탭에서 다시 시작한다
+    const old = tabs.find((t) => t.url.includes("auto=1"));
+    if (old) {
+      await chrome.tabs.update(old.id, { url: `${url}&t=${Date.now()}` });
+      return;
+    }
+  }
   await chrome.tabs.create({ url, active: !auto });
+}
+
+// 다른 탭에서 수집이 진행 중인지 (진행 신호가 10분 안에 있었으면)
+async function runInProgress() {
+  const { runHeartbeat: hb } = await chrome.storage.local.get("runHeartbeat");
+  return !!(hb && Date.now() - hb.at < 10 * 60 * 1000 && (await appTabs()).length);
 }
 
 chrome.action.onClicked.addListener(() => openApp(false));
@@ -52,6 +66,11 @@ async function startAutoRun() {
   if (lastAutoRun === todayKey()) return; // 오늘 이미 함
   const s = await loadSettings();
   if (s.workdayReport && !s.collectOnHolidays && !isWorkday(new Date(), s)) return; // 휴일엔 쉬기로 함
+  if (await runInProgress()) {
+    // 직접 돌리는 수집이 끝날 때까지 10분마다 다시 확인 (정오까지)
+    if (new Date().getHours() < 12) chrome.alarms.create(RETRY, { delayInMinutes: 10 });
+    return;
+  }
   await chrome.storage.local.set({ lastAutoRun: todayKey() });
   await openApp(true);
 }
@@ -67,6 +86,11 @@ async function catchUp() {
 }
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === RETRY) {
+    const s = await loadSettings();
+    if (s.autoRun) await startAutoRun();
+    return;
+  }
   if (alarm.name !== ALARM) return;
   await schedule(); // 다음 날 예약
   const s = await loadSettings();
