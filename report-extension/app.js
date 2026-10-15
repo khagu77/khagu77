@@ -10,7 +10,7 @@ const MODEL_NAMES = {
   TM: "싼타페", MX5: "싼타페", NX4: "투싼", IG: "그랜저", GN7: "그랜저", QX: "베뉴",
   JW: "GV60", JK: "GV70", JX: "GV80", IK: "G70", RG3: "G80", RS4: "G90",
   DN8: "쏘나타", CN7: "아반떼", CN8: "아반떼", FE: "넥쏘", AX: "캐스퍼", SX2: "코나", OS: "코나",
-  LX2: "팰리세이드", LX3: "팰리세이드", US4: "스타리아", ST1: "ST1", HR: "포터", ST: "스타렉스",
+  LX2: "팰리세이드", LX3: "팰리세이드", US4: "스타리아", ST1: "ST1", HR: "포터", ST: "스타렉스", QZ: "엑시언트",
 };
 const EV_ONLY = new Set(["NE", "CE", "ME1", "JW", "ST1"]);
 const SPEC_WORDS = ["FCEV", "PHEV", "HEV", "EV"];
