@@ -373,6 +373,7 @@ async function start() {
     speed: Number($("#speed").value),
     region: Number($("#region").value),
     mute: $("#mute").checked,
+    skipSpeaker: $("#skipSpeaker").checked,
   };
   running = true;
   $("#start").disabled = true;

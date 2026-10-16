@@ -70,6 +70,9 @@ FONT = "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc"
 CAPTIONS = [(0.5, 4, "안녕하세요 반갑습니다"), (8, 12, "오늘은 날씨가 좋습니다")]
 
 
+STICKY_SUBS = ["차량이 많이 늘었습니다", "출퇴근 시간이 문제입니다", "대책을 마련하겠습니다", "협조를 부탁드립니다"]
+
+
 def make_captioned_media(path: Path, seconds: int):
     """움직이는 화면 아래쪽에 흰 글자·검은 테두리 자막을 박은 영상."""
     draws = ",".join(
@@ -94,6 +97,23 @@ def make_captioned_media(path: Path, seconds: int):
         f",drawtext=fontfile={FONT}:text='The ride feels much softer too':fontsize=17:fontcolor=white:borderw=2"
         f":bordercolor=black:x=(w-text_w)/2:y=h-29:enable='between(t,17,21)'"
     )
+    # 자막 바로 위에 함께 나오는 발언자 소개 (옮기면 안 됨, 아래 자막만 옮김)
+    draws += (
+        f",drawtext=fontfile={FONT}:text='국회의원 김철수':fontsize=20:fontcolor=white:borderw=2"
+        f":bordercolor=black:x=(w-text_w)/2:y=h-82:enable='between(t,22,26)'"
+        f",drawtext=fontfile={FONT}:text='주택 공급을 늘리겠습니다':fontsize=26:fontcolor=white:borderw=3"
+        f":bordercolor=black:x=(w-text_w)/2:y=h-50:enable='between(t,22,26)'"
+    )
+    # 문구 모양으로는 알 수 없지만 아래 자막이 바뀌는 동안 계속 떠 있는 고정 표시 (옮기면 안 됨)
+    draws += (
+        f",drawtext=fontfile={FONT}:text='도로교통 연구소 인터뷰':fontsize=20:fontcolor=white:borderw=2"
+        f":bordercolor=black:x=(w-text_w)/2:y=h-82:enable='between(t,27,35)'"
+    )
+    for k, sub in enumerate(STICKY_SUBS):
+        draws += (
+            f",drawtext=fontfile={FONT}:text='{sub}':fontsize=26:fontcolor=white:borderw=3"
+            f":bordercolor=black:x=(w-text_w)/2:y=h-50:enable='between(t,{27 + 2 * k},{28.9 + 2 * k})'"
+        )
     # 자막이 아닌 글자 (옮기면 안 됨): 아래 왼쪽 댓글 캡처(흰 바탕 검은 글씨), 아래 오른쪽 효과 글자, 화면 위쪽 글자
     draws += (
         f",drawbox=x=10:y=h-80:w=150:h=60:color=white:t=fill:enable='between(t,0,6)'"
@@ -101,7 +121,7 @@ def make_captioned_media(path: Path, seconds: int):
         f",drawtext=fontfile={FONT}:text='깜짝':fontsize=34:fontcolor=yellow:borderw=3:bordercolor=black"
         f":x=w-110:y=h-75:enable='between(t,9,11)'"
         f",drawtext=fontfile={FONT}:text='효과 문구':fontsize=40:fontcolor=white:borderw=3:bordercolor=black"
-        f":x=(w-text_w)/2:y=40:enable='between(t,0,22)'"
+        f":x=(w-text_w)/2:y=40:enable='between(t,0,36)'"
     )
     subprocess.run(
         ["ffmpeg", "-y", "-loglevel", "error",
@@ -209,7 +229,7 @@ def test_script(tmp_path: Path):
 @pytest.mark.skipif(not Path(FONT).exists(), reason="한글 글꼴 없음")
 def test_screen_captions(tmp_path: Path):
     media = tmp_path / "screenvid01.webm"
-    make_captioned_media(media, 23)
+    make_captioned_media(media, 37)
     server = start_fake_youtube(tmp_path, {media.name: media})
     with sync_playwright() as p:
         ctx = launch(p, tmp_path, EXT_DIR, server.server_address[1])
@@ -231,17 +251,25 @@ def test_screen_captions(tmp_path: Path):
     lines = path.read_bytes().decode("utf-8-sig").strip().split("\r\n")
     assert lines == output.split("\n")
     print("\n".join(lines))
-    assert len(lines) == 4, lines  # 같은 자막을 여러 번 적지 않고, 자막 없는 구간은 비운다
-    assert lines == [
+    assert len(lines) == 9, lines  # 같은 자막을 여러 번 적지 않고, 자막 없는 구간은 비운다
+    assert lines[:5] == [
         f"{lines[0][:5]} 안녕하세요 반갑습니다",
         f"{lines[1][:5]} 오늘은 날씨가 좋습니다",
         f"{lines[2][:5]} 상자 모양 자막도 읽습니다",
         f"{lines[3][:5]} 실내도 승차감도 좋아졌습니다",
+        f"{lines[4][:5]} 주택 공급을 늘리겠습니다",
     ], lines
-    for line, times in zip(lines, [("00:00", "00:01"), ("00:07", "00:08"), ("00:11", "00:12"), ("00:16", "00:17")]):
+    # 고정 표시 아래 자막: 고정 표시는 빠지고 자막만 남는다 (작은 글씨라 한두 글자 오인식은 허용)
+    from difflib import SequenceMatcher
+    for line, sub in zip(lines[5:], STICKY_SUBS):
+        got = line[6:].replace(" ", "")
+        assert SequenceMatcher(None, got, sub.replace(" ", "")).ratio() >= 0.85, (line, sub)
+    for line, times in zip(lines, [("00:00", "00:01"), ("00:07", "00:08"), ("00:11", "00:12"), ("00:16", "00:17"),
+                                    ("00:21", "00:22"), ("00:26", "00:27"), ("00:28", "00:29"),
+                                    ("00:30", "00:31"), ("00:32", "00:33")]):
         assert line[:5] in times, lines
     # 하단 가운데 자막이 아닌 글자(댓글 캡처, 옆 효과 글자, 위쪽 글자)와 영문 번역 줄은 옮기지 않는다
-    for decoy in ("댓글", "인용", "깜짝", "효과", "문구", "weather", "ride", "soft"):
+    for decoy in ("댓글", "인용", "깜짝", "효과", "문구", "weather", "ride", "soft", "국회의원", "김철수", "연구소", "인터뷰"):
         assert decoy not in "\n".join(lines), lines
 
 

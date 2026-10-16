@@ -257,13 +257,50 @@ function similar(a, b) {
 }
 
 // 자막 그림 한 장 → { text, conf }. 줄마다 글자만 고른 그림과 원래 그림을 둘 다 읽어 더 자신 있는 쪽을 쓴다.
-// 자막 그림 한 장 → { text, conf }. 줄마다 세 가지로 손질한 그림을 읽어 가장 자신 있는 쪽을 쓴다.
-async function readCaption(src, region) {
+// 자막 그림 한 장 → [{ text, conf }] (줄마다). 줄마다 세 가지로 손질한 그림을 읽어 가장 자신 있는 쪽을 쓴다.
+// ---- 발언자 소개 자막 (예: "국토교통부 홍길동 과장", "홍길동 / 주택정책과장") ----
+// 짧고(30자·6단어 이하) 직함으로 끝나거나, "직함 이름" 꼴인 줄을 발언자 소개로 본다.
+// ("~과장입니다"처럼 문장이면 직함으로 끝나지 않으므로 말한 내용은 남는다)
+const TITLE_WORDS = [
+  "과장", "국장", "실장", "차관", "장관", "팀장", "부장", "차장", "대리", "주임", "사원", "대표", "대표이사",
+  "이사", "상무", "전무", "사장", "회장", "부회장", "원장", "소장", "처장", "청장", "센터장", "본부장", "단장",
+  "위원장", "위원", "의원", "의장", "교수", "부교수", "조교수", "박사", "연구원", "연구위원", "선임연구원",
+  "기자", "특파원", "앵커", "아나운서", "대변인", "사무관", "주무관", "서기관", "이사관", "비서관", "수석",
+  "총리", "대통령", "시장", "도지사", "지사", "군수", "구청장", "변호사", "회계사", "세무사", "노무사",
+  "평론가", "작가", "감독", "PD", "CEO", "CTO", "CFO", "COO", "매니저", "책임", "선임", "담당", "담당자",
+  "전문가", "전문위원", "자문위원", "애널리스트", "이코노미스트", "디자이너", "엔지니어", "셰프", "원내대표",
+];
+const TITLE_END = new RegExp(`(${TITLE_WORDS.join("|")})$`);
+
+function isSpeakerIntro(text) {
+  // 끝의 괄호 설명은 떼고 본다: "홍길동 과장 (국토교통부)"
+  const t = text.replace(/\s*[\(\[][^\)\]]*[\)\]]\s*$/, "").replace(/[\s.,·|/]+$/, "").trim();
+  if (!t || t.length > 30 || /[?!]/.test(t)) return false;
+  const words = t.split(/[\s|/·]+/).filter(Boolean);
+  if (words.length > 6) return false;
+  // 1) 직함으로 끝남: "국토교통부 홍길동 과장", "홍길동 주택정책과장", "국회의원"
+  if (TITLE_END.test(t)) return true;
+  // 2) 직함 뒤에 이름: "국회의원 김똥깨", "국토교통부 장관 홍길동", "기자 이영희"
+  //    마지막 단어가 이름(한글 2~4자, 말끝 아님)이고 바로 앞 단어가 직함으로 끝나야 한다.
+  const last = words[words.length - 1];
+  const before = words[words.length - 2];
+  return (
+    words.length >= 2 &&
+    words.length <= 4 &&
+    /^[가-힣]{2,4}$/.test(last) &&
+    !/[다요죠까네]$/.test(last) &&
+    TITLE_END.test(before)
+  );
+}
+
+// 이름만 있는 짧은 줄 (두 줄짜리 소개의 이름 줄: "홍길동"). "그렇죠"처럼 말끝으로 끝나는 짧은 자막은 제외.
+const isBareName = (text) => /^[가-힣]{2,4}$/.test(text.replace(/\s+/g, "")) && !/[다요죠까네지]$/.test(text.trim());
+
+async function readCaption(src, region, skipSpeaker = true) {
   const img = await loadImage(src);
   const p = prepareImage(img, region);
-  if (p.textPixels < p.area * 0.002) return { text: "", conf: 0 }; // 자막 없음
+  if (p.textPixels < p.area * 0.002) return []; // 자막 없음
   const texts = [];
-  let confSum = 0;
   for (const box of p.lines) {
     const reads = [];
     for (const canvas of [p.soft, p.masked, p.plain]) reads.push(await readLine(canvas, box));
@@ -282,24 +319,36 @@ async function readCaption(src, region) {
     );
     // 한글이 없는 줄(영문 번역 등)은 빼고, 한글 줄만 남긴다
     if (r.conf < OCR_MIN_CONF || !HANGUL.test(text)) continue;
-    texts.push(text);
-    confSum += r.conf;
+    texts.push({ text, conf: r.conf });
   }
-  return texts.length ? { text: texts.join(" "), conf: confSum / texts.length } : { text: "", conf: 0 };
+  let kept = texts;
+  if (skipSpeaker) {
+    // 발언자 소개 줄(자막 위에 함께 나오는 경우가 많음)과, 그 바로 위·아래의 이름만 있는 줄을 뺀다
+    const intro = texts.map((t) => isSpeakerIntro(t.text));
+    kept = texts.filter((t, i) => !intro[i] && !((intro[i - 1] || intro[i + 1]) && isBareName(t.text)));
+  }
+  return kept; // [{ text, conf }] 줄마다
 }
 
+// 아래 자막이 이만큼 바뀌는 동안 그대로 떠 있는 줄은 고정 표시(발언자 소개·프로그램 이름 등)로 보고 뺀다
+const STICKY_CHANGES = 3;
+
 class ScreenJob {
-  constructor(region, onUpdate, onHold) {
+  constructor(region, skipSpeaker, onUpdate, onHold) {
     this.region = region;
+    this.skipSpeaker = skipSpeaker;
     this.onUpdate = onUpdate;
     this.onHold = onHold;
-    this.lines = [];
+    this.lines = []; // { t, text, conf, parts: [줄 글자] }
     this.frames = [];
     this.pump = null;
     this.held = false;
     this.stopped = false;
     this.error = null;
     this.lastT = 0;
+    this.prevParts = []; // 직전 화면의 줄들
+    this.stayCount = []; // { text, n }: 다른 줄이 바뀌는 동안 그대로 남아 있던 횟수
+    this.sticky = []; // 고정 표시로 판단한 줄
   }
 
   get waiting() {
@@ -320,14 +369,57 @@ class ScreenJob {
     }
   }
 
-  add(t, text, conf) {
+  isSticky(text) {
+    return this.sticky.some((x) => similar(x, text));
+  }
+
+  // 화면 하나에서 읽은 줄들(parts)을 스크립트에 더한다
+  addParts(t, parts) {
+    if (this.skipSpeaker) {
+      const seen = (p, list) => list.some((q) => similar(q.text, p.text));
+      // 새로 나타난 줄이 있으면(자막이 바뀜) 그대로 남아 있는 줄의 횟수를 센다
+      if (parts.some((p) => !seen(p, this.prevParts))) {
+        for (const p of parts) {
+          if (!seen(p, this.prevParts) || this.isSticky(p.text)) continue;
+          let c = this.stayCount.find((x) => similar(x.text, p.text));
+          if (!c) this.stayCount.push((c = { text: p.text, n: 0 }));
+          if (++c.n >= STICKY_CHANGES) {
+            this.sticky.push(p.text);
+            this.purge();
+          }
+        }
+      }
+      this.prevParts = parts;
+      parts = parts.filter((p) => !this.isSticky(p.text));
+    }
+    if (!parts.length) return;
+    const text = parts.map((p) => p.text).join(" ");
+    const conf = parts.reduce((a, p) => a + p.conf, 0) / parts.length;
+    this.add({ t, text, conf, parts: parts.map((p) => p.text) });
+  }
+
+  add(line) {
     const prev = this.lines[this.lines.length - 1];
-    if (prev && similar(prev.text, text)) {
-      // 같은 자막을 다시 읽은 것 - 더 잘 읽힌 쪽 글자를 남기고 시각은 처음 것
-      if (conf > prev.conf) Object.assign(prev, { text, conf });
+    if (prev && similar(prev.text, line.text)) {
+      // 같은 자막을 다시 읽은 것 - 더 잘 읽힌 쪽 글자를 남기고 시각은 처음 것.
+      // 글자는 같고 띄어쓰기만 다르면 띄어쓰기를 더 많이 찾은 쪽을 남긴다.
+      const bare = (x) => x.replace(/ /g, "");
+      const spaces = (x) => x.length - bare(x).length;
+      const better =
+        bare(line.text) === bare(prev.text) ? spaces(line.text) > spaces(prev.text) : line.conf > prev.conf;
+      if (better) Object.assign(prev, { text: line.text, conf: line.conf, parts: line.parts });
       return;
     }
-    this.lines.push({ t, text, conf });
+    this.lines.push(line);
+  }
+
+  // 고정 표시로 판단한 줄을 이미 적은 스크립트에서도 지운다 (줄 배열은 화면이 참조하므로 그 자리에서 고친다)
+  purge() {
+    const old = this.lines.splice(0);
+    for (const line of old) {
+      const parts = line.parts.filter((x) => !this.isSticky(x));
+      if (parts.length) this.add({ ...line, parts, text: parts.join(" ") });
+    }
   }
 
   run() {
@@ -336,8 +428,7 @@ class ScreenJob {
       while (this.frames.length && !this.stopped) {
         const f = this.frames.shift();
         try {
-          const r = await readCaption(f.image, this.region);
-          if (r.text) this.add(f.t, r.text, r.conf);
+          this.addParts(f.t, await readCaption(f.image, this.region, this.skipSpeaker));
         } catch (e) {
           this.error = new Error(`글자 인식 실패: ${e.message}`);
           return;
@@ -366,6 +457,7 @@ async function readScreenVideo(videoId, row, index, opts, result) {
   let port = null;
   const job = new ScreenJob(
     opts.region,
+    opts.skipSpeaker,
     () => {
       if (selected === index) showResult(index);
       status();
