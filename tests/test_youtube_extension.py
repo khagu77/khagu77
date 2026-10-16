@@ -1028,24 +1028,37 @@ def test_helper_cleanmeta(tmp_path: Path):
 
 
 def test_clean_after_download(tmp_path: Path):
-    """확장: 맥에서 파일을 받으면 저장이 끝난 뒤 그 파일 경로로 도우미에 '출처 지우기'를 부탁한다
-    ('파일 (1).xlsx' 처럼 이름이 바뀐 경우 포함, 비슷한 다른 파일은 건드리지 않음)."""
+    """확장(백그라운드): 화면이 받을 파일 이름을 적어 두면, 저장이 끝났을 때 그 파일 경로로 도우미에 '출처 지우기'를
+    부탁하고(화면을 옮겨도 계속), 결과를 화면 아래 알림으로 보여준다. 도우미가 예전 버전이면 다시 설치하라고 알린다."""
     with sync_playwright() as p:
         ctx = launch(p, tmp_path, EXT_DIR, 1)
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         page = ext_page(ctx, "script.html")
-        sent = page.evaluate("""async () => {
-          const sent = [];
-          const items = [
-            { filename: '/Users/a/Downloads/20261015_유튜브스크립트_3개 (2).xlsx', state: 'in_progress' },
-            { filename: '/Users/a/Downloads/20261015_유튜브스크립트_3개 다른.xlsx', state: 'complete' },
-          ];
-          let calls = 0;
-          chrome.downloads.search = async () => { if (++calls === 2) items[0].state = 'complete'; return items; };
-          chrome.runtime.sendNativeMessage = async (host, msg) => { sent.push([host, msg]); return { ok: true }; };
+        page.evaluate("registerClean('20261016_유튜브스크립트_3개.xlsx')")
+        stub = """(version) => {
           globalThis.__forceCleanMeta = true;
-          // IS_MAC 은 페이지가 뜰 때 정해지므로 같은 동작을 다시 확인
-          await (async () => { const f = cleanAfterDownload; if (!IS_MAC) { await eval('(' + f.toString().replace('if (!IS_MAC || !chrome.downloads?.search) return;', '') + ')')('20261015_유튜브스크립트_3개.xlsx', new Date().toISOString()); } else { await f('20261015_유튜브스크립트_3개.xlsx', new Date().toISOString()); } })();
-          return sent.map(([h, m]) => [h, m.action, new TextDecoder().decode(Uint8Array.from(atob(m.b64), c => c.charCodeAt(0)))]);
-        }""")
+          globalThis.__sent = [];
+          chrome.runtime.sendNativeMessage = async (host, msg) => {
+            __sent.push([host, msg.action, msg.b64 ? new TextDecoder().decode(Uint8Array.from(atob(msg.b64), c => c.charCodeAt(0))) : '']);
+            return msg.action === 'ping' ? { type: 'pong', version } : { type: 'cleaned', ok: true };
+          };
+          chrome.downloads.search = async ({ id }) => [{ id, filename: id === 1
+            ? '/Users/a/Downloads/20261016_유튜브스크립트_3개 다른.xlsx'
+            : '/Users/a/Downloads/20261016_유튜브스크립트_3개 (2).xlsx' }];
+        }"""
+        sw.evaluate(stub, 4)
+        # 이름이 비슷한 다른 파일은 건드리지 않음 → 기다리던 파일('… (2).xlsx')만 지움
+        assert sw.evaluate("onDownloadChangedForClean({ id: 1, state: { current: 'complete' } })") is None
+        assert sw.evaluate("onDownloadChangedForClean({ id: 2, state: { current: 'complete' } })") == {"ok": True}
+        assert sw.evaluate("__sent") == [["com.khagu77.ytdl", "ping", ""],
+                                         ["com.khagu77.ytdl", "cleanmeta", "/Users/a/Downloads/20261016_유튜브스크립트_3개 (2).xlsx"]]
+        page.locator("#cleanNotice", has_text="출처' 정보를 지웠습니다").wait_for(timeout=5000)
+        # 한 번 처리한 이름은 다시 처리하지 않음
+        assert sw.evaluate("onDownloadChangedForClean({ id: 2, state: { current: 'complete' } })") is None
+        # 도우미가 예전 버전(3)이면 지우지 않고 다시 설치하라고 알림
+        page.evaluate("registerClean('20261016_유튜브스크립트_3개.xlsx')")
+        sw.evaluate(stub, 3)
+        assert sw.evaluate("onDownloadChangedForClean({ id: 2, state: { current: 'complete' } })") == {"ok": False, "reason": "old"}
+        assert [m[1] for m in sw.evaluate("__sent")] == ["ping"]
+        page.locator("#cleanNotice", has_text="도우미설치.app").wait_for(timeout=5000)
         ctx.close()
-    assert sent == [["com.khagu77.ytdl", "cleanmeta", "/Users/a/Downloads/20261015_유튜브스크립트_3개 (2).xlsx"]], sent

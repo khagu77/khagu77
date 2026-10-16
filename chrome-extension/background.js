@@ -32,3 +32,6 @@ async function installHeaderRules() {
 
 chrome.runtime.onInstalled.addListener(installHeaderRules);
 chrome.runtime.onStartup.addListener(installHeaderRules);
+
+// 받은 엑셀·txt 파일의 맥 '출처' 정보 지우기 (meta-clean.js)
+importScripts("meta-clean.js");

@@ -177,40 +177,50 @@ function blobToDataUrl(blob) {
   });
 }
 
-// 맥: 받은 파일의 '출처'(다운로드한 곳) 정보를 빠른다운로드 도우미로 지운다.
-// 크롬은 내려받은 파일마다 받은 곳(chrome-extension://…)을 남기고 확장프로그램이 이를 막을 방법이 없어,
-// 저장이 끝난 뒤 도우미가 그 정보만 지운다. 도우미가 없거나 맥이 아니면 아무것도 하지 않는다.
-const META_HELPER = "com.khagu77.ytdl";
-const IS_MAC = /Mac/i.test(navigator.userAgent) || !!globalThis.__forceCleanMeta;
-
-function cleanWhereFrom(filename) {
-  const bytes = new TextEncoder().encode(filename);
-  let s = "";
-  for (const b of bytes) s += String.fromCharCode(b);
-  return chrome.runtime.sendNativeMessage(META_HELPER, { action: "cleanmeta", b64: btoa(s) }).catch(() => null);
-}
-
-// name 으로 막 받은 파일을 찾아, 저장이 끝나면 출처 정보를 지운다 (최대 2분 기다림)
-async function cleanAfterDownload(name, startedAfter) {
-  if (!IS_MAC || !chrome.downloads?.search) return;
-  const stem = name.replace(/\.[^.]+$/, "");
-  const ext = name.slice(stem.length);
-  const base = (p) => String(p).split(/[\\/]/).pop();
-  const matches = (item) => {
-    const b = base(item.filename || "");
-    return b === name || (b.startsWith(stem) && b.endsWith(ext) && /^ \(\d+\)$/.test(b.slice(stem.length, b.length - ext.length)));
-  };
-  for (let i = 0; i < 120; i++) {
-    const items = await chrome.downloads.search({ startedAfter, orderBy: ["-startTime"] }).catch(() => []);
-    const item = items.find(matches);
-    if (item?.state === "complete") return cleanWhereFrom(item.filename);
-    if (item?.state === "interrupted") return;
-    await new Promise((r) => setTimeout(r, 1000));
+// 맥: 받은 파일의 '출처' 정보는 백그라운드(meta-clean.js)가 빠른다운로드 도우미로 지운다.
+// 받기 전에 파일 이름을 적어 두고, 처리 결과(lastClean)를 화면 아래 알림으로 보여준다.
+async function registerClean(name) {
+  try {
+    const { pendingClean = [] } = await chrome.storage.session.get("pendingClean");
+    const now = Date.now();
+    await chrome.storage.session.set({ pendingClean: [...pendingClean.filter((p) => p.until > now), { name, until: now + 10 * 60e3 }] });
+  } catch {
+    /* 무시 */
   }
 }
 
+const CLEAN_NOTICE = {
+  ok: "✔ 받은 파일의 '출처' 정보를 지웠습니다.",
+  old: "⚠ 빠른다운로드 도우미가 예전 버전이라 '출처' 정보를 지우지 못했습니다. 유튜브추출기 압축 안의 '빠른다운로드_도우미설치.app'을 한 번 다시 실행해 주세요.",
+  none: "⚠ 빠른다운로드 도우미가 없어 '출처' 정보를 지우지 못했습니다. 유튜브추출기 압축 안의 '빠른다운로드_도우미설치.app'을 실행하면 다음부터 자동으로 지웁니다.",
+  refused: "⚠ '출처' 정보를 지우지 못했습니다(내 폴더 밖에 저장된 파일).",
+  error: "⚠ '출처' 정보를 지우는 중 오류가 났습니다.",
+};
+
+function showCleanNotice(r) {
+  let box = document.getElementById("cleanNotice");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "cleanNotice";
+    box.style.cssText =
+      "position:fixed;left:50%;bottom:18px;transform:translateX(-50%);max-width:min(720px,92vw);padding:9px 14px;border-radius:8px;" +
+      "font-size:13px;line-height:1.45;box-shadow:0 2px 10px rgba(0,0,0,.25);z-index:9999;color:#fff;";
+    document.body.appendChild(box);
+  }
+  box.style.background = r.ok ? "#1e8e3e" : "#b3261e";
+  box.textContent = `${CLEAN_NOTICE[r.ok ? "ok" : r.reason] || CLEAN_NOTICE.error} (${r.name})`;
+  clearTimeout(box._t);
+  box._t = setTimeout(() => box.remove(), r.ok ? 6000 : 20000);
+}
+
+if (chrome.storage?.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.lastClean?.newValue) showCleanNotice(changes.lastClean.newValue);
+  });
+}
+
 async function clickDownload(blob, name) {
-  const startedAfter = new Date(Date.now() - 2000).toISOString();
+  await registerClean(name);
   const a = document.createElement("a");
   a.href = await blobToDataUrl(blob);
   a.download = name;
@@ -220,5 +230,4 @@ async function clickDownload(blob, name) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  cleanAfterDownload(name, startedAfter);
 }
