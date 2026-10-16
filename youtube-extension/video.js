@@ -76,21 +76,27 @@ async function downloadVideo(url, row, kind) {
 }
 
 // ---------------------------------------------------------------------------
-// 빠른 다운로드(영상 .mp4 / 음성 .m4a): Mac 도우미(크롬 Native Messaging, '유튜브 도우미 설치' 앱으로 설치)가
+// 빠른 다운로드(영상 .mp4 / 음성 .m4a): 도우미(크롬 Native Messaging)가
+// (Mac: '빠른다운로드_도우미설치' 앱, 윈도우: '빠른다운로드_도우미설치.bat' 으로 설치)
 // yt-dlp 로 파일을 바로 받는다. 영상을 재생하지 않는다.
 // ---------------------------------------------------------------------------
 
 const HELPER = "com.khagu77.ytdl";
+const IS_WINDOWS = /^win/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "");
+const HELPER_NAME = IS_WINDOWS ? "윈도우 도우미" : "Mac 도우미";
+const HELPER_INSTALLER = IS_WINDOWS ? "'빠른다운로드_도우미설치.bat' 파일" : "'빠른다운로드_도우미설치' 앱";
 const HELPER_OLD =
-  "Mac 도우미가 예전 버전이라 영상 빠른 다운로드(화질 선택)를 할 수 없습니다. 새로 받은 폴더의 '유튜브 도우미 설치' 앱을 한 번 더 실행한 뒤 이 화면을 새로고침하세요.";
+  `${HELPER_NAME}가 예전 버전이라 영상 빠른 다운로드(화질 선택)를 할 수 없습니다. 새로 받은 폴더의 ${HELPER_INSTALLER}을 한 번 더 실행한 뒤 이 화면을 새로고침하세요.`;
 const HELPER_VIDEO_VERSION = 3; // 화질 선택을 지원하는 도우미 버전
 // 10분 영상 기준 대략의 파일 크기
 const QUALITY_SIZE = { 360: "약 20~40MB", 480: "약 30~60MB", 720: "약 60~120MB", 1080: "약 120~250MB" };
 const isFast = (kind) => kind === "fast" || kind === "fastvideo";
-const HELPER_MISSING =
-  "Mac 도우미가 설치되어 있지 않습니다. 압축 푼 폴더의 '유튜브 도우미 설치' 앱을 한 번 실행한 뒤 이 화면을 새로고침하세요. " +
-  "(처음 열 때 '확인되지 않은 개발자' 안내가 나오면 앱을 오른쪽 클릭 → 열기, " +
-  "또는 시스템 설정 → 개인정보 보호 및 보안에서 '그래도 열기')";
+const HELPER_MISSING = IS_WINDOWS
+  ? "윈도우 도우미가 설치되어 있지 않습니다. 압축 푼 폴더의 '빠른다운로드_도우미설치.bat' 파일을 더블클릭해 한 번 실행한 뒤 이 화면을 새로고침하세요. " +
+    "(파란 'Windows의 PC 보호' 창이 뜨면 '추가 정보' → '실행')"
+  : "Mac 도우미가 설치되어 있지 않습니다. 압축 푼 폴더의 '빠른다운로드_도우미설치' 앱을 한 번 실행한 뒤 이 화면을 새로고침하세요. " +
+    "(처음 열 때 '확인되지 않은 개발자' 안내가 나오면 앱을 오른쪽 클릭 → 열기, " +
+    "또는 시스템 설정 → 개인정보 보호 및 보안에서 '그래도 열기')";
 
 let stopFast = null; // 진행 중인 음성 빠른 다운로드를 멈추는 함수
 
@@ -122,7 +128,7 @@ async function showHelperStatus() {
   const kind = $("#kind").value;
   el.hidden = !isFast(kind);
   if (el.hidden) return;
-  el.textContent = "Mac 도우미 확인 중…";
+  el.textContent = `${HELPER_NAME} 확인 중…`;
   el.className = "hint";
   const r = await pingHelper();
   if (kind !== $("#kind").value) return; // 확인하는 사이 형식을 바꿈
@@ -134,7 +140,7 @@ async function showHelperStatus() {
     el.className = "hint err";
   } else {
     const ext = kind === "fastvideo" ? "mp4" : r.ext;
-    el.textContent = `✔ Mac 도우미가 연결되었습니다. 다운로드 폴더에 날짜_제목.${ext} 로 저장합니다.`;
+    el.textContent = `✔ ${HELPER_NAME}가 연결되었습니다. 다운로드 폴더에 날짜_제목.${ext} 로 저장합니다.`;
     el.className = "hint ok";
   }
 }
@@ -178,7 +184,7 @@ async function fastDownload(urls, kind) {
       else if (m.type === "merging") setRowStatus(j.row, "영상과 소리를 합치는 중…");
       else if (m.type === "saved") {
         j.ok = true;
-        setRowStatus(j.row, `완료 · ${m.file.split("/").pop()}`, "ok");
+        setRowStatus(j.row, `완료 · ${m.file.split(/[\\/]/).pop()}`, "ok");
       } else if (m.type === "error") setRowStatus(j.row, `받지 못함: ${m.message}`, "err");
       else if (m.type === "finished") {
         finished = true;

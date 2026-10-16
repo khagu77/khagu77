@@ -1,81 +1,16 @@
-// 카페·유튜브 댓글 수집기 - 수집 화면
+// 팰리세이드(LX3) 전동 시트 관련 카페·유튜브 게시물 및 댓글 수집기 - 댓글 수집 화면
 // 네이버 카페: 사람이 글을 보는 것과 같이 게시글을 탭으로 열어 화면에 보이는 댓글을 읽는다.
 //   (네이버 API 를 직접 반복 호출하면 계정 보호조치가 걸릴 수 있어 사용하지 않는다)
 // 유튜브: 로그인 없이 유튜브 웹페이지가 쓰는 내부 API 로 댓글을 가져온다.
 
-// 네이버 카페는 사람처럼 천천히: 글과 글 사이, 댓글 페이지 사이를 무작위로 기다린다.
-const CAFE_ARTICLE_DELAY = [4000, 8000];
-const CAFE_PAGE_DELAY = [2000, 4000];
 const CAFE_WARN_COUNT = 30; // 한 번에 이보다 많은 카페 글을 넣으면 확인을 받는다
 const MAX_PAGES = 1000;
-
-const $ = (sel) => document.querySelector(sel);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const randomBetween = ([min, max]) => min + Math.floor(Math.random() * (max - min));
 
 class CollectError extends Error {}
 
 // ---------------------------------------------------------------------------
-// URL 해석
-// ---------------------------------------------------------------------------
-
-const CAFES_ARTICLES_RE = /\/cafes\/(\d+)\/articles\/(\d+)/;
-const CLUBID_RE = /clubid=(\d+)/i;
-const ARTICLEID_RE = /articleid=(\d+)/i;
-const SHORT_RE = /^https?:\/\/(?:m\.)?cafe\.naver\.com\/([A-Za-z0-9_\-]+)\/(\d+)(?:[/?#]|$)/;
-
-function safeDecode(s) {
-  try {
-    return decodeURIComponent(s);
-  } catch {
-    return s;
-  }
-}
-
-// → { cafeId, articleId, cafeUrl } (모르는 값은 null)
-function parseArticleUrl(url) {
-  url = url.trim();
-  let decoded = url;
-  for (let i = 0; i < 3; i++) decoded = safeDecode(decoded);
-
-  let m = decoded.match(CAFES_ARTICLES_RE);
-  if (m) return { cafeId: m[1], articleId: m[2], cafeUrl: null };
-
-  const club = decoded.match(CLUBID_RE);
-  const art = decoded.match(ARTICLEID_RE);
-  if (club && art) return { cafeId: club[1], articleId: art[1], cafeUrl: null };
-
-  m = url.match(SHORT_RE);
-  if (m) return { cafeId: null, articleId: m[2], cafeUrl: m[1] };
-
-  return { cafeId: club ? club[1] : null, articleId: art ? art[1] : null, cafeUrl: null };
-}
-
-// ---------------------------------------------------------------------------
 // 네이버 카페 수집 (게시글 화면을 열어서 읽기)
 // ---------------------------------------------------------------------------
-
-async function withTab(url, fn) {
-  const tab = await chrome.tabs.create({ url, active: false });
-  try {
-    await new Promise((resolve) => {
-      const timer = setTimeout(done, 30000);
-      function done() {
-        clearTimeout(timer);
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }
-      function listener(id, info) {
-        if (id === tab.id && info.status === "complete") done();
-      }
-      chrome.tabs.onUpdated.addListener(listener);
-    });
-    await sleep(3000); // 카페 화면(iframe/스크립트)이 그려질 시간
-    return await fn(tab.id);
-  } finally {
-    chrome.tabs.remove(tab.id).catch(() => {});
-  }
-}
 
 // 각 프레임 안에서 실행: 화면의 댓글을 읽고, 댓글 페이지 버튼을 사람처럼 천천히 눌러 가며 모두 모은다.
 // (확장 바깥 함수는 쓸 수 없으므로 필요한 값은 인자로 받는다)
@@ -158,6 +93,7 @@ async function collectCafe(result) {
       if (hit) {
         const canon = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: pageCanonicalUrls });
         hit.canonical = canon.flatMap((r) => r.result || []);
+        hit.hints = await runInFrames(tabId, cafeSlugHintsInFrame);
         return hit;
       }
       hrefs = answers.map((r) => r.href);
@@ -172,8 +108,14 @@ async function collectCafe(result) {
     }
     throw new CollectError("댓글 영역을 찾지 못함 (카페 가입이 필요하거나, 삭제됐거나, 댓글을 막은 글일 수 있음)");
   }
-  if (!result.articleId) result.articleId = parseArticleUrl(found.href).articleId || "";
-  // 엑셀 url 칸을 기존처럼 짧은 주소로 쓰기 위해 카페주소(영문)를 알아낸다.
+  // 짧은 주소(naver.me 등)로 넣은 글도 열린 화면 주소에서 카페 번호·글 번호를 알아낸다
+  for (const u of [found.href, ...(found.hints || []).map((h) => h.href)]) {
+    const ids = parseArticleUrl(u);
+    if (!result.articleId && ids.articleId) result.articleId = ids.articleId;
+    if (!result.cafeId && ids.cafeId && (!ids.articleId || ids.articleId === result.articleId)) result.cafeId = ids.cafeId;
+    if (!result.cafeUrl && ids.cafeUrl && (!ids.articleId || ids.articleId === result.articleId)) result.cafeUrl = ids.cafeUrl;
+  }
+  // 엑셀 url 칸을 https://cafe.naver.com/카페주소/글번호 로 쓰기 위해 카페주소(영문)를 알아낸다.
   for (const u of found.canonical || []) {
     const ids = parseArticleUrl(u);
     if (ids.cafeUrl && (!result.articleId || ids.articleId === result.articleId)) {
@@ -182,6 +124,10 @@ async function collectCafe(result) {
       break;
     }
   }
+  const slugs = await loadCafeSlugs();
+  if (!result.cafeUrl && result.cafeId && slugs[result.cafeId]) result.cafeUrl = slugs[result.cafeId];
+  if (!result.cafeUrl) result.cafeUrl = pickSlug(found.hints || []);
+  if (result.cafeId && result.cafeUrl) await saveCafeSlug(result.cafeId, result.cafeUrl);
   result.title = found.title;
   result.author = found.author;
   result.comments = found.rows.map((r) => ({
@@ -195,14 +141,6 @@ async function collectCafe(result) {
   }));
   result.method = "화면";
 }
-
-function pad(n) {
-  return String(n).padStart(2, "0");
-}
-
-// ---------------------------------------------------------------------------
-// 유튜브 수집 (로그인 불필요 - 유튜브 웹페이지가 쓰는 내부 API 사용)
-// ---------------------------------------------------------------------------
 
 const YT_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 
@@ -549,16 +487,9 @@ function buildRows(results, info) {
   };
 }
 
-function today() {
-  const d = new Date();
-  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
-}
-
 // 파일명 맨 앞 날짜(YYYYMMDD)를 오늘 날짜로 바꾼다.
 function outputFileName(baseName) {
-  let name = (baseName || DEFAULT_FILE_NAME).replace(/\s*\(\d+\)(?=\.xlsx$)/i, ""); // "파일 (1).xlsx" 정리
-  if (!/\.xlsx$/i.test(name)) name += ".xlsx";
-  return /^\d{8}/.test(name) ? today() + name.slice(8) : `${today()}_${name}`;
+  return datedFileName(baseName || DEFAULT_FILE_NAME);
 }
 
 async function buildOutput(results, tpl) {
@@ -585,14 +516,7 @@ async function buildOutput(results, tpl) {
 }
 
 function downloadWorkbook(bytes, name) {
-  const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  return downloadBytes(bytes, name);
 }
 
 // ---------------------------------------------------------------------------
@@ -746,6 +670,18 @@ async function start() {
     );
     if (!ok) return;
   }
+  if (!template) {
+    const go = confirm(
+      "기존 raw data 엑셀 파일을 고르지 않았습니다.\n\n" +
+        "· [확인]: 파일 없이 진행 (그날 수집한 댓글만 담은 새 파일로 저장)\n" +
+        "· [취소]: 기존 파일을 먼저 고르기 (이어 쓰기·중복 제외)",
+    );
+    if (!go) {
+      $("#templateFile").scrollIntoView({ block: "center" });
+      $("#templateFile").click();
+      return;
+    }
+  }
   if (cafeCount) await checkLogin();
   stopRequested = false;
   $("#start").disabled = true;
@@ -812,6 +748,18 @@ document.addEventListener("DOMContentLoaded", () => {
       /* 무시 */
     }
   });
+  // LX3 메뉴에서 넘겨받은 URL 안내
+  let handoff = "";
+  try {
+    handoff = sessionStorage.getItem("handoff") || "";
+    sessionStorage.removeItem("handoff");
+  } catch {
+    /* 무시 */
+  }
+  if (handoff) {
+    $("#handoff").hidden = false;
+    $("#handoff").textContent = handoff;
+  }
   $("#start").addEventListener("click", start);
   $("#stop").addEventListener("click", () => {
     stopRequested = true;
@@ -821,6 +769,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#download").addEventListener("click", () => lastWorkbook && downloadWorkbook(lastWorkbook.bytes, lastWorkbook.name));
   $("#templateFile").addEventListener("change", (e) => loadTemplate(e.target.files[0]));
   loadTemplate(null);
+  saveOptions().then((o) => ($("#saveWhere").textContent = `저장 위치: ${saveWhereText(o)} (LX3 화면의 설정에서 바꿀 수 있음)`));
   window.addEventListener("focus", checkLogin);
   checkLogin();
 });

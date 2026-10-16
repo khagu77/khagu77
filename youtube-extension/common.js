@@ -58,7 +58,13 @@ function setSummary(text, cls = "") {
 function addProgressRow(index, url) {
   const tr = document.createElement("tr");
   tr.innerHTML = `<td>${index + 1}</td><td class="url"></td><td class="status">대기</td><td class="actions"></td>`;
-  tr.querySelector(".url").textContent = url;
+  // 주소는 눌러서 새 탭으로 열 수 있게
+  const link = document.createElement("a");
+  link.href = /^https?:\/\//i.test(url) ? url : "#";
+  link.target = "_blank";
+  link.rel = "noopener";
+  link.textContent = url;
+  tr.querySelector(".url").appendChild(link);
   $("#progress tbody").appendChild(tr);
   $("#progress").hidden = false;
   return tr;
@@ -149,6 +155,7 @@ function menu(active) {
   for (const [href, label] of [
     ["script.html", "스크립트 추출"],
     ["video.html", "영상·음성 파일 다운로드"],
+    ["review.html", "스크립트 AI 검열"],
   ]) {
     const a = document.createElement("a");
     a.href = href;
@@ -157,4 +164,61 @@ function menu(active) {
     nav.appendChild(a);
   }
   $("h1").after(nav);
+}
+
+// 파일 받기: blob: 주소 대신 data: 주소로 받는다.
+// (blob: 로 받으면 크롬이 맥 파일 정보 '출처'에 chrome-extension://… 주소를 남기는데, data: 주소는 출처를 남기지 않음)
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+
+// 맥: 받은 파일의 '출처'(다운로드한 곳) 정보를 빠른다운로드 도우미로 지운다.
+// 크롬은 내려받은 파일마다 받은 곳(chrome-extension://…)을 남기고 확장프로그램이 이를 막을 방법이 없어,
+// 저장이 끝난 뒤 도우미가 그 정보만 지운다. 도우미가 없거나 맥이 아니면 아무것도 하지 않는다.
+const META_HELPER = "com.khagu77.ytdl";
+const IS_MAC = /Mac/i.test(navigator.userAgent) || !!globalThis.__forceCleanMeta;
+
+function cleanWhereFrom(filename) {
+  const bytes = new TextEncoder().encode(filename);
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return chrome.runtime.sendNativeMessage(META_HELPER, { action: "cleanmeta", b64: btoa(s) }).catch(() => null);
+}
+
+// name 으로 막 받은 파일을 찾아, 저장이 끝나면 출처 정보를 지운다 (최대 2분 기다림)
+async function cleanAfterDownload(name, startedAfter) {
+  if (!IS_MAC || !chrome.downloads?.search) return;
+  const stem = name.replace(/\.[^.]+$/, "");
+  const ext = name.slice(stem.length);
+  const base = (p) => String(p).split(/[\\/]/).pop();
+  const matches = (item) => {
+    const b = base(item.filename || "");
+    return b === name || (b.startsWith(stem) && b.endsWith(ext) && /^ \(\d+\)$/.test(b.slice(stem.length, b.length - ext.length)));
+  };
+  for (let i = 0; i < 120; i++) {
+    const items = await chrome.downloads.search({ startedAfter, orderBy: ["-startTime"] }).catch(() => []);
+    const item = items.find(matches);
+    if (item?.state === "complete") return cleanWhereFrom(item.filename);
+    if (item?.state === "interrupted") return;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
+async function clickDownload(blob, name) {
+  const startedAfter = new Date(Date.now() - 2000).toISOString();
+  const a = document.createElement("a");
+  a.href = await blobToDataUrl(blob);
+  a.download = name;
+  a.rel = "noreferrer";
+  a.referrerPolicy = "no-referrer";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  cleanAfterDownload(name, startedAfter);
 }

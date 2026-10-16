@@ -3,12 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>카페·유튜브 댓글 수집기</title>
+  <title>댓글 수집 - 팰리세이드(LX3) 전동 시트 관련 카페·유튜브 게시물 및 댓글 수집기</title>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
   <main>
-    <h1>카페·유튜브 댓글 수집기</h1>
+    <h1>팰리세이드(LX3) 전동 시트 관련 카페·유튜브 게시물 및 댓글 수집기</h1>
+    <nav class="menu"><a href="lx3.html">LX3 팰리세이드 전동 시트 관련</a><a href="app.html" class="on">댓글 수집</a></nav>
+    <div id="handoff" class="handoff" hidden></div>
 
     <div id="login" class="login">로그인 상태 확인 중…</div>
 
@@ -26,6 +28,7 @@
       <button id="download" disabled>엑셀 다시 받기</button>
     </div>
 
+    <div id="saveWhere" class="hint"></div>
     <div id="summary" class="summary"></div>
 
     <table id="progress" hidden>
@@ -42,6 +45,7 @@
   </main>
   <script src="xlsx.js"></script>
   <script src="template.js"></script>
+  <script src="cafe-common.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

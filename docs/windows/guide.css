@@ -1,0 +1,29 @@
+@page { size: A4; margin: 16mm 15mm; }
+* { box-sizing: border-box; }
+body {
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", "WenQuanYi Zen Hei", sans-serif;
+  color: #1b1d21; font-size: 10.5pt; line-height: 1.6; margin: 0;
+}
+h1 { font-size: 20pt; margin: 0 0 4pt; }
+.sub { color: #5b6170; margin: 0 0 14pt; }
+h2 {
+  font-size: 13.5pt; margin: 18pt 0 6pt; padding: 4pt 0 4pt 9pt;
+  border-left: 5pt solid #2b7de9; background: #f2f6fc; page-break-after: avoid;
+}
+h3 { font-size: 11pt; margin: 12pt 0 4pt; page-break-after: avoid; }
+ol, ul { margin: 4pt 0 4pt 0; padding-left: 18pt; }
+li { margin: 3pt 0; }
+code, .path {
+  font-family: Consolas, "D2Coding", "WenQuanYi Zen Hei Mono", monospace; background: #eef0f4;
+  padding: 0 4pt; border-radius: 3pt; font-size: 9.5pt;
+}
+b.btn { background: #e8f0fe; border: 1px solid #b6cdf5; border-radius: 4pt; padding: 0 5pt; font-weight: 600; }
+table { border-collapse: collapse; width: 100%; margin: 6pt 0; font-size: 9.8pt; page-break-inside: avoid; }
+th, td { border: 1px solid #cfd4dc; padding: 5pt 7pt; vertical-align: top; text-align: left; }
+th { background: #f2f4f7; }
+.box { border: 1px solid #cfd4dc; border-radius: 6pt; padding: 8pt 11pt; margin: 8pt 0; page-break-inside: avoid; }
+.warn { border-color: #f0b429; background: #fffaeb; }
+.tip { border-color: #8fd19e; background: #f0fbf3; }
+.tree { font-family: Consolas, "WenQuanYi Zen Hei Mono", monospace; font-size: 9.5pt; white-space: pre; line-height: 1.5;
+  background: #f7f8fa; border: 1px solid #e1e4e8; border-radius: 6pt; padding: 8pt 11pt; }
+.step { page-break-inside: avoid; }

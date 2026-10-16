@@ -16,7 +16,7 @@ YTDLP="${YTDLP:-$BIN/yt-dlp/yt-dlp_macos}"
 DENO="$BIN/deno"
 VFFMPEG="${VFFMPEG:-$BIN/ffmpeg}" # 영상 합치기용 (테스트에서 바꿔 끼울 수 있음)
 OUT="${OUT:-$HOME/Downloads}"
-VERSION=3 # 2: 영상 빠른 다운로드, 3: 영상 화질 선택
+VERSION=4 # 2: 영상 빠른 다운로드, 3: 영상 화질 선택, 4: 받은 파일의 출처 정보 지우기
 UPDATE_DAYS=3
 
 # ---- yt-dlp·Deno 설치/업데이트 ----
@@ -142,8 +142,32 @@ download() {
     done
 }
 
+# 크롬으로 받은 엑셀·txt 파일에서 맥 '출처'(다운로드한 곳) 정보만 지운다. 경로는 base64 로 받는다.
+# (내 폴더 안의 .xlsx/.txt/.json 파일만, 다른 내용은 건드리지 않음)
+clean_meta() {
+  local b64 path
+  b64=$(printf '%s' "$1" | grep -o '"b64" *: *"[A-Za-z0-9+/=]*"' | sed -e 's/^"b64" *: *"//' -e 's/"$//')
+  path=$(printf '%s' "$b64" | base64 -D 2> /dev/null || printf '%s' "$b64" | base64 -d 2> /dev/null)
+  case "$path" in
+    "$HOME"/*.xlsx | "$HOME"/*.txt | "$HOME"/*.json) ;;
+    *)
+      send '{"type":"cleaned","ok":false}'
+      return
+      ;;
+  esac
+  if [ -f "$path" ]; then
+    xattr -d com.apple.metadata:kMDItemWhereFroms "$path" 2> /dev/null
+    send '{"type":"cleaned","ok":true}'
+  else
+    send '{"type":"cleaned","ok":false}'
+  fi
+}
+
 while msg=$(read_msg); do
   case "$msg" in
+    *'"cleanmeta"'*)
+      clean_meta "$msg"
+      ;;
     *'"ping"'*)
       ok=false
       [ -x "$YTDLP" ] && ok=true

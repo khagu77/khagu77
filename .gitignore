@@ -4,3 +4,4 @@ __pycache__/
 .pytest_cache/
 subtitles/_audio/
 tools/
+dist/

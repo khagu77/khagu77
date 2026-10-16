@@ -10,8 +10,10 @@
   <main>
     <h1>YouTube 스크립트 및 영상 파일 추출</h1>
     <p class="hint">
-      유튜브에 올라온 자막은 쓰지 않고, 영상을 처음부터 끝까지 재생하면서 스크립트를 새로 만듭니다.
-      결과는 <code>00:00 스크립트 내용</code> 형식으로 아래 출력칸에 나오고 메모장 파일(.txt)로 저장됩니다.
+      유튜브에 있는 스크립트를 그대로 가져오거나, 영상을 재생하면서 스크립트를 새로 만듭니다.
+      결과는 <code>00:00 스크립트 내용</code> 형식으로 아래 출력칸에 나옵니다. 수집이 끝나면 <b>전체 스크립트 받기</b>로
+      모든 영상의 스크립트를 엑셀(.xlsx, 영상마다 한 줄: URL · 스크립트) 또는 영상별로 구분된 메모장 파일(.txt) 하나로 받을 수 있습니다(파일은 자동으로 내려받지 않음).
+      띄어쓰기·자주 틀리는 맞춤법(됬→됐, 할수있다→할 수 있다 등)을 기본 규칙으로 고친 <b>교정본</b>과 고치기 전 <b>원본</b>(<code>_원본.txt</code>)을 함께 저장합니다.
     </p>
 
     <label for="urls">유튜브 영상 URL <span class="hint">(한 줄에 하나씩)</span></label>
@@ -21,8 +23,16 @@
     <div class="options">
       <label>인식 방식
         <select id="mode">
+          <option value="transcript">유튜브 스크립트 가져오기 (가장 빠름 · 스크립트가 있는 영상만)</option>
           <option value="screen">화면 자막 인식 (화면에 나오는 자막 글자를 읽음)</option>
           <option value="speech">음성 인식 (들리는 말을 받아씀)</option>
+        </select>
+      </label>
+      <label data-mode="transcript">스크립트가 없을 때
+        <select id="fallback">
+          <option value="ask">물어보기 (영상별로 다른 방식을 고름)</option>
+          <option value="screen">화면 자막 인식으로 자동 수집</option>
+          <option value="speech">음성 인식으로 자동 수집</option>
         </select>
       </label>
       <label data-mode="speech">음성인식 모델
@@ -35,13 +45,27 @@
           <option value="0.33">화면 아래 1/3</option>
         </select>
       </label>
-      <label>재생 속도
+      <label data-mode="screen speech">재생 속도
         <select id="speed"></select>
       </label>
       <label class="check" data-mode="speech"><input type="checkbox" id="mute" checked> 영상 소리 끄기</label>
       <label class="check" data-mode="screen" hidden><input type="checkbox" id="skipSpeaker" checked> 발언자 소개 자막 빼기 <span class="hint">(예: 국토교통부 홍길동 과장)</span></label>
     </div>
     <div id="gpu" class="hint" data-mode="speech"></div>
+    <fieldset class="ai">
+      <label class="check"><input type="checkbox" id="aiOn"> <b>AI 교정 (Claude)</b>
+        <span class="hint">— 띄어쓰기·오탈자·잘못 받아쓴 차량명까지 문맥에 맞게 고침 (유료 · Anthropic API 키 필요)</span></label>
+      <div class="ai-opts" id="aiOpts">
+        <label>API 키 <input type="password" id="aiKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false"></label>
+        <label>모델 <select id="aiModel"></select></label>
+        <div class="hint" id="aiHint">
+          API 키는 이 컴퓨터의 크롬에만 저장되고, 교정을 위해 스크립트 글자가 Anthropic(Claude)으로 보내집니다.
+          요금은 쓴 만큼 Anthropic 계정에 청구됩니다 — 대략 10분 영상 1개에 Opus 약 200~400원, Sonnet 그 절반, Haiku 10원 안팎(영상 길이에 따라 다른 대략적인 추정).
+          API 키는 <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> 에서 만들 수 있습니다.
+        </div>
+      </div>
+    </fieldset>
+    <div class="hint" data-mode="transcript" hidden>유튜브 영상 설명란의 <b>…더보기 → 스크립트 표시</b>를 눌러 오른쪽에 나오는 스크립트를 그대로 가져옵니다. 영상을 재생하지 않아 영상 하나에 몇 초면 끝나고, 유튜브가 만든 글자 그대로라 가장 정확합니다. 업로더가 올린 자막이나 유튜브 자동 생성 자막이 있는 영상만 가능하며, 없으면 화면 자막 인식이나 음성 인식으로 수집할 수 있습니다.</div>
     <div class="hint" data-mode="screen" hidden>화면 아래쪽 가운데에 나오는 자막(흰색·노란색 글자에 테두리나 어두운 바탕)만 읽고, 효과 글자·댓글 캡처·사진 속 글자는 거릅니다. 한글·영문이 함께 나오면 한글 줄만 옮깁니다. 자막이 깔끔한 영상일수록 정확하고, 음성 인식보다 빠릅니다. 영상 소리는 자동으로 끕니다.</div>
 
     <div class="buttons">
@@ -50,6 +74,15 @@
     </div>
 
     <div id="summary" class="summary"></div>
+    <div class="buttons">
+      <select id="saveFormat" class="inline" title="받을 파일 형식">
+        <option value="xlsx">엑셀 (.xlsx) — 영상별 한 줄 (URL · 스크립트)</option>
+        <option value="txt">텍스트 (.txt) — 영상별 구분선으로 묶음</option>
+      </select>
+      <button id="saveAll" class="primary" disabled>전체 스크립트 받기</button>
+      <button id="retryFailed" hidden>수집 안 된 영상 전체 다시 수집</button>
+    </div>
+    <p id="xlsxNote" class="notice">다운로드 한 엑셀 파일은 <a href="https://linesquare--monitor.web.app/" target="_blank" rel="noopener">https://linesquare--monitor.web.app/</a> 에서 수집된 동일 URL 스크립트 일괄 등록이 가능한 파일입니다.</p>
 
     <table id="progress" hidden>
       <thead><tr><th>#</th><th>영상</th><th>상태</th><th></th></tr></thead>
@@ -60,11 +93,11 @@
     <textarea id="output" rows="16" readonly spellcheck="false" placeholder="여기에 00:00 스크립트 내용 형식으로 표시됩니다."></textarea>
     <div class="buttons">
       <button id="copy" disabled>복사</button>
-      <button id="save" disabled>메모장 파일(.txt)로 받기</button>
+      <button id="save" disabled>이 영상만 .txt 로 받기 (교정본 + 원본)</button>
     </div>
 
     <p class="note">
-      음성 인식은 영상 길이만큼(1배 기준), 화면 자막 인식은 그 1/3 정도(3배 기준) 시간이 걸립니다. 진행 중에는 열린 유튜브 탭을 닫거나 영상을 조작하지 마세요. 다른 탭에서 다른 일은 해도 됩니다.
+      유튜브 스크립트 가져오기는 영상 하나에 몇 초, 음성 인식은 영상 길이만큼(1배 기준), 화면 자막 인식은 그 1/3 정도(3배 기준) 시간이 걸립니다. 진행 중에는 열린 유튜브 탭을 닫거나 영상을 조작하지 마세요. 다른 탭에서 다른 일은 해도 됩니다.
       음성 인식은 처음 한 번 음성인식 모델을 내려받느라 시간이 더 걸리고, 이후에는 저장된 모델을 씁니다.
       모든 처리는 이 컴퓨터 안에서 하며 영상 소리·화면을 외부로 보내지 않습니다.
       자동 인식 결과라 틀린 글자가 있을 수 있으니 한 번 훑어보고 고쳐 쓰세요.
@@ -75,6 +108,10 @@
   <script src="caption-mask.js"></script>
   <script src="lib/ocr/ort.wasm.min.js"></script>
   <script src="screen.js"></script>
+  <script src="correct.js"></script>
+  <script src="lib/anthropic-sdk.min.js"></script>
+  <script src="ai-correct.js"></script>
+  <script src="template.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
