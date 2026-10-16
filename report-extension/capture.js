@@ -416,6 +416,20 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
   }
   if (!commentCount) commentCount = String(doc.querySelectorAll(SEL.commentItem.join(",")).length);
 
+  // 영상 칸 안에서 실제 영상 화면: <video> → <iframe> → 가장 큰 미리보기 그림 → 가장 큰 플레이어 칸
+  function videoScreen(box) {
+    const area = (x) => x.r.width * x.r.height;
+    const cands = [...box.querySelectorAll("video, iframe, img, canvas, [class*='player' i], [class*='thumb' i], .pzp")]
+      .map((e) => ({ e, r: e.getBoundingClientRect() }))
+      .filter((x) => x.r.width >= 80 && x.r.height >= 60)
+      .sort((a, b) => area(b) - area(a));
+    for (const tag of ["VIDEO", "IFRAME", "IMG", "CANVAS"]) {
+      const c = cands.find((x) => x.e.tagName === tag);
+      if (c) return c.e;
+    }
+    return cands.length ? cands[0].e : box;
+  }
+
   // 첨부 사진과 영상(플레이어 화면)을 글에 나온 순서대로
   const images = [];
   const VIDEO_SEL = ".se-component.se-video, .se-component.se-oembed, .se-module-video, video";
@@ -429,8 +443,11 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     const r = img.getBoundingClientRect();
     if (img.tagName !== "IMG") {
       if (r.width < 80 || r.height < 60) continue;
-      img.setAttribute("data-rpt", `image${images.length}`);
-      images.push({ index: images.length, width: r.width, height: r.height, src: "", video: true });
+      // 영상: 흰 여백·영상 제목 줄이 들어간 바깥 칸이 아니라 영상 화면(플레이어) 자체를 찍는다 → 영상 폭에 딱 맞게
+      const screen = videoScreen(img);
+      const sr = screen.getBoundingClientRect();
+      screen.setAttribute("data-rpt", `image${images.length}`);
+      images.push({ index: images.length, width: sr.width, height: sr.height, src: "", video: true });
       continue;
     }
     if (r.width < 80 || r.height < 60 || img.naturalWidth < 80) continue;

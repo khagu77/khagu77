@@ -9,10 +9,12 @@ const MODEL_NAMES = {
   "NE N": "아이오닉5 N", NE: "아이오닉5", CE: "아이오닉6", ME1: "아이오닉9",
   TM: "싼타페", MX5: "싼타페", NX4: "투싼", IG: "그랜저", GN7: "그랜저", QX: "베뉴",
   JW: "GV60", JK: "GV70", JX: "GV80", IK: "G70", RG3: "G80", RS4: "G90",
-  DN8: "쏘나타", CN7: "아반떼", CN8: "아반떼", FE: "넥쏘", AX: "캐스퍼", SX2: "코나", OS: "코나",
+  DN8: "쏘나타", CN7: "아반떼", CN8: "아반떼", FE: "넥쏘", NH2: "넥쏘", AX: "캐스퍼", SX2: "코나", OS: "코나",
   LX2: "팰리세이드", LX3: "팰리세이드", US4: "스타리아", ST1: "ST1", HR: "포터", ST: "스타렉스", QZ: "엑시언트",
 };
 const EV_ONLY = new Set(["NE", "CE", "ME1", "JW", "ST1"]);
+// 수소전기차(넥쏘): 제원은 무조건 FCEV (그냥 EV 아님)
+const FCEV_ONLY = new Set(["FE", "NH2"]);
 const SPEC_WORDS = ["FCEV", "PHEV", "HEV", "EV"];
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -32,6 +34,7 @@ function splitCar(car) {
   let spec = "";
   if (parts.length > 1 && SPEC_WORDS.includes(parts[parts.length - 1].toUpperCase())) spec = parts.pop().toUpperCase();
   const code = parts.join(" ");
+  if (FCEV_ONLY.has(parts[0]) || MODEL_NAMES[parts[0]] === "넥쏘") spec = "FCEV";
   if (!spec && EV_ONLY.has(parts[0])) spec = "EV";
   return { code, spec: spec || "-" };
 }
@@ -257,7 +260,15 @@ async function processCaptures(cap) {
     v.body = ImageProc.compactText(await ImageProc.toBitmap(bodyBlob), dpr);
   }
   for (const b of cap.comments) v.comments.push(b ? ImageProc.compactText(await ImageProc.toBitmap(b), dpr) : null);
-  for (const b of cap.images) v.images.push(b ? ImageProc.photo(await ImageProc.toBitmap(b), dpr, !!b.isOriginal) : null);
+  for (const [i, b] of cap.images.entries()) {
+    if (!b) {
+      v.images.push(null);
+      continue;
+    }
+    const im = ImageProc.photo(await ImageProc.toBitmap(b), dpr, !!b.isOriginal);
+    // 영상은 흰 여백·검은 띠를 잘라 영상 화면 폭에 딱 맞게
+    v.images.push(cap.info.images[i] && cap.info.images[i].video ? ImageProc.trimBorders(im) : im);
+  }
   for (const x of [v.header, v.body, ...v.comments, ...v.images]) if (x) x.url = await ImageProc.previewUrl(x.canvas);
   return v;
 }
@@ -324,7 +335,7 @@ async function processItem(it) {
     try {
       // 같은 보고서에서 앞서 쓴 본문 요약을 알려 주어 끝맺음이 겹치지 않게
       const recentBodies = items.filter((x) => x !== it && x.ready && !x.deleted && x.fields).map((x) => x.fields.body);
-      ai = await aiSummarize(row, info, { apiKey: key, model: $("#aiModel").value, recentBodies });
+      ai = await aiSummarize(row, info, { apiKey: key, model: $("#aiModel").value, recentBodies, titlePrefix: `${modelName(row.car)}(${row.car})` });
     } catch (e) {
       it.error = [it.error, `AI 요약 실패: ${aiErrorMessage(e)} (엑셀 내용으로 초안)`].filter(Boolean).join(" · ");
       ai = excelDraft(row, info);

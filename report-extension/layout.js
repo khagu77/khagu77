@@ -138,7 +138,8 @@
     let y = top;
     for (let r = 0; r < items.length; r += best.cols) {
       const row = items.slice(r, r + best.cols);
-      let x = G.xBody;
+      // 가운데 정렬
+      let x = G.xBody + (areaW - (row.length * best.w + (row.length - 1) * IMG_GAP)) / 2;
       const hs = row.map((im) => (best.w * im.cssHeight) / im.cssWidth);
       row.forEach((im, k) => {
         out.push({ kind: "image", item: im, x, y, w: best.w, h: hs[k] });

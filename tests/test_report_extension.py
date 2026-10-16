@@ -462,7 +462,8 @@ def test_report_end_to_end(tmp_path):
         ("저도 같은 증상이에요", False), ("사업소 가세요", False), ("ㅋㅋ", True)]
     assert sent["author"] == "파주ll작성자" and sent["postDate"] == "2026-10-06"
     # 끝맺음을 고르는 데 쓰는 정보: 첨부 사진 수, 같은 보고서의 앞선 본문 요약(첫 글이라 비어 있음)
-    assert sent["photoCount"] == 2 and sent["recentBodies"] == []  # 사진 1 + 영상 1
+    assert sent["photoCount"] == 1 and sent["videoCount"] == 1 and sent["recentBodies"] == []  # 사진 1, 영상 1
+    assert sent["titlePrefix"] == "ST1(ST1)" and sent["titleBudget"] > 15
     assert [p["title"] for p in sent["authorPosts"]] == ["[출고인증] ST1 카고 받았습니다", "타이어 공기압 문의"]
     # 제원 확인용: 작성자의 출고 인증 글 본문을 읽어 보낸다
     assert sent["authorCertPosts"] == [{"title": "[출고인증] ST1 카고 받았습니다", "text": "드디어 ST1 카고 EV 롱레인지 출고했습니다."}]
@@ -487,7 +488,7 @@ def test_report_end_to_end(tmp_path):
 
     d1 = slides[3]
     texts = [sh.text_frame.text for sh in d1.shapes if sh.has_text_frame]
-    assert "■ ST1(ST1) 공조기 자동 작동 및 OFF 불가" in texts
+    assert "■ ST1(ST1) 공조기 자동 작동 및 OFF 불가 발생" in texts  # 페이지 제목 = 요약표 내용 (한 줄에 들어가면)
     assert "No.1" in texts
     tbl = [sh for sh in d1.shapes if sh.has_table][0].table
     assert tbl.cell(0, 1).text == "ST1" and tbl.cell(0, 3).text == "EV" and tbl.cell(0, 7).text == "초기"
@@ -917,3 +918,58 @@ def test_search_entry_and_comment_photo_removed(tmp_path):
     assert not any(h[1] == "/truckerking/1270224" for h in hits)  # 글 주소로 바로 열지 않음
     assert res["hasImage"] and res["blue"] == 0, res  # 댓글 사진은 지움
     assert res["h"] < 110, res  # 사진 자리 없이 글자 + 작성일시만
+
+
+def test_wording_region_spec_title_and_video_trim(tmp_path):
+    """담당자 규칙: 가운뎃점 금지, '경고가 떠' → '경고등 점등으로', 문의 표현, 지역(도 빼고 시만, 경기 광주는 그대로),
+    넥쏘 FCEV, 제목 = 요약표 내용(한 줄 안), 영상 흰 여백·검은 띠 자르기, 본문 자리 영상 가운데 정렬."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile_w"), executable_path=CHROMIUM, headless=True,
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}"])
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        page = ctx.new_page()
+        page.goto(f"chrome-extension://{sw.url.split('/')[2]}/app.html")
+        res = page.evaluate("""async () => {
+            const w = fixWording({
+              short: "타이어 공기압 경고등 및 도장·루프 필러 조립 불량",
+              body: "주행 중 수소 누출 경고가 떠서 입고했으나 소음 · 진동이 남아 동일 증상 여부 및 원인 문의",
+              reaction: "‘저도 그래요., 문·트렁크 다 그래요.’ 등의 여론",
+              region: "충북 청주",
+            });
+            const regions = ["충북 청주", "경기 광주", "경기도 광주시", "경기 오산", "청주시", "광주", "서울 강동구", "-"].map(regionName);
+            // 영상: 흰 여백(위·아래·양옆) 안에 세로 영상 화면
+            const c = new OffscreenCanvas(400, 300); const g = c.getContext("2d");
+            g.fillStyle = "#fff"; g.fillRect(0, 0, 400, 300);
+            g.fillStyle = "#000"; g.fillRect(100, 20, 200, 260);       // 검은 띠
+            g.fillStyle = "#3366cc"; g.fillRect(150, 20, 100, 260);    // 영상 화면
+            const t = ImageProc.trimBorders({ canvas: c, cuts: [300], cssWidth: 400, cssHeight: 300, dpr: 1 });
+            const it = (w, h) => ({ canvas: new OffscreenCanvas(w, h), cuts: [h], cssWidth: w, cssHeight: h, dpr: 1 });
+            const { placements } = Layout.layout({ header: it(860, 120), body: null, comments: [it(860, 60)], images: [it(800, 450)] });
+            const vid = placements.find((p) => p.kind === "image");
+            // 제목: 한 줄에 들어가면 요약표 내용 그대로, 넘치면 줄임
+            const out1 = { short: "충전 후 수소 강제 배출 및 수소 누출 경고등 점등", issue: "수소 누출" };
+            await fitIssue(null, "", out1, "넥쏘(NH2)");
+            return { w, regions, trim: [t.canvas.width, t.canvas.height], vid: [vid.x, vid.w], G: Layout.G,
+                     spec: [splitCar("NH2").spec, splitCar("FE EV").spec, splitCar("NE").spec, modelName("NH2")],
+                     issue: out1.issue,
+                     long: fitsTitle("넥쏘(NH2)", "충전 후 수소 강제 배출 및 수소 누출 경고등 점등 후 정비소 입고했으나 같은 증상 반복") };
+        }""")
+        ctx.close()
+    w = res["w"]
+    for k in ("short", "body", "reaction"):
+        assert "·" not in w[k], w
+    assert w["short"] == "타이어 공기압 경고등 및 도장/루프 필러 조립 불량"
+    assert "수소 누출 경고등 점등으로 입고했으나, 소음, 진동이" in w["body"], w["body"]
+    assert w["body"].endswith("동일 증상 유경험자 여부 및 증상 관련 문의 글 게재"), w["body"]
+    assert w["region"] == "청주"
+    assert res["regions"] == ["청주", "경기 광주", "경기 광주", "오산", "청주", "광주", "서울 강동구", "-"]
+    assert res["spec"] == ["FCEV", "FCEV", "EV", "넥쏘"]
+    assert res["trim"] == [100, 260]  # 흰 여백·검은 띠 없이 영상 화면만
+    g = res["G"]
+    mid = (g["xBody"] + g["xRight"]) / 2
+    assert abs(res["vid"][0] + res["vid"][1] / 2 - mid) < 10  # 가운데 정렬
+    assert res["issue"] == "충전 후 수소 강제 배출 및 수소 누출 경고등 점등"  # 제목 = 요약표 내용
+    assert res["long"] is False

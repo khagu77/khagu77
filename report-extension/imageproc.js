@@ -148,6 +148,48 @@
     return { canvas: c, cuts: [c.height], cssWidth: c.width / k, cssHeight: c.height / k, dpr: k };
   }
 
+  // 영상 캡처: 가장자리의 한 가지 색 테두리(흰 여백, 세로 영상 양옆 검은 띠)를 잘라 영상 화면 폭에 딱 맞게
+  function trimBorders(item) {
+    const c = item.canvas;
+    const w = c.width;
+    const h = c.height;
+    const px = c.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+    const at = (x, y) => (y * w + x) * 4;
+    // 테두리로 보는 색: 흰색에 가깝거나(여백) 검은색에 가까운(영상 양옆 띠) 색만 — 영상 화면 자체는 자르지 않게
+    const edgeColor = (i) => (px[i] > 225 && px[i + 1] > 225 && px[i + 2] > 225) || (px[i] < 35 && px[i + 1] < 35 && px[i + 2] < 35);
+    const near = (i, ref) => edgeColor(ref) && Math.max(Math.abs(px[i] - px[ref]), Math.abs(px[i + 1] - px[ref + 1]), Math.abs(px[i + 2] - px[ref + 2])) <= 24;
+    // 한 줄(행·열)이 기준 색과 거의(98%) 같으면 테두리
+    const colFlat = (x, ref, y0, y1) => {
+      let n = 0;
+      for (let y = y0; y < y1; y++) if (near(at(x, y), ref)) n++;
+      return n >= (y1 - y0) * 0.98;
+    };
+    let top = 0;
+    let bottom = h;
+    let left = 0;
+    let right = w;
+    const rowFlatIn = (y, ref) => {
+      let n = 0;
+      for (let x = left; x < right; x++) if (near(at(x, y), ref)) n++;
+      return n >= (right - left) * 0.98;
+    };
+    // 흰 여백 → 검은 띠처럼 테두리가 겹겹이면 더 잘리지 않을 때까지 되풀이
+    for (let pass = 0; pass < 4; pass++) {
+      const before = [top, bottom, left, right].join();
+      while (top < bottom - 1 && rowFlatIn(top, at(left, top))) top++;
+      while (bottom > top + 1 && rowFlatIn(bottom - 1, at(left, bottom - 1))) bottom--;
+      while (left < right - 1 && colFlat(left, at(left, top), top, bottom)) left++;
+      while (right > left + 1 && colFlat(right - 1, at(right - 1, top), top, bottom)) right--;
+      if ([top, bottom, left, right].join() === before) break;
+    }
+    const nw = right - left;
+    const nh = bottom - top;
+    if (nw < w * 0.15 || nh < h * 0.3 || (nw === w && nh === h)) return item; // 너무 많이 잘리면(이상) 그대로
+    const out = canvasOf(nw, nh);
+    out.getContext("2d").drawImage(c, left, top, nw, nh, 0, 0, nw, nh);
+    return { ...item, canvas: out, cuts: [nh], cssWidth: nw / item.dpr, cssHeight: nh / item.dpr };
+  }
+
   // 슬라이드에 놓일 크기(cm) 기준 ppi 로 줄여서 PNG/JPEG Blob 으로
   async function encodeAtPpi(canvas, widthCm, heightCm, { ppi = 330, type = "image/png" } = {}) {
     // 가로 기준으로 줄이고 세로는 원본 비율 그대로 (임의로 찌그러뜨리지 않음)
@@ -173,5 +215,5 @@
     return URL.createObjectURL(await canvas.convertToBlob({ type: "image/png" }));
   }
 
-  global.ImageProc = { toBitmap, compactText, cropHeight, region, photo, encodeAtPpi, previewUrl };
+  global.ImageProc = { toBitmap, compactText, cropHeight, region, photo, trimBorders, encodeAtPpi, previewUrl };
 })(typeof window !== "undefined" ? window : self);
