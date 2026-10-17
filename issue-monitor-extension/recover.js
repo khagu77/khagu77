@@ -204,7 +204,8 @@ const LevelRecover = (() => {
         for (const e of v) {
           if (!e || !e.id || !Array.isArray(e.rows)) continue;
           const prev = runs.get(e.id);
-          if (!prev || e.rows.length > prev.rows.length) runs.set(e.id, e);
+          // 행이 더 많은 버전, 같으면 더 나중에 쓴 버전(담당자 수정이 들어간 것)
+          if (!prev || e.rows.length > prev.rows.length || (e.rows.length === prev.rows.length && r.seq > prev._seq)) runs.set(e.id, { ...e, _seq: r.seq });
         }
       } else if (r.key === "lastResult" && v && Array.isArray(v.rows) && v.rows.length) {
         lastResults.push({ ...v, seq: r.seq });
@@ -214,9 +215,10 @@ const LevelRecover = (() => {
     const lr = new Map();
     for (const v of lastResults) {
       const k = v.range ? `${v.range.start}-${v.range.end}` : "none";
-      if (!lr.has(k) || v.rows.length > lr.get(k).rows.length) lr.set(k, v);
+      const p = lr.get(k);
+      if (!p || v.rows.length > p.rows.length || (v.rows.length === p.rows.length && v.seq > p.seq)) lr.set(k, v);
     }
-    return { runs: [...runs.values()], lastResults: [...lr.values()], records: recs.length };
+    return { runs: [...runs.values()].map(({ _seq, ...e }) => e), lastResults: [...lr.values()], records: recs.length };
   }
 
   return { findRuns, snappy };
