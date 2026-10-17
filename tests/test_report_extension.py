@@ -973,3 +973,83 @@ def test_wording_region_spec_title_and_video_trim(tmp_path):
     assert abs(res["vid"][0] + res["vid"][1] / 2 - mid) < 10  # 가운데 정렬
     assert res["issue"] == "충전 후 수소 강제 배출 및 수소 누출 경고등 점등"  # 제목 = 요약표 내용
     assert res["long"] is False
+
+
+def test_raw_data_append(tmp_path):
+    """RAW data 엑셀 받기: 오늘 엑셀의 모든 행('+' 없이, 셀 색 없이)을 지난 RAW 끝에 이어 붙임.
+    현대자동차 / 제네시스 시트를 C열 차종으로 나눠 연번 이어서, 커서는 마지막 연번 바로 아래 칸."""
+    import datetime
+    from openpyxl import Workbook, load_workbook
+    from openpyxl.styles import PatternFill
+    from playwright.sync_api import sync_playwright
+
+    raw = tmp_path / "261016_차종별 온라인 동향 raw data.xlsx"
+    wb = Workbook()
+    for title, rows in (("현대자동차", [(1, "넥쏘 카페", "NH2", "https://cafe.naver.com/nexocafe/1", "수소 누출")]),
+                        ("제네시스", [(1, "GV80 멤버스", "JX PE", "https://cafe.naver.com/gruu/1", "AVN 오류"),
+                                    (2, "G70 클럽", "IK", "https://naver.me/abc", "변속 충격")])):
+        ws = wb.active if title == "현대자동차" else wb.create_sheet(title)
+        ws.title = title
+        ws.append([None, "커뮤니티명", "차종", "게시일", "구분", "게시글 위치", "주요 내용"])
+        for no, cafe, car, url, main in rows:
+            ws.append([no, cafe, car, datetime.datetime(2026, 10, 15), "품질", url, main])
+            ws.cell(ws.max_row, 6).hyperlink = url
+    wb.save(raw)
+
+    daily = tmp_path / "daily.xlsx"
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["커뮤니티명", "차종", "게시일", "구분", None, "주요 내용"])
+    data = [("팰리세이드 피플", "LX3", "https://naver.me/aaa", "스포일러 유격", None),
+            ("GV70 포럼", "JK", "https://cafe.naver.com/ohwow/2", "급가속 시 소음", "+"),
+            ("넥쏘 카페", "NH2", "https://cafe.naver.com/nexocafe/3", "수소 경고등 점등", "+"),
+            ("위너클래스 G80", "RG3 PE", "https://cafe.naver.com/fam100/4", "에어컨 불량", None)]
+    for cafe, car, url, main, plus in data:
+        ws.append([cafe, car, datetime.datetime(2026, 10, 16), "품질", url, main, plus])
+    for c in ws[2] + ws[3]:
+        c.fill = PatternFill("solid", fgColor="FFFF00")  # 노란 셀 → RAW 에는 색 없이
+    wb.save(daily)
+
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile_r"), executable_path=CHROMIUM, headless=True, accept_downloads=True,
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}"])
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        page = ctx.new_page()
+        page.goto(f"chrome-extension://{sw.url.split('/')[2]}/app.html")
+        page.wait_for_selector("#settings[open]")
+        page.set_input_files("#rawFile", str(raw))
+        page.wait_for_selector("#rawInfo.ok")
+        page.click("#closeSettings")
+        page.fill("#reportDate", "2026-10-17")
+        page.set_input_files("#excelFile", str(daily))
+        page.wait_for_selector("#rawBuild:not([disabled])")
+        with page.expect_download() as dl:
+            page.click("#rawBuild")
+        out = tmp_path / dl.value.suggested_filename
+        dl.value.save_as(out)
+        page.wait_for_selector("#doneDialog[open]")
+        stats = page.inner_text("#doneStats")
+        page.click("#doneOk")
+        remembered = page.inner_text("#rawInfo")
+        ctx.close()
+
+    assert out.name == "261017_차종별 온라인 동향 raw data.xlsx"
+    assert "261017_차종별 온라인 동향 raw data.xlsx" in remembered  # 다음 날은 이 파일에 이어 씀
+    assert "현대자동차 2행" in stats and "제네시스 2행" in stats, stats
+    wb = load_workbook(out)
+    hy, gn = wb["현대자동차"], wb["제네시스"]
+    rows = lambda ws: [[c.value for c in r][:7] for r in ws.iter_rows(min_row=2)]
+    h = rows(hy)
+    assert [r[0] for r in h] == [1, 2, 3]
+    assert [r[2] for r in h] == ["NH2", "LX3", "NH2"]  # 제네시스 차종 빼고, 엑셀 순서대로
+    assert h[1][1] == "팰리세이드 피플" and h[1][5] == "https://naver.me/aaa" and h[1][6] == "스포일러 유격"
+    assert h[1][3] == datetime.datetime(2026, 10, 16)
+    g = rows(gn)
+    assert [r[0] for r in g] == [1, 2, 3, 4] and [r[2] for r in g] == ["JX PE", "IK", "JK", "RG3 PE"]
+    for ws in (hy, gn):
+        last = ws.max_row
+        assert ws.cell(last, 6).hyperlink.target.startswith("https://")
+        assert all(not c.fill.fill_type for c in ws[last])  # 셀 색 없음
+        assert ws.max_column <= 7 or all(ws.cell(r, 8).value is None for r in range(2, last + 1))  # '+' 없음
+        assert ws.sheet_view.selection[0].activeCell == f"A{last + 1}"  # 커서: 마지막 연번 바로 아래

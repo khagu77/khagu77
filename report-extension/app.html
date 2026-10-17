@@ -37,6 +37,16 @@
       </section>
 
       <section class="set-group">
+        <h3>RAW data 엑셀</h3>
+        <div class="hint">[RAW data 엑셀 파일 받기]를 누르면 오늘 엑셀의 모든 행을 이 파일 끝에 이어 붙여 <b>YYMMDD_차종별 온라인 동향 raw data.xlsx</b> 로 저장합니다
+          (현대자동차 / 제네시스 시트로 나눠 연번 이어서, '+' 표시·셀 색 없이). 만든 파일은 기억해 두었다가 다음 날 다시 이어 씁니다. 처음 한 번만 넣으면 됩니다.</div>
+        <input type="file" id="rawFile" accept=".xlsx">
+        <div id="rawInfo" class="hint"></div>
+        <label for="rawName">RAW 파일 이름 <span class="hint">({날짜} 자리에 보고서 날짜가 YYMMDD 로 들어갑니다)</span></label>
+        <input type="text" id="rawName" value="{날짜}_차종별 온라인 동향 raw data">
+      </section>
+
+      <section class="set-group">
         <h3>보고서 템플릿</h3>
         <label for="templateFile">보고서 템플릿 PPT <span class="hint">(완성된 보고서 하나. 서식·안내선·4장 상세 슬라이드 모양을 그대로 따라갑니다. 한 번 넣으면 저장됩니다)</span></label>
         <input type="file" id="templateFile" accept=".pptx">
@@ -81,13 +91,14 @@
       <button id="start" class="primary" disabled>캡처·요약 시작</button>
       <button id="stop" disabled>중지</button>
       <button id="build" class="primary" disabled>PPT 받기</button>
+      <button id="rawBuild" disabled>RAW data 엑셀 파일 받기</button>
     </div>
     <div id="summary" class="summary"></div>
     <div id="stats" class="stats" hidden></div>
 
     <dialog id="doneDialog" class="done">
       <form method="dialog">
-        <h2>✅ PPT 작성 완료</h2>
+        <h2 id="doneTitle">✅ PPT 작성 완료</h2>
         <p id="doneText"></p>
         <p id="doneStats" class="stats"></p>
         <div class="buttons"><button id="doneOk" class="primary" value="ok">확인</button></div>
@@ -109,6 +120,7 @@
   <script src="imageproc.js"></script>
   <script src="layout.js"></script>
   <script src="pptx.js"></script>
+  <script src="raw.js"></script>
   <script src="ai.js"></script>
   <script src="capture.js"></script>
   <script src="app.js"></script>

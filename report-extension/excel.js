@@ -184,5 +184,24 @@
     return { items, total, sheets: used };
   }
 
-  global.Excel = { readMarked, readSheets };
+  // RAW data 이어 쓰기용: '+' 표시와 상관없이 주소가 있는 모든 행 (엑셀에 적힌 순서대로)
+  // → [{cafe, car, date(엑셀 날짜 일련번호 또는 글자), kind, url, main}]
+  async function readAllRows(bytes) {
+    const out = [];
+    for (const sheet of await readSheets(bytes)) {
+      const found = findColumns(sheet.rows);
+      if (!found) continue;
+      const { headerAt, col } = found;
+      const get = (r, k) => (col[k] >= 0 && r[col[k]] ? r[col[k]].text.replace(/\s+/g, " ").trim() : "");
+      for (const r of sheet.rows.slice(headerAt + 1)) {
+        const cell = r[col.url];
+        const url = cell ? (HTTP.test(cell.text) ? cell.text : cell.link) : "";
+        if (!url) continue;
+        out.push({ cafe: get(r, "cafe"), car: get(r, "car"), date: get(r, "date"), kind: get(r, "kind"), url: url.trim(), main: get(r, "main") });
+      }
+    }
+    return out;
+  }
+
+  global.Excel = { readMarked, readSheets, readAllRows };
 })(typeof window !== "undefined" ? window : self);

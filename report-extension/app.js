@@ -22,6 +22,7 @@ const pad = (n) => String(n).padStart(2, "0");
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
 let excelItems = [];
+let excelAllRows = []; // RAW data 이어 쓰기용: 오늘 엑셀의 모든 행
 let items = [];
 let stopRequested = false;
 let plan = { all: true };
@@ -53,7 +54,8 @@ function isCafeUrl(url) {
 // ---------------------------------------------------------------------------
 async function loadSettings() {
   for (const [id, label] of AI_MODELS) $("#aiModel").add(new Option(label, id));
-  const s = await chrome.storage.local.get(["aiKey", "aiModel", "fileName", "ppi", "templateName", "templateSavedAt"]).catch(() => ({}));
+  const s = await chrome.storage.local.get(["aiKey", "aiModel", "fileName", "rawName", "ppi", "templateName", "templateSavedAt"]).catch(() => ({}));
+  if (s.rawName) $("#rawName").value = s.rawName;
   if (s.ppi) $("#ppi").value = String(s.ppi);
   const c = await chrome.storage.local.get(["countAll", "countTotal", "countMine", "countPart"]).catch(() => ({}));
   if (c.countPart === "front") document.querySelector('input[name="countPart"][value="front"]').checked = true;
@@ -67,12 +69,13 @@ async function loadSettings() {
   if (s.aiModel && AI_MODELS.some(([id]) => id === s.aiModel)) $("#aiModel").value = s.aiModel;
   if (s.fileName) $("#fileName").value = s.fileName;
   showTemplateInfo(s.templateName, s.templateSavedAt);
-  for (const el of ["#aiKey", "#aiModel", "#fileName", "#ppi"]) {
+  for (const el of ["#aiKey", "#aiModel", "#fileName", "#rawName", "#ppi"]) {
     $(el).addEventListener("change", () =>
       chrome.storage.local.set({
         aiKey: $("#aiKey").value.trim(),
         aiModel: $("#aiModel").value,
         fileName: $("#fileName").value.trim(),
+        rawName: $("#rawName").value.trim(),
         ppi: $("#ppi").value,
       }),
     );
@@ -168,8 +171,10 @@ async function onExcelFile() {
   const file = $("#excelFile").files[0];
   if (!file) return;
   try {
-    const { items: marked, total, sheets } = await Excel.readMarked(new Uint8Array(await file.arrayBuffer()));
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const { items: marked, total, sheets } = await Excel.readMarked(bytes);
     excelItems = marked;
+    excelAllRows = await Excel.readAllRows(bytes).catch(() => []);
     // '총 N개' 는 + 표시 개수로 채워 둔다 (작성 개수만 정하면 되게)
     if (marked.length) {
       $("#countTotal").value = String(Math.min(12, marked.length));
@@ -183,6 +188,7 @@ async function onExcelFile() {
     $("#excelInfo").className = marked.length ? "hint ok" : "hint err";
   } catch (e) {
     excelItems = [];
+    excelAllRows = [];
     $("#excelInfo").textContent = `엑셀을 읽지 못했습니다: ${e.message}`;
     $("#excelInfo").className = "hint err";
   }
@@ -223,6 +229,7 @@ function refreshButtons(running = false) {
   $("#start").disabled = running || !excelItems.length;
   $("#stop").disabled = !running;
   $("#build").disabled = running || !items.some((it) => it.ready);
+  $("#rawBuild").disabled = running || !excelAllRows.length;
 }
 
 function setSummary(text, cls = "") {
@@ -658,6 +665,92 @@ async function saveDirIfAllowed() {
   }
 }
 
+// 고른 저장 폴더에 쓰고(못 쓰면 다운로드 폴더로) 저장한 위치 글자를 돌려준다
+async function saveFile(saveDir, fileName, bytes, type) {
+  if (saveDir) {
+    try {
+      const fh = await saveDir.getFileHandle(fileName, { create: true });
+      const w = await fh.createWritable();
+      await w.write(bytes);
+      await w.close();
+      return `📁 ${saveDir.name}/${fileName}`;
+    } catch (e) {
+      setSummary(`고른 폴더에 저장하지 못해 다운로드 폴더로 받습니다 (${e.message || e})`, "err");
+    }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([bytes], { type }));
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  return `다운로드 폴더/${fileName}`;
+}
+
+// ---------------------------------------------------------------------------
+// RAW data 엑셀: 오늘 엑셀의 모든 행을 지난 RAW 파일 끝에 이어 붙여 저장 (만든 파일은 기억해 두고 다음 날 이어 씀)
+// ---------------------------------------------------------------------------
+function showRawInfo(saved) {
+  $("#rawInfo").textContent = saved
+    ? `이어 쓸 RAW 파일: ${saved.name} (${saved.savedAt || ""})`
+    : "아직 RAW 파일이 없습니다. 지난 'YYMMDD_차종별 온라인 동향 raw data.xlsx' 를 한 번 넣어 주세요.";
+  $("#rawInfo").className = saved ? "hint ok" : "hint err";
+}
+
+const nowText = () => new Date().toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" });
+
+async function onRawFile() {
+  const file = $("#rawFile").files[0];
+  if (!file) return;
+  const saved = { name: file.name, bytes: new Uint8Array(await file.arrayBuffer()), savedAt: nowText() };
+  await kvSet("rawLatest", saved);
+  showRawInfo(saved);
+}
+
+async function buildRaw() {
+  $("#rawBuild").disabled = true;
+  const saveDir = await saveDirIfAllowed(); // 버튼을 누른 바로 그때 폴더 허용 확인
+  try {
+    const base = await kvGet("rawLatest");
+    if (!base) {
+      openSettings();
+      throw new Error("이어 쓸 RAW data 엑셀이 없습니다. 설정에서 지난 RAW 파일을 한 번 넣어 주세요");
+    }
+    setSummary(`RAW data 엑셀 만드는 중… (${base.name} 에 ${excelAllRows.length}행 이어 붙이기)`);
+    const { y, m, d } = reportDate();
+    // 게시일이 빈 행: 오늘 엑셀에서 가장 많은 게시일, 그것도 없으면 보고서 날짜 하루 전
+    const counts = {};
+    for (const r of excelAllRows) {
+      const k = Raw.dateSerial(r.date);
+      if (k) counts[k] = (counts[k] || 0) + 1;
+    }
+    const common = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
+    const fallbackSerial = common ? Number(common) : Raw.toSerial(y, m, d) - 1;
+    const res = await Raw.append(base.bytes, excelAllRows, { fallbackSerial });
+    if (res.dupDates.length && !confirm(`RAW 파일에 이미 ${res.dupDates.join(", ")} 자료가 들어 있습니다.\n같은 날 자료를 두 번 넣는 것일 수 있어요. 그래도 이어 붙일까요?`)) {
+      setSummary("RAW data 엑셀 만들기를 취소했습니다");
+      return;
+    }
+    const name = ($("#rawName").value.trim() || "{날짜}_차종별 온라인 동향 raw data").replace("{날짜}", `${String(y).slice(2)}${pad(m)}${pad(d)}`);
+    const fileName = `${name.replace(/[<>:"/\\|?*]/g, "_")}.xlsx`;
+    const where = await saveFile(saveDir, fileName, res.bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    const saved = { name: fileName, bytes: res.bytes, savedAt: nowText() };
+    await kvSet("rawLatest", saved); // 다음 날은 이 파일에 이어서
+    showRawInfo(saved);
+    const detail = res.sheets.map((s) => (s.count ? `${s.name} ${s.count}행 (연번 ${s.from}~${s.to})` : `${s.name} 0행`)).join(" · ");
+    setSummary(`RAW data 저장했습니다: ${where} — ${detail}`, "ok");
+    $("#doneTitle").textContent = "✅ RAW data 엑셀 저장 완료";
+    $("#doneText").textContent = `${where} 에 저장했습니다.`;
+    $("#doneStats").textContent = detail;
+    const dlg = $("#doneDialog");
+    if (!dlg.open) dlg.showModal();
+  } catch (e) {
+    setSummary(`RAW data 엑셀을 만들지 못했습니다: ${e.message || e}`, "err");
+  } finally {
+    refreshButtons(false);
+  }
+}
+
 function reportDate() {
   const v = $("#reportDate").value;
   const [y, m, d] = v ? v.split("-").map(Number) : [new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate()];
@@ -689,30 +782,13 @@ async function buildPpt() {
       const stats = runStart ? `${statsText(total)}` : `💰 예상 AI 비용 ${AiCost.text()}`;
       $("#stats").hidden = false;
       $("#stats").textContent = stats + (captureMs ? ` (캡처·요약 ${fmtDuration(captureMs)})` : "");
+      $("#doneTitle").textContent = "✅ PPT 작성 완료";
       $("#doneText").textContent = `${where} 에 저장했습니다 (${sz}).`;
       $("#doneStats").textContent = $("#stats").textContent;
       const d = $("#doneDialog");
       if (!d.open) d.showModal();
     };
-    if (saveDir) {
-      try {
-        const fh = await saveDir.getFileHandle(fileName, { create: true });
-        const w = await fh.createWritable();
-        await w.write(bytes);
-        await w.close();
-        done(`📁 ${saveDir.name}/${fileName}`, size);
-        return;
-      } catch (e) {
-        setSummary(`고른 폴더에 저장하지 못해 다운로드 폴더로 받습니다 (${e.message || e})`, "err");
-      }
-    }
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }));
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    done(`다운로드 폴더/${fileName}`, size);
+    done(await saveFile(saveDir, fileName, bytes, "application/vnd.openxmlformats-officedocument.presentationml.presentation"), size);
   } catch (e) {
     setSummary(`PPT 를 만들지 못했습니다: ${e.message || e}`, "err");
   } finally {
@@ -735,6 +811,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     setSummary("지금 글까지만 끝내고 멈춥니다…");
   });
   $("#build").addEventListener("click", buildPpt);
+  $("#rawBuild").addEventListener("click", buildRaw);
+  $("#rawFile").addEventListener("change", onRawFile);
+  showRawInfo(await kvGet("rawLatest").catch(() => null));
   $("#openSettings").addEventListener("click", openSettings);
   $("#changeFolder").addEventListener("click", openSettings);
   $("#pickFolder").addEventListener("click", pickFolder);

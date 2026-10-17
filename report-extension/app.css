@@ -57,7 +57,7 @@ input[type="text"], input[type="password"], input[type="date"], select {
   color: var(--text);
   font-size: 12.5px;
 }
-#aiKey, #fileName { width: 100%; }
+#aiKey, #fileName, #rawName { width: 100%; }
 .buttons { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
 button {
   padding: 5px 12px;
