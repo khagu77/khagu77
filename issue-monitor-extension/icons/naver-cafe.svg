@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="22" fill="#2DB400"/>
+  <circle cx="50" cy="40" r="27" fill="#fff"/>
+  <circle cx="50" cy="40" r="21" fill="#7a4a2f"/>
+  <circle cx="50" cy="40" r="17" fill="#8b5a3c"/>
+  <path d="M60 22 C 66 10, 82 9, 88 12 C 86 22, 76 31, 63 30 Z" fill="#3fa535"/>
+  <path d="M63 29 C 70 22, 78 17, 87 13" stroke="#2c7d25" stroke-width="1.6" fill="none"/>
+  <text x="50" y="86" text-anchor="middle" font-family="Arial Black, Arial, Helvetica, sans-serif" font-weight="900" font-size="20" fill="#fff" letter-spacing="0.5">NAVER</text>
+</svg>

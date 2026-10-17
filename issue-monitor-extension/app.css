@@ -244,5 +244,5 @@ h1 .logo { width: 22px; height: 22px; vertical-align: -4px; margin-right: 6px; b
 .learned { max-height: 260px; overflow: auto; border: 1px solid #e3e6ea; border-radius: 8px; padding: 4px 8px; margin-bottom: 14px; font-size: 12px; }
 .learned .item { padding: 3px 0; border-bottom: 1px dashed #eceff2; }
 .learned .item .del { float: right; font-size: 11px; padding: 0 6px; }
-.viasearch { margin-right: 3px; font-size: 11px; }
+.viasearch { width: 15px; height: 15px; vertical-align: -3px; margin-right: 4px; border-radius: 3px; }
 .saved { color: #1a7f37; font-size: 12px; font-weight: 600; margin-left: 6px; }

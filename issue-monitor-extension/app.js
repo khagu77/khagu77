@@ -411,7 +411,7 @@ function renderResults() {
           return sel;
         })()
       ),
-      el("td", { class: "url" }, countsBadge(r), r.viaSearch || (VIA_SEARCH_CAFES.some((c) => (r.url || "").includes(`/${c}/`)) && r.title) ? el("span", { class: "viasearch", text: "🔎", title: "바로 열면 안 보이는 글이라 링크를 네이버 검색 결과로 엽니다 (엑셀·PPT·RAW 에는 원본 주소)" }) : null, el("a", { href: resultHref(r), target: "_blank", title: `${r.url}${resultHref(r) !== r.url ? "\n→ 누르면 네이버 검색 결과로 열림 (원본 주소는 엑셀·PPT·RAW 에 들어감)" : ""}${r.views != null ? `\n조회 ${r.views}` : ""}${r.ccount != null ? ` · 댓글 ${r.ccount}` : ""}${r.harsh ? "\n강한 비판·욕설 있음" : ""}`, text: r.url.replace(/^https?:\/\/(www\.)?/, "") })),
+      el("td", { class: "url" }, countsBadge(r), r.viaSearch || (VIA_SEARCH_CAFES.some((c) => (r.url || "").includes(`/${c}/`)) && r.title) ? el("img", { class: "viasearch", src: "icons/naver-cafe.svg", alt: "네이버 검색", title: "바로 열면 안 보이는 글이라 링크를 네이버 검색 결과로 엽니다 (엑셀·PPT·RAW 에는 원본 주소)" }) : null, el("a", { href: resultHref(r), target: "_blank", title: `${r.url}${resultHref(r) !== r.url ? "\n→ 누르면 네이버 검색 결과로 열림 (원본 주소는 엑셀·PPT·RAW 에 들어감)" : ""}${r.views != null ? `\n조회 ${r.views}` : ""}${r.ccount != null ? ` · 댓글 ${r.ccount}` : ""}${r.harsh ? "\n강한 비판·욕설 있음" : ""}`, text: r.url.replace(/^https?:\/\/(www\.)?/, "") })),
       el("td", { class: "sum" }, sum),
       el(
         "td",
