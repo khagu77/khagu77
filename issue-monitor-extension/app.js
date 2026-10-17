@@ -192,6 +192,21 @@ $("#saveRangeDefault").addEventListener("click", async () => {
   $("#rangeSaved").textContent = `저장했습니다: 다음부터 전일 ${st} ~ 금일 ${en}`;
 });
 
+// 날짜가 바뀌면(수집 화면을 밤새 열어 둔 경우 등) 수집 기간 기본값을 오늘 기준으로 다시 맞춘다.
+// 같은 날 안에서 직접 바꾼 기간은 그대로 둔다. 수집 중이면 건드리지 않는다
+let rangeDay = new Date().toDateString();
+function refreshRangeIfNewDay() {
+  const today = new Date().toDateString();
+  if (today === rangeDay || state.running) return;
+  rangeDay = today;
+  const r = defaultRange(new Date(), state.settings);
+  setRange(r.start, r.end);
+  log(`날짜가 바뀌어 수집 기간을 오늘 기준으로 맞췄습니다 (${fmtDateTime(r.start)} ~ ${fmtDateTime(r.end)})`);
+}
+setInterval(refreshRangeIfNewDay, 60 * 1000);
+document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && refreshRangeIfNewDay());
+window.addEventListener("focus", refreshRangeIfNewDay);
+
 $("#rangeDefault").addEventListener("click", () => {
   const r = defaultRange(new Date(), state.settings);
   setRange(r.start, r.end);

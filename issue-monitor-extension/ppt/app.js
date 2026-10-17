@@ -959,6 +959,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadPptLearned();
   const now = new Date();
   $("#reportDate").value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  // 화면을 밤새 열어 둔 경우: 날짜가 바뀌면 보고서 날짜도 오늘로 (작업 중이면 그대로)
+  let shownDay = now.toDateString();
+  const refreshDay = () => {
+    const d = new Date();
+    if (d.toDateString() === shownDay || !$("#stop").disabled) return;
+    shownDay = d.toDateString();
+    $("#reportDate").value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
+  setInterval(refreshDay, 60 * 1000);
+  document.addEventListener("visibilitychange", refreshDay);
   await loadSettings();
   $("#templateFile").addEventListener("change", onTemplateFile);
   $("#excelFile").addEventListener("change", onExcelFile);
