@@ -365,11 +365,23 @@ function countsBadge(r) {
   return el("span", { class: `counts${hot ? " hot" : ""}`, title: `조회 ${r.views ?? "-"} · 댓글 ${r.ccount ?? "-"}${r.harsh ? " · 강한 비판·욕설 있음" : ""}`, text: parts.join(" ") });
 }
 
+// 결과 표 링크: 바로 열면 안 보이는 글(넥쏘 카페·영운모, 검색 경유로 읽은 글)은 네이버 검색(카페 탭) 결과로.
+// 표시 글자와 엑셀·PPT·RAW 에는 원본 주소 그대로
+function resultHref(r) {
+  const hard = r.viaSearch || VIA_SEARCH_CAFES.some((c) => (r.url || "").includes(`/${c}/`));
+  if (!hard || !r.title) return r.url;
+  const q = String(r.title).replace(/\s+/g, " ").trim().slice(0, 80);
+  return `https://search.naver.com/search.naver?ssc=tab.cafe.all&query=${encodeURIComponent(q)}`;
+}
+
 function renderResults() {
   const tbody = $("#results tbody");
   tbody.textContent = "";
   state.rows.forEach((r, i) => {
-    const sum = el("input", { type: "text", value: r.summary, title: r.summary, oninput: (e) => (r.summary = e.target.value, e.target.title = e.target.value, saveLastResult()) });
+    // 자동 학습 기준값이 없는 행(예전 버전 결과·불러온 엑셀·데일리 DB): 처음 보여 준 값을 기준으로, 이후 고친 것부터 학습
+    if (!r.ai) r.ai = { car: r.car, category: r.category, summary: r.summary, highlight: !!r.highlight };
+    if (r.aiReport === undefined) r.aiReport = !!r.report;
+    const sum = el("input", { type: "text", value: r.summary, title: r.summary, oninput: (e) => (r.summary = e.target.value, e.target.title = e.target.value, saveLastResult(), learnRow(r)) });
     const tr = el(
       "tr",
       { class: `${r.highlight ? "yellow" : ""} ${r.report ? "report" : ""} ${r.selected ? "selected" : ""}` },
@@ -387,19 +399,19 @@ function renderResults() {
         })
       ),
       el("td", { class: "comm", text: r.community, title: r.community }),
-      el("td", {}, el("input", { type: "text", value: r.car, size: 7, oninput: (e) => (r.car = e.target.value, saveLastResult()) })),
+      el("td", {}, el("input", { type: "text", value: r.car, size: 7, oninput: (e) => (r.car = e.target.value, saveLastResult(), learnRow(r)) })),
       el("td", {}, el("input", { type: "text", class: "year", value: r.year || "", placeholder: "-", title: "확인 연식 (화면 검토용, 엑셀에는 안 들어감)", oninput: (e) => (r.year = e.target.value, saveLastResult()) })),
       el("td", { text: fmtMonthDay(r.date) }),
       el(
         "td",
         {},
         (() => {
-          const sel = el("select", { onchange: (e) => (r.category = e.target.value, saveLastResult()) });
+          const sel = el("select", { onchange: (e) => (r.category = e.target.value, saveLastResult(), learnRow(r)) });
           for (const c of ["품질", "응대", "결품"]) sel.append(el("option", { value: c, text: c, selected: r.category === c }));
           return sel;
         })()
       ),
-      el("td", { class: "url" }, countsBadge(r), el("a", { href: r.url, target: "_blank", title: `${r.url}${r.views != null ? `\n조회 ${r.views}` : ""}${r.ccount != null ? ` · 댓글 ${r.ccount}` : ""}${r.harsh ? "\n강한 비판·욕설 있음" : ""}`, text: r.url.replace(/^https?:\/\/(www\.)?/, "") })),
+      el("td", { class: "url" }, countsBadge(r), r.viaSearch || (VIA_SEARCH_CAFES.some((c) => (r.url || "").includes(`/${c}/`)) && r.title) ? el("span", { class: "viasearch", text: "🔎", title: "바로 열면 안 보이는 글이라 링크를 네이버 검색 결과로 엽니다 (엑셀·PPT·RAW 에는 원본 주소)" }) : null, el("a", { href: resultHref(r), target: "_blank", title: `${r.url}${resultHref(r) !== r.url ? "\n→ 누르면 네이버 검색 결과로 열림 (원본 주소는 엑셀·PPT·RAW 에 들어감)" : ""}${r.views != null ? `\n조회 ${r.views}` : ""}${r.ccount != null ? ` · 댓글 ${r.ccount}` : ""}${r.harsh ? "\n강한 비판·욕설 있음" : ""}`, text: r.url.replace(/^https?:\/\/(www\.)?/, "") })),
       el("td", { class: "sum" }, sum),
       el(
         "td",
@@ -411,6 +423,7 @@ function renderResults() {
             r.highlight = e.target.checked;
             tr.classList.toggle("yellow", r.highlight);
             saveLastResult();
+            learnRow(r);
           },
         })
       ),
@@ -418,6 +431,7 @@ function renderResults() {
         const td = el("td", { class: `rep${r.report ? "" : " off"}`, text: r.report ? "✅" : "☐", title: r.kind === "community" ? "자동차 커뮤니티 글 (보고 필요 대상 아님)" : "눌러서 보고 필요 표시/해제" });
         td.addEventListener("click", () => {
           r.report = !r.report;
+          learnRow(r);
           td.textContent = r.report ? "✅" : "☐";
           td.classList.toggle("off", !r.report);
           tr.classList.toggle("report", r.report);
@@ -432,7 +446,7 @@ function renderResults() {
           class: "del",
           text: "삭제",
           onclick: () => {
-            state.rows.splice(i, 1);
+            learnDelete(state.rows.splice(i, 1));
             renderResults();
             saveLastResult();
           },
@@ -470,6 +484,7 @@ $("#selectAll").addEventListener("change", (e) => {
 $("#deleteSelected").addEventListener("click", async () => {
   const n = state.rows.filter((r) => r.selected).length;
   if (!n || !confirm(`선택한 ${n}건을 결과에서 지울까요?`)) return;
+  learnDelete(state.rows.filter((r) => r.selected));
   state.rows = state.rows.filter((r) => !r.selected);
   renderResults();
   await saveLastResult();
@@ -479,6 +494,7 @@ $("#clearResults").addEventListener("click", async () => {
   if (state.running || !state.rows.length) return;
   if (!confirm(`결과 표의 ${state.rows.length}건을 모두 비울까요? (데일리 DB 에 저장된 이력은 지워지지 않습니다)`)) return;
   state.rows = [];
+  state.dbEntryId = null; // 결과 표만 비움 (데일리 DB 이력은 그대로)
   renderResults();
   await saveLastResult();
   setSummary("결과를 비웠습니다.");
@@ -498,6 +514,7 @@ async function dbList() {
 
 async function dbSave(entry) {
   const list = await dbList();
+  state.dbEntryId = entry.id; // 결과 표에서 고치면 이 DB 항목에도 반영
   list.unshift(entry);
   await chrome.storage.local.set({ dailyDb: list.slice(0, DB_MAX) });
 }
@@ -542,6 +559,7 @@ async function renderDb() {
             onclick: () => {
               state.rows = rows;
               state.range = { start: new Date(e.range.start), end: new Date(e.range.end) };
+              state.dbEntryId = e.id; // 여기서 고치면 이 DB 항목에 반영
               renderResults();
               setSummary(`데일리 DB: ${dbLabel(e)}`);
               showTab("collect");
@@ -631,9 +649,41 @@ async function saveLastResult() {
     lastResult: {
       range: state.range ? { start: state.range.start.getTime(), end: state.range.end.getTime() } : null,
       rows: serializeRows(state.rows),
+      dbEntryId: state.dbEntryId || null,
       savedAt: Date.now(),
     },
   });
+  scheduleDbSync();
+}
+
+// 결과 표에서 고친 내용(차종·구분·주요 내용·노란색·보고 필요·삭제)을 그 수집의 데일리 DB 항목에도 자동 반영
+// → 다음 날 '이어서 작성'에서 그 DB 항목을 골라도 고친 그대로 이어짐. 저장 버튼 없이 자동 저장, 표시만 띄움
+let dbSyncTimer = null;
+function scheduleDbSync() {
+  if (state.running) return; // 수집 중엔 끝날 때 한꺼번에 저장
+  clearTimeout(dbSyncTimer);
+  dbSyncTimer = setTimeout(syncDbEntry, 1000);
+}
+
+async function syncDbEntry() {
+  const now = new Date();
+  const stamp = `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
+  const list = await dbList();
+  let e = state.dbEntryId && state.dbEntryId !== "none" ? list.find((x) => x.id === state.dbEntryId) : null;
+  // 예전 버전 결과처럼 DB 항목 표시가 없으면 같은 수집 기간의 가장 최근 항목
+  if (!e && !state.dbEntryId && state.range) {
+    e = list.find((x) => x.range && x.range.start === state.range.start.getTime() && x.range.end === state.range.end.getTime());
+    if (e) state.dbEntryId = e.id;
+  }
+  if (e) {
+    e.rows = serializeRows(state.rows);
+    e.count = state.rows.length;
+    e.editedAt = Date.now();
+    await chrome.storage.local.set({ dailyDb: list.slice(0, DB_MAX) });
+    $("#autoSaved").textContent = `✓ 자동 저장됨 (데일리 DB 반영) ${stamp}`;
+  } else {
+    $("#autoSaved").textContent = `✓ 자동 저장됨 ${stamp}`;
+  }
 }
 
 async function loadLastResult() {
@@ -641,6 +691,7 @@ async function loadLastResult() {
   if (!lastResult) return;
   state.rows = deserializeRows(lastResult.rows);
   state.range = lastResult.range ? { start: new Date(lastResult.range.start), end: new Date(lastResult.range.end) } : null;
+  state.dbEntryId = lastResult.dbEntryId || null;
   if (state.rows.length || state.range) {
     renderResults();
     if (state.range) setSummary(`지난 수집 결과 (${fmtDateTime(state.range.start)} ~ ${fmtDateTime(state.range.end)}): ${state.rows.length}건`);
@@ -886,7 +937,7 @@ function finalizeRow(row, it, src) {
     if (start && start < 2020 && !VERY_SEVERE_RE.test(text)) return null;
     delete row.byKeyword;
   }
-  return {
+  const out = {
     community: src.name,
     date: it.ts ? new Date(it.ts) : null,
     url: it.url,
@@ -898,8 +949,13 @@ function finalizeRow(row, it, src) {
     views: it.views ?? null,
     ccount: it.ccount ?? null,
     report: false,
+    // 바로 열면 안 보이는 글(넥쏘 카페·영운모 등, 검색 경유로 읽은 글): 결과 표 링크는 네이버 검색으로
+    viaSearch: !!((src.cafe && src.cafe.viaSearch) || it.via === "검색"),
     ...row,
   };
+  // 자동 학습용: AI(또는 키워드)가 처음 정한 값 (담당자가 고친 것과 비교)
+  out.ai = { car: out.car, category: out.category, summary: out.summary, highlight: !!out.highlight };
+  return out;
 }
 
 // 차종을 모르거나("-") PE 여부 등이 애매한 카페 글: 작성자 닉네임 → '게시글 보기'(작성자의 다른 글)를 열어 차종 코드를 다시 정한다.
@@ -1017,6 +1073,7 @@ async function processSource(src, posts, readBody, ctx) {
         writer: info.writer || null,
         views: info.views ?? post.views ?? null,
         ccount: info.ccount ?? post.ccount ?? null,
+        via: info.via || "",
       });
     } catch (e) {
       if (e instanceof StopError || e instanceof BlockedError) throw e;
@@ -1119,6 +1176,7 @@ async function pickReports(cafeRows, ai, settings) {
   }
   cafeRows.forEach((r) => (r.report = false));
   picked.forEach((i) => (cafeRows[i].report = true));
+  cafeRows.forEach((r) => (r.aiReport = !!r.report)); // 자동 학습용: AI 가 고른 보고 필요
   log(`보고 필요 ${picked.size}건 선정`);
   return picked.size;
 }
@@ -1162,6 +1220,7 @@ $("#viewFile").addEventListener("change", async (ev) => {
     const [ch, cm] = cutoffHM(state.settings);
     const end = m ? new Date(2000 + +m[1], +m[2] - 1, +m[3], ch, cm) : new Date();
     state.range = { start: new Date(end.getTime() - 86400000), end };
+    state.dbEntryId = "none"; // 불러온 엑셀은 데일리 DB 항목이 아님 (DB 를 덮어쓰지 않음)
     renderResults();
     await saveLastResult();
     setSummary(`불러온 엑셀: ${f.name} · ${rows.length}건 (노란색 ${rows.filter((r) => r.highlight).length}, 보고 필요 ${rows.filter((r) => r.report).length})`);
@@ -1228,7 +1287,9 @@ async function runCollection() {
 
   state.running = true;
   state.stopRequested = false;
+  state.dbEntryId = null; // 이번 수집은 끝날 때 새 DB 항목으로 저장
   await runGuard(true);
+  await loadLearned(); // 담당자 수정 사례를 최신으로
   // 이어서 작성: 기존 행을 먼저 넣고(중복은 처음 것만), 이번 수집 결과를 뒤에 붙인다
   state.rows = [];
   state.seenKeys = new Set();
@@ -1452,7 +1513,37 @@ window.addEventListener("beforeunload", (e) => {
 // 명령 프롬프트: 현재 AI 에 보내는 프롬프트 보기 + 추가 지시사항 수정 (최종 업데이트 시각·이력)
 // ---------------------------------------------------------------------------
 
+async function renderLearned() {
+  const list = await loadLearned();
+  const { learnedUpdatedAt } = await chrome.storage.local.get("learnedUpdatedAt");
+  $("#learnedInfo").textContent = list.length ? `${list.length}건 (최근 ${LEARN_PROMPT_MAX}건이 AI 에 전달됨)${learnedUpdatedAt ? ` · 최종 업데이트 ${fmtDateTime(new Date(learnedUpdatedAt))}` : ""}` : "아직 없습니다. 결과 표에서 고치거나 지우면 여기에 쌓입니다.";
+  const box = $("#learnedList");
+  box.textContent = "";
+  list.forEach((x, i) => {
+    const line = learnLine(x).replace(/^- /, "") || `[${x.community}] 「${x.title}」 →`;
+    const text = x.type === "delete" ? `🗑 [${x.community}] 「${x.title}」 → 보고서에서 뺌 (${x.car} · ${x.summary})` : `✏️ ${line}${x.ch && x.ch.report ? `${/→$/.test(line) ? "" : " /"} 보고 필요 ${x.ch.report[1] ? "추가" : "해제"}` : ""}`;
+    box.append(
+      el("div", { class: "item" },
+        el("span", { class: "hint", text: `${fmtDateTime(new Date(x.at))} ` }),
+        text,
+        el("button", { class: "del", text: "삭제", title: "이 사례는 학습에서 뺍니다", onclick: async () => { const all = await loadLearned(); all.splice(i, 1); await saveLearned(all); renderPrompt(); } })
+      )
+    );
+  });
+}
+
+$("#clearLearned").addEventListener("click", async () => {
+  if (!confirm("자동 학습 메모를 모두 지울까요? (다음 판정부터 담당자 수정 사례가 빠집니다)")) return;
+  await saveLearned([]);
+  renderPrompt();
+});
+
 function renderPrompt() {
+  renderLearned().then(() => {
+    $("#promptTriage").textContent = triageSystem(state.settings);
+    $("#promptClassify").textContent = classifySystem(state.settings);
+    $("#promptReport").textContent = reportSystem(state.settings.priorityCars, state.settings);
+  });
   const s = state.settings;
   $("#customPrompt").value = s.customPrompt || "";
   $("#promptUpdated").textContent = s.customPromptUpdatedAt ? `최종 업데이트: ${fmtDateTime(new Date(s.customPromptUpdatedAt))}` : "아직 추가 지시사항 없음";
@@ -1704,6 +1795,7 @@ $("#testKey").addEventListener("click", async () => {
   $("#version").textContent = `v${chrome.runtime.getManifest().version}`;
   state.settings = await loadSettings();
   setIssueKeywords(state.settings.keywords);
+  await loadLearned();
   draft = structuredClone(state.settings);
   renderSettings();
   renderMode();

@@ -11,7 +11,7 @@ const ISSUE_DEFINITION = `부정 이슈는 다음 3가지다. (지난 보고서 
 3) 결품: 입고했는데 부품 재고 부족·부품 수급 문제로 정비가 지연되는 불만. (고장으로 입고했더라도 불만의 무게가 부품 결품·정비 지연에 있으면 결품)`;
 
 // 기본 프롬프트(아래 규칙)를 마지막으로 고친 때 - '명령 프롬프트' 화면에 표시
-const PROMPT_BUILT_AT = "2026-10-14 (v1.8.14)";
+const PROMPT_BUILT_AT = "2026-10-17 (v1.9.1)";
 
 // '명령 프롬프트' 화면에서 사용자가 추가한 지시사항 (모든 AI 단계에 붙고, 기본 규칙보다 우선)
 function customInstructions(settings) {
@@ -20,7 +20,7 @@ function customInstructions(settings) {
 }
 
 function triageSystem(settings) {
-  return `${TRIAGE_SYSTEM}\n\n${keywordReference(settings)}${customInstructions(settings)}`;
+  return `${TRIAGE_SYSTEM}\n\n${keywordReference(settings)}${typeof learnedSection === "function" ? learnedSection("triage") : ""}${customInstructions(settings)}`;
 }
 
 function keywordReference(settings) {
@@ -103,7 +103,7 @@ ${highlights || "(없음)"}
 ${keywordReference(settings)}
 
 차종 코드표:
-${settings.carCodes}${customInstructions(settings)}`;
+${settings.carCodes}${typeof learnedSection === "function" ? learnedSection("classify") : ""}${customInstructions(settings)}`;
 }
 
 const TRIAGE_SCHEMA = {
@@ -153,7 +153,7 @@ function reportSystem(priorityCars, settings) {
 - 같은 정도로 심각하면 다음을 더 우선한다: 심한 욕설·강한 비판이 담긴 글([강한 비판] 표시), 조회수·댓글 수가 많은 글(반응이 큰 글).
 - 고르지 않는 것: 단순 정보 공유(무상 수리 정보 공유, 업데이트 내용 공유, 뉴스 공유 등), 단순 문의, 가벼운 소음·마감 불만, 개인 의견. 신차라도 단순 정보 공유면 고르지 않는다.
 - 고르지 않는 것: 운전자 보조 시스템(ADAS) 점검·전방 안전 시스템 점검 메시지, 여러 경고등이 한 번에 잠깐 켜졌다 꺼진 일시적 점등 같은 글.
-- 결과는 고른 글의 번호(id)만 돌려준다.${customInstructions(settings)}`;
+- 결과는 고른 글의 번호(id)만 돌려준다.${typeof learnedSection === "function" ? learnedSection("report") : ""}${customInstructions(settings)}`;
 }
 
 class AiClassifier {

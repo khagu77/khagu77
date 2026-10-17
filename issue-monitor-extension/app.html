@@ -93,7 +93,7 @@
         <tbody></tbody>
       </table>
 
-      <h2 id="resultsTitle" hidden>결과 <span id="resultCount" class="hint"></span> <span class="hint">(받기 전에 고치거나 지울 수 있습니다)</span></h2>
+      <h2 id="resultsTitle" hidden>결과 <span id="resultCount" class="hint"></span> <span class="hint">(받기 전에 고치거나 지울 수 있습니다 · 고친 내용은 바로 자동 저장되고 데일리 DB·학습 메모에도 반영)</span> <span id="autoSaved" class="saved"></span></h2>
       <div id="resultTools" class="buttons small" hidden>
         <button id="deleteSelected" class="danger" disabled>선택 삭제</button>
         <button id="clearResults" class="danger">결과 비우기</button>
@@ -139,6 +139,13 @@
         <summary>수정 이력</summary>
         <div id="promptHistory"></div>
       </details>
+
+      <h2>자동 학습 메모 <span class="hint">결과 표에서 고친 차종·구분·주요 내용·노란색·보고 필요와 지운 글이 자동으로 쌓이고, 다음 판정부터 AI 에 '담당자 수정 사례'로 전달됩니다</span></h2>
+      <div class="buttons small">
+        <span id="learnedInfo" class="hint"></span>
+        <button id="clearLearned" class="danger">학습 메모 모두 지우기</button>
+      </div>
+      <div id="learnedList" class="learned"></div>
 
       <h2>수집 기본 규칙 <span class="hint">AI 판정 전에 확장 프로그램이 항상 지키는 규칙</span></h2>
       <pre id="collectRules" class="prompt"></pre>
@@ -255,6 +262,7 @@
   <script src="common.js"></script>
   <script src="naver.js"></script>
   <script src="community.js"></script>
+  <script src="learn.js"></script>
   <script src="ai.js"></script>
   <script src="report-template.js"></script>
   <script src="report-xlsx.js"></script>
