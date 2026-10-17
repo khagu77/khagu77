@@ -1107,6 +1107,8 @@ function keywordHighlight(car, text, highlights) {
   const generic = new Set(["관련", "불만", "고장", "의견", "포함", "작동", "오류", "문의", "이상", "전체"]);
   for (const h of highlights || []) {
     if (h.car && !String(car).startsWith(h.car)) continue;
+    // 시트 항목은 글에 시트·좌석이 있어야 (전동 테일게이트·도어 끼임 등을 시트로 오인하지 않게)
+    if (/시트/.test(h.topic || "") && !/시트|좌석/.test(text)) continue;
     const words = String(h.topic || "")
       .split(/[^가-힣A-Za-z0-9]+/)
       .map((w) => w.replace(/(관련|등|의)$/, ""))
