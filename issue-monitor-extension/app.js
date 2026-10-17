@@ -170,7 +170,8 @@ function readRange() {
 
 function renderRangeDefaultLabel() {
   const s = state.settings;
-  $("#rangeDefault").textContent = `기본값 (${s.workdayReport ? "직전 근무일" : "전일"} ${s.rangeStartTime || s.cutoffTime || "07:30"} ~ 금일 ${s.cutoffTime || "07:30"})`;
+  const workday = s.workdayReport && isWorkday(new Date(), s);
+  $("#rangeDefault").textContent = `기본값 (${workday ? "직전 근무일" : "전일"} ${s.rangeStartTime || s.cutoffTime || "07:30"} ~ 금일 ${s.cutoffTime || "07:30"})`;
 }
 
 // 수집 화면에서 입력한 시작·끝 시각을 기본값으로 저장 (날짜는 매일 자동으로 바뀜)
@@ -201,6 +202,7 @@ function refreshRangeIfNewDay() {
   rangeDay = today;
   const r = defaultRange(new Date(), state.settings);
   setRange(r.start, r.end);
+  renderRangeDefaultLabel();
   log(`날짜가 바뀌어 수집 기간을 오늘 기준으로 맞췄습니다 (${fmtDateTime(r.start)} ~ ${fmtDateTime(r.end)})`);
 }
 setInterval(refreshRangeIfNewDay, 60 * 1000);

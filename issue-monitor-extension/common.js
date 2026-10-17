@@ -82,7 +82,7 @@ function korMsg(text) {
 }
 
 // 기본 수집 기간: 전일 기준 시각(기본 07:30) ~ 금일 기준 시각.
-// 근무일 보고서 모드면 시작은 '직전 근무일' 기준 시각 (예: 월요일 → 금요일 07:30 ~ 월요일 07:30)
+// 근무일 보고서 모드에서 오늘이 근무일이면 시작은 '직전 근무일' 기준 시각 (예: 월요일 → 금요일 07:30 ~ 월요일 07:30)
 function cutoffHM(s, which = "end") {
   const v = which === "start" ? (s && (s.rangeStartTime || s.cutoffTime)) : s && s.cutoffTime;
   const m = String(v || "07:30").match(/^(\d{1,2}):(\d{2})/);
@@ -94,7 +94,8 @@ function defaultRange(now = new Date(), s = null) {
   const [sh, sm] = cutoffHM(s, "start");
   const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, mi, 0);
   let start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, sh, sm, 0);
-  if (s && s.workdayReport && typeof isWorkday === "function") {
+  // 근무일 보고서 모드: 오늘이 근무일일 때만 직전 근무일부터 (월요일 → 금요일 07:30~). 주말·휴일은 그냥 전일부터
+  if (s && s.workdayReport && typeof isWorkday === "function" && isWorkday(now, s)) {
     for (let i = 0; i < 7 && !isWorkday(start, s); i++) start = new Date(start.getFullYear(), start.getMonth(), start.getDate() - 1, sh, sm, 0);
   }
   return { start, end };
