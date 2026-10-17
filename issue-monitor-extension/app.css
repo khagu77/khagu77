@@ -252,3 +252,13 @@ h1 .logo { width: 22px; height: 22px; vertical-align: -4px; margin-right: 6px; b
 .count-red { color: #d00000; font-weight: 800; margin-left: 6px; }
 .recoverbox { margin: 6px 0 14px; padding: 10px 12px; border: 1px dashed #d0a0a0; border-radius: 8px; background: #fffaf7; }
 .recoverbox label.check { display: block; padding: 2px 0; font-size: 13px; }
+
+/* 이어서 작성 드롭다운 (건수 빨간 굵은 글씨) */
+.dd { position: relative; display: inline-block; }
+.dd-btn { min-width: 420px; text-align: left; display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: #fff; border: 1px solid #c9ced6; border-radius: 6px; font-size: 13px; }
+.dd-btn .dd-text { flex: 1; }
+.dd-caret { color: #666; }
+.dd-menu { position: absolute; z-index: 50; top: calc(100% + 4px); left: 0; min-width: 100%; max-height: 360px; overflow: auto; background: #fff; border: 1px solid #c9ced6; border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.12); padding: 4px; }
+.dd-item { padding: 6px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; font-size: 13px; }
+.dd-item:hover { background: #eef4ff; }
+.dd-item.on { background: #dbe8ff; }

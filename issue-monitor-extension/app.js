@@ -704,7 +704,48 @@ async function renderBaseOptions() {
   if (state.baseFile) sel.append(el("option", { value: "file", text: `엑셀 파일: ${state.baseFile.label}` }));
   for (const e of await dbList()) sel.append(el("option", { value: e.id, text: `데일리 DB: ${dbLabel(e)}` }));
   if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+  renderBaseDd();
 }
+
+// '이어서 작성' 목록: 기본 드롭다운은 글자 일부에 색을 못 넣어서 직접 그린다 (끝의 'NN건'을 빨간 굵은 글씨로)
+function ddLabel(text) {
+  const m = String(text).match(/^(.*?)(\d+건)(\s*\))?$/);
+  const span = el("span", { class: "dd-text" });
+  if (m) span.append(m[1], el("b", { class: "count-red", text: m[2] }), m[3] || "");
+  else span.append(text);
+  return span;
+}
+
+function renderBaseDd() {
+  const sel = $("#baseSelect");
+  const cur = sel.options[sel.selectedIndex];
+  const btn = $("#baseBtn");
+  btn.textContent = "";
+  btn.append(ddLabel(cur ? cur.textContent : "없음 (이번 수집만 새로 작성)"), el("span", { class: "dd-caret", text: "▾" }));
+  const menu = $("#baseMenu");
+  menu.textContent = "";
+  for (const o of sel.options) {
+    menu.append(
+      el("div", {
+        class: `dd-item${o.value === sel.value ? " on" : ""}`,
+        onclick: () => {
+          sel.value = o.value;
+          sel.dispatchEvent(new Event("change"));
+          menu.hidden = true;
+          renderBaseDd();
+        },
+      }, ddLabel(o.textContent))
+    );
+  }
+}
+
+$("#baseBtn").addEventListener("click", (e) => {
+  e.stopPropagation();
+  $("#baseMenu").hidden = !$("#baseMenu").hidden;
+});
+document.addEventListener("click", (e) => {
+  if (!$("#baseDd").contains(e.target)) $("#baseMenu").hidden = true;
+});
 
 // 첨부한 엑셀(이어서 작성용) 해제
 $("#clearBase").addEventListener("click", async () => {
@@ -727,7 +768,7 @@ async function onBaseChange() {
     ? `기존 ${state.base.rows.length}건 뒤에 이어서 작성합니다 (같은 게시물은 기존 것만 남김).${state.base.rows.length ? "" : " ⚠ 이 항목은 0건이라 붙일 것이 없습니다. 건수가 있는 다른 항목이나 엑셀 파일을 고르세요."}`
     : "";
   $("#mergeBase").disabled = !state.base || !state.base.rows.length || state.running;
-  $("#baseCount").textContent = state.base ? `${state.base.rows.length}건` : "";
+  renderBaseDd();
   $("#clearBase").hidden = !state.baseFile;
 }
 
@@ -854,6 +895,8 @@ async function syncDbEntry() {
     e.editedAt = Date.now();
     await chrome.storage.local.set({ dailyDb: list.slice(0, DB_MAX) });
     $("#autoSaved").textContent = `✓ 자동 저장됨 (데일리 DB 반영) ${stamp}`;
+    await renderBaseOptions(); // '이어서 작성' 목록의 건수도 바로 맞춤
+    await onBaseChange();
   } else {
     $("#autoSaved").textContent = `✓ 자동 저장됨 ${stamp}`;
   }
