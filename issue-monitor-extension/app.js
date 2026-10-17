@@ -31,6 +31,7 @@ function el(tag, attrs = {}, ...children) {
 }
 
 function log(msg, cls = "") {
+  msg = korMsg(msg);
   const now = new Date();
   const line = `[${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}] ${msg}`;
   const pre = $("#log");
@@ -84,7 +85,7 @@ async function runGuard(on) {
 }
 
 function setSummary(text) {
-  $("#summary").textContent = text;
+  $("#summary").textContent = korMsg(text);
 }
 
 function showTab(name) {
@@ -139,8 +140,32 @@ function readRange() {
   return { start, end };
 }
 
+function renderRangeDefaultLabel() {
+  const s = state.settings;
+  $("#rangeDefault").textContent = `기본값 (${s.workdayReport ? "직전 근무일" : "전일"} ${s.rangeStartTime || s.cutoffTime || "07:30"} ~ 금일 ${s.cutoffTime || "07:30"})`;
+}
+
+// 수집 화면에서 입력한 시작·끝 시각을 기본값으로 저장 (날짜는 매일 자동으로 바뀜)
+$("#saveRangeDefault").addEventListener("click", async () => {
+  const hm = (v) => (String(v || "").match(/T(\d{2}:\d{2})/) || [])[1];
+  const st = hm($("#rangeStart").value);
+  const en = hm($("#rangeEnd").value);
+  if (!st || !en) return ($("#rangeSaved").textContent = "시작·끝 시각을 먼저 입력해 주세요");
+  const s = await loadSettings();
+  s.rangeStartTime = st;
+  s.cutoffTime = en;
+  await saveSettings(s);
+  state.settings = s;
+  draft.rangeStartTime = st;
+  draft.cutoffTime = en;
+  $("#rangeStartTime").value = st;
+  $("#cutoffTime").value = en;
+  renderRangeDefaultLabel();
+  $("#rangeSaved").textContent = `저장했습니다: 다음부터 전일 ${st} ~ 금일 ${en}`;
+});
+
 $("#rangeDefault").addEventListener("click", () => {
-  const r = defaultRange();
+  const r = defaultRange(new Date(), state.settings);
   setRange(r.start, r.end);
 });
 $("#range3h").addEventListener("click", () => {
@@ -275,6 +300,7 @@ function updateSource(key, { listed, candidates, read, issues, status, error } =
   if (read !== undefined) td[3].textContent = read;
   if (issues !== undefined) td[4].textContent = issues;
   if (status !== undefined) {
+    status = korMsg(status);
     td[5].textContent = status;
     td[5].className = error ? "err" : "";
   }
@@ -1105,7 +1131,8 @@ $("#viewFile").addEventListener("change", async (ev) => {
     state.rows = rows.map((r, i) => ({ ...r, ts: r.date ? r.date.getTime() : 0, kind: /cafe\.naver\.com|naver\.me/.test(r.url) ? "cafe" : "community", fromBase: true, baseIdx: i }));
     sortRows();
     const m = f.name.match(/^(\d{2})(\d{2})(\d{2})/);
-    const end = m ? new Date(2000 + +m[1], +m[2] - 1, +m[3], 8, 0) : new Date();
+    const [ch, cm] = cutoffHM(state.settings);
+    const end = m ? new Date(2000 + +m[1], +m[2] - 1, +m[3], ch, cm) : new Date();
     state.range = { start: new Date(end.getTime() - 86400000), end };
     renderResults();
     await saveLastResult();
@@ -1459,6 +1486,8 @@ function renderSettings() {
   for (const m of MODELS) sel.append(el("option", { value: m.id, text: `${m.label} — 100만 토큰당 입력 $${m.price[0]} / 출력 $${m.price[1]}`, selected: m.id === s.model }));
   $("#autoRun").checked = !!s.autoRun;
   $("#autoRunTime").value = s.autoRunTime || "06:00";
+  $("#cutoffTime").value = s.cutoffTime || "07:30";
+  $("#rangeStartTime").value = s.rangeStartTime || s.cutoffTime || "07:30";
   $("#workdayReport").checked = s.workdayReport !== false;
   $("#collectOnHolidays").checked = s.collectOnHolidays !== false;
   $("#holidays").value = s.holidays || "";
@@ -1549,6 +1578,8 @@ function readSettingsForm() {
   draft.model = $("#model").value;
   draft.autoRun = $("#autoRun").checked;
   draft.autoRunTime = $("#autoRunTime").value || "06:00";
+  draft.cutoffTime = $("#cutoffTime").value || "07:30";
+  draft.rangeStartTime = $("#rangeStartTime").value || draft.cutoffTime;
   draft.workdayReport = $("#workdayReport").checked;
   draft.collectOnHolidays = $("#collectOnHolidays").checked;
   draft.holidays = $("#holidays").value;
@@ -1593,6 +1624,7 @@ $("#saveSettings").addEventListener("click", async () => {
     await saveSettings(draft);
     state.settings = structuredClone(draft);
     setIssueKeywords(state.settings.keywords);
+    renderRangeDefaultLabel();
     renderSettings();
     renderPickList();
     updateAiInfo();
@@ -1650,13 +1682,18 @@ $("#testKey").addEventListener("click", async () => {
   renderPickList();
   updateAiInfo();
   updateAutoInfo();
-  const r = defaultRange();
+  const r = defaultRange(new Date(), state.settings);
   setRange(r.start, r.end);
+  renderRangeDefaultLabel();
   await checkLogin();
   await renderBaseOptions();
   if (AUTO) {
-    const end = new Date();
-    end.setSeconds(0, 0);
+    // 끝: 오늘 기준 시각(07:30)이 지났으면 그 시각, 아니면 지금 (기간을 07:30 ~ 07:30 으로 맞춤)
+    const now = new Date();
+    now.setSeconds(0, 0);
+    const [ch, cm] = cutoffHM(state.settings);
+    const cut = new Date(now.getFullYear(), now.getMonth(), now.getDate(), ch, cm, 0);
+    const end = now >= cut && now - cut < 3 * 3600 * 1000 ? cut : now;
     const { lastAutoRangeEnd } = await chrome.storage.local.get("lastAutoRangeEnd");
     const prev = lastAutoRangeEnd ? new Date(lastAutoRangeEnd) : null;
     // 지난 자동 수집이 끝난 시각부터 이어서 (주말에 못 돌린 경우도 포함, 7일 넘게 비었으면 최근 24시간)

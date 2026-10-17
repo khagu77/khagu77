@@ -342,6 +342,8 @@ const DEFAULT_SETTINGS = {
   model: "claude-opus-5-5",
   autoRun: true,
   autoRunTime: "06:00",
+  rangeStartTime: "07:30", // 수집 기간 기본값: 전일 이 시각부터
+  cutoffTime: "07:30", // 금일 이 시각까지
   speed: "normal", // normal | slow
   cafes: DEFAULT_CAFES,
   communities: DEFAULT_COMMUNITIES,

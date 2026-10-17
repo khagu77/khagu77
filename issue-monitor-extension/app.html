@@ -34,7 +34,9 @@
         </div>
       </div>
       <div class="buttons small">
-        <button id="rangeDefault">기본값 (전일 08:00 ~ 금일 08:00)</button>
+        <button id="rangeDefault">기본값 (전일 07:30 ~ 금일 07:30)</button>
+        <button id="saveRangeDefault" title="지금 입력한 시작·끝 시각을 다음부터 기본값으로 씁니다">이 시각을 기본값으로 저장</button>
+        <span id="rangeSaved" class="hint"></span>
         <button id="range3h">최근 3시간 (시험용)</button>
       </div>
 
@@ -162,6 +164,11 @@
         <label for="autoRunTime">시작 시각</label>
         <input type="time" id="autoRunTime">
         <span class="hint">PC·크롬이 켜져 있고 네이버에 로그인돼 있어야 합니다. 30~60분 걸리니 8시 전에 끝나도록 6시 전후를 권장합니다.</span>
+      </div>
+      <div class="inline">
+        <label for="rangeStartTime">기본 수집 기간</label>
+        전일 <input type="time" id="rangeStartTime"> ~ 금일 <input type="time" id="cutoffTime">
+        <span class="hint">수집 화면의 기본값 (자동 수집도 금일 이 시각까지 모음)</span>
       </div>
       <label class="check"><input type="checkbox" id="workdayReport"> 근무일 보고서 모드 <span class="hint">— 근무일 아침에만 엑셀을 받고, 주말·휴일에 모은 것은 다음 근무일 보고서에 합칩니다</span></label>
       <label class="check"><input type="checkbox" id="collectOnHolidays"> 주말·휴일에도 미리 수집 <span class="hint">— 끄면 휴일엔 쉬고 다음 근무일에 한꺼번에 수집(오래 걸림)</span></label>

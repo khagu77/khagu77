@@ -57,10 +57,46 @@ function toLocalInputValue(d) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
-// 기본 수집 기간: 전일 08:00 ~ 금일 08:00
-function defaultRange(now = new Date()) {
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 8, 0, 0);
-  const start = new Date(end.getTime() - 24 * 3600 * 1000);
+// 영어 오류·상태 문구를 한글로 (진행 상태·기록에 보이는 브라우저/서버 오류)
+const KOR_MESSAGES = [
+  [/Failed to fetch|NetworkError[^)]*|network error|net::ERR_[A-Z_]+|Connection error\.?/gi, "네트워크 연결 오류"],
+  [/Request timed out\.?|\btimed? ?out\b|\bTimeout\b/gi, "응답 시간 초과"],
+  [/(?:HTTP\s*)?\b429\b(?:\s*Too Many Requests)?|Too Many Requests|rate[_ ]?limit(?:_error)?/gi, "요청이 많아 잠시 제한됨"],
+  [/overloaded_error|\bOverloaded\b|\b529\b/gi, "AI 서버 혼잡"],
+  [/invalid x-api-key|authentication_error|\b401\b(?:\s*Unauthorized)?/gi, "API 키 오류"],
+  [/credit balance[^.)]*|\bbilling\b[^.)]*/gi, "API 크레딧 부족"],
+  [/Internal Server Error|Service Unavailable|Bad Gateway|\bapi_error\b|\bHTTP\s*50[0234]\b/gi, "서버 오류"],
+  [/No tab with id[^.)]*\.?|No matching signature[^.)]*|Frame with ID[^.)]*|Cannot access contents of[^.)]*|The tab was closed\.?/gi, "작업 탭 오류(탭이 닫혔거나 바뀜)"],
+  [/\bAbortError\b|The operation was aborted\.?/gi, "중단됨"],
+  [/Unexpected token[^)]*|is not valid JSON|JSON\.parse[^)]*/gi, "응답 해석 오류"],
+  [/Cannot read properties of (?:undefined|null)[^)]*|\S+ is not a function|\S+ is not defined/gi, "프로그램 내부 오류"],
+  [/\bNot Found\b/g, "페이지 없음"],
+  [/\bForbidden\b/g, "접근 거부"],
+  [/^Error:\s*/i, ""],
+];
+function korMsg(text) {
+  let s = String(text ?? "");
+  if (!/[A-Za-z]{4,}/.test(s)) return s;
+  for (const [re, ko] of KOR_MESSAGES) s = s.replace(re, ko);
+  return s;
+}
+
+// 기본 수집 기간: 전일 기준 시각(기본 07:30) ~ 금일 기준 시각.
+// 근무일 보고서 모드면 시작은 '직전 근무일' 기준 시각 (예: 월요일 → 금요일 07:30 ~ 월요일 07:30)
+function cutoffHM(s, which = "end") {
+  const v = which === "start" ? (s && (s.rangeStartTime || s.cutoffTime)) : s && s.cutoffTime;
+  const m = String(v || "07:30").match(/^(\d{1,2}):(\d{2})/);
+  return m ? [+m[1], +m[2]] : [7, 30];
+}
+
+function defaultRange(now = new Date(), s = null) {
+  const [h, mi] = cutoffHM(s, "end");
+  const [sh, sm] = cutoffHM(s, "start");
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, mi, 0);
+  let start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, sh, sm, 0);
+  if (s && s.workdayReport && typeof isWorkday === "function") {
+    for (let i = 0; i < 7 && !isWorkday(start, s); i++) start = new Date(start.getFullYear(), start.getMonth(), start.getDate() - 1, sh, sm, 0);
+  }
   return { start, end };
 }
 
