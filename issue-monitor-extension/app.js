@@ -1515,10 +1515,25 @@ window.addEventListener("beforeunload", (e) => {
 
 async function renderLearned() {
   const list = await loadLearned();
-  const { learnedUpdatedAt } = await chrome.storage.local.get("learnedUpdatedAt");
-  $("#learnedInfo").textContent = list.length ? `${list.length}건 (최근 ${LEARN_PROMPT_MAX}건이 AI 에 전달됨)${learnedUpdatedAt ? ` · 최종 업데이트 ${fmtDateTime(new Date(learnedUpdatedAt))}` : ""}` : "아직 없습니다. 결과 표에서 고치거나 지우면 여기에 쌓입니다.";
+  const { learnedUpdatedAt, pptLearnedUpdatedAt, pptLearned = [] } = await chrome.storage.local.get(["learnedUpdatedAt", "pptLearnedUpdatedAt", "pptLearned"]);
+  const last = Math.max(learnedUpdatedAt || 0, pptLearnedUpdatedAt || 0);
+  $("#learnedInfo").textContent =
+    list.length || pptLearned.length
+      ? `수집 ${list.length}건 · PPT ${pptLearned.length}건${last ? ` · 최종 업데이트 ${fmtDateTime(new Date(last))}` : ""}`
+      : "아직 없습니다. 결과 표나 PPT 미리보기에서 고치면 여기에 쌓입니다.";
   const box = $("#learnedList");
   box.textContent = "";
+  // PPT 미리보기 수정 사례
+  pptLearned.forEach((x, i) => {
+    const ch = Object.entries(x.ch || {}).map(([k, [a, b]]) => `${({ title: "페이지 제목", code: "차종", spec: "제원", level: "불만 구분", progress: "경과", short: "요약표 내용", body: "본문 요약", reaction: "댓글 반응", duplicate: "신규/중복", region: "입고/운행지역", focus: "집중관리고객" })[k] || k} "${a}" → "${b}"`).join(" / ");
+    box.append(
+      el("div", { class: "item" },
+        el("span", { class: "hint", text: `${fmtDateTime(new Date(x.at))} ` }),
+        `📊 PPT [${x.cafe}] ${x.car}: ${ch}`,
+        el("button", { class: "del", text: "삭제", title: "이 사례는 학습에서 뺍니다", onclick: async () => { const { pptLearned: all = [] } = await chrome.storage.local.get("pptLearned"); all.splice(i, 1); await chrome.storage.local.set({ pptLearned: all, pptLearnedUpdatedAt: Date.now() }); renderPrompt(); } })
+      )
+    );
+  });
   list.forEach((x, i) => {
     const line = learnLine(x).replace(/^- /, "") || `[${x.community}] 「${x.title}」 →`;
     const text = x.type === "delete" ? `🗑 [${x.community}] 「${x.title}」 → 보고서에서 뺌 (${x.car} · ${x.summary})` : `✏️ ${line}${x.ch && x.ch.report ? `${/→$/.test(line) ? "" : " /"} 보고 필요 ${x.ch.report[1] ? "추가" : "해제"}` : ""}`;
@@ -1533,8 +1548,9 @@ async function renderLearned() {
 }
 
 $("#clearLearned").addEventListener("click", async () => {
-  if (!confirm("자동 학습 메모를 모두 지울까요? (다음 판정부터 담당자 수정 사례가 빠집니다)")) return;
+  if (!confirm("자동 학습 메모(수집·PPT)를 모두 지울까요? (다음 판정·작성부터 담당자 수정 사례가 빠집니다)")) return;
   await saveLearned([]);
+  await chrome.storage.local.set({ pptLearned: [], pptLearnedUpdatedAt: Date.now() });
   renderPrompt();
 });
 
@@ -1544,6 +1560,10 @@ function renderPrompt() {
     $("#promptClassify").textContent = classifySystem(state.settings);
     $("#promptReport").textContent = reportSystem(state.settings.priorityCars, state.settings);
   });
+  // PPT 문구 작성 프롬프트 (PPT·RAW 작성 탭 화면에서 가져옴)
+  const pw = $("#pptFrame").contentWindow;
+  if (pw && pw.PptLearn) pw.PptLearn.load().then(() => ($("#promptPpt").textContent = pw.PptLearn.system()));
+  else $("#promptPpt").textContent = "PPT·RAW 작성 탭을 한 번 연 뒤 다시 보면 표시됩니다.";
   const s = state.settings;
   $("#customPrompt").value = s.customPrompt || "";
   $("#promptUpdated").textContent = s.customPromptUpdatedAt ? `최종 업데이트: ${fmtDateTime(new Date(s.customPromptUpdatedAt))}` : "아직 추가 지시사항 없음";

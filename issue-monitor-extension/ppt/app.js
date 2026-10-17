@@ -433,6 +433,7 @@ async function processItem(it) {
     ai = excelDraft(row, info);
   }
   it.fields = fieldsFrom(row, info, ai);
+  it.aiFields = { ...it.fields }; // 자동 학습용: AI 가 처음 쓴 값
   it.noReaction = !!info && !(info.comments || []).length;
   it.sel = {
     header: true,
@@ -451,6 +452,7 @@ async function start() {
     return;
   }
   const chain = $("#autoChain").checked;
+  await loadPptLearned(); // 담당자 수정 사례를 최신으로
   // 끝나고 바로 저장할 때: 저장 폴더 허용은 버튼을 누른 지금 받아 둔다 (나중엔 물을 수 없음)
   const chainDir = chain ? await saveDirIfAllowed() : null;
   stopRequested = false;
@@ -601,6 +603,7 @@ function renderItem(it) {
     el.addEventListener("input", () => {
       it.fields[el.dataset.k] = el.value.replace(/\n/g, " ");
       updateCount(el.dataset.k);
+      learnPptItem(it);
     });
   }
   for (const el of it.el.querySelectorAll("input[data-kind]")) {
@@ -622,6 +625,27 @@ function renderItem(it) {
   });
   drawPreview(it);
 }
+
+// 미리보기에서 고친 값 → 자동 학습 메모 (1.5초 모아 저장, 원래대로 되돌리면 지움)
+const pptLearnTimers = new Map();
+function learnPptItem(it) {
+  if (!it.aiFields) return;
+  const key = normUrl(it.row.url);
+  clearTimeout(pptLearnTimers.get(key));
+  pptLearnTimers.set(
+    key,
+    setTimeout(async () => {
+      pptLearnTimers.delete(key);
+      const ch = {};
+      const t = (v) => String(v ?? "").trim();
+      for (const k of Object.keys(PPT_LEARN_FIELDS)) if (t(it.fields[k]) !== t(it.aiFields[k])) ch[k] = [t(it.aiFields[k]), t(it.fields[k])];
+      const list = (await loadPptLearned()).filter((x) => x.key !== key);
+      if (Object.keys(ch).length) list.unshift({ key, at: Date.now(), cafe: it.row.cafe || "", car: it.row.car || "", title: String(it.row.title || "").slice(0, 80), ch });
+      await savePptLearned(list);
+    }, 1500)
+  );
+}
+window.PptLearn = { load: loadPptLearned, save: savePptLearned, line: pptLearnLine, system: () => aiSystem() };
 
 function selectedVisuals(it) {
   const v = it.visuals;
@@ -932,6 +956,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#autoChain").checked = !!pptAutoChain;
   $("#autoChain").addEventListener("change", () => chrome.storage.local.set({ pptAutoChain: $("#autoChain").checked }));
   renderSource();
+  await loadPptLearned();
   const now = new Date();
   $("#reportDate").value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   await loadSettings();

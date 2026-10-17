@@ -140,7 +140,7 @@
         <div id="promptHistory"></div>
       </details>
 
-      <h2>자동 학습 메모 <span class="hint">결과 표에서 고친 차종·구분·주요 내용·노란색·보고 필요와 지운 글이 자동으로 쌓이고, 다음 판정부터 AI 에 '담당자 수정 사례'로 전달됩니다</span></h2>
+      <h2>자동 학습 메모 <span class="hint">수집 결과 표에서 고친 것(차종·구분·주요 내용·노란색·보고 필요·삭제)과 PPT 미리보기에서 고친 문구가 자동으로 쌓이고, 다음 판정·작성부터 AI 에 '담당자 수정 사례'로 전달됩니다</span></h2>
       <div class="buttons small">
         <span id="learnedInfo" class="hint"></span>
         <button id="clearLearned" class="danger">학습 메모 모두 지우기</button>
@@ -155,6 +155,7 @@
       <details open><summary>1단계: 제목 선별</summary><pre id="promptTriage" class="prompt"></pre></details>
       <details><summary>2단계: 본문 판정·구분·차종·요약</summary><pre id="promptClassify" class="prompt"></pre></details>
       <details><summary>3단계: 보고 필요 선정</summary><pre id="promptReport" class="prompt"></pre></details>
+      <details><summary>4단계: PPT 보고서 문구 작성 (PPT·RAW 작성 탭)</summary><pre id="promptPpt" class="prompt"></pre></details>
     </section>
 
     <!-- ===================== 설정 ===================== -->

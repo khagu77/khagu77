@@ -79,6 +79,37 @@ const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작�
 - comment_picks: 보고서에 캡처해 넣을 댓글 번호(index) 2개 (index 작은 것부터. reaction 도 이 순서). 자극적이거나 심각하다고 느껴지는, 길지 않은 댓글을 우선 고릅니다.
   hasSticker 가 true 인(이모티콘이 있는) 댓글은 될 수 있으면 고르지 말고, 그것밖에 없을 때만 고릅니다. 댓글이 2개보다 적으면 있는 만큼.`;
 
+// ---------------------------------------------------------------------------
+// 자동 학습: 담당자가 미리보기 카드에서 고친 문구·판단을 'AI 가 쓴 값 → 담당자가 고친 값' 으로 모아
+// 다음 작성부터 시스템 프롬프트 끝에 '담당자 수정 사례'로 붙인다 (같은 실수 반복 방지)
+// ---------------------------------------------------------------------------
+const PPT_LEARN_MAX = 150;
+const PPT_LEARN_PROMPT_MAX = 40;
+const PPT_LEARN_FIELDS = { title: "페이지 제목", code: "차종", spec: "제원", level: "불만 구분", progress: "경과", short: "요약표 내용", body: "본문 요약", reaction: "댓글 반응", duplicate: "신규/중복", region: "입고/운행지역", focus: "집중관리고객" };
+let pptLearned = [];
+
+async function loadPptLearned() {
+  const { pptLearned: list = [] } = await chrome.storage.local.get("pptLearned").catch(() => ({}));
+  pptLearned = Array.isArray(list) ? list : [];
+  return pptLearned;
+}
+
+async function savePptLearned(list) {
+  pptLearned = list.slice(0, PPT_LEARN_MAX);
+  await chrome.storage.local.set({ pptLearned, pptLearnedUpdatedAt: Date.now() });
+}
+
+function pptLearnLine(x) {
+  const parts = Object.entries(x.ch || {}).map(([k, [a, b]]) => `${PPT_LEARN_FIELDS[k] || k} "${a}" → "${b}"`);
+  return parts.length ? `- [${x.cafe || ""}] 차종 ${x.car || "-"}: ${parts.join(" / ")}` : "";
+}
+
+function aiSystem() {
+  const lines = pptLearned.slice(0, PPT_LEARN_PROMPT_MAX).map(pptLearnLine).filter(Boolean);
+  if (!lines.length) return AI_SYSTEM;
+  return `${AI_SYSTEM}\n\n[담당자 수정 사례 (자동 학습, 최근 순)]\n담당자가 미리보기에서 직접 고친 기록입니다. 같은 표현·판단 실수를 반복하지 말고, 비슷한 글은 담당자가 고친 쪽(표현·끝맺음·불만 구분·제원·지역 등)을 따릅니다.\n${lines.join("\n")}`;
+}
+
 const AI_SCHEMA = {
   type: "object",
   properties: {
@@ -153,7 +184,7 @@ async function aiSummarize(row, info, { apiKey, model, recentBodies = [], titleP
   const params = {
     model,
     max_tokens: 4000,
-    system: AI_SYSTEM,
+    system: aiSystem(),
     output_config: { effort: "low", format: { type: "json_schema", schema: AI_SCHEMA } },
     messages: [
       {
@@ -176,7 +207,7 @@ async function aiSummarize(row, info, { apiKey, model, recentBodies = [], titleP
       const short = await askJson(client, model, {
         model,
         max_tokens: 1000,
-        system: AI_SYSTEM,
+        system: aiSystem(),
         output_config: { effort: "low", format: { type: "json_schema", schema: SHORTEN_SCHEMA } },
         messages: [
           {
@@ -215,7 +246,7 @@ async function fitIssue(client, model, out, prefix) {
     const r = await askJson(client, model, {
       model,
       max_tokens: 500,
-      system: AI_SYSTEM,
+      system: aiSystem(),
       output_config: { effort: "low", format: { type: "json_schema", schema: ISSUE_SCHEMA } },
       messages: [
         {
