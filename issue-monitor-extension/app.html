@@ -70,6 +70,7 @@
           <span class="hint">또는 기존 엑셀 파일:</span>
           <input type="file" id="baseFile" accept=".xlsx">
           <button id="clearBase" class="danger" hidden>✕ 첨부 해제</button>
+          <button id="mergeBase" disabled title="수집하지 않고, 고른 데일리 DB·엑셀을 지금 결과 표에 바로 합칩니다 (같은 게시물은 하나만)">지금 결과에 합치기</button>
         </div>
         <div id="baseInfo" class="hint"></div>
       </div>
@@ -83,6 +84,7 @@
         <button id="downloadPlain" disabled hidden title="저장 폴더 지정과 관계없이 크롬 다운로드 폴더로 받기">다운로드 폴더로 받기</button>
         <button id="pickReports" title="지금 결과 표의 네이버 카페 글 중에서 보고 필요 4~6건을 다시 고릅니다 (불러온 엑셀에도 적용)">보고 필요 다시 고르기</button>
         <label class="filebtn">엑셀 불러와서 보기<input type="file" id="viewFile" accept=".xlsx" hidden></label>
+        <button id="loadHistory" title="데일리 DB 에 저장된 수집 기록(오늘·어제 등)을 골라 합쳐서 결과 표에 다시 보여 줍니다">이전 기록 불러오기</button>
       </div>
 
       <div id="runTimes" class="runtimes" hidden></div>
@@ -121,6 +123,18 @@
       </table>
       <p id="dbEmpty" class="hint">아직 저장된 수집 이력이 없습니다.</p>
     </section>
+
+    <dialog id="historyDialog" class="historydlg">
+      <form method="dialog">
+        <h2>이전 기록 불러오기</h2>
+        <p class="hint">합쳐서 볼 수집 기록을 고르세요. 같은 게시물은 하나만 남기고, 동호회별·날짜순으로 정리해 결과 표에 보여 줍니다. 여기서 고친 내용은 가장 최근 기록(맨 위 체크)에 저장됩니다.</p>
+        <div id="historyList"></div>
+        <div class="buttons small">
+          <button id="historyOk" class="primary" value="ok">불러오기</button>
+          <button value="cancel">닫기</button>
+        </div>
+      </form>
+    </dialog>
 
     <!-- ===================== PPT·RAW 작성 (온라인 오전동향 PPT 보고서 작성기) ===================== -->
     <section id="tab-ppt" hidden>

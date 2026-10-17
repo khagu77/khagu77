@@ -511,7 +511,7 @@ $("#clearResults").addEventListener("click", async () => {
   if (state.running || !state.rows.length) return;
   if (!confirm(`결과 표의 ${state.rows.length}건을 모두 비울까요? (데일리 DB 에 저장된 이력은 지워지지 않습니다)`)) return;
   state.rows = [];
-  state.dbEntryId = null; // 결과 표만 비움 (데일리 DB 이력은 그대로)
+  state.dbEntryId = "none"; // 결과 표만 비움 (데일리 DB 이력은 그대로, DB 를 덮어쓰지 않음)
   renderResults();
   await saveLastResult();
   setSummary("결과를 비웠습니다.");
@@ -591,6 +591,24 @@ async function renderDb() {
               showTab("collect");
             },
           }),
+          e.origRows
+            ? el("button", {
+                text: "원본 복구",
+                title: `결과 표에서 고치기 전 처음 수집한 그대로(${e.origRows.length}건)로 되돌립니다`,
+                onclick: async () => {
+                  if (!confirm(`이 기록을 처음 수집한 원본 ${e.origRows.length}건으로 되돌릴까요? (그 뒤에 고친 내용은 사라집니다)`)) return;
+                  const all = await dbList();
+                  const x = all.find((y) => y.id === e.id);
+                  if (x) {
+                    x.rows = x.origRows;
+                    x.count = x.origRows.length;
+                    delete x.origRows;
+                    await chrome.storage.local.set({ dailyDb: all });
+                  }
+                  renderDb();
+                },
+              })
+            : null,
           el("button", {
             class: "del",
             text: "삭제",
@@ -641,11 +659,75 @@ async function onBaseChange() {
     const e = (await dbList()).find((x) => x.id === v);
     state.base = e ? { label: `데일리 DB ${fmtDateTime(new Date(e.finishedAt))}`, rows: deserializeRows(e.rows) } : null;
   }
-  $("#baseInfo").textContent = state.base ? `기존 ${state.base.rows.length}건 뒤에 이어서 작성합니다 (같은 게시물은 기존 것만 남김).` : "";
+  $("#baseInfo").textContent = state.base
+    ? `기존 ${state.base.rows.length}건 뒤에 이어서 작성합니다 (같은 게시물은 기존 것만 남김).${state.base.rows.length ? "" : " ⚠ 이 항목은 0건이라 붙일 것이 없습니다. 건수가 있는 다른 항목이나 엑셀 파일을 고르세요."}`
+    : "";
+  $("#mergeBase").disabled = !state.base || !state.base.rows.length || state.running;
   $("#clearBase").hidden = !state.baseFile;
 }
 
 $("#baseSelect").addEventListener("change", onBaseChange);
+
+// 이전 기록 불러오기: 데일리 DB 기록 여러 개를 골라 합쳐 결과 표에 (결과 창을 비웠을 때 다시 보기)
+$("#loadHistory").addEventListener("click", async () => {
+  if (state.running) return setSummary("수집 중에는 이전 기록을 불러올 수 없습니다. 수집이 끝난 뒤 눌러 주세요.");
+  const list = (await dbList()).filter((e) => (e.rows || []).length);
+  const box = $("#historyList");
+  box.textContent = "";
+  if (!list.length) box.append(el("p", { class: "hint", text: "불러올 기록이 없습니다 (0건 기록은 목록에서 뺐습니다)." }));
+  // 기본 체크: 가장 최근 기록 + '이어서 작성'에서 고른 기록
+  const baseId = $("#baseSelect").value;
+  list.forEach((e, i) => {
+    box.append(el("label", { class: "check" }, el("input", { type: "checkbox", value: e.id, checked: i === 0 || e.id === baseId }), ` ${dbLabel(e)}${e.base ? ` · 합본(${e.base})` : ""}`));
+  });
+  $("#historyDialog").showModal();
+});
+
+$("#historyDialog").addEventListener("close", async () => {
+  if ($("#historyDialog").returnValue !== "ok") return;
+  const ids = [...document.querySelectorAll("#historyList input:checked")].map((x) => x.value);
+  if (!ids.length) return;
+  const all = await dbList();
+  const picked = all.filter((e) => ids.includes(e.id)); // 최신순
+  state.rows = [];
+  state.seenKeys = new Set();
+  // 오래된 기록부터 넣어 같은 게시물은 먼저 수집된(이미 고친) 것을 남기되, 최신 기록의 수정이 있으면 그걸 우선
+  const byKey = new Map();
+  for (const e of [...picked].reverse()) for (const r of deserializeRows(e.rows)) byKey.set(urlKey(r.url), r);
+  for (const r of byKey.values()) pushRow(r);
+  const starts = picked.map((e) => e.range.start);
+  const ends = picked.map((e) => e.range.end);
+  state.range = { start: new Date(Math.min(...starts)), end: new Date(Math.max(...ends)) };
+  state.dbEntryId = picked[0].id; // 고친 내용은 가장 최근 기록에 저장 (합친 결과 그대로)
+  sortRows();
+  renderResults();
+  await saveLastResult();
+  const msg = `이전 기록 ${picked.length}개를 합쳐 ${state.rows.length}건을 불러왔습니다 (${fmtDateTime(state.range.start)} ~ ${fmtDateTime(state.range.end)}, 동호회별·날짜순)`;
+  setSummary(msg);
+  log(msg);
+});
+
+// 수집 없이, 고른 기존 데이터를 지금 결과 표에 합친다 (수집을 이미 시작했거나 끝난 뒤 어제 결과를 붙일 때)
+$("#mergeBase").addEventListener("click", async () => {
+  if (state.running || !state.base || !state.base.rows.length) return;
+  const before = state.rows.length;
+  state.seenKeys = new Set();
+  const current = state.rows;
+  state.rows = [];
+  // 기존(고른 데이터) 먼저, 같은 게시물은 기존 것만 남김 → 지금 결과
+  state.base.rows.forEach((r, i) => pushRow({ ...r, fromBase: true, baseIdx: i, kind: r.kind && r.kind !== "base" ? r.kind : /cafe\.naver\.com|naver\.me/.test(r.url || "") ? "cafe" : "community", ts: r.ts || (r.date ? r.date.getTime() : 0) }));
+  for (const r of current) pushRow(r);
+  if (state.range && state.base.rows.length) {
+    const first = Math.min(...state.base.rows.map((r) => (r.date ? r.date.getTime() : Infinity)));
+    if (Number.isFinite(first) && first < state.range.start.getTime()) state.range = { start: new Date(first), end: state.range.end };
+  }
+  sortRows();
+  renderResults();
+  await saveLastResult();
+  const msg = `${state.base.label} ${state.base.rows.length}건을 지금 결과 ${before}건에 합쳤습니다 → ${state.rows.length}건 (같은 게시물은 하나만). 필요하면 '보고 필요 다시 고르기'를 누르세요.`;
+  log(msg);
+  setSummary(msg);
+});
 $("#baseFile").addEventListener("change", async (ev) => {
   const f = ev.target.files[0];
   if (!f) return;
@@ -683,16 +765,18 @@ function scheduleDbSync() {
 }
 
 async function syncDbEntry() {
+  if (!state.rows.length) return; // 빈 결과로 DB 항목을 덮어쓰지 않는다 (결과 비우기 등)
   const now = new Date();
   const stamp = `${pad2(now.getHours())}:${pad2(now.getMinutes())}:${pad2(now.getSeconds())}`;
   const list = await dbList();
   let e = state.dbEntryId && state.dbEntryId !== "none" ? list.find((x) => x.id === state.dbEntryId) : null;
-  // 예전 버전 결과처럼 DB 항목 표시가 없으면 같은 수집 기간의 가장 최근 항목
-  if (!e && !state.dbEntryId && state.range) {
+  // 예전 버전 결과처럼 DB 항목 표시가 아예 없을 때(undefined)만 같은 수집 기간의 가장 최근 항목
+  if (!e && state.dbEntryId === undefined && state.range) {
     e = list.find((x) => x.range && x.range.start === state.range.start.getTime() && x.range.end === state.range.end.getTime());
     if (e) state.dbEntryId = e.id;
   }
   if (e) {
+    if (!e.origRows) e.origRows = e.rows; // 처음 고치기 전 원본 보관 (데일리 DB 탭에서 '원본 복구')
     e.rows = serializeRows(state.rows);
     e.count = state.rows.length;
     e.editedAt = Date.now();
@@ -708,7 +792,7 @@ async function loadLastResult() {
   if (!lastResult) return;
   state.rows = deserializeRows(lastResult.rows);
   state.range = lastResult.range ? { start: new Date(lastResult.range.start), end: new Date(lastResult.range.end) } : null;
-  state.dbEntryId = lastResult.dbEntryId || null;
+  state.dbEntryId = "dbEntryId" in lastResult ? lastResult.dbEntryId || "none" : undefined; // 예전 버전 결과만 undefined
   if (state.rows.length || state.range) {
     renderResults();
     if (state.range) setSummary(`지난 수집 결과 (${fmtDateTime(state.range.start)} ~ ${fmtDateTime(state.range.end)}): ${state.rows.length}건`);
@@ -1304,7 +1388,7 @@ async function runCollection() {
 
   state.running = true;
   state.stopRequested = false;
-  state.dbEntryId = null; // 이번 수집은 끝날 때 새 DB 항목으로 저장
+  state.dbEntryId = "none"; // 이번 수집은 끝날 때 새 DB 항목으로 저장 (그 전엔 DB 를 건드리지 않음)
   await runGuard(true);
   await loadLearned(); // 담당자 수정 사례를 최신으로
   // 이어서 작성: 기존 행을 먼저 넣고(중복은 처음 것만), 이번 수집 결과를 뒤에 붙인다
@@ -1312,8 +1396,8 @@ async function runCollection() {
   state.seenKeys = new Set();
   if (state.base) {
     state.base.rows.forEach((r, i) => pushRow({ ...r, fromBase: true, baseIdx: i, kind: r.kind && r.kind !== "base" ? r.kind : /cafe\.naver\.com|naver\.me/.test(r.url || "") ? "cafe" : "community", ts: r.ts || (r.date ? r.date.getTime() : 0) }));
-    log(`이어서 작성: ${state.base.label} ${state.base.rows.length}건 → 중복 뺀 ${state.rows.length}건 뒤에 붙입니다`);
   }
+  const baseMsg = state.base ? `이어서 작성: ${state.base.label} ${state.base.rows.length}건 → 중복 뺀 ${state.rows.length}건 뒤에 붙입니다` : "";
   state.range = range;
   state.codeYears = codeStartYears(settings.carCodes);
   state.termPairs = parseTermReplacements(settings.terms);
@@ -1327,6 +1411,7 @@ async function runCollection() {
   $("#runTimes").hidden = false;
   $("#runTimes").textContent = `수집 시작 ${fmtDateTime(new Date(startedAt))}:${pad2(new Date(startedAt).getSeconds())} · 수집 중…`;
   log(`v${chrome.runtime.getManifest().version} 수집 시작: ${fmtDateTime(range.start)} ~ ${fmtDateTime(range.end)}, 카페 ${cafes.length}곳, 커뮤니티 ${communities.length}곳, ${useAi ? `AI(${settings.model})` : "키워드 모드"}`);
+  if (baseMsg) log(baseMsg);
   setSummary("수집 중…");
 
   const delays = DELAYS[settings.speed] || DELAYS.normal;
@@ -1461,6 +1546,7 @@ async function runCollection() {
 
   state.running = false;
   runGuard(false);
+  $("#mergeBase").disabled = !state.base || !state.base.rows.length;
   $("#start").disabled = false;
   $("#stop").disabled = true;
   $("#download").disabled = false;
