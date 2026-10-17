@@ -562,7 +562,7 @@ async function renderDb() {
         {},
         el("td", { text: fmtDateTime(new Date(e.finishedAt)) }),
         el("td", { text: `${fmtDateTime(new Date(e.range.start))} ~ ${fmtDateTime(new Date(e.range.end))}` }),
-        el("td", { text: `${e.count}건` }),
+        el("td", {}, el("b", { class: "count-red", text: `${e.count}건` })),
         el("td", { text: `${rows.filter((r) => r.report).length}건` }),
         el("td", { text: fmtDuration(e.finishedAt - e.startedAt) }),
         el("td", { text: e.costUsd ? `$${e.costUsd.toFixed(2)}` : "-" }),
@@ -663,6 +663,7 @@ async function onBaseChange() {
     ? `기존 ${state.base.rows.length}건 뒤에 이어서 작성합니다 (같은 게시물은 기존 것만 남김).${state.base.rows.length ? "" : " ⚠ 이 항목은 0건이라 붙일 것이 없습니다. 건수가 있는 다른 항목이나 엑셀 파일을 고르세요."}`
     : "";
   $("#mergeBase").disabled = !state.base || !state.base.rows.length || state.running;
+  $("#baseCount").textContent = state.base ? `${state.base.rows.length}건` : "";
   $("#clearBase").hidden = !state.baseFile;
 }
 
@@ -678,7 +679,14 @@ $("#loadHistory").addEventListener("click", async () => {
   // 기본 체크: 가장 최근 기록 + '이어서 작성'에서 고른 기록
   const baseId = $("#baseSelect").value;
   list.forEach((e, i) => {
-    box.append(el("label", { class: "check" }, el("input", { type: "checkbox", value: e.id, checked: i === 0 || e.id === baseId }), ` ${dbLabel(e)}${e.base ? ` · 합본(${e.base})` : ""}`));
+    box.append(
+      el("label", { class: "check" },
+        el("input", { type: "checkbox", value: e.id, checked: i === 0 || e.id === baseId }),
+        ` ${fmtDateTime(new Date(e.finishedAt))} 수집 · ${fmtDateTime(new Date(e.range.start))}~${fmtDateTime(new Date(e.range.end))} · `,
+        el("b", { class: "count-red", text: `${(e.rows || []).length}건` }),
+        e.base ? ` · 합본(${e.base})` : ""
+      )
+    );
   });
   $("#historyDialog").showModal();
 });
