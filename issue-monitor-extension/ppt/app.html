@@ -68,7 +68,11 @@
       </section>
     </dialog>
 
-    <label for="excelFile">오늘 수집한 부정 이슈 엑셀 <span class="hint">(+ 표시된 행만 보고서에 들어갑니다)</span></label>
+    <div class="sourcebox">
+      <b>PPT·RAW 자료</b> <span id="sourceMode" class="badge all">전체</span>
+      <span id="sourceHint" class="hint"></span>
+    </div>
+    <label for="excelFile" id="excelLabel">다른 엑셀로 작성 (선택) <span class="hint">(+ 표시된 행만 보고서에 들어갑니다 · RAW 는 모든 행)</span></label>
     <input type="file" id="excelFile" accept=".xlsx,.xltx,.xlsm">
     <div id="excelInfo" class="hint"></div>
 
@@ -86,6 +90,8 @@
         <span class="hint" id="countHint"></span>
       </span>
     </div>
+
+    <label class="inline autochain"><input type="checkbox" id="autoChain"> 캡처·요약이 끝나면 <b>PPT·RAW 바로 저장</b> <span class="hint">(끄면 미리보기에서 확인·수정한 뒤 직접 [PPT 받기]·[RAW 받기])</span></label>
 
     <div class="buttons">
       <button id="start" class="primary" disabled>캡처·요약 시작</button>

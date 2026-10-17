@@ -135,7 +135,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     chrome.notifications.create({
       type: "basic",
       iconUrl: "icons/icon128.png",
-      title: msg.holiday ? "부정 이슈 모니터링: 휴일 수집 완료" : "부정 이슈 모니터링 완료",
+      title: msg.holiday ? "오전 일일동향: 휴일 수집 완료" : "오전 일일동향 수집 완료",
       message: msg.holiday
         ? `${msg.count}건 수집 (${msg.holiday}) → 다음 근무일 아침 보고서에 합쳐집니다.`
         : msg.blocked

@@ -90,9 +90,37 @@ function setSummary(text) {
 
 function showTab(name) {
   for (const b of document.querySelectorAll("nav .tab")) b.classList.toggle("active", b.dataset.tab === name);
-  for (const t of ["collect", "db", "prompt", "settings"]) $(`#tab-${t}`).hidden = t !== name;
+  for (const t of ["collect", "ppt", "db", "prompt", "settings"]) $(`#tab-${t}`).hidden = t !== name;
+  if (name === "ppt") sendPptSource();
   if (name === "db") renderDb();
   if (name === "prompt") renderPrompt();
+}
+
+$("#toPpt").addEventListener("click", () => showTab("ppt"));
+window.isCollecting = () => !!state.running; // PPT 화면에서 확인 (수집 중엔 캡처를 막음)
+
+// ---------------------------------------------------------------------------
+// PPT·RAW 작성 탭: 수집 모드가 '전체'면 지금 결과 표(검토·수정한 그대로)를 엑셀로 만들어 넘기고,
+// '1인용'이면 넘기지 않는다 (PPT 화면에서 전체 엑셀을 직접 첨부해야 작성 가능)
+// ---------------------------------------------------------------------------
+async function sendPptSource() {
+  const win = $("#pptFrame").contentWindow;
+  if (!win || !win.PptBridge) {
+    $("#pptFrame").addEventListener("load", () => sendPptSource(), { once: true });
+    return;
+  }
+  if (win.PptBridge.isBusy()) return; // 캡처·요약 중에는 자료를 바꾸지 않음
+  const mode = state.settings.collectMode === "solo" ? "solo" : "all";
+  const titles = {};
+  for (const r of state.rows) if (r.title) titles[r.url] = r.title;
+  let bytes = null;
+  if (mode === "all" && state.rows.length) bytes = ReportXlsx.build(state.rows);
+  const label = state.range ? `수집 결과 ${fmtDateTime(state.range.start)}~${fmtDateTime(state.range.end)}` : "수집 결과";
+  try {
+    await win.PptBridge.setSource({ mode, bytes, label, titles });
+  } catch (e) {
+    log(`PPT 화면에 자료를 넘기지 못했습니다: ${e.message}`, "err");
+  }
 }
 
 for (const btn of document.querySelectorAll("nav .tab")) {

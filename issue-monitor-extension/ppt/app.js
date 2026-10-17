@@ -28,6 +28,77 @@ let stopRequested = false;
 let plan = { all: true };
 
 // ---------------------------------------------------------------------------
+// 부정 이슈 모니터링과 한 프로그램으로 합침 (이 화면은 모니터링 화면의 'PPT·RAW' 탭 안에 들어감)
+// - 수집 모드 '전체': 방금 수집·검토한 결과 표(전체 엑셀)를 그대로 넘겨받아 PPT·RAW 작성
+// - 수집 모드 '1인용': 결과 표는 일부 카페뿐이라 넘기지 않음 → 이 화면에서 전체(통합) 엑셀을 직접 첨부해야 작성 가능
+// ---------------------------------------------------------------------------
+let source = { mode: "all", kind: "", label: "" }; // kind: "results"(수집 결과) | "file"(직접 첨부) | ""
+let titleByUrl = new Map(); // 수집 결과의 글 제목 (넥쏘 카페·영운모 검색 경유용, 엑셀에는 제목 열이 없음)
+
+const normUrl = (u) => String(u || "").trim().replace(/[?#].*$/, "").replace(/\/+$/, "").replace(/^http:/, "https:").replace("://m.cafe.", "://cafe.").toLowerCase();
+
+const parentApp = () => {
+  try {
+    return window.parent !== window ? window.parent : null;
+  } catch {
+    return null;
+  }
+};
+// 모니터링 수집이 진행 중이면 PPT 캡처를 막는다 (네이버를 동시에 두 군데서 열지 않게)
+const collecting = () => {
+  try {
+    const p = parentApp();
+    return !!(p && typeof p.isCollecting === "function" && p.isCollecting());
+  } catch {
+    return false;
+  }
+};
+
+function renderSource() {
+  const solo = source.mode === "solo";
+  $("#sourceMode").textContent = solo ? "1인용" : "전체";
+  $("#sourceMode").className = `badge ${solo ? "solo" : "all"}`;
+  $("#sourceHint").textContent = solo
+    ? "1인용 수집 결과는 일부 카페뿐이라 PPT·RAW 에 쓰지 않습니다. 담당자들이 합친 전체(통합) 엑셀을 아래에 첨부해 주세요."
+    : source.kind === "results"
+      ? "부정 이슈 수집 결과 표(검토·수정한 그대로)를 사용합니다. 다른 엑셀로 만들려면 아래에 첨부하세요."
+      : "수집 결과가 없으면 전체 엑셀을 아래에 첨부해 주세요.";
+  $("#excelLabel").firstChild.textContent = solo ? "전체(통합) 엑셀 첨부 (필수) " : "다른 엑셀로 작성 (선택) ";
+}
+
+async function setSource({ mode, bytes, label, titles } = {}) {
+  source.mode = mode === "solo" ? "solo" : "all";
+  // API 키를 아직 안 넣었으면 모니터링 설정의 키를 다시 확인 (모니터링 설정에서 나중에 넣은 경우)
+  if (!$("#aiKey").value.trim()) {
+    const mon = (await chrome.storage.local.get("settings").catch(() => ({}))).settings || {};
+    if (mon.apiKey) {
+      $("#aiKey").value = mon.apiKey;
+      if (mon.model && AI_MODELS.some(([id]) => id === mon.model)) $("#aiModel").value = mon.model;
+      updateSettingsState();
+    }
+  }
+  titleByUrl = new Map(Object.entries(titles || {}).map(([u, t]) => [normUrl(u), t]));
+  if (source.mode === "solo") {
+    // 1인용: 직접 첨부한 파일만 쓴다 (수집 결과에서 받은 자료는 비움)
+    if (source.kind !== "file") {
+      excelItems = [];
+      excelAllRows = [];
+      source.kind = "";
+      $("#excelInfo").textContent = "전체(통합) 엑셀을 첨부해 주세요";
+      $("#excelInfo").className = "hint err";
+    }
+  } else if (bytes && source.kind !== "file") {
+    await loadExcelBytes(bytes, label || "수집 결과");
+    source.kind = excelItems.length || excelAllRows.length ? "results" : "";
+  }
+  source.label = label || "";
+  showFolder(await saveDirHandle()); // 모니터링 설정에서 바꾼 저장 폴더도 바로 반영
+  renderSource();
+  refreshButtons();
+}
+window.PptBridge = { setSource, isBusy: () => !$("#stop").disabled };
+
+// ---------------------------------------------------------------------------
 // 차종·제원
 // ---------------------------------------------------------------------------
 function splitCar(car) {
@@ -65,8 +136,11 @@ async function loadSettings() {
   for (const el of ["#countAll", "#countTotal", "#countMine"]) $(el).addEventListener("input", updateCountUi);
   document.querySelectorAll('input[name="countPart"]').forEach((el) => el.addEventListener("change", updateCountUi));
   updateCountUi();
-  $("#aiKey").value = s.aiKey || "";
-  if (s.aiModel && AI_MODELS.some(([id]) => id === s.aiModel)) $("#aiModel").value = s.aiModel;
+  // API 키·모델: 여기서 따로 넣지 않았으면 부정 이슈 모니터링 설정의 것을 같이 쓴다
+  const mon = (await chrome.storage.local.get("settings").catch(() => ({}))).settings || {};
+  $("#aiKey").value = s.aiKey || mon.apiKey || "";
+  const model = s.aiModel || mon.model;
+  if (model && AI_MODELS.some(([id]) => id === model)) $("#aiModel").value = model;
   if (s.fileName) $("#fileName").value = s.fileName;
   showTemplateInfo(s.templateName, s.templateSavedAt);
   for (const el of ["#aiKey", "#aiModel", "#fileName", "#rawName", "#ppi"]) {
@@ -170,9 +244,17 @@ async function loadTemplate() {
 async function onExcelFile() {
   const file = $("#excelFile").files[0];
   if (!file) return;
+  await loadExcelBytes(new Uint8Array(await file.arrayBuffer()), file.name);
+  source.kind = excelItems.length || excelAllRows.length ? "file" : "";
+  renderSource();
+  refreshButtons();
+}
+
+async function loadExcelBytes(bytes, label) {
   try {
-    const bytes = new Uint8Array(await file.arrayBuffer());
     const { items: marked, total, sheets } = await Excel.readMarked(bytes);
+    // 엑셀에 제목 열이 없으면 수집 결과의 글 제목으로 채운다 (네이버 검색 경유 카페용)
+    for (const m of marked) if (!m.title && titleByUrl.has(normUrl(m.url))) m.title = titleByUrl.get(normUrl(m.url));
     excelItems = marked;
     excelAllRows = await Excel.readAllRows(bytes).catch(() => []);
     // '총 N개' 는 + 표시 개수로 채워 둔다 (작성 개수만 정하면 되게)
@@ -182,7 +264,7 @@ async function onExcelFile() {
       updateCountUi();
     }
     $("#excelInfo").textContent =
-      `전체 ${total}건 중 + 표시 ${marked.length}건` +
+      `${label ? `[${label}] ` : ""}전체 ${total}건 중 + 표시 ${marked.length}건` +
       (marked.length ? `: ${marked.map((m) => m.car || "?").join(", ")}` : " (+ 표시된 행이 없습니다)") +
       (sheets.length > 1 ? ` · 시트 ${sheets.join(", ")}` : "");
     $("#excelInfo").className = marked.length ? "hint ok" : "hint err";
@@ -192,7 +274,6 @@ async function onExcelFile() {
     $("#excelInfo").textContent = `엑셀을 읽지 못했습니다: ${e.message}`;
     $("#excelInfo").className = "hint err";
   }
-  refreshButtons();
 }
 
 // 작성 개수: 전체 / 총 N칸 중 마지막 K칸 작성 (앞 칸은 연번만 있는 빈 칸)
@@ -226,10 +307,11 @@ function updateCountUi() {
 }
 
 function refreshButtons(running = false) {
-  $("#start").disabled = running || !excelItems.length;
+  const noSource = source.mode === "solo" && source.kind !== "file"; // 1인용은 전체 엑셀을 첨부해야만
+  $("#start").disabled = running || noSource || !excelItems.length;
   $("#stop").disabled = !running;
   $("#build").disabled = running || !items.some((it) => it.ready);
-  $("#rawBuild").disabled = running || !excelAllRows.length;
+  $("#rawBuild").disabled = running || noSource || !excelAllRows.length;
 }
 
 function setSummary(text, cls = "") {
@@ -364,6 +446,13 @@ async function processItem(it) {
 }
 
 async function start() {
+  if (collecting()) {
+    setSummary("부정 이슈 수집이 진행 중입니다. 수집이 끝난 뒤 캡처·요약을 시작해 주세요.", "err");
+    return;
+  }
+  const chain = $("#autoChain").checked;
+  // 끝나고 바로 저장할 때: 저장 폴더 허용은 버튼을 누른 지금 받아 둔다 (나중엔 물을 수 없음)
+  const chainDir = chain ? await saveDirIfAllowed() : null;
   stopRequested = false;
   AiCost.reset();
   runStart = Date.now();
@@ -416,6 +505,16 @@ async function start() {
     failed ? "err" : "ok",
   );
   refreshButtons(false);
+  // 'PPT·RAW 바로 저장': 캡처·요약이 끝나면 이어서 PPT 와 RAW 를 저장하고 한 번에 알린다
+  if (chain && !stopRequested && items.some((it) => it.ready && !it.deleted && it.no)) {
+    const ppt = await buildPpt({ dir: chainDir, quiet: true });
+    const raw = excelAllRows.length ? await buildRaw({ dir: chainDir, quiet: true }) : null;
+    $("#doneTitle").textContent = ppt && raw ? "✅ PPT·RAW 저장 완료" : ppt ? "✅ PPT 저장 완료 (RAW 는 확인 필요)" : "⚠ PPT 저장 실패";
+    $("#doneText").textContent = [ppt && `PPT: ${ppt}`, raw && `RAW: ${raw}`].filter(Boolean).join("\n") || $("#summary").textContent;
+    $("#doneStats").textContent = $("#stats").textContent;
+    const dlg = $("#doneDialog");
+    if (!dlg.open) dlg.showModal();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -653,8 +752,29 @@ async function pickFolder() {
 }
 
 // 고른 폴더에 쓸 수 있는지 확인 (크롬을 다시 켠 뒤에는 한 번 허용을 물어봄 — 버튼을 누른 직후에만 가능)
+// 저장 폴더: 여기서 따로 고르지 않았으면 부정 이슈 모니터링 설정의 '엑셀 저장 폴더'를 같이 쓴다
+function monitorSaveDir() {
+  return new Promise((resolve) => {
+    const open = indexedDB.open("issueMonitor", 1);
+    open.onupgradeneeded = () => open.result.createObjectStore("handles");
+    open.onerror = () => resolve(null);
+    open.onsuccess = () => {
+      try {
+        const r = open.result.transaction("handles").objectStore("handles").get("saveDir");
+        r.onsuccess = () => resolve(r.result || null);
+        r.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    };
+  });
+}
+async function saveDirHandle() {
+  return (await kvGet("saveDir").catch(() => null)) || (await monitorSaveDir());
+}
+
 async function saveDirIfAllowed() {
-  const handle = await kvGet("saveDir");
+  const handle = await saveDirHandle();
   if (!handle) return null;
   try {
     let p = await handle.queryPermission({ mode: "readwrite" });
@@ -707,9 +827,10 @@ async function onRawFile() {
   showRawInfo(saved);
 }
 
-async function buildRaw() {
+async function buildRaw(opts = {}) {
+  if (opts instanceof Event) opts = {};
   $("#rawBuild").disabled = true;
-  const saveDir = await saveDirIfAllowed(); // 버튼을 누른 바로 그때 폴더 허용 확인
+  const saveDir = opts.dir !== undefined ? opts.dir : await saveDirIfAllowed(); // 버튼을 누른 바로 그때 폴더 허용 확인
   try {
     const base = await kvGet("rawLatest");
     if (!base) {
@@ -739,13 +860,16 @@ async function buildRaw() {
     showRawInfo(saved);
     const detail = res.sheets.map((s) => (s.count ? `${s.name} ${s.count}행 (연번 ${s.from}~${s.to})` : `${s.name} 0행`)).join(" · ");
     setSummary(`RAW data 저장했습니다: ${where} — ${detail}`, "ok");
+    if (opts.quiet) return `${where} (${detail})`;
     $("#doneTitle").textContent = "✅ RAW data 엑셀 저장 완료";
     $("#doneText").textContent = `${where} 에 저장했습니다.`;
     $("#doneStats").textContent = detail;
     const dlg = $("#doneDialog");
     if (!dlg.open) dlg.showModal();
+    return where;
   } catch (e) {
     setSummary(`RAW data 엑셀을 만들지 못했습니다: ${e.message || e}`, "err");
+    return null;
   } finally {
     refreshButtons(false);
   }
@@ -757,10 +881,11 @@ function reportDate() {
   return { y, m, d };
 }
 
-async function buildPpt() {
+async function buildPpt(opts = {}) {
+  if (opts instanceof Event) opts = {};
   $("#build").disabled = true;
   // 저장 폴더 허용 확인은 버튼을 누른 바로 그때 해야 해서 맨 먼저
-  const saveDir = await saveDirIfAllowed();
+  const saveDir = opts.dir !== undefined ? opts.dir : await saveDirIfAllowed();
   try {
     setSummary("PPT 만드는 중…");
     const template = await loadTemplate();
@@ -782,15 +907,19 @@ async function buildPpt() {
       const stats = runStart ? `${statsText(total)}` : `💰 예상 AI 비용 ${AiCost.text()}`;
       $("#stats").hidden = false;
       $("#stats").textContent = stats + (captureMs ? ` (캡처·요약 ${fmtDuration(captureMs)})` : "");
+      if (opts.quiet) return;
       $("#doneTitle").textContent = "✅ PPT 작성 완료";
       $("#doneText").textContent = `${where} 에 저장했습니다 (${sz}).`;
       $("#doneStats").textContent = $("#stats").textContent;
       const d = $("#doneDialog");
       if (!d.open) d.showModal();
     };
-    done(await saveFile(saveDir, fileName, bytes, "application/vnd.openxmlformats-officedocument.presentationml.presentation"), size);
+    const where = await saveFile(saveDir, fileName, bytes, "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+    done(where, size);
+    return `${where} (${size})`;
   } catch (e) {
     setSummary(`PPT 를 만들지 못했습니다: ${e.message || e}`, "err");
+    return null;
   } finally {
     refreshButtons(false);
   }
@@ -798,6 +927,11 @@ async function buildPpt() {
 
 // ---------------------------------------------------------------------------
 document.addEventListener("DOMContentLoaded", async () => {
+  if (parentApp()) document.body.classList.add("embedded");
+  const { pptAutoChain } = await chrome.storage.local.get("pptAutoChain").catch(() => ({}));
+  $("#autoChain").checked = !!pptAutoChain;
+  $("#autoChain").addEventListener("change", () => chrome.storage.local.set({ pptAutoChain: $("#autoChain").checked }));
+  renderSource();
   const now = new Date();
   $("#reportDate").value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   await loadSettings();
@@ -819,7 +953,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#pickFolder").addEventListener("click", pickFolder);
   $("#clearFolder").addEventListener("click", async () => {
     await kvSet("saveDir", null);
-    showFolder(null);
+    showFolder(await saveDirHandle());
   });
-  showFolder(await kvGet("saveDir").catch(() => null));
+  showFolder(await saveDirHandle());
 });

@@ -3,15 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>부정 이슈 모니터링</title>
+  <title>온라인 오전 일일동향 수집 및 보고서 작성</title>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
   <main>
     <header>
-      <h1>현대차·제네시스 부정 이슈 모니터링 <span id="version" class="hint"></span></h1>
+      <h1><img src="icons/icon48.png" alt="" class="logo">온라인 오전 일일동향 수집 및 보고서 작성 <span id="version" class="hint"></span></h1>
       <nav>
         <button class="tab active" data-tab="collect">수집</button>
+        <button class="tab" data-tab="ppt">PPT·RAW 작성</button>
         <button class="tab" data-tab="db">데일리 DB</button>
         <button class="tab" data-tab="prompt">명령 프롬프트</button>
         <button class="tab" data-tab="settings">설정</button>
@@ -96,6 +97,7 @@
       <div id="resultTools" class="buttons small" hidden>
         <button id="deleteSelected" class="danger" disabled>선택 삭제</button>
         <button id="clearResults" class="danger">결과 비우기</button>
+        <button id="toPpt" class="primary" title="검토가 끝난 결과로 PPT 보고서·RAW data 엑셀 만들기 (1인용이면 PPT 화면에서 전체 엑셀 첨부)">PPT·RAW 작성으로 →</button>
       </div>
       <table id="results" hidden>
         <colgroup><col style="width:28px"><col style="width:120px"><col style="width:76px"><col style="width:64px"><col style="width:72px"><col style="width:62px"><col style="width:300px"><col><col style="width:52px"><col style="width:62px"><col style="width:50px"></colgroup>
@@ -118,6 +120,11 @@
         <tbody></tbody>
       </table>
       <p id="dbEmpty" class="hint">아직 저장된 수집 이력이 없습니다.</p>
+    </section>
+
+    <!-- ===================== PPT·RAW 작성 (온라인 오전동향 PPT 보고서 작성기) ===================== -->
+    <section id="tab-ppt" hidden>
+      <iframe id="pptFrame" src="ppt/app.html" title="PPT·RAW 작성"></iframe>
     </section>
 
     <!-- ===================== 명령 프롬프트 ===================== -->
