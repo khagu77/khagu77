@@ -548,6 +548,70 @@ function dbLabel(e) {
   return `${fmtDateTime(new Date(e.finishedAt))} 수집 · ${fmtDateTime(new Date(e.range.start))}~${fmtDateTime(new Date(e.range.end))} · ${e.count}건`;
 }
 
+// 백업 폴더(크롬 LevelDB 파일)에서 옛 데일리 DB 기록 찾기 → 고른 것을 데일리 DB 에 되살림
+let recoverFound = [];
+$("#recoverDir").addEventListener("change", async (ev) => {
+  const files = [...ev.target.files].filter((f) => /\.(log|ldb|sst)$/i.test(f.name));
+  ev.target.value = "";
+  $("#recoverList").textContent = "";
+  $("#recoverDo").hidden = true;
+  if (!files.length) return ($("#recoverInfo").textContent = "이 폴더에는 .ldb / .log 파일이 없습니다. Local Extension Settings 안의 확장 ID 폴더를 복사한 것인지 확인해 주세요.");
+  $("#recoverInfo").textContent = `파일 ${files.length}개를 읽는 중…`;
+  const loaded = [];
+  for (const f of files) loaded.push({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) });
+  const { runs, lastResults } = LevelRecover.findRuns(loaded);
+  const current = new Map((await dbList()).map((e) => [e.id, e]));
+  recoverFound = [];
+  for (const e of runs) {
+    const cur = current.get(e.id);
+    if (cur && (cur.rows || []).length >= e.rows.length) continue; // 지금 DB 가 같거나 더 많으면 건너뜀
+    recoverFound.push({ kind: "run", e, cur });
+  }
+  for (const v of lastResults) {
+    if (!v.range) continue;
+    recoverFound.push({ kind: "last", e: { id: `recovered-${v.range.start}-${v.range.end}`, startedAt: v.savedAt || v.range.end, finishedAt: v.savedAt || v.range.end, range: v.range, count: v.rows.length, rows: v.rows, base: "복구(지난 결과 화면)" } });
+  }
+  recoverFound.sort((a, b) => b.e.finishedAt - a.e.finishedAt);
+  if (!recoverFound.length) {
+    $("#recoverInfo").textContent = "되살릴 옛 기록을 찾지 못했습니다 (지금 데일리 DB 보다 많은 기록이 없음).";
+    return;
+  }
+  $("#recoverInfo").textContent = `되살릴 수 있는 기록 ${recoverFound.length}개를 찾았습니다. 고른 뒤 [선택한 기록 복구]를 누르세요.`;
+  recoverFound.forEach((x, i) => {
+    const e = x.e;
+    $("#recoverList").append(
+      el("label", { class: "check" },
+        el("input", { type: "checkbox", value: String(i), checked: x.kind === "run" && !!x.cur }),
+        ` ${x.kind === "last" ? "[지난 결과 화면] " : ""}${fmtDateTime(new Date(e.finishedAt))} 수집 · ${fmtDateTime(new Date(e.range.start))}~${fmtDateTime(new Date(e.range.end))} · `,
+        el("b", { class: "count-red", text: `${e.rows.length}건` }),
+        x.cur ? ` (지금 DB 에는 ${(x.cur.rows || []).length}건)` : " (지금 DB 에 없음)"
+      )
+    );
+  });
+  $("#recoverDo").hidden = false;
+});
+
+$("#recoverDo").addEventListener("click", async () => {
+  const picked = [...document.querySelectorAll("#recoverList input:checked")].map((x) => recoverFound[+x.value]);
+  if (!picked.length) return;
+  const all = await dbList();
+  for (const x of picked) {
+    const i = all.findIndex((y) => y.id === x.e.id);
+    const entry = { ...x.e, count: x.e.rows.length, recoveredAt: Date.now() };
+    if (i >= 0) {
+      if (!all[i].origRows) all[i].origRows = all[i].rows; // 복구 전 상태도 보관
+      all[i] = { ...all[i], rows: entry.rows, count: entry.count, recoveredAt: entry.recoveredAt };
+    } else all.push(entry);
+  }
+  all.sort((a, b) => b.finishedAt - a.finishedAt);
+  await chrome.storage.local.set({ dailyDb: all.slice(0, DB_MAX) });
+  $("#recoverInfo").textContent = `${picked.length}개 기록을 데일리 DB 에 되살렸습니다. 아래 목록과 '이어서 작성'·'이전 기록 불러오기'에서 쓸 수 있습니다.`;
+  $("#recoverList").textContent = "";
+  $("#recoverDo").hidden = true;
+  await renderBaseOptions();
+  renderDb();
+});
+
 async function renderDb() {
   const list = await dbList();
   const tbody = $("#dbTable tbody");

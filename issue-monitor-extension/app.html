@@ -118,6 +118,14 @@
     <!-- ===================== 데일리 DB ===================== -->
     <section id="tab-db" hidden>
       <h2>데일리 DB <span class="hint">수집할 때마다 결과가 저장됩니다. 엑셀로 받거나, 이어받기 기준으로 고를 수 있습니다.</span></h2>
+      <div class="recoverbox">
+        <b>백업 폴더에서 복구</b>
+        <span class="hint">크롬 저장 폴더(Local Extension Settings/확장 ID)를 복사해 둔 폴더를 고르면, 덮어쓰기 전에 남아 있던 옛 수집 기록을 찾아 되살립니다.</span>
+        <label class="filebtn">백업 폴더 고르기<input type="file" id="recoverDir" webkitdirectory multiple hidden></label>
+        <div id="recoverInfo" class="hint"></div>
+        <div id="recoverList"></div>
+        <button id="recoverDo" class="primary" hidden>선택한 기록 복구</button>
+      </div>
       <table id="dbTable">
         <thead><tr><th>수집 일시</th><th>수집 기간</th><th>건수</th><th>보고 필요</th><th>소요</th><th>AI 비용</th><th>비고</th><th></th></tr></thead>
         <tbody></tbody>
@@ -278,6 +286,7 @@
   <script src="common.js"></script>
   <script src="naver.js"></script>
   <script src="community.js"></script>
+  <script src="recover.js"></script>
   <script src="learn.js"></script>
   <script src="ai.js"></script>
   <script src="report-template.js"></script>
