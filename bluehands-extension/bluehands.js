@@ -349,7 +349,8 @@ function renderReportInfo() {
     setHint(
       "#reportInfo",
       n
-        ? `파일을 고르지 않으면 DB 목록 ${n.toLocaleString()}행 + 이번 글로 같은 양식의 파일을 만듭니다 (${datedFileName(rememberedReportName())}).`
+        ? `파일을 고르지 않으면 DB 목록 ${n.toLocaleString()}행(마지막 연번 ${dbMaxNo().toLocaleString()}) + 이번 글(${(dbMaxNo() + 1).toLocaleString()}번부터)로 ` +
+          `같은 양식의 파일을 만듭니다 (${datedFileName(rememberedReportName())}). 행 수와 연번이 다른 건 패스·삭제로 비운 연번 때문입니다.`
         : `파일을 고르지 않으면 같은 양식의 새 파일로 받습니다 (${datedFileName(rememberedReportName())}).`,
     );
   }
@@ -922,7 +923,7 @@ function renderDb() {
   tbody.appendChild(frag);
   const total = dbRecords().length;
   $("#dbCount").textContent = total
-    ? `DB 전체 ${total.toLocaleString()}행 중 ${list.length.toLocaleString()}행 표시`
+    ? `DB 전체 ${total.toLocaleString()}행(마지막 연번 ${dbMaxNo().toLocaleString()}) 중 ${list.length.toLocaleString()}행 표시`
     : "아직 DB 에 저장된 글이 없습니다. 보고서 엑셀을 받거나 '보고서 엑셀을 DB에 넣기'로 지난 파일을 넣어 보세요.";
   $("#dbExport").disabled = !list.length;
 
