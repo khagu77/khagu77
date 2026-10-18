@@ -40,6 +40,9 @@ def article_html(nick, body="본문 내용입니다. 하이테크센터 예약�
     )
 
 
+# 지난주 iroid/5520064 처럼 글 주소로 들어가면 알림창으로 삭제를 알리고 카페 첫 화면으로 보내는 경우
+DELETED_ALERT = "<html><body><script>alert('삭제되었거나 존재하지 않는 게시글입니다.'); location.replace('/aacafe');</script></body></html>"
+DELETED = "<html><body><div class='error_content'><p>삭제되었거나 존재하지 않는 게시글입니다.</p></div></body></html>"
 MEMBERS_ONLY = "<html><body><div class='error_content'><p>카페 멤버만 볼 수 있습니다.</p><a>카페 가입하기</a></div></body></html>"
 
 # 제목 → 검색 결과에 나올 링크
@@ -77,6 +80,10 @@ def start_fake_naver(tmp_path: Path):
                 body = article_html("검색ll작성자") if q.get("art") == ["TOKEN102"] else MEMBERS_ONLY
             elif u.path == "/nexocafe/201":
                 body = article_html("넥쏘ll회원") if q.get("art") == ["TOKEN201"] else MEMBERS_ONLY
+            elif u.path == "/aacafe/104":  # 삭제된 게시물 (알림창)
+                body = DELETED_ALERT
+            elif u.path == "/nexocafe/202":  # 삭제된 게시물 (화면 안내)
+                body = DELETED
             else:  # aacafe/103 등: 언제나 막힘
                 body = MEMBERS_ONLY
             data = body.encode()
@@ -102,7 +109,9 @@ def make_list_xls(path: Path):
     """모니터링 사이트의 기사목록 .xls (실제로는 HTML 표) 흉내 - 최신 글이 위."""
     rows = [
         ("디올뉴 넥쏘카페 / 수소차 동호회", "넥쏘 하이테크센터 후기", "2026-10-11 09:00:00", "https://cafe.naver.com/nexocafe/201"),
+        ("디올뉴 넥쏘카페 / 수소차 동호회", "지워진 넥쏘 글", "2026-10-10 20:00:00", "https://cafe.naver.com/nexocafe/202"),
         ("AA 동호회", "못 보는 글", "2026-10-10 10:00:00", "https://cafe.naver.com/aacafe/103"),
+        ("AA 동호회", "지워진 글", "2026-10-09 18:00:00", "https://cafe.naver.com/aacafe/104"),
         ("AA 동호회", "블루핸즈 예약 문의", "2026-10-09 15:30:00", "https://cafe.naver.com/aacafe/102"),
         ("AA 동호회", "하이테크센터 정비 예약했어요", "2026-10-08 11:25:00", "https://cafe.naver.com/aacafe/101"),
         ("AA 동호회", "이미 보고한 글", "2026-10-06 08:00:00", "https://cafe.naver.com/aacafe/100"),
@@ -170,6 +179,8 @@ def test_bluehands(tmp_path: Path):
         ctx.route("https://apis.naver.com/**", lambda route: (api_calls.append(route.request.url), route.fulfill(status=500, body="")))
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext = f"chrome-extension://{sw.url.split('/')[2]}"
+        dialogs = []
+        ctx.on("page", lambda pg: pg.on("dialog", lambda d: (dialogs.append(d.message), d.dismiss())))
         page = ctx.new_page()
         page.on("dialog", lambda d: d.accept())
         page.goto(f"{ext}/bluehands.html")
@@ -191,21 +202,34 @@ def test_bluehands(tmp_path: Path):
 
         page.set_input_files("#listFile", str(list_xls))
         page.locator("#listInfo", has_text="✔").wait_for()
-        assert "글 6개 (2026-10-06 07:00 ~ 2026-10-11 09:00)" in page.inner_text("#listInfo")
+        assert "글 8개 (2026-10-06 07:00 ~ 2026-10-11 09:00)" in page.inner_text("#listInfo")
         page.set_input_files("#reportFile", str(report))
         page.locator("#reportInfo", has_text="✔").wait_for()
         assert "2행(마지막 연번 5)" in page.inner_text("#reportInfo")
         rows = page.locator("#items tbody tr")
-        assert rows.count() == 6
+        assert rows.count() == 8
         assert "이미 보고서에 있음" in rows.nth(1).inner_text()  # 날짜순: 블로그(07:00) → 이미 보고한 글(08:00) → …
         assert "네이버 카페 글 주소가 아님" in rows.nth(0).inner_text()
 
         page.click("#start")
         page.locator("#summary", has_text="작성자 확인을 마쳤습니다").wait_for(timeout=300000)
+        # 삭제된 게시물 2개(알림창 1 · 화면 안내 1, 넥쏘카페 글은 검색에서 못 찾아 글 주소로 확인)는
+        # 목록에 빨간 취소선으로 남는다
+        assert rows.count() == 8
+        deleted = page.locator("#items tbody tr.deleted")
+        assert deleted.count() == 2
+        assert [deleted.nth(i).locator("td").nth(3).inner_text() for i in range(2)] == ["지워진 글", "지워진 넥쏘 글"]
+        assert "삭제된 게시물" in deleted.nth(0).locator("td").nth(6).inner_text()
+        assert deleted.nth(0).locator("td").nth(3).evaluate("e => getComputedStyle(e).textDecorationLine") == "line-through"
+        assert "삭제된 게시물 2개(엑셀에서 뺌)" in page.inner_text("#itemCount")
+        # 이미 보고서에 있는 글은 보고서의 작성자를 보여 준다
+        assert rows.nth(1).locator("td").nth(5).inner_text() == "부산ll누구"
+        live = page.locator("#items tbody tr:not(.deleted)")
         got = [
-            (rows.nth(i).locator("td").nth(0).inner_text(), rows.nth(i).locator("td").nth(3).inner_text(),
-             rows.nth(i).locator("input.author").input_value() if rows.nth(i).locator("input.author").count() else "",
-             rows.nth(i).locator("td").nth(6).inner_text())
+            (live.nth(i).locator("td").nth(0).inner_text(), live.nth(i).locator("td").nth(3).inner_text(),
+             live.nth(i).locator(".nick").inner_text() if live.nth(i).locator(".nick").count()
+             else live.nth(i).locator("input.author").input_value(),
+             live.nth(i).locator("td").nth(6).inner_text())
             for i in range(2, 6)
         ]
         assert got == [
@@ -214,7 +238,9 @@ def test_bluehands(tmp_path: Path):
             ("8", "못 보는 글", "", "패스 - 검색에서 같은 글을 찾지 못함"),
             ("9", "넥쏘 하이테크센터 후기", "넥쏘ll회원", "✔ 확인(검색 경유)"),
         ], got
-        assert "확인 3개 · 패스 1개" in page.inner_text("#summary")
+        # 알림창은 화면에 뜨지 않는다(확장이 연 탭에서만 막고 기록)
+        assert dialogs == [], dialogs
+        assert "확인 3개 · 패스 1개 · 삭제된 게시물 2개(엑셀에서 뺌)" in page.inner_text("#summary")
 
         # 넥쏘카페는 처음부터 검색으로: 글 주소를 바로 열지 않는다
         assert not [h for h in server.hits if h[1] == "/nexocafe/201"]
@@ -231,7 +257,7 @@ def test_bluehands(tmp_path: Path):
         dl.value.save_as(out)
         today = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y%m%d")
         assert out.name == f"{today}_정비 예약 관련 테스트 보고서.xlsx"
-        assert "3개 추가 (연번 6~9), 패스 1개는 넣지 않았습니다" in page.inner_text("#saveInfo")
+        assert "3개 추가 (연번 6~9), 패스 1개는 넣지 않았습니다, 삭제된 게시물 2개는 넣지 않았습니다" in page.inner_text("#saveInfo")
 
         # DB 목록: 지난 보고서 2행 + 새 글 3행
         page.click("nav.menu a[data-tab=db]")

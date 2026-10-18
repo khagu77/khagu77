@@ -3,6 +3,8 @@
 // 2) 지난 보고서에 없는 글만 탭으로 열어 작성자(닉네임)를 확인한다.
 //    본문이 안 보이면 네이버 검색 카페 탭에서 제목으로 같은 글을 찾아 그 링크로 들어가 확인하고,
 //    '처음부터 검색으로 들어갈 카페'(넥쏘카페·영운모)는 바로 검색으로 들어간다. 그래도 못 보면 패스.
+//    삭제된 게시물(삭제되었거나 존재하지 않는 글 - 알림창으로 알려 주는 경우 포함)은 목록에 빨간 취소선으로 표시하고
+//    엑셀에는 넣지 않는다(연번도 주지 않음).
 // 3) 지난 보고서 아래에 날짜순으로 이어 쓰고(연번·작성자·URL), 파일명 앞 날짜를 오늘로 바꿔 받는다.
 // 4) 받은 보고서의 모든 행을 DB 목록(이 PC 크롬 저장소)에 모은다.
 // 네이버 API 는 부르지 않는다 - 화면(탭)을 열어 보이는 내용만 읽는다(cafe-common.js).
@@ -355,11 +357,13 @@ function renderReportInfo() {
 
 // 지난 보고서(없으면 DB)에 이미 있는 글 표시
 function markDuplicates() {
-  const have = report ? report.info.records.map((r) => articleKey(r.url)) : Object.keys(db);
+  // 글 키 → 보고서(없으면 DB)에 적혀 있는 작성자
+  const have = report ? report.info.records.map((r) => [articleKey(r.url), r.author]) : Object.entries(db).map(([k, r]) => [k, r.author]);
   for (const x of items) {
-    if (x.state === "notcafe") continue;
-    const dup = have.some((k) => sameArticle(k, x.key));
-    x.state = dup ? "dup" : "new";
+    if (x.state === "notcafe" || x.state === "deleted") continue;
+    const hit = have.find(([k]) => sameArticle(k, x.key));
+    x.state = hit ? "dup" : "new";
+    x.knownAuthor = hit ? clean(hit[1]) : "";
   }
   renderItems();
 }
@@ -397,7 +401,7 @@ function renderItems() {
   tbody.innerHTML = "";
   for (const x of items) {
     const tr = document.createElement("tr");
-    tr.className = x.state === "new" ? "" : x.state === "dup" ? "dup" : "skip";
+    tr.className = { new: "", dup: "dup", deleted: "deleted" }[x.state] ?? "skip";
     tr.innerHTML =
       '<td class="nowrap"></td><td class="nowrap"></td><td></td><td class="title"><a target="_blank" rel="noopener"></a></td>' +
       '<td class="url"></td><td></td><td class="st"></td>';
@@ -408,24 +412,56 @@ function renderItems() {
     td[3].firstChild.textContent = x.title;
     td[3].firstChild.href = x.url;
     td[4].textContent = x.url;
-    if (x.state === "new") {
+    if (x.state === "new" && clean(x.author) && !x.editing) {
+      // 확인된 작성자 닉네임은 글자로 보여 주고, [수정]으로 고칠 수 있게
+      td[5].innerHTML = '<b class="nick"></b> <button class="small edit">수정</button>';
+      td[5].firstChild.textContent = x.author;
+      const edit = td[5].querySelector("button");
+      edit.disabled = running;
+      edit.addEventListener("click", () => {
+        x.editing = true;
+        renderItems();
+        [...document.querySelectorAll("#items input.author")].find((el) => el.dataset.key === x.key)?.focus();
+      });
+    }
+    if (x.state === "new" && !(clean(x.author) && !x.editing)) {
       const input = document.createElement("input");
       input.type = "text";
       input.className = "author";
+      input.dataset.key = x.key;
       input.value = x.author;
       input.placeholder = x.status === "pass" ? "패스 (직접 입력 가능)" : "";
       input.disabled = running;
       input.addEventListener("change", () => {
+        x.editing = false;
         x.author = clean(input.value);
         x.status = x.author ? "manual" : x.status === "manual" ? "" : x.status;
         renderItems();
         persist();
       });
       td[5].appendChild(input);
+    }
+    if (x.state === "new") {
       const [text, cls] = STATUS_TEXT[x.status] || ["", ""];
       td[6].textContent = text + (x.note && x.status === "pass" ? ` - ${x.note}` : "");
       td[6].className = `st ${cls}`;
+    } else if (x.state === "deleted") {
+      // 삭제된 게시물: 빨간 취소선으로 남겨 두고 엑셀에는 넣지 않는다
+      td[6].innerHTML = '<span class="del-label">삭제된 게시물</span> <button class="small undo" title="삭제된 글이 아니면 다시 목록에 넣습니다">되돌리기</button>';
+      td[6].className = "st";
+      const undo = td[6].querySelector("button");
+      undo.disabled = running;
+      undo.addEventListener("click", () => {
+        x.state = "new";
+        x.note = "";
+        markDuplicates();
+        persist();
+      });
     } else {
+      if (x.state === "dup" && x.knownAuthor) {
+        td[5].innerHTML = '<span class="nick known"></span>';
+        td[5].firstChild.textContent = x.knownAuthor;
+      }
       td[6].textContent = x.state === "dup" ? "이미 보고서에 있음" : x.note;
     }
     tbody.appendChild(tr);
@@ -440,10 +476,12 @@ function updateCounts() {
   const passed = fresh.filter((x) => !clean(x.author) && x.status === "pass");
   const dup = items.filter((x) => x.state === "dup").length;
   const other = items.filter((x) => x.state === "notcafe").length;
+  const deleted = items.filter((x) => x.state === "deleted");
   $("#itemCount").textContent =
     `전체 ${items.length}개 · 새 글 ${fresh.length}개(작성자 확인 ${done.length} · 패스 ${passed.length} · 남음 ${fresh.length - done.length - passed.length})` +
     (dup ? ` · 이미 보고서에 있음 ${dup}개` : "") +
-    (other ? ` · 카페 글 아님 ${other}개` : "");
+    (other ? ` · 카페 글 아님 ${other}개` : "") +
+    (deleted.length ? ` · 삭제된 게시물 ${deleted.length}개(엑셀에서 뺌)` : "");
   $("#start").disabled = running || !fresh.some((x) => !clean(x.author));
   $("#start").textContent = passed.length && passed.length === fresh.length - done.length ? "패스한 글 다시 확인" : "작성자 확인 시작";
   $("#save").disabled = running || !done.length;
@@ -451,7 +489,7 @@ function updateCounts() {
 }
 
 function persist() {
-  const plain = items.map((x) => ({ ...x, date: x.date ? x.date.getTime() : null }));
+  const plain = items.map((x) => ({ ...x, editing: false, date: x.date ? x.date.getTime() : null }));
   chrome.storage.local.set({ bhLast: { items: plain, listName, at: Date.now() } }).catch(() => {});
 }
 
@@ -471,9 +509,17 @@ async function restoreLast() {
 // 게시글 화면: 작성자 닉네임 · 본문이 보이는지 · 막힘 안내
 function readAuthorInFrame() {
   const top = window === window.top;
-  const text = (document.body && document.body.innerText) || "";
+  let alerted = ""; // bh-alert.js 가 막아 둔 알림창 글자 (삭제된 게시물 등)
+  try {
+    alerted = sessionStorage.getItem("bhAlert") || "";
+  } catch {
+    /* 무시 */
+  }
+  const text = `${(document.body && document.body.innerText) || ""}\n${alerted}`;
   const blocked =
-    /(카페\s*)?멤버(만|에게만)\s*(볼|읽|열람|공개)|가입\s*(후|하시면|해야)\s*.{0,10}(볼|읽|열람|이용)|등급이?\s*.{0,10}(되면|이상).{0,10}(볼|읽|열람)|열람\s*권한|권한이\s*없|삭제되었거나|존재하지\s*않는\s*(게시|글)|삭제된\s*(게시|글)|비공개\s*(게시|글|처리)/.test(
+    /(카페\s*)?멤버(만|에게만)\s*(볼|읽|열람|공개)|가입\s*(후|하시면|해야)\s*.{0,10}(볼|읽|열람|이용)|등급이?\s*.{0,10}(되면|이상).{0,10}(볼|읽|열람)|열람\s*권한|권한이\s*없|비공개\s*(게시|글|처리)/.test(text);
+  const deleted =
+    /삭제되었거나\s*(존재하지|없는)|존재하지\s*않는\s*(게시|글)|(게시글|게시물|글)이\s*삭제(되었|됐|된)|삭제된\s*(게시글|게시물|글)(입니다)?\s*[.!]?\s*$|작성자가\s*삭제|이동되었거나\s*삭제/m.test(
       text,
     );
   const pick = (sels) => {
@@ -506,7 +552,9 @@ function readAuthorInFrame() {
   );
   const hasBody = !!bodyEl && (((bodyEl.innerText || "").trim().length > 0) || !!bodyEl.querySelector("img, video, iframe"));
   const title = pick([".ArticleContentBox .title_text", ".article_header .title_text", "h3.title_text", ".tit-box .b", ".post_title h2"]);
-  return { href: location.href, top, nick, hasBody, blocked, title, login: /nid\.naver\.com/.test(location.href) };
+  const alertDeleted =
+    !!alerted && /삭제되었거나|존재하지\s*않는|삭제된\s*(게시|글)|(게시글|게시물|글)이\s*삭제|이동되었거나\s*삭제/.test(alerted);
+  return { href: location.href, top, nick, hasBody, blocked, deleted, alertDeleted, alerted, title, login: /nid\.naver\.com/.test(location.href) };
 }
 
 // 네이버 검색 결과: 같은 글(글번호 · 카페 주소)로 가는 링크
@@ -565,17 +613,22 @@ function waitForNavigation(tabId, ms = 30000) {
   });
 }
 
-// 열린 글 화면에서 작성자를 읽는다 → { author, hints } / { blocked } / { login } / {}
+// 열린 글 화면에서 작성자를 읽는다 → { author, hints } / { deleted } / { blocked } / { login } / {}
 async function pollArticle(tabId) {
   let blockedSeen = 0;
+  let deletedSeen = 0;
   for (let i = 0; i < 8; i++) {
     const frames = await framesWithin(tabId, readAuthorInFrame);
+    // 삭제 알림창이 떴던 글은 바로 삭제된 게시물로
+    if (frames.some((f) => f.alertDeleted)) return { deleted: true };
     const ok = frames.find((f) => f.nick && f.hasBody && !f.blocked);
     if (ok) {
       const hints = await framesWithin(tabId, cafeSlugHintsInFrame);
       return { author: ok.nick.replace(/\s*님$/, ""), title: ok.title, hints };
     }
     if (frames.some((f) => f.login)) return { login: true };
+    // 삭제 안내는 본문·작성자가 없는 화면에서 두 번 연속 보일 때만 (본문 속 '삭제' 글자 오인 방지)
+    if (frames.some((f) => f.deleted && !f.hasBody) && ++deletedSeen >= 2) return { deleted: true };
     if (frames.some((f) => f.blocked) && ++blockedSeen >= 2) return { blocked: true };
     await sleep(1500);
   }
@@ -587,7 +640,7 @@ function failReason(r) {
 }
 
 async function readDirect(x) {
-  return withTab(x.url, (tabId) => pollArticle(tabId));
+  return withTab(`${x.url}#bhcheck`, (tabId) => pollArticle(tabId)); // #bhcheck: 이 탭의 알림창은 bh-alert.js 가 막고 기록
 }
 
 function searchUrlFor(q) {
@@ -612,7 +665,7 @@ async function readViaSearch(x) {
       await sleep(randomBetween([1000, 2500]));
       const nav = waitForNavigation(tabId);
       await chrome.scripting
-        .executeScript({ target: { tabId }, func: (href) => (location.href = href), args: [link.href] })
+        .executeScript({ target: { tabId }, func: (href) => (location.href = href), args: [link.href.replace(/#.*$/, "") + "#bhcheck"] })
         .catch(() => {});
       await nav;
       await sleep(3000);
@@ -630,6 +683,7 @@ async function findAuthor(x) {
     log(`  글 열기: ${x.url}`);
     first = await readDirect(x);
     if (first.author) return { ...first, via: "direct" };
+    if (first.deleted) return { deleted: true };
     log(`  ${failReason(first)} → 네이버 검색으로 찾습니다`);
     await sleep(randomBetween(CAFE_PAGE_DELAY));
   } else {
@@ -637,6 +691,15 @@ async function findAuthor(x) {
   }
   const s = await readViaSearch(x);
   if (s.author) return { ...s, via: "search" };
+  if (s.deleted) return { deleted: true };
+  // 처음부터 검색으로 들어간 카페인데 검색에서 못 찾으면, 지워진 글인지 글 주소로 한 번 확인한다
+  if (!first && s.notFound) {
+    log(`  검색에서 못 찾아 글이 지워졌는지 글 주소로 확인합니다`);
+    await sleep(randomBetween(CAFE_PAGE_DELAY));
+    const d = await readDirect(x);
+    if (d.deleted) return { deleted: true };
+    if (d.author) return { ...d, via: "direct" };
+  }
   return { reason: s.notFound ? "검색에서 같은 글을 찾지 못함" : `검색 링크로도 ${failReason(s)}` };
 }
 
@@ -681,6 +744,7 @@ async function run() {
   renderItems();
   let ok = 0;
   let pass = 0;
+  let removed = 0;
   for (let i = 0; i < targets.length; i++) {
     if (stopRequested) break;
     const x = targets[i];
@@ -695,7 +759,13 @@ async function run() {
     } catch (e) {
       r = { reason: e.message };
     }
-    if (r.author) {
+    if (r.deleted) {
+      x.state = "deleted";
+      x.status = "";
+      x.note = "삭제된 게시물";
+      removed++;
+      log(`  삭제된 게시물 - 엑셀에 넣지 않습니다`);
+    } else if (r.author) {
       x.author = r.author;
       x.status = r.via === "search" ? "search" : "ok";
       await learnSlug(x, r.hints);
@@ -716,7 +786,7 @@ async function run() {
   renderItems();
   persist();
   setSummary(
-    `${stopRequested ? "중지했습니다" : "작성자 확인을 마쳤습니다"} - 확인 ${ok}개 · 패스 ${pass}개. '엑셀 받기'를 누르세요.`,
+    `${stopRequested ? "중지했습니다" : "작성자 확인을 마쳤습니다"} - 확인 ${ok}개 · 패스 ${pass}개${removed ? ` · 삭제된 게시물 ${removed}개(엑셀에서 뺌)` : ""}. '엑셀 받기'를 누르세요.`,
     pass ? "" : "ok",
   );
 }
@@ -762,6 +832,7 @@ async function saveReport() {
   const fresh = newRecords();
   if (!fresh.length) return;
   const passed = items.filter((x) => x.state === "new" && !clean(x.author)).length;
+  const removed = items.filter((x) => x.state === "deleted").length;
   try {
     let bytes;
     let all;
@@ -782,7 +853,7 @@ async function saveReport() {
     const name = datedFileName(report ? report.name : rememberedReportName());
     downloadBytes(bytes, name);
     await addToDb(all, name);
-    history.unshift({ at: Date.now(), file: name, added: fresh.length, passed, total: all.length });
+    history.unshift({ at: Date.now(), file: name, added: fresh.length, passed, deleted: removed, total: all.length });
     await chrome.storage.local.set({ bhHistory: history.slice(0, 200), bhLastReportDay: ymd(new Date()) }).catch(() => {});
     renderSchedule();
     renderDb();
@@ -791,6 +862,7 @@ async function saveReport() {
       "#saveInfo",
       `✔ ${name} - ${fresh.length}개 추가 (연번 ${nos[0]}~${nos[nos.length - 1]})` +
         (passed ? `, 패스 ${passed}개는 넣지 않았습니다` : "") +
+        (removed ? `, 삭제된 게시물 ${removed}개는 넣지 않았습니다` : "") +
         `. 파일의 ${all.length.toLocaleString()}행을 DB 목록에 저장했습니다.`,
       "ok",
     );
@@ -858,12 +930,13 @@ function renderDb() {
   hb.innerHTML = "";
   for (const h of history) {
     const tr = document.createElement("tr");
-    tr.innerHTML = "<td class=nowrap></td><td></td><td></td><td></td><td></td>";
+    tr.innerHTML = "<td class=nowrap></td><td></td><td></td><td></td><td></td><td></td>";
     tr.children[0].textContent = new Date(h.at).toLocaleString();
     tr.children[1].textContent = h.file;
     tr.children[2].textContent = h.added ?? "";
     tr.children[3].textContent = h.passed ?? "";
-    tr.children[4].textContent = h.total ?? "";
+    tr.children[4].textContent = h.deleted ?? "";
+    tr.children[5].textContent = h.total ?? "";
     hb.appendChild(tr);
   }
   if (!report) renderReportInfo();

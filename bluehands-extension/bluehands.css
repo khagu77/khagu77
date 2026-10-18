@@ -97,3 +97,9 @@ td input.author { width: 150px; padding: 3px 6px; font-size: 13px; }
 @media (max-width: 640px) {
   main { margin: 0; padding: 16px; border-radius: 0; }
 }
+#items tr.deleted td { color: var(--red); }
+#items tr.deleted td:not(.st), #items tr.deleted td a { text-decoration: line-through; text-decoration-color: var(--red); color: var(--red); }
+.del-label { color: var(--red); font-weight: 600; }
+.nick { color: var(--navy); font-weight: 700; }
+.nick.known { color: var(--muted); font-weight: 400; }
+#items tr.dup td .nick.known { opacity: 1; }
