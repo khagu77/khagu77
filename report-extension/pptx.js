@@ -159,6 +159,26 @@
       `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
     const node = doc.importNode(parse(xml).documentElement, true);
     spTree.appendChild(node);
+    return node;
+  }
+
+  // 캡처 그림들을 하나로 묶기 (PowerPoint '그룹화'와 같음 → 한 번에 옮기고 크기 조절)
+  function groupPictures(doc, nodes, pls) {
+    if (nodes.length < 2) return;
+    const spTree = all(doc, P, "spTree")[0];
+    const ids = all(doc, P, "cNvPr").map((e) => Number(e.getAttribute("id")) || 0);
+    const id = Math.max(1, ...ids) + 1;
+    const x0 = Math.round(Math.min(...pls.map((p) => p.x)));
+    const y0 = Math.round(Math.min(...pls.map((p) => p.y)));
+    const x1 = Math.round(Math.max(...pls.map((p) => p.x + p.w)));
+    const y1 = Math.round(Math.max(...pls.map((p) => p.y + p.h)));
+    const xml =
+      `<p:grpSp xmlns:p="${P}" xmlns:a="${A}"><p:nvGrpSpPr><p:cNvPr id="${id}" name="캡처 그룹 ${id}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
+      `<p:grpSpPr><a:xfrm><a:off x="${x0}" y="${y0}"/><a:ext cx="${x1 - x0}" cy="${y1 - y0}"/>` +
+      `<a:chOff x="${x0}" y="${y0}"/><a:chExt cx="${x1 - x0}" cy="${y1 - y0}"/></a:xfrm></p:grpSpPr></p:grpSp>`;
+    const grp = doc.importNode(parse(xml).documentElement, true);
+    spTree.insertBefore(grp, nodes[0]);
+    for (const n of nodes) grp.appendChild(n);
   }
 
   // ---------- 전체 만들기 ----------
@@ -312,12 +332,14 @@
       };
       const linkRid = addRel(T_LINK, it.url, true);
       fillDetail(doc, it, it.no || startNo + i, linkRid);
+      const picNodes = [];
       for (const pic of it.pictures || []) {
         const media = nextName(`ppt/media/report_${i + 1}_#.${pic.ext}`);
         files.set(media, new Uint8Array(await pic.blob.arrayBuffer()));
         const rid = addRel(T_IMAGE, `../media/${media.split("/").pop()}`);
-        addPicture(doc, rid, pic, pic.name || "그림");
+        picNodes.push(addPicture(doc, rid, pic, pic.name || "그림"));
       }
+      groupPictures(doc, picNodes, it.pictures || []);
       files.set(slidePath, ser(doc));
       files.set(relsPath(slidePath), ser(rels));
 

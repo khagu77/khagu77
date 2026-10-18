@@ -164,6 +164,17 @@ def sse_body(text):
     return "".join(f"event: {e}\ndata: {json.dumps(d, ensure_ascii=False)}\n\n" for e, d in events)
 
 
+def pictures_of(slide):
+    """슬라이드의 그림 (캡처 그룹 안의 그림 포함)."""
+    out = []
+    for sh in slide.shapes:
+        if sh.shape_type == 6:  # 그룹
+            out += [c for c in sh.shapes if c.shape_type == 13]
+        elif sh.shape_type == 13:
+            out.append(sh)
+    return out
+
+
 def make_template(path: Path):
     """실제 보고서와 같은 뼈대의 템플릿: 표지 날짜 / 요약표(8열) / 구분 정의 / 상세 슬라이드 2장(표 5x8 + 그림)."""
     from pptx import Presentation
@@ -504,7 +515,11 @@ def test_report_end_to_end(tmp_path):
     assert tbl.cell(3, 1).text.split("\n")[0] == SHORTENED["body"]
     assert tbl.cell(3, 1).text.split("\n")[1] == "댓글 반응 : ‘저도 같은 증상이에요., 사업소에 가세요.’ 등의 여론"
 
-    pics = [sh for sh in d1.shapes if sh.shape_type == 13]
+    pics = pictures_of(d1)
+    groups = [sh for sh in d1.shapes if sh.shape_type == 6]
+    assert len(groups) == 1 and len(groups[0].shapes) == len(pics)  # 캡처 그림은 모두 한 그룹으로
+    assert all(c.shape_type == 13 for c in groups[0].shapes)  # 그룹에는 캡처 그림만 (표·글상자는 밖에)
+    assert [sh for sh in d1.shapes if sh.has_table] and [sh for sh in d1.shapes if sh.has_text_frame]
     # 제목 + 본문 + 댓글 2개(AI 추천) + 첨부 사진 1 + 영상 플레이어 1
     assert len(pics) == 6
     cm = 360000
@@ -555,7 +570,7 @@ def test_report_end_to_end(tmp_path):
     d2 = slides[4]
     tbl2 = [sh for sh in d2.shapes if sh.has_table][0].table
     assert tbl2.cell(2, 5).text == "확인 필요"
-    assert not [sh for sh in d2.shapes if sh.shape_type == 13]
+    assert not pictures_of(d2)
 
 
 def test_report_old_cafe_iframe(tmp_path):
@@ -583,7 +598,7 @@ def test_report_old_cafe_iframe(tmp_path):
     tbl = [sh for sh in d1.shapes if sh.has_table][0].table
     assert tbl.cell(2, 5).text == "1,234건" and tbl.cell(2, 6).text == "5건"
     assert tbl.cell(3, 1).text.startswith("신차 검수 시 블랙잉크")
-    pics = [sh for sh in d1.shapes if sh.shape_type == 13]
+    pics = pictures_of(d1)
     assert len(pics) == 6  # 제목 + 본문 + 댓글 2(이모티콘 없는 짧은 댓글) + 사진 1 + 영상 1
 
 
@@ -837,8 +852,8 @@ def test_long_post_captured_to_the_end(tmp_path):
     out, _, _ = run_report(tmp_path, template, excel, tmp_path, ai_key="")
     d1 = list(Presentation(out).slides)[3]
     cm = 360000
-    bodies = [p for p in d1.shapes if p.shape_type == 13 and 4.5 * cm < p.left < 18.7 * cm and p.top > 6.5 * cm]
-    assert len(bodies) >= 2, [(p.left / cm, p.top / cm) for p in d1.shapes if p.shape_type == 13]
+    bodies = [p for p in pictures_of(d1) if 4.5 * cm < p.left < 18.7 * cm and p.top > 6.5 * cm]
+    assert len(bodies) >= 2, [(p.left / cm, p.top / cm) for p in pictures_of(d1)]
     for p in bodies:
         assert p.left + p.width <= 18.66 * cm + 10 and p.top + p.height <= 17.13 * cm + 10
     red = lambda pic: any(r > 200 and g < 80 and b < 80 for r, g, b in Image.open(io.BytesIO(pic.image.blob)).convert("RGB").getdata())
