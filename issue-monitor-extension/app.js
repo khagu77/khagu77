@@ -201,7 +201,8 @@ function refreshRangeIfNewDay() {
   if (today === rangeDay || state.running) return;
   rangeDay = today;
   const r = defaultRange(new Date(), state.settings);
-  setRange(r.start, r.end);
+  // 이어서 작성할 기록을 골라 두었으면 시작은 그 기록이 끝난 시각
+  setRange(state.base && state.base.end && state.base.end < r.end.getTime() ? new Date(state.base.end) : r.start, r.end);
   renderRangeDefaultLabel();
   log(`날짜가 바뀌어 수집 기간을 오늘 기준으로 맞췄습니다 (${fmtDateTime(r.start)} ~ ${fmtDateTime(r.end)})`);
 }
@@ -762,10 +763,19 @@ async function onBaseChange() {
   else if (v === "file") state.base = state.baseFile;
   else {
     const e = (await dbList()).find((x) => x.id === v);
-    state.base = e ? { label: `데일리 DB ${fmtDateTime(new Date(e.finishedAt))}`, rows: deserializeRows(e.rows) } : null;
+    state.base = e ? { label: `데일리 DB ${fmtDateTime(new Date(e.finishedAt))}`, rows: deserializeRows(e.rows), end: e.range && e.range.end } : null;
+  }
+  // 이어서 작성: 수집 시작을 고른 기록이 끝난 시각으로 (그 뒤만 새로 수집). 끝은 그대로(금일 기준 시각)
+  if (state.base && state.base.end && !state.running) {
+    const startAt = new Date(state.base.end);
+    const endAt = new Date($("#rangeEnd").value);
+    if (!(endAt > startAt)) {
+      const r = defaultRange(new Date(), state.settings);
+      setRange(startAt, r.end > startAt ? r.end : new Date());
+    } else setRange(startAt, endAt);
   }
   $("#baseInfo").textContent = state.base
-    ? `기존 ${state.base.rows.length}건 뒤에 이어서 작성합니다 (같은 게시물은 기존 것만 남김).${state.base.rows.length ? "" : " ⚠ 이 항목은 0건이라 붙일 것이 없습니다. 건수가 있는 다른 항목이나 엑셀 파일을 고르세요."}`
+    ? `기존 ${state.base.rows.length}건 뒤에 이어서 작성합니다 (같은 게시물은 기존 것만 남김).${state.base.end ? ` 수집 시작을 그 기록이 끝난 ${fmtDateTime(new Date(state.base.end))}로 맞췄습니다.` : ""}${state.base.rows.length ? "" : " ⚠ 이 항목은 0건이라 붙일 것이 없습니다. 건수가 있는 다른 항목이나 엑셀 파일을 고르세요."}`
     : "";
   $("#mergeBase").disabled = !state.base || !state.base.rows.length || state.running;
   renderBaseDd();
@@ -847,7 +857,11 @@ $("#baseFile").addEventListener("change", async (ev) => {
   try {
     const rows = await ReportXlsx.read(new Uint8Array(await f.arrayBuffer()));
     if (!rows.length) throw new Error("이 파일에서 보고서 행(커뮤니티명·주요 내용 머리글)을 찾지 못했습니다");
-    state.baseFile = { label: `${f.name} (${rows.length}건)`, rows };
+    // 파일 이름 앞 날짜(예: 261018 또는 학_261018)가 그 엑셀의 수집 끝 날짜 → 기준 시각으로
+    const m = f.name.match(/(?:^|_)(\d{2})(\d{2})(\d{2})_/);
+    const [ch, cm] = cutoffHM(state.settings);
+    const end = m ? new Date(2000 + +m[1], +m[2] - 1, +m[3], ch, cm).getTime() : null;
+    state.baseFile = { label: `${f.name} (${rows.length}건)`, rows, end };
     await renderBaseOptions();
     $("#baseSelect").value = "file";
     await onBaseChange();
@@ -1678,7 +1692,8 @@ async function runCollection() {
     } else {
       let where = "";
       try {
-        if (settings.workdayReport) await buildWorkdayReport(ai, settings);
+        // 이전 기록을 이미 이어서 작성했으면 결과가 완성본이라 다시 합치지 않음
+        if (settings.workdayReport && !state.autoBaseUsed) await buildWorkdayReport(ai, settings);
         where = await downloadReport(state.rows, state.range, false);
         await chrome.storage.local.set({ lastReportAt: finishedAt });
         log(`엑셀을 ${where}에 저장했습니다`);
@@ -2054,12 +2069,27 @@ $("#testKey").addEventListener("click", async () => {
     const [ch, cm] = cutoffHM(state.settings);
     const cut = new Date(now.getFullYear(), now.getMonth(), now.getDate(), ch, cm, 0);
     const end = now >= cut && now - cut < 3 * 3600 * 1000 ? cut : now;
-    const { lastAutoRangeEnd } = await chrome.storage.local.get("lastAutoRangeEnd");
+    const { lastAutoRangeEnd, lastReportAt = 0 } = await chrome.storage.local.get(["lastAutoRangeEnd", "lastReportAt"]);
     const prev = lastAutoRangeEnd ? new Date(lastAutoRangeEnd) : null;
     // 지난 자동 수집이 끝난 시각부터 이어서 (주말에 못 돌린 경우도 포함, 7일 넘게 비었으면 최근 24시간)
-    const start = prev && end - prev <= 7 * 86400000 && prev < end ? prev : new Date(end.getTime() - 86400000);
+    let start = prev && end - prev <= 7 * 86400000 && prev < end ? prev : new Date(end.getTime() - 86400000);
+    // 지난 보고 이후에 직접(또는 휴일 자동) 수집해 둔 데일리 DB 기록이 있으면 자동으로 이어서 작성:
+    // 그 기록들을 합쳐 기준으로 쓰고, 그 기록이 끝난 시각 이후만 새로 수집 (주말에 미리 모은 것·고친 것 그대로)
+    const since = Math.max(lastReportAt || 0, Date.now() - 10 * 86400000);
+    const prior = (await dbList())
+      .filter((e) => e.finishedAt > since && (e.rows || []).length && !e.stopped && e.range && e.range.end > start.getTime() && e.range.end <= end.getTime())
+      .sort((a, b) => a.finishedAt - b.finishedAt);
+    if (prior.length) {
+      const byKey = new Map();
+      for (const e of prior) for (const r of deserializeRows(e.rows)) byKey.set(urlKey(r.url), r); // 같은 글은 더 나중 기록(고친 것) 우선
+      const rows = [...byKey.values()];
+      state.base = { label: `지난 보고 이후 수집 기록 ${prior.length}개(${prior.map((e) => `${fmtDateTime(new Date(e.range.start))}~${fmtDateTime(new Date(e.range.end))}`).join(", ")})`, rows };
+      state.autoBaseUsed = true;
+      start = new Date(Math.max(...prior.map((e) => e.range.end)));
+      log(`이전 수집 기록 ${prior.length}개(${rows.length}건)를 자동으로 이어서 작성합니다: ${prior.map((e) => dbLabel(e)).join(" / ")}`);
+    }
     setRange(start, end);
-    log(`자동 수집을 시작합니다 (${fmtDateTime(start)} ~ ${fmtDateTime(end)}: 지난 자동 수집에 이어서)`);
+    log(`자동 수집을 시작합니다 (${fmtDateTime(start)} ~ ${fmtDateTime(end)}: ${prior.length ? "이전 수집 기록에 이어서" : "지난 자동 수집에 이어서"})`);
     await sleep(3000);
     $("#start").click();
   } else {
