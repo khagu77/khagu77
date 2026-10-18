@@ -59,7 +59,7 @@ let diagnostics = []; // 글을 못 읽은 화면의 구조 (진단 파일)
 
 async function loadSettings() {
   const s = await chrome.storage.local
-    .get(["saveFolder", "saveAsk", "lx3VisibleRetry", "lx3Cafes", "lx3Query", "lx3Include", "lx3Exclude", "lx3SearchUrl", "lx3MaxPages", "lx3CafeNames", "lx3Youtube"])
+    .get(["lx3Holidays", "saveFolder", "saveAsk", "lx3VisibleRetry", "lx3Cafes", "lx3Query", "lx3Include", "lx3Exclude", "lx3SearchUrl", "lx3MaxPages", "lx3CafeNames", "lx3Youtube"])
     .catch(() => ({}));
   $("#cafeList").value = (s.lx3Cafes || DEFAULT_CAFES).join("\n");
   $("#query").value = s.lx3Query ?? DEFAULT_QUERY;
@@ -70,6 +70,7 @@ async function loadSettings() {
   $("#visibleRetry").checked = s.lx3VisibleRetry ?? true;
   $("#saveFolder").value = s.saveFolder || "";
   $("#saveAsk").checked = !!s.saveAsk;
+  $("#holidays").value = s.lx3Holidays || "";
   cafeNames = Object.fromEntries(Object.entries(s.lx3CafeNames || {}).map(([k, v]) => [k, cleanCafeName(v)]));
   cafeSlugs = await loadCafeSlugs();
   youtube = s.lx3Youtube || [...DEFAULT_YOUTUBE];
@@ -87,6 +88,7 @@ function saveSettings() {
       lx3VisibleRetry: $("#visibleRetry").checked,
       saveFolder: cleanFolder($("#saveFolder").value),
       saveAsk: $("#saveAsk").checked,
+      lx3Holidays: $("#holidays").value,
     })
     .catch(() => {});
 }
@@ -186,12 +188,59 @@ function toLocalInput(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function resetRange() {
-  const now = new Date();
+// 우리나라 공휴일(대체공휴일·선거일 포함). 임시공휴일·회사 휴무는 설정의 '추가 휴일'에 넣는다.
+const KR_HOLIDAYS = new Set([
+  // 2026
+  "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18", "2026-03-01", "2026-03-02", "2026-05-05", "2026-05-24",
+  "2026-05-25", "2026-06-03", "2026-06-06", "2026-08-15", "2026-08-17", "2026-09-24", "2026-09-25", "2026-09-26",
+  "2026-10-03", "2026-10-05", "2026-10-09", "2026-12-25",
+  // 2027
+  "2027-01-01", "2027-02-05", "2027-02-06", "2027-02-07", "2027-02-08", "2027-03-01", "2027-05-05", "2027-05-13",
+  "2027-06-06", "2027-08-15", "2027-08-16", "2027-09-14", "2027-09-15", "2027-09-16", "2027-10-03", "2027-10-04",
+  "2027-10-09", "2027-10-11", "2027-12-25", "2027-12-27",
+  // 2028
+  "2028-01-01", "2028-01-25", "2028-01-26", "2028-01-27", "2028-03-01", "2028-04-12", "2028-05-02", "2028-05-05",
+  "2028-06-06", "2028-08-15", "2028-10-02", "2028-10-03", "2028-10-04", "2028-10-05", "2028-10-09", "2028-12-25",
+]);
+
+function ymd(d) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function extraHolidays() {
+  return new Set((($("#holidays")?.value || "").match(/\d{4}-\d{1,2}-\d{1,2}/g) || []).map((s) => {
+    const [y, m, d] = s.split("-").map(Number);
+    return ymd(new Date(y, m - 1, d));
+  }));
+}
+
+function isOffDay(d, extra = extraHolidays()) {
+  return d.getDay() === 0 || d.getDay() === 6 || KR_HOLIDAYS.has(ymd(d)) || extra.has(ymd(d));
+}
+
+// 기본 시간: 직전 근무일 오후 12시 ~ 오늘 오후 12시 (사이의 주말·공휴일은 건너뜀)
+// 예) 월요일 → 금요일 12시 ~ 월요일 12시, 추석 연휴 다음 날 → 연휴 전 마지막 근무일 12시부터
+function defaultRange(now = new Date()) {
+  const extra = extraHolidays();
   const to = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0);
-  const from = new Date(to.getTime() - 24 * 3600e3);
+  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const skipped = [];
+  for (let i = 0; i < 31 && isOffDay(day, extra); i++) {
+    skipped.unshift(new Date(day));
+    day.setDate(day.getDate() - 1);
+  }
+  return { from: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 12, 0), to, skipped };
+}
+
+const WEEKDAY = "일월화수목금토";
+const md = (d) => `${d.getMonth() + 1}/${d.getDate()}(${WEEKDAY[d.getDay()]})`;
+
+function resetRange(now = new Date()) {
+  const { from, to, skipped } = defaultRange(now);
   $("#from").value = toLocalInput(from);
   $("#to").value = toLocalInput(to);
+  $("#rangeInfo").textContent =
+    `기본 시간: ${md(from)} 오후 12시 ~ ${md(to)} 오후 12시` + (skipped.length ? ` (휴일 ${skipped.map(md).join(", ")} 포함)` : "");
 }
 
 function range() {
@@ -896,15 +945,16 @@ async function restoreLast() {
 }
 
 async function init() {
-  resetRange();
   await loadSettings();
+  resetRange();
   renderCafeInfo();
   renderYoutube();
   loadListFile(null);
-  for (const id of ["cafeList", "include", "exclude", "searchUrl", "maxPages", "query", "visibleRetry", "saveFolder", "saveAsk"]) {
+  for (const id of ["cafeList", "include", "exclude", "searchUrl", "maxPages", "query", "visibleRetry", "saveFolder", "saveAsk", "holidays"]) {
     $(`#${id}`).addEventListener("change", async () => {
       if (id === "searchUrl") $("#searchUrl").value = normalizeSearchUrl($("#searchUrl").value);
       if (id === "saveFolder") $("#saveFolder").value = cleanFolder($("#saveFolder").value);
+      if (id === "holidays") resetRange();
       await saveSettings();
       if (id === "cafeList") renderCafeInfo();
       if (id === "include" || id === "exclude") {

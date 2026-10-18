@@ -446,7 +446,22 @@ def test_lx3(tmp_path: Path):
         now = datetime.now(ZoneInfo("Asia/Seoul"))
         today_noon = now.replace(hour=12, minute=0, second=0, microsecond=0)
         assert page.input_value("#to") == today_noon.strftime("%Y-%m-%dT12:00")
-        assert page.input_value("#from") == (today_noon - __import__("datetime").timedelta(days=1)).strftime("%Y-%m-%dT12:00")
+        # 시작: 직전 근무일 오후 12시 (주말·공휴일·대체공휴일 건너뜀)
+        cases = {  # 오늘 → 시작
+            "2026-10-14": "2026-10-13",  # 평일: 전날
+            "2026-10-19": "2026-10-16",  # 월요일: 금요일
+            "2026-10-06": "2026-10-02",  # 개천절(토)·일·대체공휴일(월) 다음 날: 금요일
+            "2026-09-28": "2026-09-23",  # 추석 연휴(목~토)·일요일 다음 날: 연휴 전 수요일
+            "2027-02-09": "2027-02-04",  # 설 연휴(금~일)·대체공휴일(월) 다음 날: 목요일
+        }
+        for today, start in cases.items():
+            got = page.evaluate("(d) => { const r = defaultRange(new Date(d + 'T09:00')); return [ymd(r.from), r.from.getHours(), ymd(r.to), r.to.getHours()]; }", today)
+            assert got == [start, 12, today, 12], (today, got)
+        page.evaluate("document.getElementById('holidays').value = '2026-10-13'")  # 추가 휴일(회사 휴무)
+        assert page.evaluate("ymd(defaultRange(new Date('2026-10-14T09:00')).from)") == "2026-10-12"
+        page.evaluate("document.getElementById('holidays').value = ''")
+        assert page.input_value("#from") == page.evaluate("toLocalInput(defaultRange().from)")
+        assert "기본 시간:" in page.inner_text("#rangeInfo")
         assert len(page.input_value("#cafeList").split("\n")) == 12 and "16624720" in page.input_value("#cafeList")
 
         # 유튜브 목록: 기본 23개 · 추가 · 삭제 · 기본으로 되돌리기

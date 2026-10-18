@@ -19,9 +19,10 @@
         <label class="inline">시작 <input type="datetime-local" id="from"></label>
         <label class="inline">끝 <input type="datetime-local" id="to"></label>
         <label class="inline">검색어 <input type="text" id="query" class="short"></label>
-        <button id="resetRange" class="small" title="전일 오후 12시 ~ 당일 오후 12시">기본 시간으로</button>
+        <button id="resetRange" class="small" title="직전 근무일 오후 12시 ~ 오늘 오후 12시">기본 시간으로</button>
       </div>
-      <div class="hint">화면을 새로 열면(새로고침) 시간은 <b>전일 오후 12시 ~ 당일 오후 12시</b>로 돌아갑니다.</div>
+      <div class="hint">화면을 새로 열면(새로고침) 시간은 <b>직전 근무일 오후 12시 ~ 오늘 오후 12시</b>로 돌아갑니다
+        (평일은 전일 12시부터, 월요일·연휴 다음 날은 주말·공휴일·대체공휴일을 건너뛴 마지막 근무일 12시부터). <span id="rangeInfo"></span></div>
 
       <details id="settings">
         <summary>설정 (동호회 목록 · 관련 단어 · 저장 위치)</summary>
@@ -40,6 +41,8 @@
         <textarea id="exclude" rows="1" spellcheck="false"></textarea>
         <label for="searchUrl">카페 검색 주소 형식 <span class="hint">(검색이 안 되면 카페에서 직접 검색한 주소창 주소를 그대로 붙여 넣으세요)</span></label>
         <input type="text" id="searchUrl" class="full" spellcheck="false">
+        <label for="holidays">추가 휴일 <span class="hint">(임시공휴일·회사 휴무 등 기본 달력에 없는 쉬는 날, 예: 2026-07-17, 2026-05-01 · 주말과 법정 공휴일·대체공휴일은 자동)</span></label>
+        <textarea id="holidays" rows="1" spellcheck="false" placeholder="2026-07-17, 2026-12-31"></textarea>
         <label class="inline">카페마다 최대 <input type="number" id="maxPages" min="1" max="20" class="tiny"> 페이지까지 봅니다</label>
         <label class="inline"><input type="checkbox" id="visibleRetry"> 뒤쪽 탭에서 글 목록을 못 읽으면 작은 창을 잠깐 띄워 다시 읽기</label>
         <div class="buttons"><button id="resetSettings" class="small">설정 처음 값으로</button></div>
