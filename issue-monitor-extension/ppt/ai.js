@@ -29,6 +29,7 @@ const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작�
 - 문장 시작 유형: [출고] "최근 출고한 차량에서", "출고 후 3개월 된 차량에서" / [주행 중] "주행 중에", "정차 중에", "주차 중에" / [차량의] "차량의 ○○ 부분에서"
 - 문장 끝맺음은 글의 성격에 맞게 아래 유형을 골고루 섞어 씁니다. 모든 글을 "~하는 내용"으로 끝내지 않습니다.
   - 불만을 강하게 표출한 글: "~며 품질 관련 불만글 게재", "~에 대한 불만글 게재", "~며 품질에 대해 불만 토로" (응대 불만이면 "응대 관련")
+    사진·영상과 함께 강한 불만을 올린 글: "~며 증상 관련 사진과 함께 품질 불만 호소"
   - 같은 증상을 겪은 사람이나 해결책을 묻는 글: "~ 동일 증상 유경험자 여부 및 증상 관련 문의 글 게재", "~ 원인 및 조치 방법 문의", "~며 증상에 대해 문의하는 내용"
     ("동일 증상 여부 및 원인 문의"라고 쓰지 않습니다)
   - 사진을 함께 올린 글(photoCount 1 이상): 사진이 증상을 보여 주면 "~ 증상 관련 사진과 함께 글 게재"
@@ -76,7 +77,7 @@ const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작�
 - region: 입고/운행 지역. 먼저 작성자 닉네임(author)에서 지역을 판단합니다(예: "부산ll홍길동" → 부산, "파주II아무개" → 파주).
   닉네임으로 알 수 없으면 authorPosts(작성자의 다른 글 제목)와 본문에서 지역이 분명히 드러나면 씁니다. 도(충북, 경기 등)는 빼고 시 이름만 씁니다(예: "충북 청주" → "청주", "경기 오산" → "오산", "부산", "서울 강동구").
   단 이름이 같은 다른 도시와 헷갈리는 곳은 도를 붙입니다(예: "경기 광주"는 광주광역시와 헷갈리므로 "경기 광주").
-  알 수 없으면 "-".
+  시 이름은 모르고 도·광역 단위만 확인되면 그 이름을 짧게 씁니다(예: "강원", "전남"). 알 수 없으면 "-".
 - comment_picks: 보고서에 캡처해 넣을 댓글 번호(index) 2개 (index 작은 것부터. reaction 도 이 순서). 자극적이거나 심각하다고 느껴지는, 길지 않은 댓글을 우선 고릅니다.
   hasSticker 가 true 인(이모티콘이 있는) 댓글은 될 수 있으면 고르지 말고, 그것밖에 없을 때만 고릅니다. 댓글이 2개보다 적으면 있는 만큼.`;
 
@@ -105,10 +106,48 @@ function pptLearnLine(x) {
   return parts.length ? `- [${x.cafe || ""}] 차종 ${x.car || "-"}: ${parts.join(" / ")}` : "";
 }
 
+// 담당자가 최종 확정한 보고서 예시 (수정한 PPT 를 올렸을 때 원본이 없으면 여기 쌓임) + 기본 예시
+const PPT_EXAMPLE_MAX = 60;
+const PPT_EXAMPLE_PROMPT_MAX = 12;
+// 2026-10-19 보고서: 담당자가 고쳐 확정한 문구 (기본 예시)
+const PPT_SEED_EXAMPLES = [
+  { car: "CN8", title: "아반떼(CN8) 내비게이션 화면 꺼짐 및 카메라 화면 표시 오류", short: "내비게이션 화면 꺼짐 및 카메라 화면 표시 오류", spec: "-", level: "주의", region: "-", body: "차량의 내비게이션(플레오스) 화면이 꺼졌다 켜지는 오류가 반복되어 분해 수리 가능성을 안내받았다며 증상 관련 사진과 함께 글 게재", reaction: "‘카페에서 비슷한 분을 봤는데 케이블이 살짝 뽑혀 있었다고 한 것 같아요.’ 등의 여론" },
+  { car: "CN8", title: "아반떼(CN8) 도장 불량 발생 불만", short: "도장 불량 발생 불만", spec: "-", level: "주의", region: "화성", body: "최근 출고한 차량의 여러 부위에서 도장이 흐르는 등 도장 불량이 확인되었다며 증상 관련 사진과 함께 품질 불만 호소", reaction: "‘이건 거의 쓰레기 수준이네요!, 2번째는 칠이 흐른 건가요?’ 등의 여론" },
+  { car: "ME1", title: "아이오닉9(ME1) 모터 제어 시스템 경고등 점등", short: "모터 제어 시스템 경고등 점등", spec: "EV", level: "주의", region: "-", body: "차량의 계기반에 모터 제어 시스템 경고등이 빨간색으로 점등되어 원인을 알 수 없다며 증상 원인 및 조치 방법 문의", reaction: "" },
+  { car: "ME1", title: "아이오닉9(ME1) 소음 수리 중 센터 내 차량 파손 및 응대 불만", short: "소음 수리 중 센터 내 차량 파손 및 응대 불만", spec: "EV", level: "경고", kind: "응대", region: "의정부", body: "트렁크, B필러 소음으로 하이테크센터에 입고했으나, 미케닉이 이동 중 후면을 긁고 책임자 응대도 미흡했다며 응대 관련 불만글 게재", reaction: "‘사고, 응대 등으로 본사에 VOC 넣어 보시죠., 그냥 넘어가면 안 됩니다.’ 등의 여론" },
+  { car: "ME1", title: "아이오닉9(ME1) 주행 중 경고등 재점등 및 반복 고장 불만", short: "주행 중 경고등 재점등 및 반복 고장 불만", spec: "EV", level: "주의", region: "강원", body: "며칠 전 고장 글을 올린 차량에서 주행 중 경고등이 재점등되어 현대 측 입고 요청을 받았다며 품질 관련 불만글 게재", reaction: "‘너무 스트레스 심하실 것 같아요., 추후 내용 알려 주시면 도움 될 듯합니다.’ 등의 여론" },
+  { car: "ME1", title: "아이오닉9(ME1) 주행 중 디스플레이 꺼짐 및 윈도 작동 불가", short: "주행 중 디스플레이 꺼짐 및 윈도 작동 불가", spec: "EV", level: "주의", region: "전남", body: "출고 3개월 된 차량에서 주차장 출차 중 디스플레이가 꺼지고 윈도가 작동하지 않는 증상 관련 영상과 함께 글 게재", reaction: "‘차 문은 기계식이라 걱정 안 하셔도 돼요., 이런 경우도 있군요.’ 등의 여론" },
+];
+let pptExamples = [];
+
+async function loadPptExamples() {
+  const { pptExamples: list = [] } = await chrome.storage.local.get("pptExamples").catch(() => ({}));
+  pptExamples = Array.isArray(list) ? list : [];
+  return pptExamples;
+}
+
+async function savePptExamples(list) {
+  pptExamples = list.slice(0, PPT_EXAMPLE_MAX);
+  await chrome.storage.local.set({ pptExamples, pptLearnedUpdatedAt: Date.now() });
+}
+
+function pptExampleLine(x) {
+  return `- [${x.car || "-"}] 제목 "${x.title}" / 요약표 "${x.short || ""}" / 제원 ${x.spec || "-"} / 불만 구분 ${x.level || "주의"}${x.kind && x.kind !== "품질" ? ` / 유형 ${x.kind}` : ""} / 지역 ${x.region || "-"}\n  본문 요약: ${x.body}\n  댓글 반응: ${x.reaction || "댓글 반응 없음"}`;
+}
+
 function aiSystem() {
   const lines = pptLearned.slice(0, PPT_LEARN_PROMPT_MAX).map(pptLearnLine).filter(Boolean);
-  if (!lines.length) return AI_SYSTEM;
-  return `${AI_SYSTEM}\n\n[담당자 수정 사례 (자동 학습, 최근 순)]\n담당자가 미리보기에서 직접 고친 기록입니다. 같은 표현·판단 실수를 반복하지 말고, 비슷한 글은 담당자가 고친 쪽(표현·끝맺음·불만 구분·제원·지역 등)을 따릅니다.\n${lines.join("\n")}`;
+  const seen = new Set();
+  const examples = [...pptExamples, ...PPT_SEED_EXAMPLES]
+    .filter((x) => x.title && !seen.has(x.title) && seen.add(x.title))
+    .slice(0, PPT_EXAMPLE_PROMPT_MAX)
+    .map(pptExampleLine);
+  let s = AI_SYSTEM;
+  if (examples.length)
+    s += `\n\n[담당자가 최종 확정한 보고서 예시 (최근 순)]\n담당자가 PPT 에서 직접 다듬어 확정한 문구입니다. 문장 길이·시작/끝맺음·표현·제목과 요약표 맞춤·불만 구분·지역 표기 방식을 이 예시처럼 맞춥니다.\n${examples.join("\n")}`;
+  if (lines.length)
+    s += `\n\n[담당자 수정 사례 (자동 학습, 최근 순)]\n담당자가 직접 고친 기록입니다. 같은 표현·판단 실수를 반복하지 말고, 비슷한 글은 담당자가 고친 쪽(표현·끝맺음·불만 구분·제원·지역 등)을 따릅니다.\n${lines.join("\n")}`;
+  return s;
 }
 
 const AI_SCHEMA = {

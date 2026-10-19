@@ -134,3 +134,6 @@ body.embedded main { padding-top: 4px; }
 .badge.all { background: #1f6feb; }
 .badge.solo { background: #d97706; }
 .autochain { display: block; margin: 8px 0; }
+.learnbox { margin: 10px 0; padding: 8px 10px; border: 1px dashed #b9c6da; border-radius: 8px; background: #f7f9fc; }
+.learnbox .filebtn { display: inline-block; padding: 4px 10px; border: 1px solid #c9ced6; border-radius: 6px; background: #fff; cursor: pointer; margin-right: 8px; }
+.summary { white-space: pre-line; }

@@ -1750,11 +1750,11 @@ window.addEventListener("beforeunload", (e) => {
 
 async function renderLearned() {
   const list = await loadLearned();
-  const { learnedUpdatedAt, pptLearnedUpdatedAt, pptLearned = [] } = await chrome.storage.local.get(["learnedUpdatedAt", "pptLearnedUpdatedAt", "pptLearned"]);
+  const { learnedUpdatedAt, pptLearnedUpdatedAt, pptLearned = [], pptExamples = [] } = await chrome.storage.local.get(["learnedUpdatedAt", "pptLearnedUpdatedAt", "pptLearned", "pptExamples"]);
   const last = Math.max(learnedUpdatedAt || 0, pptLearnedUpdatedAt || 0);
   $("#learnedInfo").textContent =
-    list.length || pptLearned.length
-      ? `수집 ${list.length}건 · PPT ${pptLearned.length}건${last ? ` · 최종 업데이트 ${fmtDateTime(new Date(last))}` : ""}`
+    list.length || pptLearned.length || pptExamples.length
+      ? `수집 ${list.length}건 · PPT ${pptLearned.length}건 · PPT 확정 예시 ${pptExamples.length}건${last ? ` · 최종 업데이트 ${fmtDateTime(new Date(last))}` : ""}`
       : "아직 없습니다. 결과 표나 PPT 미리보기에서 고치면 여기에 쌓입니다.";
   const box = $("#learnedList");
   box.textContent = "";

@@ -453,6 +453,7 @@ async function start() {
   }
   const chain = $("#autoChain").checked;
   await loadPptLearned(); // 담당자 수정 사례를 최신으로
+  await loadPptExamples();
   // 끝나고 바로 저장할 때: 저장 폴더 허용은 버튼을 누른 지금 받아 둔다 (나중엔 물을 수 없음)
   const chainDir = chain ? await saveDirIfAllowed() : null;
   stopRequested = false;
@@ -645,7 +646,63 @@ function learnPptItem(it) {
     }, 1500)
   );
 }
-window.PptLearn = { load: loadPptLearned, save: savePptLearned, line: pptLearnLine, system: () => aiSystem() };
+window.PptLearn = { load: async () => { await loadPptExamples(); return loadPptLearned(); }, save: savePptLearned, line: pptLearnLine, system: () => aiSystem() };
+
+// 담당자가 고친 PPT 를 올리면: 기억해 둔 원본과 비교해 바뀐 칸을 학습 메모로, 원본이 없으면 '확정 예시'로 저장
+const PPT_DIFF_FIELDS = ["title", "spec", "level", "progress", "body", "reaction", "short", "duplicate", "region", "focus"];
+async function onLearnPpt() {
+  const file = $("#learnPptFile").files[0];
+  $("#learnPptFile").value = "";
+  if (!file) return;
+  try {
+    const edited = await PptRead.read(new Uint8Array(await file.arrayBuffer()));
+    if (!edited.length) throw new Error("이 파일에서 상세 슬라이드를 찾지 못했습니다");
+    const { pptSnapshots = [] } = await chrome.storage.local.get("pptSnapshots");
+    const byKey = new Map();
+    for (const s of [...pptSnapshots].reverse()) for (const x of s.items) byKey.set(x.key, x); // 최신 원본 우선
+    const t = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
+    let diffs = 0;
+    let examples = 0;
+    const lines = [];
+    const learned = await loadPptLearned();
+    const exList = await loadPptExamples();
+    for (const e of edited) {
+      const key = normUrl(e.url);
+      const orig = byKey.get(key);
+      if (orig) {
+        const ch = {};
+        for (const k of PPT_DIFF_FIELDS) {
+          const a = t(orig.fields[k]);
+          const b = t(e[k]);
+          if (b && a !== b) ch[k] = [a, b];
+        }
+        if (Object.keys(ch).length) {
+          const i = learned.findIndex((x) => x.key === key);
+          if (i >= 0) learned.splice(i, 1);
+          learned.unshift({ key, at: Date.now(), cafe: orig.cafe || e.cafe, car: orig.car || e.code, title: orig.title || "", ch, from: "PPT 수정본" });
+          diffs++;
+          lines.push(`No.${e.no} ${e.title}: ${Object.keys(ch).map((k) => PPT_LEARN_FIELDS[k] || k).join(", ")} 수정`);
+        }
+      } else {
+        // 원본을 모르면 담당자 확정본을 예시로
+        const i = exList.findIndex((x) => x.key === key);
+        if (i >= 0) exList.splice(i, 1);
+        exList.unshift({ key, at: Date.now(), car: e.code, kind: e.kind, title: e.title, short: e.short, spec: e.spec, level: e.level, region: e.region, body: e.body, reaction: e.reaction });
+        examples++;
+      }
+    }
+    await savePptLearned(learned);
+    await savePptExamples(exList);
+    const msg = `수정한 PPT 학습 완료: 원본과 비교해 고친 글 ${diffs}건${examples ? ` · 원본이 없어 확정 예시로 저장 ${examples}건` : ""}. 다음 PPT 작성부터 반영됩니다.`;
+    setSummary(msg + (lines.length ? `\n${lines.join("\n")}` : ""), "ok");
+    $("#doneTitle").textContent = "✅ 수정한 PPT 학습 완료";
+    $("#doneText").textContent = msg;
+    $("#doneStats").textContent = lines.join(" · ");
+    if (!$("#doneDialog").open) $("#doneDialog").showModal();
+  } catch (err) {
+    setSummary(`수정한 PPT 를 읽지 못했습니다: ${err.message || err}`, "err");
+  }
+}
 
 function selectedVisuals(it) {
   const v = it.visuals;
@@ -938,6 +995,12 @@ async function buildPpt(opts = {}) {
       const d = $("#doneDialog");
       if (!d.open) d.showModal();
     };
+    // 자동 학습용: 시스템이 쓴 원본 값을 기억 (담당자가 PPT 를 고쳐 다시 올리면 비교)
+    try {
+      const { pptSnapshots = [] } = await chrome.storage.local.get("pptSnapshots");
+      pptSnapshots.unshift({ at: Date.now(), fileName, items: ready.map((it) => ({ key: normUrl(it.fields.url || it.row.url), no: it.no, cafe: it.row.cafe || "", car: it.row.car || "", title: String(it.row.title || "").slice(0, 80), fields: { ...it.fields } })) });
+      await chrome.storage.local.set({ pptSnapshots: pptSnapshots.slice(0, 30) });
+    } catch {}
     const where = await saveFile(saveDir, fileName, bytes, "application/vnd.openxmlformats-officedocument.presentationml.presentation");
     done(where, size);
     return `${where} (${size})`;
@@ -957,6 +1020,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#autoChain").addEventListener("change", () => chrome.storage.local.set({ pptAutoChain: $("#autoChain").checked }));
   renderSource();
   await loadPptLearned();
+  await loadPptExamples();
   const now = new Date();
   $("#reportDate").value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   // 화면을 밤새 열어 둔 경우: 날짜가 바뀌면 보고서 날짜도 오늘로 (작업 중이면 그대로)
@@ -982,6 +1046,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#build").addEventListener("click", buildPpt);
   $("#rawBuild").addEventListener("click", buildRaw);
   $("#rawFile").addEventListener("change", onRawFile);
+  $("#learnPptFile").addEventListener("change", onLearnPpt);
   showRawInfo(await kvGet("rawLatest").catch(() => null));
   $("#openSettings").addEventListener("click", openSettings);
   $("#changeFolder").addEventListener("click", openSettings);

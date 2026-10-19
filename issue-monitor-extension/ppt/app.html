@@ -99,6 +99,10 @@
       <button id="build" class="primary" disabled>PPT 받기</button>
       <button id="rawBuild" disabled>RAW data 엑셀 파일 받기</button>
     </div>
+    <div class="learnbox">
+      <label class="filebtn">수정한 PPT 올려서 학습<input type="file" id="learnPptFile" accept=".pptx" hidden></label>
+      <span class="hint">PPT 를 받은 뒤 PowerPoint 에서 고쳤다면, 고친 파일을 올려 주세요. 시스템이 쓴 원본과 비교해 바뀐 부분을 학습해 다음 작성부터 반영합니다.</span>
+    </div>
     <div id="summary" class="summary"></div>
     <div id="stats" class="stats" hidden></div>
 
@@ -127,6 +131,7 @@
   <script src="layout.js"></script>
   <script src="pptx.js"></script>
   <script src="raw.js"></script>
+  <script src="pptread.js"></script>
   <script src="ai.js"></script>
   <script src="capture.js"></script>
   <script src="app.js"></script>
