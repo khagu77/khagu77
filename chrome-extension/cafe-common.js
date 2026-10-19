@@ -305,7 +305,7 @@ function showCleanNotice(r) {
       "font-size:13px;line-height:1.45;box-shadow:0 2px 10px rgba(0,0,0,.25);z-index:9999;color:#fff;";
     document.body.appendChild(box);
   }
-  box.style.background = r.ok ? "#1e8e3e" : "#b3261e";
+  box.style.background = r.ok ? "#002c5f" : "#b3261e";
   box.textContent = `${CLEAN_NOTICE[r.ok ? "ok" : r.reason] || CLEAN_NOTICE.error} (${r.name})`;
   clearTimeout(box._t);
   box._t = setTimeout(() => box.remove(), r.ok ? 6000 : 20000);

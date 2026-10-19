@@ -4,7 +4,9 @@
   --text: #1b1d21;
   --muted: #6b7280;
   --border: #d9dde3;
-  --green: #03c75a;
+  --naver: #03c75a; /* 네이버 그린: 로그인 상태 상자 */
+  --blue: #002c5f; /* 현대차 블루: 버튼·테두리 */
+  --blue-text: #002c5f; /* 현대차 블루 글씨 (어두운 화면에서는 밝게) */
   --red: #d93025;
 }
 @media (prefers-color-scheme: dark) {
@@ -15,6 +17,7 @@
     --muted: #9aa0a8;
     --border: #3a3d43;
     --red: #ff6b5f;
+    --blue-text: #8ab4f8;
   }
 }
 * { box-sizing: border-box; }
@@ -35,7 +38,7 @@ main {
 h1 { margin: 0 0 16px; font-size: 22px; }
 label { display: block; font-weight: 600; margin: 16px 0 6px; }
 .hint { font-weight: 400; color: var(--muted); }
-.hint.ok { color: var(--green); }
+.hint.ok { color: var(--blue-text); }
 .hint.err { color: var(--red); }
 textarea {
   width: 100%;
@@ -57,18 +60,18 @@ button {
   font-size: 14px;
   cursor: pointer;
 }
-button.primary { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+button.primary { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
 button:disabled { opacity: 0.45; cursor: default; }
 .login { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); }
-.login.ok { border-color: var(--green); }
+.login.ok { background: var(--naver); border-color: var(--naver); border-radius: 10px; color: #fff; font-weight: 700; }
 .login.bad { border-color: var(--red); }
-.login a { color: var(--green); font-weight: 600; }
+.login a { color: var(--blue-text); font-weight: 600; }
 .summary { margin: 16px 0 8px; font-weight: 600; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
 td.url { word-break: break-all; }
 td.title { color: var(--muted); display: block; }
-.ok { color: var(--green); }
+.ok { color: var(--blue-text); }
 .err { color: var(--red); }
 .note { margin-top: 20px; color: var(--muted); font-size: 12px; }
 input[type="file"] { font-size: 14px; }
@@ -98,12 +101,12 @@ table.compact td, table.compact th { padding: 3px 6px; }
 #results td.note { color: var(--muted); font-size: 12px; }
 td.nowrap { white-space: nowrap; }
 .log { max-height: 160px; overflow: auto; font-size: 12px; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
-.summary.ok { color: var(--green); }
+.summary.ok { color: var(--blue-text); }
 .summary.err { color: var(--red); }
 .ytlist { margin: 8px 0; padding-left: 22px; font-size: 13px; }
 .ytlist li { margin: 3px 0; }
 .ytlist a { color: var(--text); word-break: break-all; }
-.handoff { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--green); margin-bottom: 8px; font-weight: 600; }
+.handoff { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--blue); margin-bottom: 8px; font-weight: 600; }
 button.danger { color: var(--red); border-color: var(--red); }
 .dbtable tr.final td { font-weight: 600; }
 .dbtable td { vertical-align: middle; }
