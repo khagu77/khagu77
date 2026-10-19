@@ -69,6 +69,21 @@
       for (let k = 0; k < 20 && place(s).height > areaH; k++) s *= 0.97; // 틈 때문에 넘치면 조금씩 더 줄임
       res = place(s);
     }
+    // 마지막 줄에 그림이 하나만 남으면 남은 공간(영역 폭·아래 안내선까지)에 맞게 키워 가운데에 (담당자 수정 2026-10-19:
+    // 사진 1장은 영역을 꽉 채우게, 2장+1장이면 세 번째를 아래 공간에 맞게 크게)
+    const lastRow = rows[rows.length - 1];
+    if (lastRow.length === 1 && s >= 0.999) {
+      const p = res.placed.find((q) => q.i === lastRow[0]);
+      const im = images[lastRow[0]];
+      const roomH = G.yBottom - p.y;
+      let w = areaW;
+      let h = (w * im.cssHeight) / im.cssWidth;
+      if (h > roomH) {
+        h = roomH;
+        w = (h * im.cssWidth) / im.cssHeight;
+      }
+      if (w > p.w) Object.assign(p, { w, h, x: G.xImg + (areaW - w) / 2 });
+    }
     return { ...res, scale: s };
   }
 
@@ -206,13 +221,38 @@
     }
 
     let images = visuals.images || [];
-    // 본문 글이 없으면 가로로 긴 영상·사진을 본문 자리로 (세로로 긴 것은 오른쪽 영역 그대로)
-    if (!visuals.body && images.length) {
+    // 본문 글이 없으면(양식 문구만 있던 글 포함) 사진·영상을 본문 자리로
+    //  - 가로로 긴 것: 본문 폭에 맞춰 크게
+    //  - 세로로 긴 것: 오른쪽 영역과 같은 크기(2.8cm 폭)로 본문 자리 왼쪽부터 한 줄로 (담당자 수정 2026-10-19)
+    if (!visuals.body && images.length && chosen.avail > 1.5 * CM) {
       const wide = images.filter((im) => im.cssWidth >= im.cssHeight);
-      if (wide.length && chosen.avail > 1.5 * CM) {
-        placements.push(...layoutBodyMedia(wide, y, chosen.avail));
-        images = images.filter((im) => !wide.includes(im));
+      const tallOnes = images.filter((im) => im.cssWidth < im.cssHeight);
+      let top = y;
+      if (wide.length) {
+        const placed = layoutBodyMedia(wide, top, chosen.avail);
+        placements.push(...placed);
+        top = Math.max(...placed.map((p) => p.y + p.h)) + IMG_GAP;
       }
+      if (tallOnes.length) {
+        if (!wide.length) top = Math.max(G.yImg, y - GAP); // 오른쪽 사진 줄과 같은 높이(8.03cm)에 맞춤
+        const areaW = G.xRight - G.xBody;
+        const w = (G.xImgR - G.xImg - IMG_GAP) / 2; // 2.8cm
+        const perRow = Math.max(1, Math.floor((areaW + 0.25 * CM) / (w + 0.25 * CM)));
+        const rowsN = Math.ceil(tallOnes.length / perRow);
+        const hMax = Math.max(...tallOnes.map((im) => (w * im.cssHeight) / im.cssWidth));
+        const room = y + chosen.avail - top;
+        const s = Math.min(1, room / (rowsN * hMax + (rowsN - 1) * IMG_GAP));
+        if (room > 1.5 * CM) {
+          tallOnes.forEach((im, k) => {
+            const r = Math.floor(k / perRow);
+            const c = k % perRow;
+            const ww = w * s;
+            placements.push({ kind: "image", item: im, x: G.xBody + c * (ww + 0.25 * CM), y: top + r * (hMax * s + IMG_GAP), w: ww, h: (ww * im.cssHeight) / im.cssWidth });
+          });
+          images = images.filter((im) => !tallOnes.includes(im));
+        }
+      }
+      images = images.filter((im) => !wide.includes(im));
     }
     if (images.length) {
       const normal = layoutImagesUniform(images, G.yImg);

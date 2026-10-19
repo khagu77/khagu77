@@ -58,6 +58,8 @@
       for (let y = a; y < b; y++) maxRow = Math.max(maxRow, rowInk[y]);
       return maxRow < w * 0.8;
     });
+    // 맨 위의 얇은 가로줄(짧은 구분선)은 뺀다 — 담당자가 매번 잘라내던 부분 (2026-10-19)
+    if (collapse && bands.length > 1 && bands[0][1] - bands[0][0] <= 3 * dpr) bands.shift();
     if (!bands.length) return null;
 
     // 글자가 시작하는 왼쪽 위치

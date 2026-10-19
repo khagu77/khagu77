@@ -613,7 +613,80 @@ $("#recoverDo").addEventListener("click", async () => {
   renderDb();
 });
 
+// PPT·RAW 작성 화면이 쓰는 저장소(IndexedDB 'report-extension')의 RAW 파일 이력
+function pptKv(mode, fn) {
+  return new Promise((resolve) => {
+    const open = indexedDB.open("report-extension", 1);
+    open.onupgradeneeded = () => open.result.createObjectStore("kv");
+    open.onerror = () => resolve(null);
+    open.onsuccess = () => {
+      try {
+        const tx = open.result.transaction("kv", mode);
+        const req = fn(tx.objectStore("kv"));
+        tx.oncomplete = () => resolve(req && req.result);
+        tx.onerror = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    };
+  });
+}
+
+// 바이트를 엑셀 저장 폴더(없으면 다운로드 폴더)에 저장, 같은 이름이면 (1)
+async function saveBytesFile(fileName, bytes, mime) {
+  const dir = await withTimeout(getSaveDir(), 5000, "저장 폴더 읽기").catch(() => null);
+  if (dir && (await saveDirPermission(dir, true).catch(() => false))) {
+    try {
+      const name = await uniqueFileName(dir, fileName);
+      const fh = await dir.getFileHandle(name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(bytes);
+      await w.close();
+      return `'${dir.name}' 폴더 (${name})`;
+    } catch {}
+  }
+  const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+  try {
+    await chrome.downloads.download({ url, filename: fileName, conflictAction: "uniquify", saveAs: false });
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+  return "다운로드 폴더";
+}
+
+async function renderRawHistory() {
+  const hist = (await pptKv("readonly", (st) => st.get("rawHistory"))) || [];
+  const latest = await pptKv("readonly", (st) => st.get("rawLatest"));
+  const tbody = $("#rawTable tbody");
+  tbody.textContent = "";
+  $("#rawEmpty").hidden = hist.length > 0;
+  $("#rawTable").hidden = !hist.length;
+  for (const h of hist) {
+    const isBase = latest && latest.name === h.name && latest.bytes && h.bytes && latest.bytes.length === h.bytes.length;
+    tbody.append(
+      el("tr", {},
+        el("td", { text: fmtDateTime(new Date(h.at)) }),
+        el("td", { text: `${h.name}${isBase ? "  ← 다음 RAW 이어 쓰기 기준" : ""}` }),
+        el("td", {}, el("b", { class: "count-red", text: `${h.rows || 0}건` })),
+        el("td", { class: "hint", text: h.detail || "" }),
+        el("td", { class: "actions" },
+          el("button", { text: "받기", onclick: async () => {
+            const where = await saveBytesFile(h.name, h.bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            alert(`✅ RAW data 파일 저장 완료\n\n저장 위치: ${where}`);
+          } }),
+          isBase ? null : el("button", { text: "이어 쓸 기준으로", title: "다음 RAW 를 이 파일 끝에 이어 씁니다", onclick: async () => {
+            if (!confirm(`다음 RAW data 를 이 파일 끝에 이어 쓸까요?\n${h.name}`)) return;
+            await pptKv("readwrite", (st) => st.put({ name: h.name, bytes: h.bytes, savedAt: fmtDateTime(new Date(h.at)) }, "rawLatest"));
+            renderRawHistory();
+          } })
+        )
+      )
+    );
+  }
+}
+
 async function renderDb() {
+  renderRawHistory();
   const list = await dbList();
   const tbody = $("#dbTable tbody");
   tbody.textContent = "";

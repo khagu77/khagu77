@@ -325,6 +325,39 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     }
     if (last >= 1 && total >= 3) cut = last;
   }
+  // ④ 카페 글쓰기 양식 줄 (담당자 확인 2026-10-19): 맨 앞이 양식 항목·안내로만 이어지면 그 끝까지
+  //    CN8 클럽 "제목 : 올뉴 아반떼 cn7 (간단한결함/불만내용)", "※ no1. … 팁!", "(예시 : …)", "… 결함/불만 내용 :"
+  //    전기차 동호회 "* 관련된 주제에 대해 미리 카페내 검색해 보셨습니까? : (네/아니오)", "* 전기차 종류, 지역 : …" ("* 질문 내용 : …" 은 남김)
+  if (cut < 0) {
+    const FORM = [
+      /^제목\s*[:：]/,
+      /^※\s*no\.?\s*\d/i,
+      /님들도\s*확인하기\s*편하/,
+      /^\(?\s*예시\s*[:：]/,
+      /(결함|불만)[\s/]*(결함|불만)?\s*내용\s*[:：]\s*$/,
+      /^[*·•\-]?\s*관련된\s*주제에\s*대해/,
+      /^[*·•\-]?\s*전기차\s*종류/,
+      /^[*·•\-]?\s*(차종|차량\s*종류|연식|구입\s*시기|출고\s*시기|주행\s*거리|지역)\s*[,/]?\s*[^:：]{0,10}[:：]/,
+    ];
+    let last = -1;
+    for (let i = 0; i < LIMIT; i++) {
+      const t = text(lines[i]);
+      if (lines[i].media) break;
+      if (!t || isDivider(lines[i])) continue;
+      if (FORM.some((r) => r.test(t))) {
+        last = i;
+        continue;
+      }
+      break;
+    }
+    if (last >= 0) cut = last;
+  }
+  // ⑤ 안내 문구가 없어도 맨 앞에 구분선만 있으면 그 구분선은 뺀다
+  if (cut < 0) {
+    let i = 0;
+    while (i < LIMIT && !lines[i].media && (isDivider(lines[i]) || !text(lines[i]))) i++;
+    if (i > 0 && lines.slice(0, i).some((l) => isDivider(l))) cut = i - 1;
+  }
   let boilerplateText = "";
   if (cut >= 0 && lines.slice(cut + 1).some((l) => text(l) && !isDivider(l))) {
     // 바로 뒤에 이어지는 구분선·빈 질문 양식(과 그 안내 한 줄)까지
@@ -443,6 +476,16 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     const r = img.getBoundingClientRect();
     if (img.tagName !== "IMG") {
       if (r.width < 80 || r.height < 60) continue;
+      // 영상 아래에 작성자 설명 글(캡션)이 있으면 영상 칸 전체(화면 + 설명 글)를 찍는다 (담당자 수정 2026-10-19: "모니터 먹통ㅋㅋ" 포함)
+      const comp = img.closest(".se-component") || img;
+      const capEl = comp.querySelector(".se-caption, .se-module-text, figcaption");
+      const capText = capEl ? (capEl.innerText || "").trim() : "";
+      if (capText) {
+        const cr = comp.getBoundingClientRect();
+        comp.setAttribute("data-rpt", `image${images.length}`);
+        images.push({ index: images.length, width: cr.width, height: cr.height, src: "", video: true, caption: capText });
+        continue;
+      }
       // 영상: 흰 여백·영상 제목 줄이 들어간 바깥 칸이 아니라 영상 화면(플레이어) 자체를 찍는다 → 영상 폭에 딱 맞게
       const screen = videoScreen(img);
       const sr = screen.getBoundingClientRect();

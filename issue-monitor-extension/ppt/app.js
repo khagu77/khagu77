@@ -962,6 +962,12 @@ async function buildRaw(opts = {}) {
     const where = await saveFile(saveDir, fileName, res.bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     const saved = { name: fileName, bytes: res.bytes, savedAt: nowText() };
     await kvSet("rawLatest", saved); // 다음 날은 이 파일에 이어서
+    // 데일리 DB 탭에서 보고 다시 받을 수 있게 RAW 파일 이력 (최근 15개)
+    try {
+      const hist = (await kvGet("rawHistory")) || [];
+      hist.unshift({ id: `raw-${Date.now()}`, at: Date.now(), name: fileName, bytes: res.bytes, where, detail: res.sheets.map((s) => (s.count ? `${s.name} ${s.count}행 (연번 ${s.from}~${s.to})` : `${s.name} 0행`)).join(" · "), rows: excelAllRows.length });
+      await kvSet("rawHistory", hist.slice(0, 15));
+    } catch {}
     showRawInfo(saved);
     const detail = res.sheets.map((s) => (s.count ? `${s.name} ${s.count}행 (연번 ${s.from}~${s.to})` : `${s.name} 0행`)).join(" · ");
     setSummary(`RAW data 저장했습니다: ${where} — ${detail}`, "ok");
