@@ -866,6 +866,30 @@ async function saveDirIfAllowed() {
   }
 }
 
+// 같은 이름이 이미 있으면 덮어쓰지 않고 '이름 (1).확장자', '(2)' … 로 (짝 파일 suffixes 도 함께 비어 있어야 함)
+async function freeName(saveDir, fileName, pairSuffixes = []) {
+  if (!saveDir) return fileName;
+  const dot = fileName.lastIndexOf(".");
+  const base = dot > 0 ? fileName.slice(0, dot) : fileName;
+  const ext = dot > 0 ? fileName.slice(dot) : "";
+  const exists = async (n) => {
+    try {
+      await saveDir.getFileHandle(n);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  for (let i = 0; i < 100; i++) {
+    const b = i ? `${base} (${i})` : base;
+    const names = [`${b}${ext}`, ...pairSuffixes.map((s) => `${b}${s}${ext}`)];
+    let taken = false;
+    for (const n of names) if (await exists(n)) taken = true;
+    if (!taken) return `${b}${ext}`;
+  }
+  return `${base} (${Date.now()})${ext}`;
+}
+
 // 고른 저장 폴더에 쓰고(못 쓰면 다운로드 폴더로) 저장한 위치 글자를 돌려준다
 async function saveFile(saveDir, fileName, bytes, type) {
   if (saveDir) {
@@ -934,7 +958,7 @@ async function buildRaw(opts = {}) {
       return;
     }
     const name = ($("#rawName").value.trim() || "{날짜}_차종별 온라인 동향 raw data").replace("{날짜}", `${String(y).slice(2)}${pad(m)}${pad(d)}`);
-    const fileName = `${name.replace(/[<>:"/\\|?*]/g, "_")}.xlsx`;
+    const fileName = await freeName(saveDir, `${name.replace(/[<>:"/\\|?*]/g, "_")}.xlsx`); // 덮어쓰지 않음
     const where = await saveFile(saveDir, fileName, res.bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     const saved = { name: fileName, bytes: res.bytes, savedAt: nowText() };
     await kvSet("rawLatest", saved); // 다음 날은 이 파일에 이어서
@@ -979,7 +1003,8 @@ async function buildPpt(opts = {}) {
     const totalRows = plan.all ? list.length : plan.total;
     const bytes = await Pptx.build(template, { dateText: `${y}.${pad(m)}.${pad(d)}`, items: list, startNo, totalRows });
     const name = ($("#fileName").value.trim() || "{날짜}_현대차 온라인 이슈 보고서").replace("{날짜}", `${String(y).slice(2)}${pad(m)}${pad(d)}`);
-    const fileName = `${name.replace(/[<>:"/\\|?*]/g, "_")}.pptx`;
+    // 다시 받아도 덮어쓰지 않음: 이름 (1), (2) … (시스템 작성본도 같은 번호로)
+    const fileName = await freeName(saveDir, `${name.replace(/[<>:"/\\|?*]/g, "_")}.pptx`, ["_시스템 작성본"]);
     const size = `${list.length}건, ${(bytes.length / 1024 / 1024).toFixed(1)}MB`;
     // 저장 끝: 소요 시간(캡처·요약 시작부터 PPT 저장까지)·예상 AI 비용과 함께 완료 알림
     const done = (where, sz) => {
@@ -1002,6 +1027,10 @@ async function buildPpt(opts = {}) {
       await chrome.storage.local.set({ pptSnapshots: pptSnapshots.slice(0, 30) });
     } catch {}
     const where = await saveFile(saveDir, fileName, bytes, "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+    // 시스템 원본을 한 부 더 (담당자가 PowerPoint 에서 고친 뒤에도 비교할 수 있게, 이 파일은 고치지 않고 둠)
+    try {
+      await saveFile(saveDir, fileName.replace(/\.pptx$/i, "_시스템 작성본.pptx"), bytes, "application/vnd.openxmlformats-officedocument.presentationml.presentation");
+    } catch {}
     done(where, size);
     return `${where} (${size})`;
   } catch (e) {
