@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "온라인 오전 일일동향 수집 및 보고서 작성",
-  "version": "1.9.19",
+  "version": "1.9.20",
   "description": "네이버 카페·자동차 커뮤니티의 현대차·제네시스 부정 이슈(품질·응대·결품)를 모아 엑셀로 저장하고, 오전동향 PPT 보고서와 RAW data 엑셀까지 한 번에 만듭니다.",
   "icons": {
     "16": "icons/icon16.png",

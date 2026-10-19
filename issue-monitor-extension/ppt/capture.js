@@ -843,7 +843,11 @@ async function articleTextProbe() {
   }
   for (let t = 0; t < 10; t++) {
     const el = doc.querySelector(".se-main-container, .ContentRenderer, .article_viewer, #tbody, #postContent");
-    if (el && el.innerText.trim()) return el.innerText.replace(/\s+/g, " ").trim().slice(0, 1500);
+    if (el && el.innerText.trim()) {
+      // 본문 + 댓글 (댓글에서 "2.0 인스퍼 타요" 처럼 제원을 밝히는 경우도 있음)
+      const cm = [...doc.querySelectorAll(".comment_text_view, .CommentItem .text_comment, .comment_box .text_comment")].map((c) => c.innerText.replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 15).join(" / ");
+      return (el.innerText.replace(/\s+/g, " ").trim().slice(0, 1500) + (cm ? ` [댓글] ${cm.slice(0, 600)}` : "")).trim();
+    }
     await new Promise((r) => setTimeout(r, 500));
   }
   return "";
@@ -861,6 +865,36 @@ async function readArticleText(tabId, url) {
 
 const CERT_RE = /계약|출고|인수|인증|구매|탁송/;
 const MAX_CERT_POSTS = 2;
+// 제원이 본문에 없으면 더 열어 볼 작성자 글 수 (작성자 게시글 보기: 제목에 제원·트림·시승·연비 등이 보이는 글부터, 없으면 최근 글)
+const MAX_SPEC_POSTS = 4;
+const SPEC_TITLE_RE = /\d\.\d|터보|하이브리드|HEV|LPG|LPI|디젤|가솔린|트림|인스퍼|모던|스마트|프리미엄|익스클루시브|캘리그래피|N\s?라인|시승|연비|옵션|엔진오일|정비|후기|AWD|HTRAC|2WD|4WD/i;
+
+// 글에서 제원 후보 찾기 → [{ spec, from, snippet }]
+// 숫자 배기량(2.0 등)은 주변에 차·엔진·트림 낱말이 있을 때만 (버전 2.0, 1.6km 같은 오탐 방지)
+const SPEC_NEAR_RE = /아반떼|소나타|쏘나타|그랜저|싼타페|투싼|팰리세이드|코나|캐스퍼|스타리아|베뉴|제네시스|G70|G80|G90|GV60|GV70|GV80|CN\d|DN\d|GN\d|NX\d|MX\d|SX\d|LX\d|US\d|RG\d|JX\d|가솔린|엔진|트림|인스퍼|모던|스마트|프리미엄|익스클루시브|캘리그래피|N\s?라인|계약|출고|모델|AWD|2WD|4WD|HTRAC|자연흡기|MPI|GDI|오너|차주|타는|탑니다|몰고/i;
+function specCandidates(sources) {
+  const out = [];
+  const add = (spec, from, text, i) => out.push({ spec, from, snippet: text.slice(Math.max(0, i - 25), i + 25).trim() });
+  for (const { from, text: raw } of sources) {
+    const text = String(raw || "");
+    if (!text) continue;
+    let m;
+    const turbo = /(\d\.\d)\s*(?:T(?![a-z])|터보)/gi;
+    while ((m = turbo.exec(text))) add(`${m[1]}T`, from, text, m.index);
+    const hev = /하이브리드|HEV|(?<![A-Z])HV(?![A-Z])/g;
+    while ((m = hev.exec(text))) add("HEV", from, text, m.index);
+    const lpi = /LPG|LPI/gi;
+    while ((m = lpi.exec(text))) add("LPI", from, text, m.index);
+    const dsl = /디젤/g;
+    while ((m = dsl.exec(text))) add("디젤", from, text, m.index);
+    const cc = /(?<![\d.])(1\.6|2\.0|2\.2|2\.5|3\.0|3\.3|3\.5|3\.8)(?![\d.%]|\s*(?:T(?![a-z])|터보|km|키로|만|배|버전|ver|v\b|초|L\/|리터))/gi;
+    while ((m = cc.exec(text))) {
+      const near = text.slice(Math.max(0, m.index - 20), m.index + 25);
+      if (SPEC_NEAR_RE.test(near)) add(m[1], from, text, m.index);
+    }
+  }
+  return out;
+}
 
 // 담당자가 알려 준 카페 공통 안내 문구 (빈칸 없이 이어 붙인 글자). 이 글로 시작하면 바로 뺀다.
 const SEED_BOILERPLATES = [
@@ -1005,6 +1039,29 @@ async function captureCafePost(url, onStep = () => {}, known = {}) {
       const text = await readArticleText(tabId, p.href);
       if (text) info.authorCertPosts.push({ title: p.title, text });
     }
+    // 본문·닉네임·작성자 글 제목·인증글에서 제원이 안 보이면, 작성자의 다른 글을 몇 개 더 열어 본문·댓글을 읽는다
+    const specSources = () => [
+      { from: "게시글 제목", text: info.title },
+      { from: "게시글 본문", text: info.bodyText },
+      { from: "작성자 닉네임", text: info.author },
+      ...info.authorPosts.map((p) => ({ from: "작성자 글 제목", text: p.title })),
+      ...info.authorCertPosts.map((p) => ({ from: `작성자 글 본문 「${p.title}」`, text: p.text })),
+      ...(info.authorPostTexts || []).map((p) => ({ from: `작성자 글 본문 「${p.title}」`, text: p.text })),
+    ];
+    info.authorPostTexts = [];
+    if (!specCandidates(specSources()).length) {
+      onStep("작성자 글에서 제원 확인 중");
+      const opened = new Set(info.authorCertPosts.map((p) => p.title));
+      const rest = info.authorPosts.filter((p) => p.href && !opened.has(p.title) && !CERT_RE.test(p.title));
+      const pick = [...rest.filter((p) => SPEC_TITLE_RE.test(p.title)), ...rest.filter((p) => !SPEC_TITLE_RE.test(p.title))].slice(0, MAX_SPEC_POSTS);
+      for (const p of pick) {
+        await sleep(1000 + Math.random() * 1500);
+        const text = await readArticleText(tabId, p.href);
+        if (text) info.authorPostTexts.push({ title: p.title, text });
+        if (specCandidates(specSources()).length) break;
+      }
+    }
+    info.specHints = specCandidates(specSources()).slice(0, 12);
     if (info.boardLink) await sleep(1000 + Math.random() * 1500);
     info.boardPosts = await readList(tabId, info.boardLink);
     return out;

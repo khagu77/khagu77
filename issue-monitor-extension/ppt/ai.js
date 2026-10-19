@@ -65,7 +65,11 @@ const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작�
   예) ‘업데이트되면 아무것도 못 해요., 업데이트하면 딱 멈춰 버리네요.’ 등의 여론
   댓글이 없거나 의미 있는 반응이 없으면 빈 문자열.
 - spec: 제원. "2.5T", "3.5T", "1.6T", "2.0", "2.5", "HEV", "EV", "LPI", "디젤" 처럼 짧게.
-  게시글 본문에서 먼저 찾고, 없으면 authorPosts(작성자의 다른 글 제목)와 authorCertPosts(작성자의 계약인증/출고인증 글 본문)에서 확인하거나 유추합니다.
+  게시글 제목·본문에서 먼저 찾고, 없으면 반드시 작성자 게시물 보기 내용을 끝까지 확인해 채웁니다:
+  author(닉네임: 예 "CN8 2.0 인스퍼"), authorPosts(작성자의 다른 글 제목), authorCertPosts(계약·출고 인증 글 본문), authorPostTexts(작성자의 다른 글 본문·댓글).
+  specHints 는 이 글들에서 미리 찾아 둔 제원 후보(spec, 어디서 찾았는지, 앞뒤 문장)입니다. 같은 차의 이야기가 맞으면 그 값을 씁니다.
+  (2026-10-19 담당자 지적: 아반떼(CN8) 글에서 작성자 게시물 보기로 "2.0" 이 확인되는데 "-" 로 비워 둠 → 확인·유추되는 제원은 반드시 기입.)
+  작성자가 차를 여러 대 다룬 경우 이 글의 차종과 같은 차의 제원만 씁니다. 다른 차 제원이면 쓰지 않습니다.
   하이브리드는 "HEV", 전기차는 "EV", 수소전기차(넥쏘)는 반드시 "FCEV"(그냥 EV 아님). 아무리 봐도 근거가 없으면 "-".
 - level: 불만 단계. 대부분은 "주의"입니다.
   주의 = 일반적인 품질 불만/문의 (도장 불량, 단차, 소음, 경고등, 기능 오작동 등 대부분)
@@ -133,7 +137,7 @@ async function savePptExamples(list) {
 }
 
 function pptExampleLine(x) {
-  return `- [${x.car || "-"}] 제목 "${x.title}" / 요약표 "${x.short || ""}" / 제원 ${x.spec || "-"} / 불만 구분 ${x.level || "주의"}${x.kind && x.kind !== "품질" ? ` / 유형 ${x.kind}` : ""} / 지역 ${x.region || "-"}\n  본문 요약: ${x.body}\n  댓글 반응: ${x.reaction || "댓글 반응 없음"}`;
+  return `- [${x.car || "-"}] 제목 "${x.title}" / 요약표 "${x.short || ""}"${x.spec && x.spec !== "-" ? ` / 제원 ${x.spec}` : ""} / 불만 구분 ${x.level || "주의"}${x.kind && x.kind !== "품질" ? ` / 유형 ${x.kind}` : ""} / 지역 ${x.region || "-"}\n  본문 요약: ${x.body}\n  댓글 반응: ${x.reaction || "댓글 반응 없음"}`;
 }
 
 function aiSystem() {
@@ -220,6 +224,8 @@ async function aiSummarize(row, info, { apiKey, model, recentBodies = [], titleP
     recentBodies: recentBodies.slice(-6),
     authorPosts: (info.authorPosts || []).slice(0, 30).map((p) => ({ title: p.title, date: p.date })),
     authorCertPosts: info.authorCertPosts || [],
+    authorPostTexts: info.authorPostTexts || [],
+    specHints: info.specHints || [],
     boardPosts: (info.boardPosts || []).map((p) => ({ title: p.title, date: p.date })),
   };
   const params = {
