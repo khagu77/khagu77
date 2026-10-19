@@ -4,7 +4,8 @@
   --text: #1b1d21;
   --muted: #6b7280;
   --border: #d9dde3;
-  --green: #03c75a;
+  --blue: #002c5f; /* 현대차 블루 */
+  --naver: #03c75a; /* 네이버 그린 */
   --red: #d93025;
 }
 @media (prefers-color-scheme: dark) {
@@ -15,6 +16,7 @@
     --muted: #9aa0a8;
     --border: #3a3d43;
     --red: #ff6b5f;
+    --blue: #5b8fd9; /* 어두운 화면에서 읽히는 현대차 블루 */
   }
 }
 * { box-sizing: border-box; }
@@ -35,7 +37,7 @@ main {
 h1 { margin: 0 0 16px; font-size: 22px; }
 label { display: block; font-weight: 600; margin: 16px 0 6px; }
 .hint { font-weight: 400; color: var(--muted); }
-.hint.ok { color: var(--green); }
+.hint.ok { color: var(--blue); }
 .hint.err { color: var(--red); }
 textarea {
   width: 100%;
@@ -57,18 +59,18 @@ button {
   font-size: 14px;
   cursor: pointer;
 }
-button.primary { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+button.primary { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
 button:disabled { opacity: 0.45; cursor: default; }
 .login { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); }
-.login.ok { border-color: var(--green); }
+.login.ok { border-color: var(--blue); }
 .login.bad { border-color: var(--red); }
-.login a { color: var(--green); font-weight: 600; }
+.login a { color: var(--blue); font-weight: 600; }
 .summary { margin: 16px 0 8px; font-weight: 600; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
 td.url { word-break: break-all; }
 td.title { color: var(--muted); display: block; }
-.ok { color: var(--green); }
+.ok { color: var(--blue); }
 .err { color: var(--red); }
 .note { margin-top: 20px; color: var(--muted); font-size: 12px; }
 input[type="file"] { font-size: 14px; }
@@ -79,12 +81,12 @@ main { max-width: 1180px; }
 header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 header h1 { margin: 0; }
 nav { display: flex; gap: 6px; }
-nav .tab.active { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+nav .tab.active { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
 h2 { font-size: 16px; margin: 26px 0 8px; }
 .status { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); margin-top: 16px; }
-.status.ok { border-color: var(--green); }
+.status.ok { border-color: var(--blue); }
 .status.bad { border-color: var(--red); }
-.status a { color: var(--green); font-weight: 600; }
+.status a { color: var(--blue); font-weight: 600; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
 input[type="datetime-local"], input[type="time"], input[type="password"], input[type="text"], select {
@@ -106,7 +108,7 @@ table.edit input[type="text"] { padding: 5px 7px; font-size: 13px; }
 table.edit td { padding: 3px 4px; }
 table.edit td:first-child { width: 40px; text-align: center; }
 #results input[type="text"], #results select { padding: 4px 6px; font-size: 13px; }
-#results td.url a { color: var(--green); word-break: break-all; font-size: 12px; }
+#results td.url a { color: var(--blue); word-break: break-all; font-size: 12px; }
 #results tr.yellow td.sum input { background: #fff59d; color: #111; }
 #sources td.err, .err { color: var(--red); }
 pre#log { white-space: pre-wrap; font-size: 12px; max-height: 360px; overflow: auto; background: var(--bg); padding: 10px; border-radius: 8px; }
@@ -193,7 +195,7 @@ details[open] > *:not(summary) { margin-top: 8px; }
 }
 
 label.filebtn { display: inline-flex; align-items: center; margin: 0; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); font-size: 13px; font-weight: 400; cursor: pointer; }
-label.filebtn:hover { border-color: var(--green); }
+label.filebtn:hover { border-color: var(--blue); }
 
 /* 결과 표: 마우스를 올린 줄 강조, 선택한 줄 표시 */
 #results tbody tr:hover td { background: #dbeafe; }
@@ -245,7 +247,7 @@ h1 .logo { width: 22px; height: 22px; vertical-align: -4px; margin-right: 6px; b
 .learned .item { padding: 3px 0; border-bottom: 1px dashed #eceff2; }
 .learned .item .del { float: right; font-size: 11px; padding: 0 6px; }
 .viasearch { width: 15px; height: 15px; vertical-align: -3px; margin-right: 4px; border-radius: 3px; }
-.saved { color: #1a7f37; font-size: 12px; font-weight: 600; margin-left: 6px; }
+.saved { color: var(--blue); font-size: 12px; font-weight: 600; margin-left: 6px; }
 .historydlg { max-width: 760px; width: 92%; border: 1px solid #d0d7e2; border-radius: 10px; }
 .historydlg #historyList { max-height: 360px; overflow: auto; margin: 8px 0; }
 .historydlg label.check { display: block; padding: 3px 0; font-size: 13px; }
@@ -262,3 +264,6 @@ h1 .logo { width: 22px; height: 22px; vertical-align: -4px; margin-right: 6px; b
 .dd-item { padding: 6px 10px; border-radius: 5px; cursor: pointer; white-space: nowrap; font-size: 13px; }
 .dd-item:hover { background: #eef4ff; }
 .dd-item.on { background: #dbe8ff; }
+
+/* 네이버 로그인됨: 네이버 그린 둥근 상자 + 흰색 굵은 글자 */
+#login.status.ok { display: inline-block; background: var(--naver); border-color: var(--naver); color: #fff; font-weight: 700; border-radius: 999px; padding: 6px 16px; }

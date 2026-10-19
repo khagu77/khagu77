@@ -4,7 +4,8 @@
   --text: #1b1d21;
   --muted: #6b7280;
   --border: #d9dde3;
-  --green: #03c75a;
+  --blue: #002c5f; /* 현대차 블루 */
+  --naver: #03c75a; /* 네이버 그린 */
   --red: #d93025;
 }
 @media (prefers-color-scheme: dark) {
@@ -15,6 +16,7 @@
     --muted: #9aa0a8;
     --border: #3a3d43;
     --red: #ff6b5f;
+    --blue: #5b8fd9; /* 어두운 화면에서 읽히는 현대차 블루 */
   }
 }
 * { box-sizing: border-box; }
@@ -36,7 +38,7 @@ h1 { margin: 0 0 10px; font-size: 18px; }
 label { display: block; font-weight: 600; margin: 10px 0 4px; font-size: 13px; }
 .hint { font-weight: 400; color: var(--muted); font-size: 12px; }
 p.hint, div.hint { margin: 6px 0; line-height: 1.5; }
-.hint.ok { color: var(--green); }
+.hint.ok { color: var(--blue); }
 .hint.err { color: var(--red); }
 textarea {
   width: 100%;
@@ -68,10 +70,10 @@ button {
   font-size: 12.5px;
   cursor: pointer;
 }
-button.primary { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+button.primary { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
 button:disabled { opacity: 0.45; cursor: default; }
 .summary { margin: 10px 0 4px; font-weight: 600; font-size: 12.5px; }
-.ok { color: var(--green); }
+.ok { color: var(--blue); }
 .err { color: var(--red); }
 .note { margin-top: 14px; color: var(--muted); font-size: 11px; line-height: 1.5; }
 
@@ -108,7 +110,7 @@ label.inline.part { font-weight: 400; margin-left: 6px; }
 .top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .top h1 { margin: 0; }
 .where { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; font-size: 12px; }
-button.link { border: 0; background: none; color: var(--green); padding: 0 4px; text-decoration: underline; }
+button.link { border: 0; background: none; color: var(--blue); padding: 0 4px; text-decoration: underline; }
 dialog {
   border: 1px solid var(--border);
   border-radius: 12px;
