@@ -45,7 +45,50 @@ const DEFAULT_LIST_NAME = "팰리세이드 전동시트 관련 채널별 버즈�
 let items = []; // { key, cafeId, cafeIndex, articleId, slug, title, text, date, hasTime, ambiguous, checked, note, dup }
 let stopRequested = false;
 let running = false;
-let listFile = null; // { name, bytes, urls:Set, info }
+let listFile = null; // 직접 고른 파일 { name, bytes, urls:Set, info }
+let dbBase = null; // 최종 DB 의 가장 최근 게시물 리스트 { name, bytes, urls, info, date }
+
+// 이어 쓸 파일: 직접 고른 파일 > 최종 DB 파일 ('별도 파일로 작성'이면 없음 → 새 파일)
+function separateFile() {
+  return !!$("#separate")?.checked;
+}
+
+function baseFile() {
+  return separateFile() ? null : listFile || dbBase;
+}
+
+async function loadDbBase() {
+  dbBase = null;
+  try {
+    const rec = await dbLatest("buzz");
+    if (rec) {
+      const info = await analyzeList(await XlsxTemplate.Workbook.open(rec.bytes));
+      dbBase = { name: rec.name, bytes: rec.bytes, info, urls: info.urls, date: rec.date };
+    }
+  } catch {
+    dbBase = null;
+  }
+}
+
+// 기존 파일 칸 아래 안내: 무엇에 이어 쓰는지
+function showBaseInfo() {
+  const box = $("#listFileInfo");
+  const base = baseFile();
+  if (separateFile()) {
+    box.className = "hint";
+    box.textContent = `'별도 파일로 작성': 이번에 고른 글만 담은 새 파일(순번 1부터)로 받고, 최종 DB에는 넣지 않습니다 (${datedFileName(rememberedListName())}).`;
+  } else if (base) {
+    box.className = "hint ok";
+    box.textContent =
+      `✔ ${base === dbBase ? `최종 DB 파일(${prettyDate(base.date)} · ${base.name})` : base.name}의 '${base.info.sheet}' 시트 ` +
+      `${base.info.count.toLocaleString()}행(마지막 순번 ${base.info.lastSerial.toLocaleString()}) 다음부터 이어 씁니다. ` +
+      `이미 있는 글은 체크를 풀어 둡니다. 받을 파일: ${datedFileName(base.name)}` +
+      (base === dbBase ? " (엑셀에서 고친 파일이 있으면 '최종 DB' 메뉴에서 그 날짜에 수정본을 올리세요)" : "");
+  } else {
+    box.className = "hint";
+    box.textContent = `최종 DB에 파일이 없습니다. 지금까지의 최종 파일을 고르면 이어 쓰고(최종 DB에도 저장), 고르지 않으면 새 파일로 받습니다 (${datedFileName(rememberedListName())}).`;
+  }
+}
 let cafeSlugs = {};
 let cafeNames = {};
 let lastSaved = null;
@@ -702,12 +745,15 @@ function normUrl(u) {
 }
 
 function markDuplicates() {
-  const have = listFile ? listFile.urls : new Set();
+  const base = baseFile();
+  const have = base ? base.urls : new Set();
   for (const item of items) {
     const was = item.dup;
     item.dup = have.has(normUrl(articleUrl(item)));
     // 새로 '이미 파일에 있음'이 된 글은 (먼저 직접 체크했더라도) 체크를 푼다 - 다시 체크하면 넣을 수 있음
     if (item.dup && (!was || !item.touched)) item.checked = false;
+    // 이어 쓸 파일이 바뀌어 더는 '이미 있음'이 아니면 원래 판단(관련 글이면 체크)으로
+    if (!item.dup && was && !item.touched) item.checked = !!item.related;
   }
 }
 
@@ -743,8 +789,7 @@ async function loadListFile(file) {
   const box = $("#listFileInfo");
   listFile = null;
   if (!file) {
-    box.className = "hint";
-    box.textContent = `파일을 고르지 않으면 같은 양식의 새 파일로 받습니다 (${datedFileName(rememberedListName())}).`;
+    showBaseInfo();
     markDuplicates();
     renderResults();
     return;
@@ -761,10 +806,7 @@ async function loadListFile(file) {
     } catch {
       /* 무시 */
     }
-    box.className = "hint ok";
-    box.textContent =
-      `✔ '${info.sheet}' 시트 ${info.count.toLocaleString()}행(마지막 순번 ${info.lastSerial.toLocaleString()}) 다음부터 이어 씁니다. ` +
-      `이미 있는 글은 체크를 풀어 둡니다. 받을 파일: ${datedFileName(file.name)}`;
+    showBaseInfo();
   } catch (e) {
     box.className = "hint err";
     box.textContent = `파일을 읽지 못했습니다: ${e.message}`;
@@ -784,8 +826,9 @@ function rememberedListName() {
 async function buildList(selected) {
   let wb;
   let info;
-  if (listFile) {
-    wb = await XlsxTemplate.Workbook.open(listFile.bytes);
+  const base = baseFile();
+  if (base) {
+    wb = await XlsxTemplate.Workbook.open(base.bytes);
     info = await analyzeList(wb);
   } else {
     const resp = await fetch(chrome.runtime.getURL("lx3-template.xlsx"));
@@ -808,9 +851,9 @@ async function buildList(selected) {
 async function saveList() {
   const selected = sortedItems().filter((x) => x.checked);
   if (!selected.length) return;
-  if (!listFile) {
+  if (!baseFile() && !separateFile()) {
     const go = confirm(
-      "기존 '채널별 버즈량 현황' 엑셀 파일을 첨부하지 않았습니다.\n\n" +
+      "기존 '채널별 버즈량 현황' 엑셀 파일을 첨부하지 않았고 최종 DB에도 파일이 없습니다.\n\n" +
         "· [확인]: 첨부 없이 진행 (이번에 고른 글만 담은 새 파일, 순번 1부터)\n" +
         "· [취소]: 기존 파일을 먼저 첨부하기 (마지막 순번 다음에 이어 쓰기·이미 있는 글 제외)",
     );
@@ -822,11 +865,22 @@ async function saveList() {
   }
   try {
     const out = await buildList(selected);
-    const name = datedFileName(listFile ? listFile.name : rememberedListName());
+    const base = baseFile();
+    const name = datedFileName(base ? base.name : rememberedListName());
     await downloadBytes(out.bytes, name);
     lastSaved = selected;
+    let dbNote = "";
+    if (!separateFile()) {
+      // 오늘의 최종 파일로 최종 DB 에 저장하고, 다음 저장은 이 파일에 이어 쓴다
+      await dbSaveDay("buzz", today(), name, out.bytes, "auto", `마지막 순번 ${out.to.toLocaleString()}`);
+      listFile = null;
+      $("#listFile").value = "";
+      await loadDbBase();
+      showBaseInfo();
+      dbNote = " · 최종 DB에 오늘 파일로 저장했습니다";
+    }
     $("#saveInfo").className = "hint ok";
-    $("#saveInfo").textContent = `✔ ${saveWhereText(await saveOptions())}에 ${name} - ${selected.length}개 추가 (순번 ${out.from}~${out.to}). '체크한 글 댓글 수집하기'로 바로 댓글을 모을 수 있습니다.`;
+    $("#saveInfo").textContent = `✔ ${saveWhereText(await saveOptions())}에 ${name} - ${selected.length}개 추가 (순번 ${out.from}~${out.to})${dbNote}. '체크한 글 댓글 수집하기'로 바로 댓글을 모을 수 있습니다.`;
     const noSlug = selected.filter((x) => !(cafeSlugs[x.cafeId] || x.slug));
     if (noSlug.length) {
       $("#saveInfo").className = "hint err";
@@ -949,7 +1003,13 @@ async function init() {
   resetRange();
   renderCafeInfo();
   renderYoutube();
+  await loadDbBase();
   loadListFile(null);
+  $("#separate").addEventListener("change", () => {
+    showBaseInfo();
+    markDuplicates();
+    renderResults();
+  });
   for (const id of ["cafeList", "include", "exclude", "searchUrl", "maxPages", "query", "visibleRetry", "saveFolder", "saveAsk", "holidays"]) {
     $(`#${id}`).addEventListener("change", async () => {
       if (id === "searchUrl") $("#searchUrl").value = normalizeSearchUrl($("#searchUrl").value);

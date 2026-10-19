@@ -349,14 +349,32 @@
       );
       xml = xml.replace(/<hyperlinks>\s*<\/hyperlinks>/, "");
 
-      // 파일을 열었을 때 보이는 위치: 새 데이터 첫 행(또는 맨 위)
       // 틀 고정(ySplit)이 있으면 스크롤 시작·선택 칸은 고정된 행 아래여야 한다(아니면 엑셀이 '복구' 경고를 띄움)
       const pane = xml.match(/<pane\b[^>]*>/)?.[0] || "";
       const firstFree = Math.floor(Number(pane.match(/\bySplit="([\d.]+)"/)?.[1] || 0)) + 1;
       const minRow = Math.max(2, firstFree);
-      const focus = Math.max(minRow, focusFirstNew && newRows.length ? keepUntil + 1 : 2);
-      xml = xml.replace(/(<pane\b[^>]*\btopLeftCell=")[A-Z]+\d+(")/, `$1A${Math.max(minRow, focus - 3)}$2`);
-      xml = xml.replace(/(<selection\b[^>]*\bactiveCell=")[A-Z]+\d+("[^>]*\bsqref=")[^"]*(")/g, `$1A${focus}$2A${focus}$3`);
+      // 열었을 때: 커서는 마지막 행 바로 아래 빈 칸(A열), 화면은 그 위 행들이 최대한 보이게(약 50행)
+      const focus = Math.max(minRow, lastRow + 1);
+      const top = Math.max(minRow, focus - 50);
+      xml = xml.replace(/(<pane\b[^>]*\btopLeftCell=")[A-Z]+\d+(")/, `$1A${top}$2`);
+      if (!/<pane\b/.test(xml)) {
+        // 틀 고정이 없는 시트: 보기 시작 위치를 sheetView 에 직접 (있던 값은 바꿈)
+        xml = xml.replace(/<sheetView\b[^>]*?(\/?)>/, (m, selfClose) => {
+          const attrs = m.slice("<sheetView".length, m.length - (selfClose ? 2 : 1)).replace(/\s+topLeftCell="[^"]*"/, "");
+          return `<sheetView${attrs} topLeftCell="A${top}"${selfClose ? "/" : ""}>`;
+        });
+      }
+      // 선택 칸(커서): 첫 sheetView 의 선택 정보를 새로 쓴다 (없던 파일도 있음)
+      xml = xml.replace(/<sheetView\b[^>]*?(?:\/>|>[\s\S]*?<\/sheetView>)/, (view) => {
+        const pane = view.match(/<pane\b[^>]*\/>/)?.[0] || "";
+        const activePane = pane.match(/\bactivePane="([^"]+)"/)?.[1];
+        const sel = `<selection${activePane ? ` pane="${activePane}"` : ""} activeCell="A${focus}" sqref="A${focus}"/>`;
+        const open = view.match(/^<sheetView\b[^>]*?(\/?)>/);
+        const head = open[1] ? open[0].replace(/\/>$/, ">") : open[0];
+        const inner = open[1] ? "" : view.slice(open[0].length, view.length - "</sheetView>".length);
+        const rest = inner.replace(/<pane\b[^>]*\/>/, "").replace(/<selection\b[^>]*\/>/g, "");
+        return `${head}${pane}${sel}${rest}</sheetView>`;
+      });
 
       this.texts.set(path, xml);
     }

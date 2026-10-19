@@ -525,7 +525,46 @@ function downloadWorkbook(bytes, name) {
 
 let stopRequested = false;
 let lastWorkbook = null; // { bytes, name }
-let template = null; // { name, bytes, info }
+let template = null; // 직접 고른 파일 { name, bytes, info }
+let dbBase = null; // 최종 DB 의 가장 최근 댓글 raw data { name, bytes, info, date }
+
+// 이어 쓸 파일: 직접 고른 파일 > 최종 DB 파일 ('별도 파일로 작성'이면 없음 → 새 파일)
+function separateFile() {
+  return !!$("#separate")?.checked;
+}
+
+function baseTemplate() {
+  return separateFile() ? null : template || dbBase;
+}
+
+async function loadDbBase() {
+  dbBase = null;
+  try {
+    const rec = await dbLatest("raw");
+    if (rec) dbBase = { name: rec.name, bytes: rec.bytes, info: await analyzeTemplate(await XlsxTemplate.Workbook.open(rec.bytes)), date: rec.date };
+  } catch {
+    dbBase = null;
+  }
+}
+
+function showBaseInfo() {
+  const box = $("#templateInfo");
+  const base = baseTemplate();
+  if (separateFile()) {
+    box.className = "hint";
+    box.textContent = "'별도 파일로 작성': 그날 수집한 댓글만 담은 새 파일(4개 시트)로 받고, 최종 DB에는 넣지 않습니다.";
+  } else if (base) {
+    const info = base.info;
+    box.className = "hint ok";
+    box.textContent =
+      `✔ ${base === dbBase ? `최종 DB 파일(${prettyDate(base.date)} · ${base.name})` : base.name} — 동호회 ${info.cafeCount.toLocaleString()}행(마지막 연번 ${info.cafeLastSerial.toLocaleString()}) 다음부터 이어 씁니다. ` +
+      `유튜브 시트(현재 ${info.ytCount.toLocaleString()}행)는 오늘 수집한 영상 댓글로 교체됩니다. 저장 파일명: ${outputFileName(base.name)}` +
+      (base === dbBase ? " (엑셀에서 고친 파일이 있으면 '최종 DB' 메뉴에서 그 날짜에 수정본을 올리세요)" : "");
+  } else {
+    box.className = "hint";
+    box.textContent = "최종 DB에 파일이 없습니다. 지금까지의 최종 raw data 파일을 고르면 이어 쓰고(최종 DB에도 저장), 고르지 않으면 그날 수집한 댓글만 담은 새 파일로 저장됩니다.";
+  }
+}
 
 function rememberedName() {
   try {
@@ -539,8 +578,7 @@ async function loadTemplate(file) {
   const box = $("#templateInfo");
   if (!file) {
     template = null;
-    box.className = "hint";
-    box.textContent = "파일을 선택하지 않으면 같은 양식의 새 파일(그날 수집한 댓글만)로 저장됩니다.";
+    showBaseInfo();
     return;
   }
   box.className = "hint";
@@ -555,11 +593,7 @@ async function loadTemplate(file) {
     } catch {
       /* 무시 */
     }
-    box.className = "hint ok";
-    box.textContent =
-      `✔ ${file.name} — 동호회 ${info.cafeCount.toLocaleString()}행(마지막 연번 ${info.cafeLastSerial.toLocaleString()}) 다음부터 이어 씁니다. ` +
-      `유튜브 시트(현재 ${info.ytCount.toLocaleString()}행)는 오늘 수집한 영상 댓글로 교체됩니다. ` +
-      `저장 파일명: ${outputFileName(file.name)}`;
+    showBaseInfo();
   } catch (e) {
     template = null;
     box.className = "hint err";
@@ -670,9 +704,9 @@ async function start() {
     );
     if (!ok) return;
   }
-  if (!template) {
+  if (!baseTemplate() && !separateFile()) {
     const go = confirm(
-      "기존 raw data 엑셀 파일을 고르지 않았습니다.\n\n" +
+      "기존 raw data 엑셀 파일을 고르지 않았고 최종 DB에도 파일이 없습니다.\n\n" +
         "· [확인]: 파일 없이 진행 (그날 수집한 댓글만 담은 새 파일로 저장)\n" +
         "· [취소]: 기존 파일을 먼저 고르기 (이어 쓰기·중복 제외)",
     );
@@ -708,10 +742,22 @@ async function start() {
   const failed = results.filter((r) => r.error).length;
   try {
     $("#summary").textContent = "엑셀 만드는 중…";
-    const out = await buildOutput(results, template);
-    const name = outputFileName(template ? template.name : rememberedName());
+    const base = baseTemplate();
+    const out = await buildOutput(results, base);
+    const name = outputFileName(base ? base.name : rememberedName());
     lastWorkbook = { bytes: out.bytes, name };
-    downloadWorkbook(out.bytes, name);
+    await downloadWorkbook(out.bytes, name);
+    let dbNote = "";
+    if (!separateFile()) {
+      // 오늘의 최종 파일로 최종 DB 에 저장하고, 다음 수집은 이 파일에 이어 쓴다
+      const last = out.rows.cafe.length ? out.rows.cafe[out.rows.cafe.length - 1][0] : out.info?.cafeLastSerial || 0;
+      await dbSaveDay("raw", today(), name, out.bytes, "auto", `동호회 마지막 연번 ${Number(last).toLocaleString()}`);
+      template = null;
+      $("#templateFile").value = "";
+      await loadDbBase();
+      showBaseInfo();
+      dbNote = " · 최종 DB에 오늘 파일로 저장했습니다";
+    }
     const { rows, info } = out;
     const parts = [];
     if (rows.cafe.length) {
@@ -726,7 +772,7 @@ async function start() {
     if (rows.keptOld.length) parts.push(`수집 실패한 유튜브 영상 ${rows.keptOld.length}개는 기존 댓글 유지`);
     $("#summary").textContent =
       `${stopRequested ? "중지됨 - " : ""}${parts.join(", ")}` +
-      `${failed ? ` (실패 ${failed}건)` : ""} · ${name} 파일이 다운로드 폴더에 저장되었습니다.`;
+      `${failed ? ` (실패 ${failed}건)` : ""} · ${name} 파일이 다운로드 폴더에 저장되었습니다${dbNote}.`;
   } catch (e) {
     $("#summary").textContent = `엑셀 저장 실패: ${e.message}`;
   }
@@ -768,7 +814,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#download").addEventListener("click", () => lastWorkbook && downloadWorkbook(lastWorkbook.bytes, lastWorkbook.name));
   $("#templateFile").addEventListener("change", (e) => loadTemplate(e.target.files[0]));
-  loadTemplate(null);
+  loadDbBase().then(() => loadTemplate(null));
+  $("#separate").addEventListener("change", showBaseInfo);
   saveOptions().then((o) => ($("#saveWhere").textContent = `저장 위치: ${saveWhereText(o)} (LX3 화면의 설정에서 바꿀 수 있음)`));
   window.addEventListener("focus", checkLogin);
   checkLogin();

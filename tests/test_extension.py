@@ -232,7 +232,7 @@ def run_extension(tmp_path: Path, urls, template=None, fail_video=None):
         ctx.close()
     server.shutdown()
     # 기존 파일 없이 시작하면 먼저 묻는다
-    assert any("기존 raw data 엑셀 파일을 고르지 않았습니다" in m for m in dialogs) == (template is None), dialogs
+    assert any("기존 raw data 엑셀 파일을 고르지 않았고" in m for m in dialogs) == (template is None), dialogs
     assert naver_api_calls == []  # 네이버 API 는 한 번도 직접 부르지 않는다
     return path, summary, requested_tokens
 
@@ -601,3 +601,133 @@ def test_lx3(tmp_path: Path):
 
     cafe = list(load_workbook(raw)["동호회"].values)
     assert cafe[1][4] == "https://cafe.naver.com/aacafe/1001", cafe[1]
+
+
+def sheet_view(path, sheet_xml="xl/worksheets/sheet1.xml"):
+    import re
+    import zipfile
+    xml = zipfile.ZipFile(path).read(sheet_xml).decode()
+    view = (re.search(r"<sheetView\b[^>]*[^/]>.*?</sheetView>", xml, re.S) or re.search(r"<sheetView\b[^>]*/>", xml)).group(0)
+    top = re.search(r'topLeftCell="([A-Z]+\d+)"', view)
+    act = re.search(r'activeCell="([A-Z]+\d+)"', view)
+    return (top.group(1) if top else None), (act.group(1) if act else None)
+
+
+def test_final_db(tmp_path: Path):
+    """최종 DB: 등록한 최종 파일에 파일 선택 없이 이어 쓰고(결과는 오늘 파일로 DB 저장), 같은 날 다시 받으면 오늘 파일에 이어 씀.
+    '별도 파일로 작성'은 새 파일·DB 저장 안 함. 수정본을 올리면 그 파일에 이어 씀. 댓글 수집도 같은 방식.
+    받은 엑셀은 커서가 마지막 행 바로 아래에 있다."""
+    buzz = tmp_path / "20261011_버즈량.xlsx"
+    make_buzz_file(buzz)
+    raw = tmp_path / "20261008_raw_data.xlsx"
+    make_template(raw)
+    today = f"{seoul_today():%Y%m%d}"
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True, timezone_id="Asia/Seoul",
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}", "--no-proxy-server"],
+            accept_downloads=True)
+        ctx.route("https://www.youtube.com/**", lambda route: route.fulfill(
+            status=200, content_type="application/json" if "/youtubei/" in route.request.url else "text/html",
+            body=json.dumps(YT_PAGES.get(json.loads(route.request.post_data or "{}").get("continuation"), {}))
+            if "/youtubei/" in route.request.url else YT_HTML))
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        ext = f"chrome-extension://{sw.url.split('/')[2]}"
+        page = ctx.new_page()
+        dialogs = []
+        page.on("dialog", lambda d: (dialogs.append(d.message), d.accept()))
+
+        def db_upload(kind, button_index, path):
+            with page.expect_file_chooser() as fc:
+                page.locator(f"section[data-kind={kind}] button", has_text=button_index).first.click() if isinstance(button_index, str) \
+                    else page.locator(f"section[data-kind={kind}] tbody tr").nth(button_index).locator("button.up").click()
+            fc.value.set_files(str(path))
+            page.locator("#dbInfo", has_text="✔").wait_for()
+
+        def db_rows(kind):
+            return page.locator(f"section[data-kind={kind}] tbody tr").all_inner_texts()
+
+        # 1) 최종 DB 에 지금까지의 최종 파일 등록 (파일명 앞 날짜로)
+        page.goto(f"{ext}/db.html")
+        db_upload("buzz", "파일 등록", buzz)
+        assert "2026-10-11" in db_rows("buzz")[0] and "최종" in db_rows("buzz")[0] and "마지막 순번 2" in db_rows("buzz")[0]
+
+        def lx3_save(aids):
+            page.goto(f"{ext}/lx3.html")
+            page.locator("#listFileInfo", has_text="✔").wait_for(state="attached")
+            page.evaluate("""(aids) => {
+              cafeNames['111'] = 'AA 동호회'; cafeSlugs['111'] = 'aacafe';
+              items = aids.map((a, i) => ({ key: '111/' + a, cafeId: '111', cafeIndex: 0, articleId: a, slug: '', title: '시트 리콜 ' + a,
+                text: '', date: new Date(2026, 9, 12, 9, i), hasTime: true, ambiguous: false, checked: true, related: true, note: '', dup: false }));
+              markDuplicates(); renderResults(); }""", aids)
+            with page.expect_download() as dl:
+                page.click("#saveList")
+            out = tmp_path / f"buzz_{len(list(tmp_path.glob('buzz_*')))}.xlsx"
+            dl.value.save_as(out)
+            page.locator("#saveInfo", has_text="✔").wait_for()
+            return out, dl.value.suggested_filename
+
+        def serials(path):
+            ws = load_workbook(path)["채널별 버즈량 현황"]
+            return [(r[1].value, r[6].value) for r in ws.iter_rows(min_row=4)]
+
+        # 2) 파일을 고르지 않아도 최종 DB 파일에 이어 씀. 이미 있는 글(1001)은 빠짐
+        page.goto(f"{ext}/lx3.html")
+        page.locator("#listFileInfo", has_text="최종 DB 파일(2026-10-11").wait_for(state="attached")
+        out1, name1 = lx3_save(["1001", "1002"])
+        assert name1 == f"{today}_버즈량.xlsx"
+        assert serials(out1)[-1] == (3, "https://cafe.naver.com/aacafe/1002") and len(serials(out1)) == 3
+        assert sheet_view(out1) == ("A4", "A7")  # 커서: 마지막 행(6) 바로 아래, 화면은 위 행들이 보이게
+        assert not any("첨부하지 않았고" in m for m in dialogs)
+        # 3) 같은 날 다시 받으면 방금 저장한 오늘 파일에 이어 씀
+        out2, _ = lx3_save(["1003"])
+        assert serials(out2)[-1] == (4, "https://cafe.naver.com/aacafe/1003")
+        page.goto(f"{ext}/db.html")
+        rows = db_rows("buzz")
+        assert len(rows) == 2 and f"{today[:4]}-{today[4:6]}-{today[6:]}" in rows[0] and "마지막 순번 4" in rows[0], rows
+        # 4) 별도 파일로 작성: 새 파일(순번 1부터), 최종 DB 는 그대로
+        page.goto(f"{ext}/lx3.html")
+        page.evaluate("""() => { cafeNames['111'] = 'AA 동호회'; cafeSlugs['111'] = 'aacafe';
+          items = [{ key: '111/1009', cafeId: '111', cafeIndex: 0, articleId: '1009', slug: '', title: '따로', text: '',
+            date: new Date(2026, 9, 12, 9, 0), hasTime: true, ambiguous: false, checked: true, related: true, note: '', dup: false }];
+          renderResults(); }""")
+        page.check("#separate")
+        assert "별도 파일로 작성" in page.locator("#listFileInfo").text_content()
+        with page.expect_download() as dl:
+            page.click("#saveList")
+        sep = tmp_path / "separate.xlsx"
+        dl.value.save_as(sep)
+        assert serials(sep) == [(1, "https://cafe.naver.com/aacafe/1009")]
+        page.goto(f"{ext}/db.html")
+        assert "마지막 순번 4" in db_rows("buzz")[0]
+        # 5) 엑셀에서 고친 수정본을 오늘 날짜에 올리면 그 파일에 이어 씀
+        fixed = tmp_path / f"{today}_버즈량_수정.xlsx"
+        from openpyxl import load_workbook as _lw
+        wb = _lw(out2)
+        ws = wb["채널별 버즈량 현황"]
+        ws.append([None, 10, "언론", "연합뉴스", None, "직접 넣은 기사", "https://n.news.naver.com/y"])
+        wb.save(fixed)
+        db_upload("buzz", 0, fixed)
+        assert "직접 올림" in db_rows("buzz")[0] and "마지막 순번 10" in db_rows("buzz")[0]
+        out3, _ = lx3_save(["1004"])
+        assert serials(out3)[-2:] == [(10, "https://n.news.naver.com/y"), (11, "https://cafe.naver.com/aacafe/1004")]
+
+        # 6) 댓글 수집도 최종 DB 의 raw data 에 이어 씀
+        page.goto(f"{ext}/db.html")
+        db_upload("raw", "파일 등록", raw)
+        page.goto(f"{ext}/app.html")
+        page.locator("#templateInfo", has_text="최종 DB 파일(2026-10-08").wait_for()
+        page.fill("#urls", "https://youtu.be/abcdefghijk")
+        with page.expect_download(timeout=60000) as dl:
+            page.click("#start")
+        rawout = tmp_path / "rawout.xlsx"
+        dl.value.save_as(rawout)
+        assert dl.value.suggested_filename == f"{today}_raw_data.xlsx"
+        page.locator("#summary", has_text="최종 DB에 오늘 파일로 저장").wait_for()
+        wb = load_workbook(rawout)
+        assert list(wb["언론"].values)[1][3] == "언론 댓글"  # 기존 파일에 이어 쓴 것
+        assert [r[3] for r in list(wb["유튜브"].values)[1:]] == ["좋아요", "답글이에요", "멋져요", "마지막"]
+        page.goto(f"{ext}/db.html")
+        assert len(db_rows("raw")) == 2 and "최종" in db_rows("raw")[0]
+        ctx.close()
+    assert not any("첨부하지 않았고" in m or "고르지 않았고" in m for m in dialogs), dialogs

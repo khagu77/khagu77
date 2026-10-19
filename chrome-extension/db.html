@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>최종 DB - 팰리세이드(LX3) 전동 시트 관련 카페·유튜브 게시물 및 댓글 수집기</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <main class="wide">
+    <h1>팰리세이드(LX3) 전동 시트 관련 카페·유튜브 게시물 및 댓글 수집기</h1>
+    <nav class="menu"><a href="lx3.html">LX3 팰리세이드 전동 시트 관련</a><a href="app.html">댓글 수집</a><a href="db.html" class="on">최종 DB</a></nav>
+
+    <p class="hint">
+      그날그날 받은 최종 엑셀 파일을 이 PC 크롬에 날짜별로 보관합니다. <b>가장 위(최근 날짜) 파일이 '최종'</b>이며,
+      게시물 찾기·댓글 수집에서 파일을 고르지 않으면 이 최종 파일에 이어 씁니다(‘별도 파일로 작성’을 켜면 제외).
+      엑셀에서 직접 고친 파일은 그 날짜의 <b>수정본 올리기</b>로 바꿔 두세요.
+    </p>
+
+    <section data-kind="buzz">
+      <h2>게시물 리스트 (채널별 버즈량 현황)</h2>
+      <div class="row"><button class="small register">파일 등록</button><span class="hint">지금까지의 최종 파일을 처음 넣을 때 · 파일명 앞 날짜(예: 20261019_…)의 날짜로 등록</span></div>
+      <table class="dbtable"><thead><tr><th>날짜</th><th>파일</th><th>내용</th><th>저장</th><th></th></tr></thead><tbody></tbody></table>
+    </section>
+
+    <section data-kind="raw">
+      <h2>댓글 raw data</h2>
+      <div class="row"><button class="small register">파일 등록</button><span class="hint">지금까지의 최종 파일을 처음 넣을 때 · 파일명 앞 날짜(예: 20261019_…)의 날짜로 등록</span></div>
+      <table class="dbtable"><thead><tr><th>날짜</th><th>파일</th><th>내용</th><th>저장</th><th></th></tr></thead><tbody></tbody></table>
+    </section>
+
+    <input type="file" id="picker" accept=".xlsx" hidden>
+    <div id="dbInfo" class="summary"></div>
+    <p class="note" id="usage"></p>
+  </main>
+  <script src="template.js"></script>
+  <script src="cafe-common.js"></script>
+  <script src="db-store.js"></script>
+  <script src="db.js"></script>
+</body>
+</html>

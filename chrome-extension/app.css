@@ -105,3 +105,5 @@ td.nowrap { white-space: nowrap; }
 .ytlist a { color: var(--text); word-break: break-all; }
 .handoff { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--green); margin-bottom: 8px; font-weight: 600; }
 button.danger { color: var(--red); border-color: var(--red); }
+.dbtable tr.final td { font-weight: 600; }
+.dbtable td { vertical-align: middle; }
