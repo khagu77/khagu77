@@ -939,6 +939,15 @@ async function onRawFile() {
 }
 
 async function buildRaw(opts = {}) {
+  pptWorking++;
+  try {
+    return await buildRawWork(opts);
+  } finally {
+    pptWorking--;
+  }
+}
+
+async function buildRawWork(opts = {}) {
   if (opts instanceof Event) opts = {};
   $("#rawBuild").disabled = true;
   const saveDir = opts.dir !== undefined ? opts.dir : await saveDirIfAllowed(); // 버튼을 누른 바로 그때 폴더 허용 확인
@@ -998,7 +1007,20 @@ function reportDate() {
   return { y, m, d };
 }
 
+// 수집 화면이 물어봄: 게시물 캡처 중이거나 PPT·RAW 를 만드는 중이면 true (그때는 자동 수집이 이 화면을 다시 불러오지 않음)
+let pptWorking = 0;
+window.pptBusy = () => !$("#stop").disabled || pptWorking > 0;
+
 async function buildPpt(opts = {}) {
+  pptWorking++;
+  try {
+    return await buildPptWork(opts);
+  } finally {
+    pptWorking--;
+  }
+}
+
+async function buildPptWork(opts = {}) {
   if (opts instanceof Event) opts = {};
   $("#build").disabled = true;
   // 저장 폴더 허용 확인은 버튼을 누른 바로 그때 해야 해서 맨 먼저

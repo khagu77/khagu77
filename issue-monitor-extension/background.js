@@ -31,8 +31,29 @@ async function openApp(auto) {
       await chrome.tabs.update(old.id, { url: `${url}&t=${Date.now()}` });
       return;
     }
+    // 담당자가 아이콘으로 띄워 둔 수집 화면이 있으면 새 창 대신 그 화면에서 자동 수집을 시작한다
+    // (그 화면에서 수집·PPT 캡처를 하고 있거나 대답이 없으면 건드리지 않고 새로 연다)
+    for (const t of tabs) {
+      if (await appTabIdle(t.id)) {
+        await chrome.tabs.update(t.id, { url: `${url}&t=${Date.now()}` });
+        return;
+      }
+    }
   }
   await chrome.tabs.create({ url, active: !auto });
+}
+
+// 띄워 둔 수집 화면이 지금 쉬고 있는지 (수집·PPT 캡처 중이 아니면 true, 2초 안에 대답이 없으면 false)
+async function appTabIdle(tabId) {
+  try {
+    const res = await Promise.race([
+      chrome.runtime.sendMessage({ type: "appIdle?", tabId }),
+      new Promise((r) => setTimeout(() => r(null), 2000)),
+    ]);
+    return !!(res && res.idle);
+  } catch {
+    return false;
+  }
 }
 
 // 다른 탭에서 수집이 진행 중인지 (진행 신호가 10분 안에 있었으면)

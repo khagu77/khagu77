@@ -99,6 +99,21 @@ function showTab(name) {
 $("#toPpt").addEventListener("click", () => showTab("ppt"));
 window.isCollecting = () => !!state.running; // PPT 화면에서 확인 (수집 중엔 캡처를 막음)
 
+// 자동 수집 시각에 백그라운드가 '이 화면에서 시작해도 되는지' 묻는다 (수집·PPT 캡처 중이면 아니라고 대답)
+chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+  if (!msg || msg.type !== "appIdle?") return;
+  chrome.tabs.getCurrent((tab) => {
+    if (!tab || tab.id !== msg.tabId) return; // 다른 수집 화면에 묻는 것
+    let pptBusy = false;
+    try {
+      const w = $("#pptFrame") && $("#pptFrame").contentWindow;
+      pptBusy = !!(w && w.pptBusy && w.pptBusy());
+    } catch {}
+    reply({ idle: !state.running && !pptBusy });
+  });
+  return true;
+});
+
 // ---------------------------------------------------------------------------
 // PPT·RAW 작성 탭: 수집 모드가 '전체'면 지금 결과 표(검토·수정한 그대로)를 엑셀로 만들어 넘기고,
 // '1인용'이면 넘기지 않는다 (PPT 화면에서 전체 엑셀을 직접 첨부해야 작성 가능)
