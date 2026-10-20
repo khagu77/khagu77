@@ -886,9 +886,9 @@ function specCandidates(sources) {
     const hev = /하이브리드|HEV|(?<![A-Z])HV(?![A-Z])/g;
     while ((m = hev.exec(text))) add("HEV", from, text, m.index);
     // 디젤: 배기량이 붙어 있으면 "3.0D" 처럼 (2026-10-20 담당자 지정)
-    // 화물차 톤수 (엑시언트 25톤 등) — 화물차 글에서만 쓰임
-    const ton = /(\d{1,2}(?:\.\d)?)\s*톤/g;
-    while ((m = ton.exec(text))) add(`${m[1]}톤`, from, text, m.index);
+    // 화물차 톤수 (엑시언트 25t 등, 앱에서 "25t" 로 맞춤) — 화물차 글에서만 쓰임
+    const ton = /(?<![\d.])(\d{1,2}(?:\.\d)?)\s*톤|(?<![\d.])(\d{1,2})\s*t(?:on)?(?![a-z\d])/gi;
+    while ((m = ton.exec(text))) add(`${m[1] || m[2]}톤`, from, text, m.index); // 후보 표시용 "톤", 보고서에는 "25t"
     // LPI 는 배기량 없이 "LPI" 만
     const lpi = /LPG|LPI/gi;
     while ((m = lpi.exec(text))) add("LPI", from, text, m.index);
