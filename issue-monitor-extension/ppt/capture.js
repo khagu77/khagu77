@@ -535,9 +535,10 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
   const authorLink = abs(
     articleBox.querySelector("a[href*='/members/'], a[href*='MemberArticleList'], a[href*='memberid='], a[href*='search.writerId']"),
   );
-  const boardLink = abs(
-    articleBox.querySelector("a.link_board, a[href*='/menus/'], a[href*='ArticleList.nhn'], a[href*='search.menuid']"),
-  );
+  const boardEl = articleBox.querySelector("a.link_board, a[href*='/menus/'], a[href*='ArticleList.nhn'], a[href*='search.menuid']");
+  const boardLink = abs(boardEl);
+  // 게시판명 (예: "GV70 2.5T 결함/정비" → 제원 2.5T 를 알 수 있음)
+  const boardName = boardEl ? boardEl.innerText.replace(/\s+/g, " ").replace(/[>›]\s*$/, "").trim() : "";
   const postDate = (headText.match(/(\d{4})\.\s?(\d{1,2})\.\s?(\d{1,2})/) || []).slice(1, 4).join("-");
 
   return {
@@ -545,6 +546,7 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     canonicalUrl,
     authorLink,
     boardLink,
+    boardName,
     postDate,
     title: titleEl ? titleEl.innerText.trim() : "",
     author,
@@ -1041,6 +1043,7 @@ async function captureCafePost(url, onStep = () => {}, known = {}) {
     }
     // 본문·닉네임·작성자 글 제목·인증글에서 제원이 안 보이면, 작성자의 다른 글을 몇 개 더 열어 본문·댓글을 읽는다
     const specSources = () => [
+      { from: "게시판명", text: info.boardName },
       { from: "게시글 제목", text: info.title },
       { from: "게시글 본문", text: info.bodyText },
       { from: "작성자 닉네임", text: info.author },

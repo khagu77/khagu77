@@ -368,7 +368,7 @@ function fieldsFrom(row, info, ai) {
   // AI 가 비워 뒀어도 작성자 게시물 보기 등에서 찾은 제원 후보가 하나로 모이면 그 값을 쓴다
   // (작성자가 다른 차 이야기를 한 후보는 빼고: 이 글 자체·닉네임에서 찾았거나, 앞뒤 문장/글 제목에 이 차가 나온 것만)
   const carWords = [code, modelName(row.car)].filter((w) => w && w !== "-");
-  const sameCar = (h) => /^(게시글|작성자 닉네임)/.test(h.from) || carWords.some((w) => `${h.from} ${h.snippet}`.includes(w));
+  const sameCar = (h) => /^(게시판명|게시글|작성자 닉네임)/.test(h.from) || carWords.some((w) => `${h.from} ${h.snippet}`.includes(w));
   const hinted = [...new Set((info.specHints || []).filter(sameCar).map((h) => h.spec))];
   const aiSpec = ai.spec && ai.spec !== "-" ? ai.spec : hinted.length === 1 ? hinted[0] : "-";
   const spec = carSpec !== "-" ? carSpec : aiSpec;

@@ -65,7 +65,9 @@ const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작�
   예) ‘업데이트되면 아무것도 못 해요., 업데이트하면 딱 멈춰 버리네요.’ 등의 여론
   댓글이 없거나 의미 있는 반응이 없으면 빈 문자열.
 - spec: 제원. "2.5T", "3.5T", "1.6T", "2.0", "2.5", "HEV", "EV", "LPI", "디젤" 처럼 짧게.
-  게시글 제목·본문에서 먼저 찾고, 없으면 반드시 작성자 게시물 보기 내용을 끝까지 확인해 채웁니다:
+  게시판명(boardName)·게시글 제목·본문에서 먼저 찾습니다. 게시판명에 제원이 들어 있는 카페가 많습니다
+  (2026-10-20 담당자 지적: 게시판명이 "GV70 2.5T 결함/정비" 인 글을 "-" 로 비워 둠 → 이 경우 제원 "2.5T").
+  없으면 반드시 작성자 게시물 보기 내용을 끝까지 확인해 채웁니다:
   author(닉네임: 예 "CN8 2.0 인스퍼"), authorPosts(작성자의 다른 글 제목), authorCertPosts(계약·출고 인증 글 본문), authorPostTexts(작성자의 다른 글 본문·댓글).
   specHints 는 이 글들에서 미리 찾아 둔 제원 후보(spec, 어디서 찾았는지, 앞뒤 문장)입니다. 같은 차의 이야기가 맞으면 그 값을 씁니다.
   (2026-10-19 담당자 지적: 아반떼(CN8) 글에서 작성자 게시물 보기로 "2.0" 이 확인되는데 "-" 로 비워 둠 → 확인·유추되는 제원은 반드시 기입.)
@@ -216,6 +218,7 @@ async function aiSummarize(row, info, { apiKey, model, recentBodies = [], titleP
   const titleBudget = Math.max(8, Math.floor(TITLE_UNITS - titleWidth(titlePrefix) - 0.3));
   const input = {
     excel: { 차종: row.car, 구분: row.kind, 카페: row.cafe, 담당자메모: row.main },
+    boardName: info.boardName || "",
     title: info.title || "",
     author: info.author || "",
     postDate: info.postDate || "",
