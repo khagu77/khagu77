@@ -159,6 +159,27 @@
       `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
     const node = doc.importNode(parse(xml).documentElement, true);
     spTree.appendChild(node);
+    return { node, pl };
+  }
+
+  // 한 슬라이드의 캡처·사진을 하나의 그룹으로 묶는다 (담당자 요청: 옮기거나 크기 바꿀 때 한 번에)
+  function groupPictures(doc, pics) {
+    if (pics.length < 2) return;
+    const spTree = all(doc, P, "spTree")[0];
+    const ids = all(doc, P, "cNvPr").map((e) => Number(e.getAttribute("id")) || 0);
+    const id = Math.max(1, ...ids) + 1;
+    const r = (v) => Math.round(v);
+    const x0 = r(Math.min(...pics.map((p) => p.pl.x)));
+    const y0 = r(Math.min(...pics.map((p) => p.pl.y)));
+    const x1 = r(Math.max(...pics.map((p) => p.pl.x + p.pl.w)));
+    const y1 = r(Math.max(...pics.map((p) => p.pl.y + p.pl.h)));
+    const xml =
+      `<p:grpSp xmlns:p="${P}" xmlns:a="${A}"><p:nvGrpSpPr><p:cNvPr id="${id}" name="그룹 ${id}"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>` +
+      `<p:grpSpPr><a:xfrm><a:off x="${x0}" y="${y0}"/><a:ext cx="${x1 - x0}" cy="${y1 - y0}"/>` +
+      `<a:chOff x="${x0}" y="${y0}"/><a:chExt cx="${x1 - x0}" cy="${y1 - y0}"/></a:xfrm></p:grpSpPr></p:grpSp>`;
+    const grp = doc.importNode(parse(xml).documentElement, true);
+    spTree.appendChild(grp);
+    for (const p of pics) grp.appendChild(p.node); // 그림을 그룹 안으로 옮김 (놓인 자리·크기는 그대로)
   }
 
   // ---------- 전체 만들기 ----------
@@ -312,12 +333,14 @@
       };
       const linkRid = addRel(T_LINK, it.url, true);
       fillDetail(doc, it, it.no || startNo + i, linkRid);
+      const placed = [];
       for (const pic of it.pictures || []) {
         const media = nextName(`ppt/media/report_${i + 1}_#.${pic.ext}`);
         files.set(media, new Uint8Array(await pic.blob.arrayBuffer()));
         const rid = addRel(T_IMAGE, `../media/${media.split("/").pop()}`);
-        addPicture(doc, rid, pic, pic.name || "그림");
+        placed.push(addPicture(doc, rid, pic, pic.name || "그림"));
       }
+      groupPictures(doc, placed);
       files.set(slidePath, ser(doc));
       files.set(relsPath(slidePath), ser(rels));
 

@@ -131,6 +131,13 @@ async function loadSettings() {
   for (const [id, label] of AI_MODELS) $("#aiModel").add(new Option(label, id));
   const s = await chrome.storage.local.get(["aiKey", "aiModel", "fileName", "rawName", "ppi", "templateName", "templateSavedAt"]).catch(() => ({}));
   if (s.rawName) $("#rawName").value = s.rawName;
+  // 그림 해상도: 담당자 요청으로 기본 150ppi (PowerPoint 그림 압축 '화상(150ppi)'과 같음, 2026-10-20).
+  // 예전 기본값(330)이 저장돼 있으면 한 번만 150 으로 바꾼다. 이후 담당자가 고른 값은 그대로 둔다.
+  const { ppiDefault150 } = await chrome.storage.local.get("ppiDefault150").catch(() => ({}));
+  if (!ppiDefault150) {
+    s.ppi = "150";
+    await chrome.storage.local.set({ ppi: "150", ppiDefault150: true }).catch(() => {});
+  }
   if (s.ppi) $("#ppi").value = String(s.ppi);
   const c = await chrome.storage.local.get(["countAll", "countTotal", "countMine", "countPart"]).catch(() => ({}));
   if (c.countPart === "front") document.querySelector('input[name="countPart"][value="front"]').checked = true;
@@ -789,7 +796,7 @@ async function pictures(it) {
       h = (p.w * item.canvas.height) / item.canvas.width;
     }
     const isPhoto = p.kind === "image";
-    const ppi = Number($("#ppi").value) || 330;
+    const ppi = Number($("#ppi").value) || 150;
     const enc = await ImageProc.encodeAtPpi(item.canvas, p.w / Layout.CM, h / Layout.CM, { ppi, type: isPhoto ? "image/jpeg" : "image/png" });
     out.push({ blob: enc.blob, ext: isPhoto ? "jpeg" : "png", x: p.x, y: p.y, w: p.w, h, name: "그림" });
   }
