@@ -904,6 +904,12 @@ async function saveList() {
       return;
     }
   }
+  $("#saveInfo").className = "hint";
+  $("#saveInfo").textContent = "엑셀 만드는 중…";
+  $("#diffs").hidden = true;
+  $("#saveInfo").className = "hint";
+  $("#saveInfo").textContent = "엑셀 만드는 중…";
+  $("#diffs").hidden = true;
   try {
     const out = await buildList(selected);
     const base = baseFile();
@@ -913,7 +919,8 @@ async function saveList() {
     let dbNote = "";
     if (!separateFile()) {
       // 오늘의 최종 파일로 최종 DB 에 저장하고, 다음 저장은 이 파일에 이어 쓴다
-      await dbSaveDay("buzz", today(), name, out.bytes, "auto", `마지막 순번 ${out.to.toLocaleString()}`);
+      await dbSaveDay("buzz", today(), name, out.bytes, "auto", `마지막 순번 ${out.to.toLocaleString()}`, { posts: selected.length });
+      await showDiffs();
       listFile = null;
       $("#listFile").value = "";
       await loadDbBase();
@@ -1149,3 +1156,12 @@ async function init() {
 }
 
 init();
+
+// 오늘 엑셀에 넣은 게시물 수 · 전일(직전 기록일) 대비 증감
+async function showDiffs() {
+  const box = $("#diffs");
+  const d = await dbStatDiff("buzz", today(), "posts").catch(() => null);
+  box.hidden = !d;
+  box.replaceChildren();
+  if (d) box.append(diffLine("오늘 게시물", d));
+}

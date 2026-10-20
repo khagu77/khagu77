@@ -523,6 +523,7 @@ def test_lx3(tmp_path: Path):
                 break
             page.wait_for_timeout(100)
         page.reload()
+        rows.nth(3).wait_for()
         assert rows.count() == 4 and checks() == [False] * 4
         page.click("#selAll")
         # 동호회 이름·영문 주소가 설정 표에 채워진다
@@ -555,7 +556,7 @@ def test_lx3(tmp_path: Path):
         dl.value.save_as(appended)
         assert page.evaluate("window.__dl.url.slice(0, 5)") == "data:"  # blob: 이 아니어야 맥 파일 정보 '출처'가 남지 않음
         assert page.evaluate("window.__dl.filename") == f"팰리세이드 모니터링/일일보고/{seoul_today():%Y%m%d}_팰리세이드 북미 사망사고 관련 채널별 버즈량.xlsx"
-        assert "다운로드 / 팰리세이드 모니터링/일일보고 폴더에" in page.inner_text("#saveInfo")
+        page.locator("#saveInfo", has_text="다운로드 / 팰리세이드 모니터링/일일보고 폴더에").wait_for()
 
         # 체크한 글 + 유튜브 목록 → 댓글 수집 화면
         page.click("#toComments")
@@ -688,9 +689,19 @@ def test_final_db(tmp_path: Path):
         # 3) 같은 날 다시 받으면 방금 저장한 오늘 파일에 이어 씀
         out2, _ = lx3_save(["1003"])
         assert serials(out2)[-1] == (4, "https://cafe.naver.com/aacafe/1003")
+        assert page.inner_text("#diffs") == "오늘 게시물 2건 (전일 대비 전일 기록 없음)"  # 같은 날 1건 + 1건
         page.goto(f"{ext}/db.html")
         rows = db_rows("buzz")
         assert len(rows) == 2 and f"{today[:4]}-{today[4:6]}-{today[6:]}" in rows[0] and "마지막 순번 4" in rows[0], rows
+        # 전일(직전 기록일) 5건이었다면 오늘 3건째 저장 후 ▼ 2 건(파란색)
+        page.goto(f"{ext}/db.html")
+        page.evaluate("""async () => { const r = (await dbList('buzz')).find((x) => x.date === '20261011');
+          r.stats = { posts: 5 }; await dbTx('readwrite', (s) => s.put(r)); }""")
+        lx3_save(["1005"])
+        assert page.inner_text("#diffs") == "오늘 게시물 3건 (10-11 (일) 대비 ▼ 2 건)", page.inner_text("#diffs")
+        assert page.locator("#diffs .diff").get_attribute("class") == "diff down"
+        page.goto(f"{ext}/db.html")
+        assert "게시물 3건 ▼ 2 건" in db_rows("buzz")[0] and "게시물 5건 전일 기록 없음" in db_rows("buzz")[1], db_rows("buzz")
         # 4) 별도 파일로 작성: 새 파일(순번 1부터), 최종 DB 는 그대로
         page.goto(f"{ext}/lx3.html")
         page.evaluate("""() => { cafeNames['111'] = 'AA 동호회'; cafeSlugs['111'] = 'aacafe';
@@ -705,7 +716,7 @@ def test_final_db(tmp_path: Path):
         dl.value.save_as(sep)
         assert serials(sep) == [(1, "https://cafe.naver.com/aacafe/1009")]
         page.goto(f"{ext}/db.html")
-        assert "마지막 순번 4" in db_rows("buzz")[0]
+        assert "마지막 순번 5" in db_rows("buzz")[0]
         # 5) 엑셀에서 고친 수정본을 오늘 날짜에 올리면 그 파일에 이어 씀
         fixed = tmp_path / f"{today}_버즈량_수정.xlsx"
         from openpyxl import load_workbook as _lw
@@ -715,12 +726,15 @@ def test_final_db(tmp_path: Path):
         wb.save(fixed)
         db_upload("buzz", 0, fixed)
         assert "직접 올림" in db_rows("buzz")[0] and "마지막 순번 10" in db_rows("buzz")[0]
+        assert "게시물 3건" in db_rows("buzz")[0]  # 수정본을 올려도 그날 수집 건수는 그대로
         out3, _ = lx3_save(["1004"])
         assert serials(out3)[-2:] == [(10, "https://n.news.naver.com/y"), (11, "https://cafe.naver.com/aacafe/1004")]
 
         # 6) 댓글 수집도 최종 DB 의 raw data 에 이어 씀
         page.goto(f"{ext}/db.html")
         db_upload("raw", "파일 등록", raw)
+        page.evaluate("""async () => { const r = (await dbList('raw')).find((x) => x.date === '20261008');
+          r.stats = { comments: 10, youtube: 2 }; await dbTx('readwrite', (s) => s.put(r)); }""")
         page.goto(f"{ext}/app.html")
         page.locator("#templateInfo", has_text="최종 DB 파일(2026-10-08").wait_for()
         page.fill("#urls", "https://youtu.be/abcdefghijk")
@@ -730,6 +744,9 @@ def test_final_db(tmp_path: Path):
         dl.value.save_as(rawout)
         assert dl.value.suggested_filename == f"{today}_raw_data.xlsx"
         page.locator("#summary", has_text="최종 DB에 오늘 파일로 저장").wait_for()
+        assert page.inner_text("#diffs").split("\n") == ["오늘 카페 댓글 0건 (10-08 (목) 대비 ▼ 10 건)", "유튜브 댓글 4건 (10-08 (목) 대비 ▲ 2 건)"] or \
+            page.inner_text("#diffs") == "오늘 카페 댓글 0건 (10-08 (목) 대비 ▼ 10 건)유튜브 댓글 4건 (10-08 (목) 대비 ▲ 2 건)", page.inner_text("#diffs")
+        assert page.locator("#diffs .diff.up").inner_text() == "▲ 2 건"
         wb = load_workbook(rawout)
         assert list(wb["언론"].values)[1][3] == "언론 댓글"  # 기존 파일에 이어 쓴 것
         assert [r[3] for r in list(wb["유튜브"].values)[1:]] == ["좋아요", "답글이에요", "멋져요", "마지막"]

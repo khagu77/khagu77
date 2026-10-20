@@ -121,3 +121,11 @@ button.danger { color: var(--red); border-color: var(--red); }
 .busy-fill.indeterminate { width: 100%; }
 @keyframes busy-stripes { from { background-position: 0 0; } to { background-position: 34px 0; } }
 body.busy-lock nav.menu a { pointer-events: none; opacity: 0.4; }
+
+/* 전일 대비 증감 */
+.diff { font-weight: 700; }
+.diff.up { color: #d93025; }
+.diff.down { color: #1a5fd0; }
+.diff.none { color: var(--muted); font-weight: 600; }
+@media (prefers-color-scheme: dark) { .diff.up { color: #ff6b5f; } .diff.down { color: #8ab4f8; } }
+.diffs { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; display: flex; gap: 18px; flex-wrap: wrap; }

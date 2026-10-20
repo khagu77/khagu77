@@ -37,6 +37,21 @@ function setInfo(text, cls = "") {
   $("#dbInfo").className = `summary ${cls}`;
 }
 
+// 그날 수집 건수와 바로 전 기록일 대비 증감 (rows: 최신순)
+function fillCounts(td, kind, rows, i) {
+  const fields = kind === "buzz" ? [["posts", "게시물"]] : [["comments", "카페 댓글"], ["youtube", "유튜브"]];
+  for (const [field, label] of fields) {
+    const v = rows[i].stats?.[field];
+    if (v === undefined || v === null) continue;
+    const prev = rows.slice(i + 1).find((r) => r.stats?.[field] !== undefined && r.stats?.[field] !== null);
+    const d = { today: v, prev: prev ? prev.stats[field] : null, prevDate: prev?.date || null, diff: prev ? v - prev.stats[field] : null };
+    const line = document.createElement("div");
+    line.append(`${label} ${v.toLocaleString()}건 `, diffBadge(d));
+    td.append(line);
+  }
+  if (!td.childNodes.length) td.textContent = "-";
+}
+
 async function render() {
   for (const sec of document.querySelectorAll("section[data-kind]")) {
     const kind = sec.dataset.kind;
@@ -44,19 +59,20 @@ async function render() {
     tbody.innerHTML = "";
     const rows = await dbList(kind);
     if (!rows.length) {
-      tbody.innerHTML = `<tr><td colspan="5" class="hint">아직 저장된 파일이 없습니다. [파일 등록]으로 지금까지의 최종 파일을 넣거나, 수집 후 엑셀을 받으면 자동으로 저장됩니다.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="hint">아직 저장된 파일이 없습니다. [파일 등록]으로 지금까지의 최종 파일을 넣거나, 수집 후 엑셀을 받으면 자동으로 저장됩니다.</td></tr>`;
       continue;
     }
     rows.forEach((rec, i) => {
       const tr = document.createElement("tr");
       tr.innerHTML =
-        `<td class="nowrap"></td><td></td><td></td><td class="nowrap"></td>` +
+        `<td class="nowrap"></td><td></td><td></td><td class="counts"></td><td class="nowrap"></td>` +
         `<td class="nowrap"><button class="small get">받기</button> <button class="small up">수정본 올리기</button> <button class="small danger del">삭제</button></td>`;
       tr.children[0].textContent = prettyDate(rec.date) + (i === 0 ? " · 최종" : "");
       if (i === 0) tr.className = "final";
       tr.children[1].textContent = rec.name;
       tr.children[2].textContent = rec.summary || "";
-      tr.children[3].textContent = `${new Date(rec.savedAt).toLocaleString()} · ${rec.source === "upload" ? "직접 올림" : "자동 저장"}`;
+      fillCounts(tr.children[3], kind, rows, i);
+      tr.children[4].textContent = `${new Date(rec.savedAt).toLocaleString()} · ${rec.source === "upload" ? "직접 올림" : "자동 저장"}`;
       tr.querySelector(".get").addEventListener("click", () => downloadBytes(rec.bytes, rec.name));
       tr.querySelector(".up").addEventListener("click", () => {
         pickFor = { kind, date: rec.date };

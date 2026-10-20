@@ -41,10 +41,61 @@ async function dbLatest(kind) {
   return (await dbList(kind))[0] || null;
 }
 
-async function dbSaveDay(kind, date, name, bytes, source, summary = "") {
-  const rec = { key: `${kind}:${date}`, kind, date, name, bytes, savedAt: Date.now(), source, summary };
+// stats: 그날 수집 건수 { posts } / { comments, youtube }. 같은 날 다시 저장하면 게시물·카페 댓글은 더하고
+// 유튜브(매일 전체 다시 수집)는 바꾼다. stats 없이 저장(수정본 올리기 등)하면 그날 건수는 그대로 둔다.
+async function dbSaveDay(kind, date, name, bytes, source, summary = "", stats = null) {
+  const key = `${kind}:${date}`;
+  const old = await dbTx("readonly", (s) => s.get(key)).catch(() => null);
+  let merged = old?.stats || null;
+  if (stats) {
+    merged = { ...(old?.stats || {}) };
+    for (const [k, v] of Object.entries(stats)) {
+      if (v === undefined || v === null) continue;
+      merged[k] = k === "youtube" ? v : (merged[k] || 0) + v;
+    }
+  }
+  const rec = { key, kind, date, name, bytes, savedAt: Date.now(), source, summary, stats: merged };
   await dbTx("readwrite", (s) => s.put(rec));
   return rec;
+}
+
+// 그날 건수와 바로 전 기록일(전일·직전 근무일) 건수 비교 → { today, prev, prevDate, diff } (전 기록이 없으면 prev=null)
+async function dbStatDiff(kind, date, field) {
+  const rows = await dbList(kind);
+  const cur = rows.find((r) => r.date === date);
+  const prev = rows.find((r) => r.date < date && r.stats && r.stats[field] !== undefined);
+  const today = cur?.stats?.[field] ?? null;
+  if (today === null) return null;
+  const p = prev ? prev.stats[field] : null;
+  return { today, prev: p, prevDate: prev?.date || null, diff: p === null ? null : today - p };
+}
+
+// ▲ NN 건(빨강) / ▼ NN 건(파랑) / 변동 없음 → 요소
+function diffBadge(d) {
+  const span = document.createElement("span");
+  if (!d || d.diff === null) {
+    span.className = "diff none";
+    span.textContent = "전일 기록 없음";
+  } else if (d.diff > 0) {
+    span.className = "diff up";
+    span.textContent = `▲ ${d.diff.toLocaleString()} 건`;
+  } else if (d.diff < 0) {
+    span.className = "diff down";
+    span.textContent = `▼ ${(-d.diff).toLocaleString()} 건`;
+  } else {
+    span.className = "diff none";
+    span.textContent = "변동 없음";
+  }
+  if (d?.prevDate) span.title = `${prettyDate(d.prevDate)} ${d.prev.toLocaleString()}건 대비`;
+  return span;
+}
+
+// "오늘 게시물 12건 (전일 대비 ▲ 3 건)" 한 줄
+function diffLine(label, d) {
+  const wrap = document.createElement("span");
+  wrap.className = "diffline";
+  wrap.append(`${label} ${d.today.toLocaleString()}건 (${d.prevDate ? `${prettyDate(d.prevDate).slice(5)} 대비 ` : "전일 대비 "}`, diffBadge(d), ")");
+  return wrap;
 }
 
 async function dbDelete(key) {

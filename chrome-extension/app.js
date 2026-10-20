@@ -775,7 +775,11 @@ async function run(state) {
     if (!separateFile()) {
       // 오늘의 최종 파일로 최종 DB 에 저장하고, 다음 수집은 이 파일에 이어 쓴다
       const last = out.rows.cafe.length ? out.rows.cafe[out.rows.cafe.length - 1][0] : out.info?.cafeLastSerial || 0;
-      await dbSaveDay("raw", today(), name, out.bytes, "auto", `동호회 마지막 연번 ${Number(last).toLocaleString()}`);
+      await dbSaveDay("raw", today(), name, out.bytes, "auto", `동호회 마지막 연번 ${Number(last).toLocaleString()}`, {
+        comments: out.rows.cafe.length,
+        youtube: out.rows.ytTouched ? out.rows.yt.length : undefined,
+      });
+      await showDiffs();
       template = null;
       $("#templateFile").value = "";
       await loadDbBase();
@@ -876,4 +880,15 @@ async function offerResume() {
   showBaseInfo();
   $("#urls").value = r.urls.join("\n");
   start(r);
+}
+
+// 오늘 수집한 카페 댓글·유튜브 댓글 수 · 전일(직전 기록일) 대비 증감
+async function showDiffs() {
+  const box = $("#diffs");
+  const c = await dbStatDiff("raw", today(), "comments").catch(() => null);
+  const y = await dbStatDiff("raw", today(), "youtube").catch(() => null);
+  box.replaceChildren();
+  if (c) box.append(diffLine("오늘 카페 댓글", c));
+  if (y) box.append(diffLine("유튜브 댓글", y));
+  box.hidden = !c && !y;
 }
