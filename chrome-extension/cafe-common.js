@@ -345,3 +345,41 @@ async function downloadBytes(bytes, name) {
   }
   await clickDownload(blob, name);
 }
+
+// ---------------------------------------------------------------------------
+// 진행 막대: 수집·찾기 중에 화면 맨 위(스크롤해도 보임)와 탭 제목에 진행 상황을 보여준다
+// ---------------------------------------------------------------------------
+
+let busyTitle = "";
+
+function showBusy(label, done, total, short = "작업 중") {
+  let bar = document.getElementById("busyBar");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "busyBar";
+    bar.className = "busy";
+    bar.innerHTML = '<div class="busy-text"></div><div class="busy-track"><div class="busy-fill"></div></div>';
+    (document.querySelector("main") || document.body).prepend(bar);
+    busyTitle = document.title;
+    window.addEventListener("beforeunload", busyGuard);
+  }
+  const pct = total ? Math.max(2, Math.min(100, Math.round((done / total) * 100))) : 0;
+  bar.querySelector(".busy-text").textContent = `⏳ ${label}${total ? ` · ${pct}%` : ""}`;
+  const fill = bar.querySelector(".busy-fill");
+  fill.style.width = total ? `${pct}%` : "100%";
+  fill.classList.toggle("indeterminate", !total);
+  document.title = `⏳ ${total ? `${Math.min(done + 1, total)}/${total} ` : ""}${short}`;
+}
+
+function hideBusy() {
+  document.getElementById("busyBar")?.remove();
+  if (busyTitle) document.title = busyTitle;
+  busyTitle = "";
+  window.removeEventListener("beforeunload", busyGuard);
+}
+
+// 수집 중에 창을 닫거나 새로고침하려 하면 확인 (그대로 나가면 수집이 멈춤)
+function busyGuard(e) {
+  e.preventDefault();
+  e.returnValue = "";
+}

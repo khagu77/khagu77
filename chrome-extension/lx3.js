@@ -556,6 +556,7 @@ async function search() {
     let prevKeys = "";
     for (let page = 1; page <= maxPages && !stopRequested; page++) {
       setSummary(`찾는 중… 동호회 ${ci + 1}/${ids.length} (${cafeNames[cafeId] || cafeId}) · ${page}페이지`);
+      showBusy(`게시물 찾는 중 · 동호회 ${ci + 1}/${ids.length} (${cafeNames[cafeId] || cafeId}) — 끝날 때까지 이 탭을 닫지 마세요`, ci, ids.length, "게시물 찾는 중");
       const res = await scanSearchPage(searchUrl(cafeId, q, page));
       if (res.login) {
         loginNeeded = true;
@@ -615,6 +616,7 @@ async function search() {
   for (let i = 0; i < toCheck.length && !stopRequested; i++) {
     const item = toCheck[i];
     setSummary(`날짜만 보이는 글의 작성 시간 확인 중… (${i + 1}/${toCheck.length})`);
+    showBusy(`작성 시간 확인 중 ${i + 1}/${toCheck.length} — 끝날 때까지 이 탭을 닫지 마세요`, i, toCheck.length, "작성 시간 확인 중");
     await sleep(randomBetween(CAFE_ARTICLE_DELAY));
     const res = await readArticleTime(`https://cafe.naver.com/f-e/cafes/${item.cafeId}/articles/${item.articleId}`);
     if (res.found) {
@@ -656,6 +658,7 @@ async function search() {
     loginNeeded ? "err" : "ok",
   );
   running = false;
+  hideBusy();
   $("#search").disabled = false;
   $("#stop").disabled = true;
   updateCounts();

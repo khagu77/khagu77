@@ -110,3 +110,13 @@ td.nowrap { white-space: nowrap; }
 button.danger { color: var(--red); border-color: var(--red); }
 .dbtable tr.final td { font-weight: 600; }
 .dbtable td { vertical-align: middle; }
+
+/* 진행 막대 (수집·찾기 중) */
+.busy { position: sticky; top: 0; z-index: 9000; margin: -24px -24px 16px; padding: 10px 16px 0; background: #002c5f; color: #fff;
+  border-radius: 12px 12px 0 0; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25); }
+.busy-text { font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+.busy-track { height: 8px; background: rgba(255, 255, 255, 0.25); border-radius: 4px 4px 0 0; overflow: hidden; }
+.busy-fill { height: 100%; width: 0; background: repeating-linear-gradient(45deg, #5fb3ff 0 12px, #a8d4ff 12px 24px);
+  background-size: 34px 34px; animation: busy-stripes 0.8s linear infinite; transition: width 0.4s; }
+.busy-fill.indeterminate { width: 100%; }
+@keyframes busy-stripes { from { background-position: 0 0; } to { background-position: 34px 0; } }

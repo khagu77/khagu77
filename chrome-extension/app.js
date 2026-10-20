@@ -727,6 +727,7 @@ async function start() {
   const results = [];
   for (let i = 0; i < urls.length && !stopRequested; i++) {
     $("#summary").textContent = `수집 중… (${i + 1}/${urls.length})`;
+    showBusy(`댓글 수집 중 ${i + 1}/${urls.length} — 끝날 때까지 이 탭을 닫지 마세요`, i, urls.length, "댓글 수집 중");
     const row = addProgressRow(i + 1, urls[i]);
     const result = await collectOne(urls[i], row);
     results.push(result);
@@ -742,6 +743,7 @@ async function start() {
   const failed = results.filter((r) => r.error).length;
   try {
     $("#summary").textContent = "엑셀 만드는 중…";
+    showBusy("엑셀 만드는 중", 0, 0, "엑셀 만드는 중");
     const base = baseTemplate();
     const out = await buildOutput(results, base);
     const name = outputFileName(base ? base.name : rememberedName());
@@ -776,6 +778,7 @@ async function start() {
   } catch (e) {
     $("#summary").textContent = `엑셀 저장 실패: ${e.message}`;
   }
+  hideBusy();
   $("#start").disabled = false;
   $("#stop").disabled = true;
   $("#download").disabled = false;
