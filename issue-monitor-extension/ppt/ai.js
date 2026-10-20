@@ -83,6 +83,9 @@ const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작�
   닉네임으로 알 수 없으면 authorPosts(작성자의 다른 글 제목)와 본문에서 지역이 분명히 드러나면 씁니다. 도(충북, 경기 등)는 빼고 시 이름만 씁니다(예: "충북 청주" → "청주", "경기 오산" → "오산", "부산", "서울 강동구").
   단 이름이 같은 다른 도시와 헷갈리는 곳은 도를 붙입니다(예: "경기 광주"는 광주광역시와 헷갈리므로 "경기 광주").
   시 이름은 모르고 도·광역 단위만 확인되면 그 이름을 짧게 씁니다(예: "강원", "전남"). 닉네임·본문·작성자 글을 끝까지 확인해 최대한 채웁니다(담당자가 "-"를 "전남"으로 고친 사례 있음). 정말 알 수 없을 때만 "-".
+- focus: 집중관리고객 여부(true/false). 게시글 본문(제목 포함)에 민원 제기(본사 VOC·고객센터 민원 등), 소송·법적 대응, 한국소비자원(소비자보호원), 자동차리콜센터, 국민청원, 언론·방송 제보,
+  집단 행동 등 이슈화하려는 내용이 확인되고 강하게 불만을 드러내는 글이면 true. 그러면 집중관리고객 칸에 작성자 닉네임이 들어갑니다.
+  댓글에서 남이 "민원 넣으세요"라고 권한 것만으로는 해당하지 않습니다(작성자 본인이 하겠다·했다는 내용이어야 함). 단순 문의·가벼운 불만은 false. (2026-10-20 담당자 지정 규칙)
 - comment_picks: 보고서에 캡처해 넣을 댓글 번호(index) 2개 (index 작은 것부터. reaction 도 이 순서). 자극적이거나 심각하다고 느껴지는, 길지 않은 댓글을 우선 고릅니다.
   hasSticker 가 true 인(이모티콘이 있는) 댓글은 될 수 있으면 고르지 말고, 그것밖에 없을 때만 고릅니다. 댓글이 2개보다 적으면 있는 만큼.`;
 
@@ -167,8 +170,9 @@ const AI_SCHEMA = {
     level: { type: "string", enum: ["주의", "경고", "심각"] },
     duplicate: { type: "string" },
     region: { type: "string" },
+    focus: { type: "boolean" },
   },
-  required: ["issue", "spec", "short", "body", "reaction", "level", "duplicate", "region", "comment_picks"],
+  required: ["issue", "spec", "short", "body", "reaction", "level", "duplicate", "region", "focus", "comment_picks"],
   additionalProperties: false,
 };
 

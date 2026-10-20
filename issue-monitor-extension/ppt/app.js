@@ -388,7 +388,8 @@ function fieldsFrom(row, info, ai) {
     short: ai.short,
     duplicate: ai.duplicate,
     region: ai.region || "-",
-    focus: "-",
+    // 집중관리고객: 민원·소송·소비자원·리콜센터·국민청원·언론 제보 등 이슈화하려는 강한 불만 글이면 작성자 닉네임
+    focus: ai.focus && info?.author ? String(info.author).trim() : "-",
   };
 }
 
