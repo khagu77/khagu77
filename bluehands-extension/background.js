@@ -21,5 +21,5 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onStartup.addListener(updateBadge);
 chrome.alarms.onAlarm.addListener((a) => a.name === "bh-badge" && updateBadge());
 chrome.storage.onChanged.addListener((changes) => {
-  if (changes.bhLastReportDay || changes.bhExtraHolidays) updateBadge();
+  if (changes.bhLastReportDay || changes.bhExtraHolidays || changes.bhBadgeTick) updateBadge();
 });

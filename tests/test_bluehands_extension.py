@@ -89,6 +89,9 @@ def start_fake_naver(tmp_path: Path):
             data = body.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
+            # 네이버처럼 '틀 안에서 열지 마세요' 머리글 - 확장이 자기 화면 안의 틀에 한해 빼야 읽힌다
+            self.send_header("X-Frame-Options", "SAMEORIGIN")
+            self.send_header("Content-Security-Policy", "frame-ancestors 'self'")
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -179,10 +182,18 @@ def test_bluehands(tmp_path: Path):
         ctx.route("https://apis.naver.com/**", lambda route: (api_calls.append(route.request.url), route.fulfill(status=500, body="")))
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext = f"chrome-extension://{sw.url.split('/')[2]}"
-        dialogs = []
-        ctx.on("page", lambda pg: pg.on("dialog", lambda d: (dialogs.append(d.message), d.dismiss())))
+        dialogs, leave_prompts = [], []
+
+        def on_dialog(d):
+            if d.type == "beforeunload":  # 작업 중 새로고침·닫기 확인 → 테스트에서는 '나가기'
+                leave_prompts.append(1)
+                d.accept()
+            else:
+                dialogs.append(d.message)
+                d.dismiss()
+
+        ctx.on("page", lambda pg: pg.on("dialog", on_dialog))
         page = ctx.new_page()
-        page.on("dialog", lambda d: d.accept())
         page.goto(f"{ext}/bluehands.html")
         assert page.inner_text("h1") == "블루핸즈/하이테크센터 정비 예약 관련 수집 시스템"
 
@@ -211,8 +222,32 @@ def test_bluehands(tmp_path: Path):
         assert "이미 보고서에 있음" in rows.nth(1).inner_text()  # 날짜순: 블로그(07:00) → 이미 보고한 글(08:00) → …
         assert "네이버 카페 글 주소가 아님" in rows.nth(0).inner_text()
 
+        pages_before = len(ctx.pages)
         page.click("#start")
+        # 작업 중 표시: 맨 위 로딩 바 · 탭 제목
+        page.locator("#busy").wait_for(state="visible")
+        assert "작성자 확인 중" in page.inner_text("#busy")
+        rows.nth(2).locator("td", has_text="✔ 확인").wait_for(timeout=120000)
+        assert page.title().startswith("⏳ ")
+        # 뒤로 가기(마우스 제스처 등)는 막힌다 - 화면·작업 그대로
+        page.go_back()  # 브라우저의 진짜 뒤로 가기 (마우스 제스처·Alt+←와 같음)
+        page.locator("#toast", has_text="뒤로 가기가 막혀").wait_for()
+        assert page.url.endswith("/bluehands.html") and page.locator("#busy").is_visible()
+        # 실수로 새로고침(창 닫기와 같음) → 확인 창이 뜨고, 나간 뒤 다시 열면 '이어서 진행'
+        page.reload()
+        assert leave_prompts, "작업 중 나가기 확인 창이 떠야 함"
+        page.evaluate("CAFE_ARTICLE_DELAY.splice(0, 2, 10, 20); CAFE_PAGE_DELAY.splice(0, 2, 10, 20)")
+        page.locator("#resumeBox", has_text="중간에 끊겼습니다").wait_for()
+        assert "지난번에 고른 파일" in page.inner_text("#reportInfo")  # 보고서 파일도 기억
+        assert rows.nth(2).locator("td").nth(6).inner_text() == "✔ 확인"
+        page.click("#resume")
         page.locator("#summary", has_text="작성자 확인을 마쳤습니다").wait_for(timeout=300000)
+        assert page.locator("#busy").is_hidden() and not page.title().startswith("⏳")
+        # 이미 끝난 글은 다시 열지 않는다
+        assert len([h for h in server.hits if h[1].startswith("/aacafe/101")]) == 1
+        # 탭·창을 하나도 띄우지 않는다
+        assert len(ctx.pages) == pages_before, [pg.url for pg in ctx.pages]
+        assert "최소화된 창" not in page.inner_text("#log")  # 보이지 않는 틀에서 다 읽음
         # 삭제된 게시물 2개(알림창 1 · 화면 안내 1, 넥쏘카페 글은 검색에서 못 찾아 글 주소로 확인)는
         # 목록에 빨간 취소선으로 남는다
         assert rows.count() == 8
@@ -240,7 +275,10 @@ def test_bluehands(tmp_path: Path):
         ], got
         # 알림창은 화면에 뜨지 않는다(확장이 연 탭에서만 막고 기록)
         assert dialogs == [], dialogs
-        assert "확인 3개 · 패스 1개 · 삭제된 게시물 2개(엑셀에서 뺌)" in page.inner_text("#summary")
+        assert "이어서 진행" in page.inner_text("#log")
+        assert "누적 5건 · 전주 2건 대비 ▲ 3 건" in page.inner_text("#weekCompare")
+        assert page.locator("#weekCompare .up").evaluate("e => getComputedStyle(e).color") == "rgb(224, 36, 36)"
+        assert "확인 2개 · 패스 1개 · 삭제된 게시물 2개(엑셀에서 뺌)" in page.inner_text("#summary")
 
         # 넥쏘카페는 처음부터 검색으로: 글 주소를 바로 열지 않는다
         assert not [h for h in server.hits if h[1] == "/nexocafe/201"]
@@ -258,6 +296,7 @@ def test_bluehands(tmp_path: Path):
         today = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y%m%d")
         assert out.name == f"{today}_정비 예약 관련 테스트 보고서.xlsx"
         assert "3개 추가 (연번 6~9), 패스 1개는 넣지 않았습니다, 삭제된 게시물 2개는 넣지 않았습니다" in page.inner_text("#saveInfo")
+        assert "누적 5건 · 전주 2건 대비 ▲ 3 건" in page.inner_text("#saveInfo .compare")
 
         # DB 목록: 지난 보고서 2행 + 새 글 3행
         page.click("nav.menu a[data-tab=db]")

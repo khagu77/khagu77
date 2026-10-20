@@ -8,6 +8,13 @@
   <link rel="stylesheet" href="bluehands.css">
 </head>
 <body>
+  <div id="busy" class="busy" hidden role="status" aria-live="polite">
+    <div class="busy-row"><span class="spinner"></span><b>작성자 확인 중</b> <span id="busyCount"></span>
+      <span id="busyDetail" class="busy-detail"></span>
+      <span class="busy-note">끝날 때까지 이 탭을 닫거나 뒤로 가지 마세요 (뒤로 가기는 막혀 있어요)</span></div>
+    <div class="busy-track"><div id="busyBar" class="busy-bar"></div></div>
+  </div>
+  <div id="toast" class="toast" hidden></div>
   <main>
     <header class="top">
       <img src="icons/logo.png" alt="Bluehands" class="logo">
@@ -27,11 +34,16 @@
         <div id="listInfo" class="hint"></div>
 
         <label for="reportFile">지난 보고서 파일 <span class="hint">(가장 최근에 받은 'YYYYMMDD_정비 예약 …' 엑셀 · 마지막 연번 다음부터 이어 씁니다)</span></label>
-        <input type="file" id="reportFile" accept=".xlsx">
+        <div class="row"><input type="file" id="reportFile" accept=".xlsx"> <button id="clearReport" class="small" hidden>고른 파일 빼기</button></div>
         <div id="reportInfo" class="hint"></div>
 
         <details id="settings">
           <summary>설정</summary>
+          <label for="readMode">글 읽는 방식</label>
+          <select id="readMode">
+            <option value="hidden">보이지 않게 (이 화면 안에서 읽기 · 탭·창 안 뜸, 추천)</option>
+            <option value="window">최소화된 창 하나에서 읽기</option>
+          </select>
           <label for="searchFirst">처음부터 네이버 검색으로 들어갈 카페 <span class="hint">(영문 카페 주소 또는 카페 이름 일부, 한 줄에 하나)</span></label>
           <textarea id="searchFirst" rows="3" spellcheck="false"></textarea>
           <label for="searchUrl">네이버 검색 카페 탭 주소 형식 <span class="hint">({q} 자리에 글 제목이 들어갑니다)</span></label>
@@ -45,12 +57,14 @@
 
       <section id="itemsBox" hidden>
         <h2>2. 작성자 확인</h2>
-        <div class="hint">보고서에 이미 있는 글은 건너뜁니다. 글을 탭으로 열어 본문이 보이면 작성자를 적고, 본문이 안 보이면 네이버 검색 카페 탭에서 제목으로 같은 글을 찾아 그 링크로 들어가 확인합니다. 그래도 못 보면 <b>패스</b>합니다. 삭제된 게시물(알림창 포함)은 <span class="del-label">빨간 취소선</span>으로 표시하고 엑셀에는 넣지 않습니다.</div>
+        <div class="hint">보고서에 이미 있는 글은 건너뜁니다. 글을 화면에 띄우지 않고 열어 본문이 보이면 작성자를 적고, 본문이 안 보이면 네이버 검색 카페 탭에서 제목으로 같은 글을 찾아 그 링크로 들어가 확인합니다. 그래도 못 보면 <b>패스</b>합니다. 삭제된 게시물(알림창 포함)은 <span class="del-label">빨간 취소선</span>으로 표시하고 엑셀에는 넣지 않습니다.</div>
         <table id="items">
           <thead><tr><th>연번</th><th>작성일</th><th>채널명</th><th>제목</th><th>URL</th><th>작성자</th><th>상태</th></tr></thead>
           <tbody></tbody>
         </table>
         <div id="itemCount" class="hint"></div>
+        <div id="weekCompare" class="compare" hidden></div>
+        <div id="resumeBox" class="resume" hidden><span id="resumeText"></span> <button id="resume" class="primary small">이어서 진행</button></div>
         <div class="buttons">
           <button id="start" class="primary" disabled>작성자 확인 시작</button>
           <button id="stop" disabled>중지</button>
@@ -86,14 +100,14 @@
         <div id="dbInfo" class="hint"></div>
         <h2>받은 보고서 기록</h2>
         <table id="history" class="compact">
-          <thead><tr><th>받은 시각</th><th>파일 이름</th><th>새로 넣은 글</th><th>패스</th><th>삭제된 글</th><th>전체 행</th></tr></thead>
+          <thead><tr><th>받은 시각</th><th>파일 이름</th><th>새로 넣은 글</th><th>패스</th><th>삭제된 글</th><th>전체 행</th><th>전주 대비</th></tr></thead>
           <tbody></tbody>
         </table>
       </section>
     </div>
 
     <p class="note">
-      네이버 카페는 계정 보호를 위해 API 를 부르지 않고 글을 탭으로 열어 사람처럼 천천히 읽습니다(글 하나에 10~20초, 탭이 잠깐 열렸다 닫힘).
+      네이버 카페는 계정 보호를 위해 API 를 부르지 않고 글을 이 화면 안에서 보이지 않게 열어 사람처럼 천천히 읽습니다(글 하나에 10~20초, 탭·창이 뜨지 않음).
       글 사이에는 4~8초를 무작위로 기다립니다. 내가 볼 수 있는 글만 확인할 수 있습니다(네이버 로그인 필요).
     </p>
   </main>

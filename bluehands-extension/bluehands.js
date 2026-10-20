@@ -100,12 +100,13 @@ function ymdNumber(d) {
 
 async function loadSettings() {
   const s = await chrome.storage.local
-    .get(["bhSearchFirst", "bhSearchUrl", "bhKeepGaps", "bhExtraHolidays", "bhDb", "bhHistory"])
+    .get(["bhSearchFirst", "bhSearchUrl", "bhKeepGaps", "bhExtraHolidays", "bhDb", "bhHistory", "bhReadMode"])
     .catch(() => ({}));
   $("#searchFirst").value = s.bhSearchFirst ?? DEFAULT_SEARCH_FIRST;
   $("#searchUrl").value = s.bhSearchUrl || DEFAULT_SEARCH_URL;
   $("#keepGaps").checked = s.bhKeepGaps ?? true;
   $("#extraHolidays").value = s.bhExtraHolidays || "";
+  $("#readMode").value = s.bhReadMode === "window" ? "window" : "hidden";
   db = s.bhDb || {};
   history = s.bhHistory || [];
   cafeSlugs = await loadCafeSlugs();
@@ -122,6 +123,7 @@ function saveSettings() {
       bhSearchUrl: url,
       bhKeepGaps: $("#keepGaps").checked,
       bhExtraHolidays: $("#extraHolidays").value,
+      bhReadMode: $("#readMode").value,
     })
     .catch(() => {});
 }
@@ -293,17 +295,14 @@ async function analyzeReport(wb) {
 }
 
 async function loadReportFile(file) {
+  if (!file) return; // 파일 고르기 창을 그냥 닫은 경우: 고른 파일 그대로
   report = null;
-  if (!file) {
-    renderReportInfo();
-    markDuplicates();
-    return;
-  }
   setHint("#reportInfo", "파일 읽는 중…");
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
     const info = await analyzeReport(await XlsxTemplate.Workbook.open(bytes));
     report = { name: file.name, bytes, info };
+    chrome.storage.local.set({ bhReport: { name: file.name, b64: toBase64(bytes) } }).catch(() => {});
     try {
       localStorage.setItem("bhReportName", file.name);
     } catch {
@@ -314,6 +313,14 @@ async function loadReportFile(file) {
     markDuplicates();
     return;
   }
+  renderReportInfo();
+  markDuplicates();
+}
+
+async function clearReportFile() {
+  report = null;
+  $("#reportFile").value = "";
+  await chrome.storage.local.remove("bhReport").catch(() => {});
   renderReportInfo();
   markDuplicates();
 }
@@ -339,12 +346,14 @@ function renderReportInfo() {
     const i = report.info;
     setHint(
       "#reportInfo",
-      `✔ '${i.sheet}' 시트 ${i.records.length.toLocaleString()}행(마지막 연번 ${i.lastNo.toLocaleString()}) 아래에 이어 씁니다. ` +
+      `✔ ${report.name} - '${i.sheet}' 시트 ${i.records.length.toLocaleString()}행(마지막 연번 ${i.lastNo.toLocaleString()}) 아래에 이어 씁니다. ` +
         `받을 파일: ${datedFileName(report.name)}` +
         (i.sameFormat ? "" : " ⚠ 머리글 순서가 양식(No·채널·채널명·작성일·제목·작성자·URL)과 달라요 - 새 행은 양식 순서로 씁니다."),
       i.sameFormat ? "ok" : "err",
     );
+    $("#clearReport").hidden = false;
   } else {
+    $("#clearReport").hidden = true;
     const n = dbRecords().length;
     setHint(
       "#reportInfo",
@@ -394,6 +403,7 @@ const STATUS_TEXT = {
   manual: ["✔ 직접 입력", "ok"],
   pass: ["패스", "err"],
   run: ["확인 중…", "run"],
+  error: ["오류 - 이어서 진행 때 다시 확인", "err"],
 };
 
 function renderItems() {
@@ -483,10 +493,55 @@ function updateCounts() {
     (dup ? ` · 이미 보고서에 있음 ${dup}개` : "") +
     (other ? ` · 카페 글 아님 ${other}개` : "") +
     (deleted.length ? ` · 삭제된 게시물 ${deleted.length}개(엑셀에서 뺌)` : "");
-  $("#start").disabled = running || !fresh.some((x) => !clean(x.author));
-  $("#start").textContent = passed.length && passed.length === fresh.length - done.length ? "패스한 글 다시 확인" : "작성자 확인 시작";
+  const todo = pendingItems();
+  const started = fresh.some((x) => x.status && x.status !== "run");
+  $("#start").disabled = running || (!todo.length && !passed.length);
+  $("#start").textContent = running
+    ? "작성자 확인 중…"
+    : todo.length
+      ? started
+        ? `이어서 진행 (남은 ${todo.length}개)`
+        : "작성자 확인 시작"
+      : passed.length
+        ? "패스한 글 다시 확인"
+        : "작성자 확인 완료";
+  $("#resumeBox").hidden = running || !(started && todo.length);
+  $("#resumeText").textContent = `작성자 확인이 ${fresh.length - todo.length}/${fresh.length}개에서 멈춰 있습니다. 끝난 글은 건너뛰고 남은 ${todo.length}개부터 이어서 확인합니다.`;
+  renderWeekCompare();
   $("#save").disabled = running || !done.length;
   $("#stop").disabled = !running;
+}
+
+// 아직 확인하지 않은 글(처음 · 중지 · 오류로 남은 글) - '이어서 진행'의 대상
+function pendingItems() {
+  return items.filter((x) => x.state === "new" && !clean(x.author) && x.status !== "pass");
+}
+
+// 전주 대비: 보고서는 매주 새 글을 아래에 쌓으므로, 지난주 파일의 누적 행 수 → 이번 주 누적 행 수
+function weekCompare() {
+  const added = items.filter((x) => x.state === "new" && clean(x.author));
+  const addedKeys = added.map((x) => x.key);
+  const source = report ? report.info.records.map((r) => articleKey(r.url)) : Object.keys(db);
+  // (엑셀을 받은 뒤에는 이번 글이 DB 에 들어가 있으므로 빼고 센다)
+  const prev = source.filter((k) => !addedKeys.some((a) => sameArticle(a, k))).length;
+  return { prev, now: prev + added.length, diff: added.length };
+}
+
+function compareHtml(c) {
+  const mark =
+    c.diff > 0
+      ? `<span class="up">▲ ${c.diff.toLocaleString()} 건</span>`
+      : c.diff < 0
+        ? `<span class="down">▼ ${(-c.diff).toLocaleString()} 건</span>`
+        : `<span class="same">– 0 건</span>`;
+  return `누적 <b>${c.now.toLocaleString()}건</b> · 전주 ${c.prev.toLocaleString()}건 대비 ${mark}`;
+}
+
+function renderWeekCompare() {
+  const box = $("#weekCompare");
+  const c = weekCompare();
+  box.hidden = !items.length || (!c.prev && !c.diff);
+  box.innerHTML = compareHtml(c) + (pendingItems().length ? ' <span class="hint">(작성자 확인된 글 기준 · 확인 중)</span>' : "");
 }
 
 function persist() {
@@ -494,8 +549,32 @@ function persist() {
   chrome.storage.local.set({ bhLast: { items: plain, listName, at: Date.now() } }).catch(() => {});
 }
 
+function toBase64(bytes) {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+function fromBase64(b64) {
+  const s = atob(b64);
+  const out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+
 async function restoreLast() {
-  const { bhLast } = await chrome.storage.local.get("bhLast").catch(() => ({}));
+  const { bhLast, bhReport } = await chrome.storage.local.get(["bhLast", "bhReport"]).catch(() => ({}));
+  // 지난번에 고른 보고서 파일도 다시 불러온다(창을 닫았다 열어도 이어서 진행할 수 있게)
+  if (bhReport?.b64 && !report) {
+    try {
+      const bytes = fromBase64(bhReport.b64);
+      report = { name: bhReport.name, bytes, info: await analyzeReport(await XlsxTemplate.Workbook.open(bytes)) };
+      renderReportInfo();
+      $("#reportInfo").textContent += " (지난번에 고른 파일)";
+    } catch {
+      report = null;
+    }
+  }
   if (!bhLast?.items?.length) return;
   items = bhLast.items.map((x) => ({ ...x, date: x.date ? new Date(x.date) : null, status: x.status === "run" ? "" : x.status }));
   listName = bhLast.listName || "";
@@ -591,9 +670,142 @@ function findArticleLinkInFrame(articleId, slug) {
 // 탭 다루기
 // ---------------------------------------------------------------------------
 
-async function framesWithin(tabId, func, args = [], ms = 8000) {
-  // 화면이 알림창 등으로 멈춰도 기다리기만 하지 않도록 시간 제한
-  return Promise.race([runInFrames(tabId, func, args), sleep(ms).then(() => [])]);
+// ---------------------------------------------------------------------------
+// 보이지 않게 글 열기
+// 기본: 이 화면 안의 보이지 않는 틀(iframe)에 글을 연다 - 탭·창이 전혀 뜨지 않는다.
+// 틀에서 화면이 열리지 않으면 최소화된 창 하나를 만들어 그 안에서 연다(작업이 끝나면 닫음).
+// ---------------------------------------------------------------------------
+
+let myTabId = null;
+let bgWindow = null; // { windowId, tabId }
+let readMode = "hidden"; // 이번 작업에서 틀이 안 되면 "window" 로 바뀜
+const FRAME_RULE_ID = 701;
+
+// 이 화면(탭) 안의 틀에 한해 네이버의 '틀 안에서 열지 마세요' 머리글을 뺀다
+async function allowFraming() {
+  if (myTabId === null) myTabId = (await chrome.tabs.getCurrent())?.id ?? -1;
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [FRAME_RULE_ID],
+    addRules: [
+      {
+        id: FRAME_RULE_ID,
+        priority: 1,
+        action: {
+          type: "modifyHeaders",
+          responseHeaders: [
+            { header: "x-frame-options", operation: "remove" },
+            { header: "content-security-policy", operation: "remove" },
+            { header: "content-security-policy-report-only", operation: "remove" },
+          ],
+        },
+        condition: { tabIds: [myTabId], requestDomains: ["naver.com"], resourceTypes: ["sub_frame"] },
+      },
+    ],
+  });
+}
+
+async function openHiddenPage(url) {
+  await allowFraming();
+  const frame = document.createElement("iframe");
+  frame.className = "hidden-reader";
+  // allow-top-navigation 을 주지 않아 글 화면이 이 화면을 다른 곳으로 보내지 못한다. 알림창도 뜨지 않는다.
+  frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
+  frame.setAttribute("aria-hidden", "true");
+  frame.tabIndex = -1;
+  const loaded = (ms = 30000) =>
+    new Promise((res) => {
+      const t = setTimeout(res, ms);
+      frame.addEventListener("load", () => (clearTimeout(t), res()), { once: true });
+    });
+  let wait = loaded();
+  frame.src = url;
+  document.body.appendChild(frame);
+  await wait;
+  await sleep(3000);
+  const frames = async () =>
+    ((await chrome.webNavigation.getAllFrames({ tabId: myTabId }).catch(() => [])) || []).filter(
+      (f) => f.frameId !== 0 && /^https?:/.test(f.url),
+    );
+  return {
+    async run(func, args = []) {
+      const list = await frames();
+      const res = await Promise.all(
+        list.map((f) =>
+          chrome.scripting
+            .executeScript({ target: { tabId: myTabId, frameIds: [f.frameId] }, func, args })
+            .then((r) => r[0]?.result)
+            .catch(() => null),
+        ),
+      );
+      return res.filter(Boolean);
+    },
+    // 틀 안에서 링크로 들어간다(검색 화면을 거쳐 온 것으로)
+    async navigate(href) {
+      const top = (await frames()).find((f) => f.parentFrameId === 0);
+      wait = loaded();
+      if (top)
+        await chrome.scripting
+          .executeScript({ target: { tabId: myTabId, frameIds: [top.frameId] }, func: (h) => (location.href = h), args: [href] })
+          .catch(() => (frame.src = href));
+      else frame.src = href;
+      await wait;
+      await sleep(3000);
+    },
+    close() {
+      frame.remove();
+    },
+  };
+}
+
+async function openWindowPage(url) {
+  let tabId = bgWindow ? await chrome.tabs.get(bgWindow.tabId).then((t) => t.id).catch(() => null) : null;
+  if (!tabId) {
+    const w = await chrome.windows.create({ url: "about:blank", state: "minimized", focused: false });
+    bgWindow = { windowId: w.id, tabId: w.tabs[0].id };
+    tabId = bgWindow.tabId;
+  }
+  const settle = async (nav) => {
+    await nav;
+    await sleep(3000);
+  };
+  const nav = waitForNavigation(tabId);
+  await chrome.tabs.update(tabId, { url });
+  await settle(nav);
+  return {
+    run: (func, args = []) => runInFrames(tabId, func, args),
+    async navigate(href) {
+      const n = waitForNavigation(tabId);
+      await chrome.scripting
+        .executeScript({ target: { tabId }, func: (h) => (location.href = h), args: [href] })
+        .catch(() => chrome.tabs.update(tabId, { url: href }));
+      await settle(n);
+    },
+    close() {},
+  };
+}
+
+async function closeWindowPage() {
+  if (bgWindow) await chrome.windows.remove(bgWindow.windowId).catch(() => {});
+  bgWindow = null;
+}
+
+async function withPage(url, fn) {
+  if (readMode === "hidden") {
+    const page = await openHiddenPage(url);
+    try {
+      if ((await framesWithin(page, () => location.href)).length) return await fn(page);
+    } finally {
+      page.close();
+    }
+    log("  보이지 않는 틀에서 화면이 열리지 않아, 최소화된 창으로 바꿔 계속합니다");
+    readMode = "window";
+  }
+  return fn(await openWindowPage(url));
+}
+
+async function framesWithin(page, func, args = [], ms = 8000) {
+  // 화면이 멈춰도 기다리기만 하지 않도록 시간 제한
+  return Promise.race([page.run(func, args), sleep(ms).then(() => [])]);
 }
 
 function waitForNavigation(tabId, ms = 30000) {
@@ -615,16 +827,16 @@ function waitForNavigation(tabId, ms = 30000) {
 }
 
 // 열린 글 화면에서 작성자를 읽는다 → { author, hints } / { deleted } / { blocked } / { login } / {}
-async function pollArticle(tabId) {
+async function pollArticle(page) {
   let blockedSeen = 0;
   let deletedSeen = 0;
   for (let i = 0; i < 8; i++) {
-    const frames = await framesWithin(tabId, readAuthorInFrame);
+    const frames = await framesWithin(page, readAuthorInFrame);
     // 삭제 알림창이 떴던 글은 바로 삭제된 게시물로
     if (frames.some((f) => f.alertDeleted)) return { deleted: true };
     const ok = frames.find((f) => f.nick && f.hasBody && !f.blocked);
     if (ok) {
-      const hints = await framesWithin(tabId, cafeSlugHintsInFrame);
+      const hints = await framesWithin(page, cafeSlugHintsInFrame);
       return { author: ok.nick.replace(/\s*님$/, ""), title: ok.title, hints };
     }
     if (frames.some((f) => f.login)) return { login: true };
@@ -641,7 +853,7 @@ function failReason(r) {
 }
 
 async function readDirect(x) {
-  return withTab(`${x.url}#bhcheck`, (tabId) => pollArticle(tabId)); // #bhcheck: 이 탭의 알림창은 bh-alert.js 가 막고 기록
+  return withPage(`${x.url}#bhcheck`, pollArticle); // #bhcheck: 이 화면의 알림창은 bh-alert.js 가 막고 기록
 }
 
 function searchUrlFor(q) {
@@ -653,10 +865,10 @@ async function readViaSearch(x) {
   const queries = [x.title, `"${x.title}"`].filter((q, i, a) => q && a.indexOf(q) === i);
   for (let qi = 0; qi < queries.length; qi++) {
     log(`  네이버 검색(카페 탭): ${queries[qi]}`);
-    const res = await withTab(searchUrlFor(queries[qi]), async (tabId) => {
+    const res = await withPage(searchUrlFor(queries[qi]), async (page) => {
       let link = null;
       for (let i = 0; i < 8 && !link; i++) {
-        const frames = await framesWithin(tabId, findArticleLinkInFrame, [x.articleId, x.slug || ""]);
+        const frames = await framesWithin(page, findArticleLinkInFrame, [x.articleId, x.slug || ""]);
         link = frames.flatMap((f) => f.hits)[0] || null;
         if (!link && frames.some((f) => f.noResult)) break;
         if (!link) await sleep(1500);
@@ -664,13 +876,8 @@ async function readViaSearch(x) {
       if (!link) return { notFound: true };
       log(`  검색 결과의 링크로 들어갑니다`);
       await sleep(randomBetween([1000, 2500]));
-      const nav = waitForNavigation(tabId);
-      await chrome.scripting
-        .executeScript({ target: { tabId }, func: (href) => (location.href = href), args: [link.href.replace(/#.*$/, "") + "#bhcheck"] })
-        .catch(() => {});
-      await nav;
-      await sleep(3000);
-      return { ...(await pollArticle(tabId)), link: link.href };
+      await page.navigate(link.href.replace(/#.*$/, "") + "#bhcheck");
+      return { ...(await pollArticle(page)), link: link.href };
     });
     if (res.author || !res.notFound) return res;
     if (qi < queries.length - 1) await sleep(randomBetween(CAFE_PAGE_DELAY));
@@ -734,61 +941,176 @@ async function checkLogin() {
   return ok;
 }
 
+// ---------------------------------------------------------------------------
+// 작업 중 표시(로딩 바) · 뒤로 가기 막기
+// ---------------------------------------------------------------------------
+
+const BASE_TITLE = document.title;
+
+function setBusy(done, total, text) {
+  const box = $("#busy");
+  if (total === null) {
+    box.hidden = true;
+    document.title = BASE_TITLE;
+    chrome.action.setBadgeText({ text: "" }).catch(() => {});
+    chrome.storage.local.set({ bhBadgeTick: Date.now() }).catch(() => {}); // '보고' 표시를 다시 계산
+    return;
+  }
+  const pct = total ? Math.floor((done / total) * 100) : 0;
+  box.hidden = false;
+  $("#busyCount").textContent = `${done}/${total} (${pct}%)`;
+  $("#busyDetail").textContent = text || "";
+  $("#busyBar").style.width = `${Math.max(3, pct)}%`;
+  document.title = `⏳ ${done}/${total} 작성자 확인 중 - ${BASE_TITLE}`;
+  chrome.action.setBadgeText({ text: `${pct}%` }).catch(() => {});
+  chrome.action.setBadgeBackgroundColor({ color: "#f39800" }).catch(() => {});
+}
+
+function toast(text) {
+  const t = $("#toast");
+  t.textContent = text;
+  t.hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => (t.hidden = true), 3500);
+}
+
+function onBeforeUnload(e) {
+  if (!running) return;
+  e.preventDefault();
+  e.returnValue = ""; // 창 닫기·새로고침·뒤로 가기 전에 '나가시겠습니까?' 확인
+}
+
+function onPopState() {
+  if (!running) return;
+  window.history.pushState({ bhGuard: 1 }, "", location.href); // 뒤로 가기(마우스 제스처 등)를 되돌린다
+  toast("작성자 확인 중에는 뒤로 가기가 막혀 있습니다. 끝나거나 [중지]를 누른 뒤에 이동하세요.");
+}
+
+function onGuardKey(e) {
+  if (!running) return;
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || "") || e.target?.isContentEditable;
+  const back =
+    (e.key === "Backspace" && !typing) ||
+    (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) ||
+    (e.metaKey && (e.key === "[" || e.key === "]" || e.key === "ArrowLeft" || e.key === "ArrowRight")) ||
+    e.key === "BrowserBack" ||
+    e.key === "BrowserForward" ||
+    e.key === "F5" ||
+    ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r");
+  if (back) {
+    e.preventDefault();
+    e.stopPropagation();
+    toast("작성자 확인 중에는 뒤로 가기·새로고침이 막혀 있습니다.");
+  }
+}
+
+function onMouseBack(e) {
+  // 마우스 옆 버튼(뒤로/앞으로)
+  if (running && (e.button === 3 || e.button === 4)) {
+    e.preventDefault();
+    toast("작성자 확인 중에는 뒤로 가기가 막혀 있습니다.");
+  }
+}
+
+function guardOn() {
+  window.history.pushState({ bhGuard: 1 }, "", location.href);
+  window.addEventListener("beforeunload", onBeforeUnload);
+  window.addEventListener("popstate", onPopState);
+  window.addEventListener("keydown", onGuardKey, true);
+  window.addEventListener("mouseup", onMouseBack, true);
+  window.addEventListener("mousedown", onMouseBack, true);
+}
+
+function guardOff() {
+  window.removeEventListener("beforeunload", onBeforeUnload);
+  window.removeEventListener("popstate", onPopState);
+  window.removeEventListener("keydown", onGuardKey, true);
+  window.removeEventListener("mouseup", onMouseBack, true);
+  window.removeEventListener("mousedown", onMouseBack, true);
+}
+
+// 남은 글(처음 · 중지 · 오류로 남은 글)부터 확인한다. 남은 글이 없으면 패스한 글을 다시 확인한다.
 async function run() {
   if (running) return;
-  const targets = items.filter((x) => x.state === "new" && !clean(x.author));
+  let targets = pendingItems();
+  if (!targets.length) targets = items.filter((x) => x.state === "new" && !clean(x.author) && x.status === "pass");
   if (!targets.length) return;
+  const fresh = items.filter((x) => x.state === "new");
+  const before = fresh.length - targets.length;
   running = true;
   stopRequested = false;
-  $("#log").innerHTML = "";
+  readMode = $("#readMode").value === "window" ? "window" : "hidden";
+  guardOn();
+  chrome.storage.local.set({ bhRun: { active: true, at: Date.now() } }).catch(() => {});
   setHint("#saveInfo", "");
+  if (before) log(`— 이어서 진행: 끝난 ${before}개는 건너뛰고 남은 ${targets.length}개를 확인합니다`);
   renderItems();
   let ok = 0;
   let pass = 0;
   let removed = 0;
-  for (let i = 0; i < targets.length; i++) {
-    if (stopRequested) break;
-    const x = targets[i];
-    x.status = "run";
-    x.note = "";
-    renderItems();
-    setSummary(`작성자 확인 중… ${i + 1}/${targets.length} - ${x.title}`);
-    log(`[${i + 1}/${targets.length}] ${x.cafe} · ${x.title}`);
-    let r;
-    try {
-      r = await findAuthor(x);
-    } catch (e) {
-      r = { reason: e.message };
+  let errors = 0;
+  try {
+    for (let i = 0; i < targets.length; i++) {
+      if (stopRequested) break;
+      const x = targets[i];
+      x.status = "run";
+      x.note = "";
+      renderItems();
+      setSummary(`작성자 확인 중… ${before + i + 1}/${fresh.length} - ${x.title}`);
+      setBusy(before + i, fresh.length, `${x.cafe} · ${x.title}`);
+      log(`[${before + i + 1}/${fresh.length}] ${x.cafe} · ${x.title}`);
+      let r;
+      try {
+        r = await findAuthor(x);
+      } catch (e) {
+        r = { error: e.message || String(e) };
+      }
+      if (r.deleted) {
+        x.state = "deleted";
+        x.status = "";
+        x.note = "삭제된 게시물";
+        removed++;
+        log(`  삭제된 게시물 - 엑셀에 넣지 않습니다`);
+      } else if (r.author) {
+        x.author = r.author;
+        x.status = r.via === "search" ? "search" : "ok";
+        await learnSlug(x, r.hints);
+        ok++;
+        log(`  ✔ 작성자: ${r.author}`);
+      } else if (r.error) {
+        // 오류는 패스가 아니라 '남은 글'로 둔다 → 이어서 진행 때 다시 확인
+        x.status = "error";
+        x.note = r.error;
+        errors++;
+        log(`  오류 - ${r.error} (이어서 진행 때 다시 확인합니다)`);
+      } else {
+        x.status = "pass";
+        x.note = r.reason;
+        pass++;
+        log(`  패스 - ${r.reason}`);
+      }
+      renderItems();
+      persist();
+      setBusy(before + i + 1, fresh.length, `${x.cafe} · ${x.title}`);
+      if (i < targets.length - 1 && !stopRequested) await sleep(randomBetween(CAFE_ARTICLE_DELAY));
     }
-    if (r.deleted) {
-      x.state = "deleted";
-      x.status = "";
-      x.note = "삭제된 게시물";
-      removed++;
-      log(`  삭제된 게시물 - 엑셀에 넣지 않습니다`);
-    } else if (r.author) {
-      x.author = r.author;
-      x.status = r.via === "search" ? "search" : "ok";
-      await learnSlug(x, r.hints);
-      ok++;
-      log(`  ✔ 작성자: ${r.author}`);
-    } else {
-      x.status = "pass";
-      x.note = r.reason;
-      pass++;
-      log(`  패스 - ${r.reason}`);
-    }
+  } finally {
+    for (const x of items) if (x.status === "run") x.status = "";
+    running = false;
+    guardOff();
+    setBusy(0, null);
+    await closeWindowPage();
+    await chrome.storage.local.set({ bhRun: { active: false, at: Date.now() } }).catch(() => {});
     renderItems();
     persist();
-    if (i < targets.length - 1 && !stopRequested) await sleep(randomBetween(CAFE_ARTICLE_DELAY));
   }
-  for (const x of items) if (x.status === "run") x.status = "";
-  running = false;
-  renderItems();
-  persist();
+  const left = pendingItems().length;
   setSummary(
-    `${stopRequested ? "중지했습니다" : "작성자 확인을 마쳤습니다"} - 확인 ${ok}개 · 패스 ${pass}개${removed ? ` · 삭제된 게시물 ${removed}개(엑셀에서 뺌)` : ""}. '엑셀 받기'를 누르세요.`,
-    pass ? "" : "ok",
+    `${stopRequested ? "중지했습니다" : "작성자 확인을 마쳤습니다"} - 확인 ${ok}개 · 패스 ${pass}개` +
+      (removed ? ` · 삭제된 게시물 ${removed}개(엑셀에서 뺌)` : "") +
+      (errors ? ` · 오류 ${errors}개` : "") +
+      (left ? `. 남은 ${left}개는 '이어서 진행'을 누르면 거기서부터 확인합니다.` : ". '엑셀 받기'를 누르세요."),
+    pass || left ? "" : "ok",
   );
 }
 
@@ -834,6 +1156,7 @@ async function saveReport() {
   if (!fresh.length) return;
   const passed = items.filter((x) => x.state === "new" && !clean(x.author)).length;
   const removed = items.filter((x) => x.state === "deleted").length;
+  const compare = weekCompare(); // DB 에 넣기 전에 센다
   try {
     let bytes;
     let all;
@@ -854,7 +1177,7 @@ async function saveReport() {
     const name = datedFileName(report ? report.name : rememberedReportName());
     downloadBytes(bytes, name);
     await addToDb(all, name);
-    history.unshift({ at: Date.now(), file: name, added: fresh.length, passed, deleted: removed, total: all.length });
+    history.unshift({ at: Date.now(), file: name, added: fresh.length, passed, deleted: removed, total: all.length, prev: compare.prev });
     await chrome.storage.local.set({ bhHistory: history.slice(0, 200), bhLastReportDay: ymd(new Date()) }).catch(() => {});
     renderSchedule();
     renderDb();
@@ -867,6 +1190,7 @@ async function saveReport() {
         `. 파일의 ${all.length.toLocaleString()}행을 DB 목록에 저장했습니다.`,
       "ok",
     );
+    $("#saveInfo").insertAdjacentHTML("beforeend", `<div class="compare">${compareHtml(compare)}</div>`);
   } catch (e) {
     setHint("#saveInfo", `엑셀을 만들지 못했습니다: ${e.message}`, "err");
   }
@@ -931,13 +1255,14 @@ function renderDb() {
   hb.innerHTML = "";
   for (const h of history) {
     const tr = document.createElement("tr");
-    tr.innerHTML = "<td class=nowrap></td><td></td><td></td><td></td><td></td><td></td>";
+    tr.innerHTML = "<td class=nowrap></td><td></td><td></td><td></td><td></td><td></td><td></td>";
     tr.children[0].textContent = new Date(h.at).toLocaleString();
     tr.children[1].textContent = h.file;
     tr.children[2].textContent = h.added ?? "";
     tr.children[3].textContent = h.passed ?? "";
     tr.children[4].textContent = h.deleted ?? "";
     tr.children[5].textContent = h.total ?? "";
+    if (h.prev !== undefined) tr.children[6].innerHTML = compareHtml({ prev: h.prev, now: h.total, diff: h.total - h.prev }).replace(/^누적 <b>[^<]*<\/b> · 전주 [^ ]* 대비 /, "");
     hb.appendChild(tr);
   }
   if (!report) renderReportInfo();
@@ -1000,7 +1325,7 @@ async function init() {
   showTab();
   window.addEventListener("hashchange", showTab);
   renderReportInfo();
-  for (const id of ["searchFirst", "searchUrl", "keepGaps", "extraHolidays"]) {
+  for (const id of ["searchFirst", "searchUrl", "keepGaps", "extraHolidays", "readMode"]) {
     $(`#${id}`).addEventListener("change", async () => {
       await saveSettings();
       if (id === "extraHolidays") renderSchedule();
@@ -1011,12 +1336,15 @@ async function init() {
     $("#searchFirst").value = DEFAULT_SEARCH_FIRST;
     $("#searchUrl").value = DEFAULT_SEARCH_URL;
     $("#keepGaps").checked = true;
+    $("#readMode").value = "hidden";
     await saveSettings();
     renderItems();
   });
   $("#listFile").addEventListener("change", (e) => loadListFile(e.target.files[0]));
   $("#reportFile").addEventListener("change", (e) => loadReportFile(e.target.files[0]));
   $("#start").addEventListener("click", run);
+  $("#resume").addEventListener("click", run);
+  $("#clearReport").addEventListener("click", clearReportFile);
   $("#stop").addEventListener("click", () => {
     stopRequested = true;
     $("#stop").disabled = true;
@@ -1033,6 +1361,12 @@ async function init() {
   });
   checkLogin();
   await restoreLast();
+  // 지난번 작업 중에 창이 닫혔거나 멈췄으면 알려 준다
+  const { bhRun } = await chrome.storage.local.get("bhRun").catch(() => ({}));
+  if (bhRun?.active && pendingItems().length) {
+    await chrome.storage.local.set({ bhRun: { active: false, at: Date.now() } }).catch(() => {});
+    $("#resumeText").textContent = `지난 작성자 확인이 중간에 끊겼습니다. ` + $("#resumeText").textContent;
+  }
 }
 
 init();

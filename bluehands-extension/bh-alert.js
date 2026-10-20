@@ -10,7 +10,11 @@
     } catch {
       /* 다른 사이트 프레임 */
     }
-    if (/#bhcheck\b/.test(location.hash) || /#bhcheck\b/.test(topHash)) sessionStorage.setItem("bhCheck", "1");
+    if (/#bhcheck\b/.test(location.hash)) {
+      // 새 글을 열 때마다 지난 글의 알림창 기록은 지운다(같은 화면 안에서 여러 글을 차례로 읽으므로)
+      sessionStorage.setItem("bhCheck", "1");
+      sessionStorage.removeItem("bhAlert");
+    } else if (/#bhcheck\b/.test(topHash)) sessionStorage.setItem("bhCheck", "1");
     ours = sessionStorage.getItem("bhCheck") === "1";
   } catch {
     return;
