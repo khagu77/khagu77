@@ -191,22 +191,22 @@
       const body = visuals.body ? sizeAt(visuals.body, scale, G.xRight - G.xBody) : null;
       return { scale, cs, body, avail, fits: !body || body.h <= avail };
     };
-    // 안 들어가면: 51% → 46% → 댓글 수 줄이기(1개까지) → 그래도 안 되면 댓글 2개 두고 본문 아래를 자름
+    // 담당자가 고른 댓글(최대 2개)은 반드시 모두 넣는다 (2026-10-20 담당자 지적: 2개 골랐는데 1개만 들어감)
+    // 안 들어가면: 51% → 46% → 본문을 두 단으로 나눔 → 본문 아래를 자름. 본문 자리가 거의 없을 때만 댓글을 줄인다
     const n = comments.length;
-    const tries = [[n, SCALES[0]], [n, SCALES[1]]];
-    for (let k = n - 1; k >= Math.min(1, n); k--) tries.push([k, SCALES[1]]);
-    let chosen = null;
-    for (const [k, s] of tries) {
-      chosen = plan(k, s);
-      if (chosen.fits) break;
-    }
-    // 본문이 아주 길면: 댓글을 줄이거나 자르기 전에 본문을 줄 경계에서 둘로 나눠 두 단으로 나란히 놓는다
+    let chosen = plan(n, SCALES[0]);
+    if (!chosen.fits) chosen = plan(n, SCALES[1]);
     let split = null;
-    if (!chosen.fits && visuals.body) split = splitBody(visuals.body, plan(n, SCALES[1]), y);
+    if (!chosen.fits && visuals.body) split = splitBody(visuals.body, chosen, y);
     if (split) {
       chosen = split.plan;
       placements.push(...split.placements);
-    } else if (!chosen.fits) chosen = plan(Math.min(2, n), SCALES[1]);
+    } else if (!chosen.fits) {
+      for (let k = n; k >= Math.min(1, n); k--) {
+        chosen = plan(k, SCALES[1]);
+        if (chosen.avail >= 2 * CM) break;
+      }
+    }
     if (!split && visuals.body && chosen.body && chosen.avail > 0.5 * CM) {
       const b = chosen.body;
       const crop = b.h > chosen.avail ? chosen.avail / b.h : 1;
