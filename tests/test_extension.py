@@ -314,13 +314,14 @@ LX3_SEARCH = {
         ("1003", "2열 시트 폴딩 오류", "2026.10.11."),
         ("1004", "시트 리콜 언제 하나요", "2026.10.11."),
         ("1005", "오늘 오후 시트 리콜 글", "2026.10.12. 13:00"),
+        ("1010", "카시트 질문", "2026.10.11."),  # 관련 없는 글(체크 해제)이지만 날짜만 보여 열어서 확인 → 오전 글이라 뺌
     ],
     ("111", 2): [("1006", "전동 시트 사망 사고 기사", "2026.10.11. 12:30"), ("1007", "옛날 시트 글", "2026.10.10.")],
     ("111", 3): [("1008", "더 옛날 시트 글", "2026.10.09.")],
     ("222", 1): [("20001", "아이오닉9 전동시트 리콜 공지", "2026.10.11.")],
 }
 # 게시글 화면의 정확한 작성 시간
-LX3_TIMES = {"1003": "2026.10.11. 15:22", "1004": "2026.10.11. 08:00", "20001": "2026.10.11. 18:05", "1001": "2026.10.12. 09:30"}
+LX3_TIMES = {"1010": "2026.10.11. 10:00", "1003": "2026.10.11. 15:22", "1004": "2026.10.11. 08:00", "20001": "2026.10.11. 18:05", "1001": "2026.10.12. 09:30"}
 NAVER_ME = {"/xSBkYEbW": "https://cafe.naver.com/f-e/cafes/111/articles/1001"}
 
 
@@ -392,13 +393,13 @@ def make_buzz_file(path: Path):
     thin = Side(style="thin")
     ws.append([])
     ws["B4"], ws["C4"], ws["D4"], ws["E4"], ws["F4"], ws["G4"] = 1, "언론", "연합뉴스", dt(2026, 3, 14, 7, 59), "기사", "https://n.news.naver.com/x"
-    ws["B5"], ws["C5"], ws["D5"], ws["E5"], ws["F5"], ws["G5"] = 2, "동호회", "AA 동호회", dt(2026, 10, 12), "이미 있는 글", "https://cafe.naver.com/aacafe/1001"
+    ws["B5"], ws["C5"], ws["D5"], ws["E5"], ws["F5"], ws["G5"] = 2, "동호회", "AA 동호회", dt(2026, 10, 12), "이미 있는 글", "https://cafe.naver.com/f-e/cafes/111/articles/1001"
     for c in "BCDEFG":
         ws[f"{c}5"].font = Font(name="맑은 고딕", size=11)
         ws[f"{c}5"].border = Border(left=thin, right=thin, top=thin, bottom=thin)
     ws["E5"].number_format = "yyyy-mm-dd"
     ws["B5"].alignment = Alignment(horizontal="center")
-    ws["G5"].hyperlink = "https://cafe.naver.com/aacafe/1001"
+    ws["G5"].hyperlink = "https://cafe.naver.com/f-e/cafes/111/articles/1001"
     ws.freeze_panes = "A4"
     wb.save(path)
 
@@ -570,6 +571,7 @@ def test_lx3(tmp_path: Path):
     server.shutdown()
     assert naver_api == []
     assert not any("page=4" in r for r in server.requests), server.requests  # 모두 기간 이전인 3페이지에서 멈춤
+    assert any(r.startswith("/f-e/cafes/111/articles/1010") for r in server.requests)  # 체크 해제된 글도 시간 확인
 
     # 엑셀 '복구' 경고가 나지 않게: 틀 고정(3행) 아래에서 화면이 시작해야 한다
     import re
@@ -585,7 +587,7 @@ def test_lx3(tmp_path: Path):
     assert [d[0] for d in data] == [1, 2, 3, 4]
     assert [d[1] for d in data] == ["동호회"] * 4
     assert [d[2] for d in data] == ["AA 동호회", "AA 동호회", "BB 오너스 - 비비", "AA 동호회"]
-    assert data[1][3] == datetime(2026, 10, 11, 15, 22)
+    assert data[1][3] == datetime(2026, 10, 11)  # 엑셀 게시일은 날짜만 (작성 시간은 결과 표에)
     assert [d[5] for d in data] == ["https://cafe.naver.com/aacafe/1006", "https://cafe.naver.com/aacafe/1003",
                                      "https://cafe.naver.com/bbcafe/20001", "https://cafe.naver.com/aacafe/1001"]
     assert ws["G5"].hyperlink.target == "https://cafe.naver.com/aacafe/1003"
@@ -595,7 +597,7 @@ def test_lx3(tmp_path: Path):
     data = [[c.value for c in r[1:7]] for r in ws.iter_rows(min_row=4)]
     assert [d[0] for d in data] == [1, 2, 3, 4]
     assert [d[5] for d in data[2:]] == ["https://cafe.naver.com/aacafe/1003", "https://cafe.naver.com/bbcafe/20001"]
-    assert ws["G5"].hyperlink.target == "https://cafe.naver.com/aacafe/1001"  # 기존 링크 유지
+    assert ws["G5"].hyperlink.target == "https://cafe.naver.com/f-e/cafes/111/articles/1001"  # 기존 링크 유지
     assert ws["G7"].hyperlink.target == "https://cafe.naver.com/bbcafe/20001"
     assert ws["B7"].border.left.style == "thin" and ws["E7"].number_format == "yyyy-mm-dd"  # 마지막 동호회 행 서식
 

@@ -609,10 +609,12 @@ async function search() {
   }
 
   // 날짜만 보이는 관련 글(예: 어제 글)은 글을 열어 정확한 시간을 확인한다
-  const toCheck = items.filter((x) => x.ambiguous && x.checked);
+  // 목록에 날짜만 보이는 글(예: 어제 글)은 모두 글을 열어 작성 시간을 확인하고, 기간 밖이면 뺀다 (관련 글 먼저)
+  const toCheck = items.filter((x) => x.ambiguous).sort((a, b) => Number(b.related) - Number(a.related));
+  if (toCheck.length) log(`· 날짜만 보이는 글 ${toCheck.length}개의 작성 시간을 확인합니다 (글 하나에 10초 안팎)`);
   for (let i = 0; i < toCheck.length && !stopRequested; i++) {
     const item = toCheck[i];
-    setSummary(`날짜만 보이는 글의 시간 확인 중… (${i + 1}/${toCheck.length})`);
+    setSummary(`날짜만 보이는 글의 작성 시간 확인 중… (${i + 1}/${toCheck.length})`);
     await sleep(randomBetween(CAFE_ARTICLE_DELAY));
     const res = await readArticleTime(`https://cafe.naver.com/f-e/cafes/${item.cafeId}/articles/${item.articleId}`);
     if (res.found) {
@@ -620,7 +622,7 @@ async function search() {
       const place = placeInRange(parsed, win);
       if (place === "older" || place === "newer") {
         items = items.filter((x) => x !== item);
-        log(`· 기간 밖이라 뺌: ${item.title} (${formatDateTime(parsed.date)})`);
+        log(`· 기간 밖이라 뺌: ${item.title} (${formatDateTime(parsed.date)} 작성)`);
       } else {
         item.date = parsed.date;
         item.hasTime = true;
@@ -734,9 +736,12 @@ function updateCounts() {
   $("#checkAll").checked = !!items.length && n === items.length;
 }
 
+// 같은 글인지 비교하는 열쇠: 카페(영문 주소, 모르면 카페 번호) + 글번호
+// (https://cafe.naver.com/allumpc/1340146 과 …/f-e/cafes/16624720/articles/1340146 은 같은 글)
 function normUrl(u) {
   const ids = parseArticleUrl(String(u || ""));
-  if (ids.articleId && ids.cafeUrl) return `${ids.cafeUrl}/${ids.articleId}`.toLowerCase();
+  const cafe = ids.cafeUrl || (ids.cafeId && cafeSlugs[ids.cafeId]) || ids.cafeId;
+  if (ids.articleId && cafe) return `${cafe}/${ids.articleId}`.toLowerCase();
   return String(u || "")
     .trim()
     .replace(/^http:/, "https:")
@@ -746,7 +751,8 @@ function normUrl(u) {
 
 function markDuplicates() {
   const base = baseFile();
-  const have = base ? base.urls : new Set();
+  // 비교 열쇠는 그때그때 만든다 (찾는 중에 알게 된 카페 영문 주소까지 반영)
+  const have = new Set((base ? base.urls : []).map(normUrl));
   for (const item of items) {
     const was = item.dup;
     item.dup = have.has(normUrl(articleUrl(item)));
@@ -774,12 +780,12 @@ async function analyzeList(wb) {
   let lastRow = HEADER_ROW;
   let lastSerial = 0;
   let styleRow = null;
-  const urls = new Set();
+  const urls = []; // G열 URL 그대로 (비교 열쇠는 markDuplicates 에서)
   for (const r of rows) {
     lastRow = Math.max(lastRow, r.r);
     const n = Number(r.cells.B);
     if (Number.isFinite(n)) lastSerial = Math.max(lastSerial, n);
-    if (r.cells.G) urls.add(normUrl(r.cells.G));
+    if (r.cells.G) urls.push(String(r.cells.G));
   }
   for (const r of rows) if (String(r.cells.C || "").trim() === "동호회" && (!styleRow || r.r > styleRow)) styleRow = r.r;
   return { sheet, lastRow, lastSerial, styleRow: styleRow || (rows.length ? lastRow : HEADER_ROW + 1), count: rows.length, urls };
@@ -838,7 +844,8 @@ async function buildList(selected) {
   let serial = info.lastSerial;
   const values = selected.map((x) => [
     null, ++serial, "동호회", cafeNames[x.cafeId] || x.cafeId,
-    x.date ? excelSerial(x.hasTime ? x.date : new Date(x.date.getFullYear(), x.date.getMonth(), x.date.getDate())) : "",
+    // 게시일은 기존 파일처럼 날짜만 (작성 시간은 결과 표에서 확인)
+    x.date ? excelSerial(new Date(x.date.getFullYear(), x.date.getMonth(), x.date.getDate())) : "",
     x.title, articleUrl(x),
   ]);
   await wb.replaceRowsAfter(info.sheet, info.lastRow, values, info.styleRow, { focusFirstNew: true });
