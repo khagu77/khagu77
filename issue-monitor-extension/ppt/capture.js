@@ -885,11 +885,18 @@ function specCandidates(sources) {
     while ((m = turbo.exec(text))) add(`${m[1]}T`, from, text, m.index);
     const hev = /하이브리드|HEV|(?<![A-Z])HV(?![A-Z])/g;
     while ((m = hev.exec(text))) add("HEV", from, text, m.index);
+    // LPI·디젤: 배기량이 붙어 있으면 "3.5 LPI", "3.0D" 처럼 (2026-10-20 담당자 지정)
+    const lpiN = /(\d\.\d)\s*(?:LPG|LPI)|(?:LPG|LPI)\s*(\d\.\d)/gi;
+    let hasN = false;
+    while ((m = lpiN.exec(text))) (hasN = true), add(`${m[1] || m[2]} LPI`, from, text, m.index);
     const lpi = /LPG|LPI/gi;
-    while ((m = lpi.exec(text))) add("LPI", from, text, m.index);
+    if (!hasN) while ((m = lpi.exec(text))) add("LPI", from, text, m.index);
+    const dslN = /(\d\.\d)\s*(?:D(?![a-z])|디젤)|디젤\s*(\d\.\d)/gi;
+    hasN = false;
+    while ((m = dslN.exec(text))) (hasN = true), add(`${m[1] || m[2]}D`, from, text, m.index);
     const dsl = /디젤/g;
-    while ((m = dsl.exec(text))) add("디젤", from, text, m.index);
-    const cc = /(?<![\d.])(1\.6|2\.0|2\.2|2\.5|3\.0|3\.3|3\.5|3\.8)(?![\d.%]|\s*(?:T(?![a-z])|터보|km|키로|만|배|버전|ver|v\b|초|L\/|리터))/gi;
+    if (!hasN) while ((m = dsl.exec(text))) add("디젤", from, text, m.index);
+    const cc = /(?<![\d.]|디젤\s*|LPG\s*|LPI\s*)(1\.6|2\.0|2\.2|2\.5|3\.0|3\.3|3\.5|3\.8)(?![\d.%]|\s*(?:T(?![a-z])|터보|D(?![a-z])|디젤|LPG|LPI|km|키로|만|배|버전|ver|v\b|초|L\/|리터))/gi;
     while ((m = cc.exec(text))) {
       const near = text.slice(Math.max(0, m.index - 20), m.index + 25);
       if (SPEC_NEAR_RE.test(near)) add(m[1], from, text, m.index);

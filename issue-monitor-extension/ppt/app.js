@@ -123,6 +123,9 @@ const TURBO_ONLY = {
 };
 function normSpec(code, spec) {
   let v = String(spec || "").trim().replace(/\s*(t|터보)$/i, "T");
+  // 디젤은 "3.0D", LPI 는 "3.5 LPI" (배기량을 알면), 모르면 "디젤" / "LPI"
+  v = v.replace(/^(\d\.\d)\s*(d|디젤)$/i, "$1D").replace(/^(디젤|diesel)\s*(\d\.\d)$/i, "$2D");
+  v = v.replace(/^(\d\.\d)\s*(lpg|lpi)$/i, "$1 LPI").replace(/^(lpg|lpi)\s*(\d\.\d)$/i, "$2 LPI").replace(/^lpg$/i, "LPI");
   if (/^\d\.\d$/.test(v) && (TURBO_ONLY[String(code || "").split(/\s+/)[0]] || []).includes(v)) v += "T";
   return v || "-";
 }
