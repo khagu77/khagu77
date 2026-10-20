@@ -139,3 +139,16 @@ body.embedded main { padding-top: 4px; }
 .learnbox { margin: 10px 0; padding: 8px 10px; border: 1px dashed #b9c6da; border-radius: 8px; background: #f7f9fc; }
 .learnbox .filebtn { display: inline-block; padding: 4px 10px; border: 1px solid #c9ced6; border-radius: 6px; background: #fff; cursor: pointer; margin-right: 8px; }
 .summary { white-space: pre-line; }
+
+/* 캡처 크게 보기 */
+.shot img, .preview canvas { cursor: zoom-in; }
+#zoomBox { position: fixed; inset: 0; z-index: 2000; background: rgba(0, 0, 0, 0.82); display: flex; flex-direction: column; }
+#zoomBox[hidden] { display: none; }
+#zoomBox .zoom-bar { display: flex; gap: 12px; align-items: center; padding: 10px 16px; color: #fff; font-size: 14px; }
+#zoomBox .zoom-bar .hint { color: #cfd6e0; flex: 1; }
+#zoomBox .zoom-label { font-weight: 700; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#zoomBox .zoom-close { background: #fff; color: #111; border: 0; border-radius: 6px; padding: 6px 12px; font-weight: 700; cursor: pointer; }
+#zoomBox .zoom-body { flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center; padding: 8px 16px 16px; }
+#zoomBox .zoom-body img { max-width: 100%; max-height: 100%; background: #fff; cursor: zoom-in; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5); }
+#zoomBox.actual .zoom-body { align-items: flex-start; justify-content: flex-start; }
+#zoomBox.actual .zoom-body img { max-width: none; max-height: none; cursor: zoom-out; }

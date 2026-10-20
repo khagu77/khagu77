@@ -78,7 +78,21 @@ class WorkerTab {
       }
     }
     if (tabId === null) {
-      const tab = await chrome.tabs.create({ url: "about:blank", active: false });
+      // 수집용 화면은 화면에 띄우지 않는다: 최소화한 창 하나를 계속 다시 쓴다 (담당자 요청 2026-10-20: 실수로 닫는 일 방지)
+      // 창을 못 만들면 예전처럼 뒤쪽 탭으로
+      let tab;
+      try {
+        // 지난 수집이 새로고침·창 닫힘으로 끊겨 남아 있는 수집용 창은 먼저 닫는다
+        const { workerWinId } = await chrome.storage.local.get("workerWinId");
+        if (workerWinId) await chrome.windows.remove(workerWinId).catch(() => {});
+        const win = await chrome.windows.create({ url: "about:blank", state: "minimized" });
+        tab = win.tabs[0];
+        this.winId = win.id;
+        await chrome.storage.local.set({ workerWinId: win.id });
+      } catch {
+        tab = await chrome.tabs.create({ url: "about:blank", active: false });
+        this.winId = null;
+      }
       this.tabId = tabId = tab.id;
       chrome.tabs.update(tabId, { autoDiscardable: false }).catch(() => {}); // 메모리 절약으로 버려지지 않게
       await sleep(500);
@@ -134,8 +148,13 @@ class WorkerTab {
 
   async close() {
     if (this.tabId !== null) {
+      if (this.winId) {
+        await chrome.windows.remove(this.winId).catch(() => {});
+        await chrome.storage.local.remove("workerWinId");
+      }
       await chrome.tabs.remove(this.tabId).catch(() => {});
       this.tabId = null;
+      this.winId = null;
     }
   }
 }

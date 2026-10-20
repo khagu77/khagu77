@@ -762,16 +762,65 @@ function cdp(tabId, method, params = {}) {
   return chrome.debugger.sendCommand({ tabId }, method, params);
 }
 
-// 창을 열고 바로 크롬 디버거를 붙인다: 화면 배율 고정 + 삭제 안내 같은 알림창(alert)을 자동으로 닫고 문구를 기록
+// 캡처용 창: 화면에 띄우지 않고(최소화) 한 개를 계속 다시 쓴다 (담당자 요청 2026-10-20: 창이 떴다 사라지며 실수로 닫는 일 방지)
+// 최소화 창에서 캡처가 안 되는 PC 면 한 번만 확인하고, 그다음부터는 작은 창 하나를 띄워 둔 채 계속 쓴다 (글마다 열고 닫지 않음)
+// 담당자가 창을 닫아 버려도 다음 글에서 새로 연다. 30초 동안 안 쓰면 저절로 닫힌다.
+let capWin = null; // { winId, tabId, hidden }
+let capIdleTimer = null;
+let capHiddenChecked = false;
+
+async function captureWindow() {
+  clearTimeout(capIdleTimer);
+  if (capWin) {
+    try {
+      await chrome.tabs.get(capWin.tabId);
+      return capWin;
+    } catch {
+      capWin = null; // 담당자가 닫음 → 새로 연다
+    }
+  }
+  const { captureHidden, captureWinId } = await chrome.storage.local.get(["captureHidden", "captureWinId"]).catch(() => ({}));
+  if (captureWinId) await chrome.windows.remove(captureWinId).catch(() => {}); // 지난번에 끊겨 남은 캡처 창
+  const hidden = captureHidden !== false;
+  const win = await chrome.windows.create(
+    hidden
+      ? { url: "about:blank", state: "minimized" }
+      : { url: "about:blank", focused: false, type: "normal", width: CAPTURE_WIDTH, height: CAPTURE_HEIGHT },
+  );
+  capWin = { winId: win.id, tabId: win.tabs[0].id, hidden };
+  await chrome.storage.local.set({ captureWinId: win.id }).catch(() => {});
+  return capWin;
+}
+
+async function closeCaptureWindow() {
+  clearTimeout(capIdleTimer);
+  if (!capWin) return;
+  const id = capWin.winId;
+  capWin = null;
+  await chrome.windows.remove(id).catch(() => {});
+  await chrome.storage.local.remove("captureWinId").catch(() => {});
+}
+
+// 최소화 창에서도 화면 캡처가 되는지 한 번 확인 (안 되면 작은 창으로 띄워서 계속)
+async function ensureCapturable(tabId) {
+  if (!capWin || !capWin.hidden || capHiddenChecked) return;
+  capHiddenChecked = true;
+  const ok = await withTimeout(cdp(tabId, "Page.captureScreenshot", { format: "png", clip: { x: 0, y: 0, width: 10, height: 10, scale: 1 } }), 6000)
+    .then((r) => !!(r && r.data))
+    .catch(() => false);
+  if (ok) {
+    await chrome.storage.local.set({ captureHidden: true }).catch(() => {});
+    return;
+  }
+  await chrome.storage.local.set({ captureHidden: false }).catch(() => {});
+  capWin.hidden = false;
+  await chrome.windows.update(capWin.winId, { state: "normal" }).catch(() => {});
+  await chrome.windows.update(capWin.winId, { width: CAPTURE_WIDTH, height: CAPTURE_HEIGHT, focused: false }).catch(() => {});
+}
+
+// 캡처 창에서 글을 열고 크롬 디버거를 붙인다: 화면 배율 고정 + 삭제 안내 같은 알림창(alert)을 자동으로 닫고 문구를 기록
 async function openWindow(url) {
-  const win = await chrome.windows.create({
-    url: "about:blank",
-    focused: false,
-    type: "normal",
-    width: CAPTURE_WIDTH,
-    height: CAPTURE_HEIGHT,
-  });
-  const tabId = win.tabs[0].id;
+  const { tabId } = await captureWindow();
   const dialogs = [];
   const onEvent = (src, method, params) => {
     if (src.tabId !== tabId || method !== "Page.javascriptDialogOpening") return;
@@ -779,6 +828,7 @@ async function openWindow(url) {
     cdp(tabId, "Page.handleJavaScriptDialog", { accept: true }).catch(() => {});
   };
   chrome.debugger.onEvent.addListener(onEvent);
+  await chrome.debugger.detach({ tabId }).catch(() => {}); // 지난 글에서 붙은 채 남았으면
   await chrome.debugger.attach({ tabId }, "1.3");
   await cdp(tabId, "Page.enable");
   await cdp(tabId, "Emulation.setDeviceMetricsOverride", {
@@ -787,11 +837,15 @@ async function openWindow(url) {
     deviceScaleFactor: CAPTURE_DPR,
     mobile: false,
   });
+  await cdp(tabId, "Emulation.setFocusEmulationEnabled", { enabled: true }).catch(() => {});
+  await ensureCapturable(tabId);
   await gotoAndWait(tabId, url);
   const close = async () => {
     chrome.debugger.onEvent.removeListener(onEvent);
     await chrome.debugger.detach({ tabId }).catch(() => {});
-    await chrome.windows.remove(win.id).catch(() => {});
+    await chrome.tabs.update(tabId, { url: "about:blank" }).catch(() => {}); // 창은 다음 글에 다시 씀
+    clearTimeout(capIdleTimer);
+    capIdleTimer = setTimeout(closeCaptureWindow, 30000);
   };
   return { tabId, dialogs, close };
 }
@@ -960,7 +1014,21 @@ const DELETED_RE = /삭제되었거나|존재하지 않는 게시글|삭제된 �
 
 // → { info, header, body, comments: [Blob|null], images: [Blob|null], dpr }
 // known: { cafe: 동호회명, title: 엑셀에 적힌 글 제목 }
+// 캡처 중에 담당자가 캡처 창을 닫아 버리면 새 창으로 한 번 더 시도한다
 async function captureCafePost(url, onStep = () => {}, known = {}) {
+  try {
+    return await captureCafePostOnce(url, onStep, known);
+  } catch (e) {
+    let gone = !capWin;
+    if (capWin) await chrome.tabs.get(capWin.tabId).catch(() => (gone = true));
+    if (!gone && !/No tab|No window|not attached|Detached|closed/i.test(String(e && e.message))) throw e;
+    capWin = null;
+    onStep("캡처 창이 닫혀 다시 여는 중");
+    return captureCafePostOnce(url, onStep, known);
+  }
+}
+
+async function captureCafePostOnce(url, onStep = () => {}, known = {}) {
   const saved = await chrome.storage.local.get(["boilerplates"]).catch(() => ({}));
   knownBoilerplates = [...SEED_BOILERPLATES, ...(saved.boilerplates || []).filter((k) => !SEED_BOILERPLATES.includes(k))];
   onStep("게시글 여는 중");

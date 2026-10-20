@@ -479,6 +479,7 @@ async function processItem(it) {
     try {
       const cap = await captureCafePost(row.url, (step) => setItemStatus(it, step), { cafe: row.cafe, title: row.title });
       info = cap.info;
+      it.cap = cap; // 이어하기용 원본 캡처 (중단돼도 다시 찍지 않게 저장)
       setItemStatus(it, "이미지 다듬는 중");
       it.visuals = await processCaptures(cap);
     } catch (e) {
@@ -528,6 +529,61 @@ async function processItem(it) {
   setItemStatus(it, it.error ? "완료(확인 필요)" : "완료", it.error ? "err" : "ok");
 }
 
+// ---------------------------------------------------------------------------
+// 이어하기 (담당자 요청 2026-10-20): 글 하나의 캡처·요약이 끝날 때마다(미리보기에서 고친 내용 포함) 이 PC 에 저장해 두고,
+// 실패·중지·창 닫힘 등으로 멈춘 뒤 같은 엑셀로 다시 [시작]하면 끝난 글은 다시 찍지 않고 이어서 한다
+// ---------------------------------------------------------------------------
+function savedItem(it) {
+  const cap = it.cap ? { ...it.cap, imagesOriginal: (it.cap.images || []).map((b) => !!(b && b.isOriginal)) } : null;
+  return {
+    url: it.row.url,
+    ready: it.ready,
+    deleted: !!it.deleted,
+    error: it.error || "",
+    fields: it.fields || null,
+    aiFields: it.aiFields || null,
+    noReaction: !!it.noReaction,
+    info: it.info || null,
+    cap,
+    sel: it.sel ? { header: it.sel.header, body: it.sel.body, comments: [...it.sel.comments], images: [...it.sel.images] } : null,
+  };
+}
+
+let progressTimer = null;
+function savePptProgress(delay = 0) {
+  clearTimeout(progressTimer);
+  progressTimer = setTimeout(async () => {
+    const done = items.filter((it) => it.ready && !it.skipped);
+    if (!done.length) return;
+    await kvSet("pptProgress", { at: Date.now(), urls: items.map((it) => it.row.url), items: done.map(savedItem) }).catch(() => {});
+  }, delay);
+}
+
+async function loadPptProgress() {
+  const p = await kvGet("pptProgress").catch(() => null);
+  if (!p || !p.items || !p.items.length || Date.now() - p.at > 3 * 86400000) return null;
+  const now = new Set(excelItems.map((r) => r.url));
+  const usable = p.items.filter((x) => now.has(x.url));
+  return usable.length ? { ...p, items: usable } : null;
+}
+
+async function restoreItem(it, x) {
+  it.row = { ...it.row };
+  it.ready = x.ready;
+  it.deleted = x.deleted;
+  it.error = x.error;
+  it.info = x.info;
+  it.fields = x.fields;
+  it.aiFields = x.aiFields;
+  it.noReaction = x.noReaction;
+  it.cap = x.cap;
+  if (x.cap) {
+    (x.cap.images || []).forEach((b, i) => b && (b.isOriginal = !!(x.cap.imagesOriginal || [])[i]));
+    it.visuals = await processCaptures(x.cap);
+  } else it.visuals = { header: null, body: null, comments: [], images: [] };
+  it.sel = x.sel ? { header: x.sel.header, body: x.sel.body, comments: new Set(x.sel.comments), images: new Set(x.sel.images) } : { header: true, body: true, comments: new Set(), images: new Set() };
+}
+
 async function start() {
   if (collecting()) {
     setSummary("부정 이슈 수집이 진행 중입니다. 수집이 끝난 뒤 캡처·요약을 시작해 주세요.", "err");
@@ -546,6 +602,11 @@ async function start() {
   statsTimer = setInterval(showStats, 1000);
   showStats();
   plan = countPlan();
+  const prev = await loadPptProgress();
+  const resumeMap = new Map();
+  if (prev && confirm(`지난번에 같은 엑셀로 작업하던 기록이 있습니다 (${prev.items.length}건 캡처·요약 완료, ${new Date(prev.at).toLocaleString("ko-KR")}).\n\n[확인] 끝난 글은 건너뛰고 이어서 하기\n[취소] 처음부터 다시 하기`)) {
+    for (const x of prev.items) resumeMap.set(x.url, x);
+  }
   items = excelItems.map((row) => ({ no: null, row, ready: false }));
   $("#items").innerHTML = "";
   for (const it of items) renderItem(it);
@@ -566,8 +627,17 @@ async function start() {
   for (const it of mine) {
     if (stopRequested) break;
     setSummary(`처리 중… ${done} / ${need}건`);
-    await processItem(it);
+    const saved = resumeMap.get(it.row.url);
+    if (saved) {
+      setItemStatus(it, "지난 작업에서 불러오는 중");
+      try {
+        await restoreItem(it, saved);
+      } catch {
+        await processItem(it); // 불러오기 실패 → 다시 작업
+      }
+    } else await processItem(it);
     done++;
+    savePptProgress();
     if (!it.deleted) {
       // 전체: 삭제 글을 빼고 1번부터 이어서 / N개 중 K개: + 글 순서 그대로의 번호 (삭제 글 자리는 빈 칸)
       it.no = plan.all ? nextNo++ : plan.startNo + mine.indexOf(it);
@@ -576,7 +646,7 @@ async function start() {
       setItemStatus(it, it.error ? "완료(확인 필요)" : "완료", it.error ? "err" : "ok");
     }
     const next = mine[mine.indexOf(it) + 1];
-    if (next && isCafeUrl(next.row.url) && !stopRequested) {
+    if (next && isCafeUrl(next.row.url) && !stopRequested && !saved && !resumeMap.has(next.row.url)) {
       await sleep(ARTICLE_DELAY[0] + Math.random() * (ARTICLE_DELAY[1] - ARTICLE_DELAY[0]));
     }
   }
@@ -687,6 +757,7 @@ function renderItem(it) {
       it.fields[el.dataset.k] = el.value.replace(/\n/g, " ");
       updateCount(el.dataset.k);
       learnPptItem(it);
+      savePptProgress(2000); // 고친 내용도 이어하기 기록에
     });
   }
   for (const el of it.el.querySelectorAll("input[data-kind]")) {
@@ -699,12 +770,14 @@ function renderItem(it) {
       }
       el.closest(".shot").classList.toggle("off", !el.checked);
       drawPreview(it);
+      savePptProgress(2000);
     });
   }
   $('[data-act="retry"]', it.el).addEventListener("click", async () => {
     refreshButtons(true);
     await processItem(it);
     refreshButtons(false);
+    savePptProgress();
   });
   drawPreview(it);
 }
@@ -1176,6 +1249,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#templateFile").addEventListener("change", onTemplateFile);
   $("#excelFile").addEventListener("change", onExcelFile);
   $("#aiKey").addEventListener("change", updateSettingsState);
+  // 캡처 이미지·슬라이드 미리보기를 누르면 크게 보기 (담당자 요청 2026-10-20). 체크는 체크 칸·글자를 눌러서.
+  document.addEventListener("click", (e) => {
+    const img = e.target.closest(".shot img");
+    const cv = e.target.closest(".preview canvas");
+    if (!img && !cv) return;
+    e.preventDefault(); // 그림을 눌러도 체크가 바뀌지 않게
+    openZoom(img ? img.src : cv.toDataURL("image/png"), img ? (img.closest(".shot").querySelector("span") || {}).textContent : "슬라이드 미리보기");
+  });
   $("#start").addEventListener("click", start);
   $("#stop").addEventListener("click", () => {
     stopRequested = true;
@@ -1196,3 +1277,27 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   showFolder(await saveDirHandle());
 });
+
+// ---------------------------------------------------------------------------
+// 크게 보기: 화면 가득 맞춰 보여 주고, 그림을 한 번 더 누르면 원본 크기(스크롤), 바깥·Esc·닫기로 닫음
+// ---------------------------------------------------------------------------
+function openZoom(src, label = "") {
+  let box = $("#zoomBox");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "zoomBox";
+    box.innerHTML = `<div class="zoom-bar"><span class="zoom-label"></span><span class="hint">그림을 누르면 원본 크기 ↔ 화면 맞춤 · Esc 닫기</span><button type="button" class="zoom-close">닫기 ✕</button></div><div class="zoom-body"><img alt=""></div>`;
+    document.body.appendChild(box);
+    box.addEventListener("click", (e) => {
+      if (e.target.tagName === "IMG") box.classList.toggle("actual");
+      else if (e.target.closest(".zoom-close") || e.target.classList.contains("zoom-body")) box.hidden = true;
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") box.hidden = true;
+    });
+  }
+  box.classList.remove("actual");
+  $(".zoom-label", box).textContent = String(label || "").trim();
+  $("img", box).src = src;
+  box.hidden = false;
+}

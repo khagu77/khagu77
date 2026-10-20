@@ -60,8 +60,20 @@ function heartbeat(msg) {
 // 다른 탭에서 수집 중인지 (진행 신호가 10분 안에 있었으면 수집 중으로 본다)
 async function otherRunActive() {
   const { runHeartbeat: hb } = await chrome.storage.local.get("runHeartbeat");
-  return hb && hb.owner && hb.owner !== RUN_OWNER && Date.now() - hb.at < 10 * 60 * 1000 ? hb : null;
+  if (!(hb && hb.owner && hb.owner !== RUN_OWNER && Date.now() - hb.at < 10 * 60 * 1000)) return null;
+  // 그 수집 화면이 아직 살아서 수집 중인지 직접 물어본다 (새로고침·창 닫힘으로 멈춘 수집이면 기다리지 않고 바로 이어하기 가능)
+  const alive = await Promise.race([
+    chrome.runtime.sendMessage({ type: "isRunOwner?", owner: hb.owner }).then((r) => !!(r && r.running)).catch(() => false),
+    new Promise((r) => setTimeout(() => r(false), 2000)),
+  ]);
+  return alive ? hb : null;
 }
+chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
+  if (msg && msg.type === "isRunOwner?" && msg.owner === RUN_OWNER) {
+    reply({ running: !!state.running });
+    return false;
+  }
+});
 
 async function runGuard(on) {
   try {
@@ -98,6 +110,64 @@ function showTab(name) {
 
 $("#toPpt").addEventListener("click", () => showTab("ppt"));
 window.isCollecting = () => !!state.running; // PPT 화면에서 확인 (수집 중엔 캡처를 막음)
+
+// ---------------------------------------------------------------------------
+// 작업 중 표시줄(로딩바) + 작업 중 뒤로 가기·창 닫기 막기 (담당자 요청 2026-10-20)
+// ---------------------------------------------------------------------------
+function pptFrameWin() {
+  try {
+    return ($("#pptFrame") && $("#pptFrame").contentWindow) || null;
+  } catch {
+    return null;
+  }
+}
+function workNow() {
+  if (state.running) {
+    const p = state.progress || { done: 0, total: 0 };
+    return { kind: "collect", done: p.done, total: p.total, text: `부정 이슈 수집 중 · ${p.total ? `${p.done} / ${p.total}곳` : "준비 중"} · 지금까지 ${state.rows.length}건` };
+  }
+  try {
+    const w = pptFrameWin();
+    if (w && w.pptBusy && w.pptBusy()) {
+      const t = (w.document.querySelector("#summary") || {}).textContent || "";
+      const m = t.match(/(\d+)\s*\/\s*(\d+)/);
+      return { kind: "ppt", done: m ? +m[1] : 0, total: m ? +m[2] : 0, text: `PPT·RAW 작성 중 · ${t.trim().slice(0, 80) || "준비 중"}` };
+    }
+  } catch {}
+  return null;
+}
+let workBarNote = "";
+let workBarNoteTimer = null;
+function renderWorkBar() {
+  const bar = $("#workBar");
+  if (!bar) return;
+  const w = workNow();
+  bar.hidden = !w;
+  document.body.classList.toggle("working", !!w);
+  if (!w) return;
+  bar.className = `workbar ${w.kind}`;
+  $("#workBarText").textContent = `${w.text}${workBarNote ? ` — ${workBarNote}` : " — 이 화면을 닫거나 뒤로 가지 마세요"}`;
+  $("#workBarFill").style.width = w.total ? `${Math.max(4, Math.round((w.done / w.total) * 100))}%` : "100%";
+}
+setInterval(renderWorkBar, 500);
+
+// 뒤로 가기(마우스 제스처·트랙패드 밀기·단축키): 작업 중이면 막고 그대로 머문다
+history.pushState({ guard: true }, "");
+window.addEventListener("popstate", () => {
+  if (workNow()) {
+    history.pushState({ guard: true }, "");
+    workBarNote = "작업 중이라 뒤로 가기를 막았습니다";
+    clearTimeout(workBarNoteTimer);
+    workBarNoteTimer = setTimeout(() => (workBarNote = ""), 4000);
+    renderWorkBar();
+  } else history.back();
+});
+// 창·탭 닫기, 새로고침: 작업 중이면 크롬이 '나가시겠습니까?' 를 묻게 한다
+window.addEventListener("beforeunload", (e) => {
+  if (!workNow()) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
 
 // 자동 수집 시각에 백그라운드가 '이 화면에서 시작해도 되는지' 묻는다 (수집·PPT 캡처 중이면 아니라고 대답)
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
@@ -375,6 +445,7 @@ function showProgress(current) {
   const done = rows.filter((tr) => /^(완료|실패|건너뜀|중지)/.test(tr.children[5].textContent)).length;
   const name = current ? current.children[0].textContent : "";
   const st = current ? current.children[5].textContent : "";
+  state.progress = { done, total: rows.length };
   setSummary(`수집 진행 중: ${rows.length}곳 중 ${done}곳 끝 · 지금 ${name} ${st} · 지금까지 부정 이슈 ${state.rows.length}건 (결과는 한 곳씩 끝날 때마다 늘어나고, 전체는 보통 20~40분 걸립니다)`);
   document.title = `⏳ ${done}/${rows.length} 수집 중 - 부정 이슈 모니터링`;
 }
@@ -1580,18 +1651,67 @@ async function buildWorkdayReport(ai, settings) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// 수집 이어하기 (담당자 요청 2026-10-20): 수집 중 15초마다 '어디까지 끝났는지 + 지금까지 결과'를 저장해 두고,
+// 실패·중지·창 닫힘·컴퓨터 꺼짐 등으로 끝까지 못 마치면 다음에 남은 곳만 이어서 수집한다 (처음부터 다시 하지 않음)
+// ---------------------------------------------------------------------------
+async function saveCheckpoint(final = false) {
+  if (!state.cp) return;
+  const doneNow = [...sourceRows].filter(([, tr]) => /^완료/.test(tr.children[5].textContent)).map(([k]) => k);
+  const done = [...new Set([...(state.cp.done || []), ...doneNow])];
+  const cp = { ...state.cp, at: Date.now(), done, rows: serializeRows(state.rows), count: state.rows.length };
+  if (final && cp.keys.every((k) => done.includes(k))) {
+    await chrome.storage.local.remove("runCheckpoint"); // 모두 끝남 → 이어서 할 것 없음
+  } else {
+    await chrome.storage.local.set({ runCheckpoint: cp });
+  }
+}
+
+async function loadCheckpoint() {
+  const { runCheckpoint: cp } = await chrome.storage.local.get("runCheckpoint");
+  if (!cp || !cp.keys || !cp.range) return null;
+  if (Date.now() - cp.at > 3 * 86400000) return null; // 사흘 지난 건 이어 하지 않음
+  return cp;
+}
+
+async function renderResumeBox() {
+  const box = $("#resumeBox");
+  if (!box) return;
+  const cp = state.running ? null : await loadCheckpoint();
+  box.hidden = !cp;
+  if (!cp) return;
+  const left = cp.keys.filter((k) => !cp.done.includes(k)).length;
+  $("#resumeText").textContent = `지난 수집이 끝까지 마치지 못했습니다 (${fmtDateTime(new Date(cp.startedAt))} 시작 · 기간 ${fmtDateTime(new Date(cp.range.start))} ~ ${fmtDateTime(new Date(cp.range.end))} · ${cp.keys.length}곳 중 ${cp.done.length}곳 완료 · 지금까지 ${cp.count || 0}건). 남은 ${left}곳만 이어서 수집할 수 있습니다.`;
+}
+
+async function resumeCollection() {
+  const cp = await loadCheckpoint();
+  if (!cp) return renderResumeBox();
+  state.resume = cp;
+  setRange(new Date(cp.range.start), new Date(cp.range.end));
+  await runCollection();
+}
+
 async function runCollection() {
   if (state.running) return;
+  const resume = state.resume || null;
+  state.resume = null;
   const settings = state.settings;
   let range;
   try {
-    range = readRange();
+    range = resume ? { start: new Date(resume.range.start), end: new Date(resume.range.end) } : readRange();
   } catch (e) {
     setSummary(e.message);
     return;
   }
-  const { cafes, communities } = pickedSources();
-  if (!cafes.length && !communities.length) {
+  let { cafes, communities } = pickedSources();
+  if (resume) {
+    // 이어하기: 지난번에 고른 곳 중 아직 못 끝낸 곳만
+    const left = new Set(resume.keys.filter((k) => !resume.done.includes(k)));
+    cafes = (settings.cafes || []).filter((c) => left.has(`cafe:${c.id}`));
+    communities = (settings.communities || []).filter((c) => left.has(`comm:${c.url}`));
+  }
+  if (!cafes.length && !communities.length && !resume) {
     setSummary("수집할 곳을 하나 이상 골라 주세요.");
     return;
   }
@@ -1615,6 +1735,12 @@ async function runCollection() {
   state.seenKeys = new Set();
   if (state.base) {
     state.base.rows.forEach((r, i) => pushRow({ ...r, fromBase: true, baseIdx: i, kind: r.kind && r.kind !== "base" ? r.kind : /cafe\.naver\.com|naver\.me/.test(r.url || "") ? "cafe" : "community", ts: r.ts || (r.date ? r.date.getTime() : 0) }));
+  }
+  if (resume) {
+    // 지난번에 모은 결과(이어서 작성한 기존 행 포함)를 그대로 다시 넣는다
+    for (const r of deserializeRows(resume.rows)) pushRow(r);
+    if (resume.autoBaseUsed) state.autoBaseUsed = true;
+    if (resume.baseLabel && !state.base) state.base = { label: resume.baseLabel, rows: [] };
   }
   const baseMsg = state.base ? `이어서 작성: ${state.base.label} ${state.base.rows.length}건 → 중복 뺀 ${state.rows.length}건 뒤에 붙입니다` : "";
   state.range = range;
@@ -1641,6 +1767,18 @@ async function runCollection() {
   const cafeSources = cafes.map((c) => ({ kind: "cafe", key: `cafe:${c.id}`, name: c.name || c.id, car: c.car, cafe: c, order: settings.cafes.indexOf(c), requireCar: REQUIRE_CAR_CAFES.includes(c.id) }));
   const commSources = communities.map((c) => ({ kind: "community", key: `comm:${c.url}`, name: c.name || c.url, site: c, order: 1000 + settings.communities.indexOf(c), requireCar: true }));
   initSourceTable([...cafeSources, ...commSources]);
+  if (resume) log(`지난 수집 이어하기: ${resume.keys.length}곳 중 끝난 ${resume.done.length}곳은 건너뛰고 남은 ${cafeSources.length + commSources.length}곳만 수집합니다 (지금까지 ${state.rows.length}건)`);
+  state.cp = {
+    startedAt: resume ? resume.startedAt : startedAt,
+    range: { start: range.start.getTime(), end: range.end.getTime() },
+    keys: resume ? resume.keys : [...cafeSources, ...commSources].map((x) => x.key),
+    done: resume ? resume.done : [],
+    auto: AUTO,
+    autoBaseUsed: !!state.autoBaseUsed,
+    baseLabel: state.base ? state.base.label : "",
+  };
+  await saveCheckpoint();
+  const cpTimer = setInterval(() => saveCheckpoint().catch(() => {}), 15000);
 
   const naver = new NaverCollector({ delays, log, isStopped });
   const community = new CommunityCollector({ delays, log, isStopped });
@@ -1727,6 +1865,10 @@ async function runCollection() {
     if (!/^완료|^실패|^건너뜀/.test(st)) updateSource(key, { status: state.stopRequested ? "중지됨" : st });
   }
 
+  clearInterval(cpTimer);
+  await saveCheckpoint(true).catch(() => {});
+  state.cp = null;
+
   // 보고 필요: 이번에 수집한 네이버 카페 글 중 심각한 4~6개 (신차 우선, 단순 정보 공유 제외)
   // 보고 필요: 이어서 작성한 합본이면 기존 행까지 합친 전체 카페 글에서 다시 4~6건 (기존 체크는 다시 정함)
   await pickReports(state.rows.filter((r) => (state.base ? isCafeRow(r) : r.kind === "cafe" && !r.fromBase)), ai, settings);
@@ -1759,6 +1901,7 @@ async function runCollection() {
     rows: serializeRows(state.rows),
   });
   await renderBaseOptions();
+  renderResumeBox();
   await chrome.storage.local.set({
     lastRun: { at: Date.now(), count: state.rows.length, costUsd: state.costUsd, blocked: state.naverBlocked, stopped: state.stopRequested },
   });
@@ -1794,6 +1937,22 @@ async function runCollection() {
     }
   }
 }
+
+$("#resumeRun").addEventListener("click", () => {
+  $("#resumeBox").hidden = true;
+  resumeCollection().catch((e) => {
+    log(`오류: ${e.message}`, "err");
+    state.running = false;
+    runGuard(false);
+    $("#start").disabled = false;
+    $("#stop").disabled = true;
+  });
+});
+$("#resumeDrop").addEventListener("click", async () => {
+  if (!confirm("지난 수집 이어하기 기록을 지울까요? (이미 저장된 데일리 DB·결과는 그대로 남습니다)")) return;
+  await chrome.storage.local.remove("runCheckpoint");
+  renderResumeBox();
+});
 
 $("#start").addEventListener("click", () => {
   const { cafes } = pickedSources();
@@ -2134,6 +2293,14 @@ $("#testKey").addEventListener("click", async () => {
 // 시작
 // ---------------------------------------------------------------------------
 
+// 끊긴 수집이 남긴 수집용 창 정리 (다른 화면에서 수집 중이 아닐 때만)
+async function cleanStrayWorker() {
+  const { workerWinId } = await chrome.storage.local.get("workerWinId");
+  if (!workerWinId || state.running || (await otherRunActive())) return;
+  await chrome.windows.remove(workerWinId).catch(() => {});
+  await chrome.storage.local.remove("workerWinId");
+}
+
 (async function init() {
   $("#version").textContent = `v${chrome.runtime.getManifest().version}`;
   state.settings = await loadSettings();
@@ -2150,7 +2317,13 @@ $("#testKey").addEventListener("click", async () => {
   renderRangeDefaultLabel();
   await checkLogin();
   await renderBaseOptions();
-  if (AUTO) {
+  const autoCp = AUTO ? await loadCheckpoint() : null;
+  if (AUTO && autoCp && autoCp.auto && Date.now() - autoCp.at < 12 * 3600000) {
+    // 자동 수집이 중간에 멈췄던 경우: 처음부터 다시 하지 않고 남은 곳만 이어서
+    log("지난 자동 수집이 중간에 멈춰서, 끝난 곳은 건너뛰고 남은 곳만 이어서 수집합니다");
+    await sleep(3000);
+    resumeCollection().catch((e) => log(`오류: ${e.message}`, "err"));
+  } else if (AUTO) {
     // 끝: 오늘 기준 시각(07:30)이 지났으면 그 시각, 아니면 지금 (기간을 07:30 ~ 07:30 으로 맞춤)
     const now = new Date();
     now.setSeconds(0, 0);
@@ -2182,5 +2355,7 @@ $("#testKey").addEventListener("click", async () => {
     $("#start").click();
   } else {
     await loadLastResult();
+    await renderResumeBox();
+    cleanStrayWorker().catch(() => {});
   }
 })();

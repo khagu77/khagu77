@@ -7,6 +7,10 @@
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
+  <div id="workBar" class="workbar" hidden>
+    <div class="workbar-track"><div id="workBarFill" class="workbar-fill"></div></div>
+    <div id="workBarText" class="workbar-text"></div>
+  </div>
   <main>
     <header>
       <h1><img src="icons/icon48.png" alt="" class="logo">온라인 오전 일일동향 수집 및 보고서 작성 <span id="version" class="hint"></span></h1>
@@ -80,6 +84,14 @@
       </div>
 
       <label class="check"><input type="checkbox" id="useAi" checked> AI(Claude)로 판정·요약 <span id="aiInfo" class="hint"></span></label>
+
+      <div id="resumeBox" class="resumebox" hidden>
+        <div id="resumeText"></div>
+        <div class="buttons">
+          <button id="resumeRun" class="primary">▶ 남은 곳 이어서 수집</button>
+          <button id="resumeDrop" class="danger">이어하기 기록 지우기</button>
+        </div>
+      </div>
 
       <div class="buttons">
         <button id="start" class="primary">수집 시작</button>
