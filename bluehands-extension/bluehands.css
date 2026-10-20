@@ -9,6 +9,7 @@
   --orange: #f39800;
   --green: #0a8f4f;
   --red: #d93025;
+  --zebra: #f1f3f6;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -20,6 +21,7 @@
     --navy: #4f8fd6;
     --green: #3ccf86;
     --red: #ff6b5f;
+    --zebra: #262930;
   }
   img.logo { background: #fff; border-radius: 6px; padding: 4px 6px; }
 }
@@ -69,7 +71,7 @@ nav.menu a.on { color: var(--text); border-color: var(--border); background: var
 .schedule { padding: 10px 12px; border-radius: 8px; border-left: 4px solid var(--sky); background: var(--bg); margin-bottom: 10px; }
 .schedule.due { border-left-color: var(--orange); font-weight: 600; }
 .login { padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border); }
-.login.ok { border-color: var(--green); }
+.login.ok { background: #03c75a; border-color: #03c75a; border-radius: 10px; color: #fff; font-weight: 700; } /* 네이버 그린 */
 .login.bad { border-color: var(--red); }
 .login a { color: var(--navy); font-weight: 600; }
 details { margin: 14px 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; }
@@ -103,3 +105,6 @@ td input.author { width: 150px; padding: 3px 6px; font-size: 13px; }
 .nick { color: var(--navy); font-weight: 700; }
 .nick.known { color: var(--muted); font-weight: 400; }
 #items tr.dup td .nick.known { opacity: 1; }
+/* DB 목록: 한 행씩 아주 연한 회색 배경으로 구분 */
+#dbTable tbody tr:nth-child(even) td { background: var(--zebra); }
+#dbTable tbody tr:hover td { background: color-mix(in srgb, var(--sky) 10%, var(--card)); }
