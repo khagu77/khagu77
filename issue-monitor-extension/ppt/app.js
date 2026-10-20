@@ -115,6 +115,18 @@ function splitCar(car) {
   return { code, spec: spec || "-" };
 }
 
+// 2.5 와 2.5T(터보)는 다른 제원: 터보면 반드시 T 를 붙이고, 자연흡기면 숫자만 (2026-10-20 담당자 지정)
+// 이 배기량이 터보 엔진뿐인 차는 글에 "2.5" 로만 적혀 있어도 T 를 붙인다
+const TURBO_ONLY = {
+  IK: ["2.0", "2.5", "3.3"], RG3: ["2.5", "3.5"], RS4: ["3.5"], JK: ["2.5", "3.5"], JX: ["2.5", "3.5"],
+  MX5: ["2.5"], LX3: ["2.5"],
+};
+function normSpec(code, spec) {
+  let v = String(spec || "").trim().replace(/\s*(t|터보)$/i, "T");
+  if (/^\d\.\d$/.test(v) && (TURBO_ONLY[String(code || "").split(/\s+/)[0]] || []).includes(v)) v += "T";
+  return v || "-";
+}
+
 function modelName(car) {
   const parts = String(car || "").trim().split(/\s+/);
   return MODEL_NAMES[parts.slice(0, 2).join(" ")] || MODEL_NAMES[parts[0]] || parts[0] || "";
@@ -382,7 +394,7 @@ function fieldsFrom(row, info, ai) {
   const sameCar = (h) => /^(게시판명|게시글|작성자 닉네임)/.test(h.from) || carWords.some((w) => `${h.from} ${h.snippet}`.includes(w));
   const hinted = [...new Set((info.specHints || []).filter(sameCar).map((h) => h.spec))];
   const aiSpec = ai.spec && ai.spec !== "-" ? ai.spec : hinted.length === 1 ? hinted[0] : "-";
-  const spec = carSpec !== "-" ? carSpec : aiSpec;
+  const spec = carSpec !== "-" ? carSpec : normSpec(code, aiSpec);
   return {
     title: `${modelName(row.car)}(${row.car}) ${ai.issue}`.trim(),
     code,
