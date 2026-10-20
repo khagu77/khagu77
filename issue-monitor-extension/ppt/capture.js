@@ -886,6 +886,9 @@ function specCandidates(sources) {
     const hev = /하이브리드|HEV|(?<![A-Z])HV(?![A-Z])/g;
     while ((m = hev.exec(text))) add("HEV", from, text, m.index);
     // 디젤: 배기량이 붙어 있으면 "3.0D" 처럼 (2026-10-20 담당자 지정)
+    // 화물차 톤수 (엑시언트 25톤 등) — 화물차 글에서만 쓰임
+    const ton = /(\d{1,2}(?:\.\d)?)\s*톤/g;
+    while ((m = ton.exec(text))) add(`${m[1]}톤`, from, text, m.index);
     // LPI 는 배기량 없이 "LPI" 만
     const lpi = /LPG|LPI/gi;
     while ((m = lpi.exec(text))) add("LPI", from, text, m.index);
@@ -1058,7 +1061,7 @@ async function captureCafePost(url, onStep = () => {}, known = {}) {
       ...(info.authorPostTexts || []).map((p) => ({ from: `작성자 글 본문 「${p.title}」`, text: p.text })),
     ];
     info.authorPostTexts = [];
-    if (!specCandidates(specSources()).length) {
+    if (!specCandidates(specSources()).filter((c) => !/톤$/.test(c.spec)).length) {
       onStep("작성자 글에서 제원 확인 중");
       const opened = new Set(info.authorCertPosts.map((p) => p.title));
       const rest = info.authorPosts.filter((p) => p.href && !opened.has(p.title) && !CERT_RE.test(p.title));
@@ -1067,7 +1070,7 @@ async function captureCafePost(url, onStep = () => {}, known = {}) {
         await sleep(1000 + Math.random() * 1500);
         const text = await readArticleText(tabId, p.href);
         if (text) info.authorPostTexts.push({ title: p.title, text });
-        if (specCandidates(specSources()).length) break;
+        if (specCandidates(specSources()).filter((c) => !/톤$/.test(c.spec)).length) break;
       }
     }
     info.specHints = specCandidates(specSources()).slice(0, 12);

@@ -143,6 +143,10 @@ const SPEC_LINEUP = {
   JK: ["2.5T", "3.5T", "2.2D", "EV"], // GV70
   JX: ["2.5T", "3.5T", "3.0D", "HEV"], // GV80 (HEV 2026-09~)
 };
+// 화물차는 제원 칸에 몇 톤인지 (예: "25톤") (2026-10-20 담당자 지정)
+const TRUCKS = new Set(["QZ"]);
+const isTruck = (code) => TRUCKS.has(String(code || "").trim().split(/\s+/)[0]);
+
 function specLineup(code) {
   return SPEC_LINEUP[String(code || "").trim().split(/\s+/)[0]] || null;
 }
@@ -150,6 +154,10 @@ function specLineup(code) {
 // 2.5 와 2.5T(터보)는 다른 제원: T 는 터보 모델, 숫자만은 자연흡기(N/A) 모델 (2026-10-20 담당자 지정)
 // 그 차종에 이 배기량이 터보뿐이면 글에 "2.5" 로만 적혀 있어도 T 를 붙이고, 디젤이 하나뿐이면 "디젤" → "2.2D" 처럼 채운다
 function normSpec(code, spec) {
+  if (isTruck(code)) {
+    const t = String(spec || "").match(/(\d{1,2}(?:\.\d)?)\s*(톤|t\b|ton)/i);
+    return t ? `${t[1]}톤` : "-";
+  }
   let v = String(spec || "").trim().replace(/\s*(t|터보)$/i, "T");
   v = v.replace(/^(\d\.\d)\s*(d|디젤)$/i, "$1D").replace(/^(디젤|diesel)\s*(\d\.\d)$/i, "$2D");
   // LPI 는 배기량 없이 "LPI" 만 (2026-10-20 담당자 지정)
@@ -433,7 +441,7 @@ function fieldsFrom(row, info, ai) {
   const sameCar = (h) => /^(게시판명|게시글|작성자 닉네임)/.test(h.from) || carWords.some((w) => `${h.from} ${h.snippet}`.includes(w));
   // 후보는 이 차종에 실제로 출시된 제원(SPEC_LINEUP)에 있는 것만
   const line = specLineup(code);
-  const hinted = [...new Set((info.specHints || []).filter(sameCar).map((h) => normSpec(code, h.spec)))].filter((v) => !line || line.includes(v));
+  const hinted = [...new Set((info.specHints || []).filter(sameCar).map((h) => normSpec(code, h.spec)))].filter((v) => v !== "-" && (isTruck(code) ? /톤$/.test(v) : !line || line.includes(v)));
   const aiSpec = ai.spec && ai.spec !== "-" ? ai.spec : hinted.length === 1 ? hinted[0] : "-";
   let spec = carSpec !== "-" ? carSpec : normSpec(code, aiSpec);
   if (spec === "-" && line && line.length === 1) spec = line[0]; // 제원이 하나뿐인 차
