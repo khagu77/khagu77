@@ -885,12 +885,11 @@ function specCandidates(sources) {
     while ((m = turbo.exec(text))) add(`${m[1]}T`, from, text, m.index);
     const hev = /하이브리드|HEV|(?<![A-Z])HV(?![A-Z])/g;
     while ((m = hev.exec(text))) add("HEV", from, text, m.index);
-    // LPI·디젤: 배기량이 붙어 있으면 "3.5 LPI", "3.0D" 처럼 (2026-10-20 담당자 지정)
-    const lpiN = /(\d\.\d)\s*(?:LPG|LPI)|(?:LPG|LPI)\s*(\d\.\d)/gi;
-    let hasN = false;
-    while ((m = lpiN.exec(text))) (hasN = true), add(`${m[1] || m[2]} LPI`, from, text, m.index);
+    // 디젤: 배기량이 붙어 있으면 "3.0D" 처럼 (2026-10-20 담당자 지정)
+    // LPI 는 배기량 없이 "LPI" 만
     const lpi = /LPG|LPI/gi;
-    if (!hasN) while ((m = lpi.exec(text))) add("LPI", from, text, m.index);
+    while ((m = lpi.exec(text))) add("LPI", from, text, m.index);
+    let hasN = false;
     const dslN = /(\d\.\d)\s*(?:D(?![a-z])|디젤)|디젤\s*(\d\.\d)/gi;
     hasN = false;
     while ((m = dslN.exec(text))) (hasN = true), add(`${m[1] || m[2]}D`, from, text, m.index);

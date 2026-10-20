@@ -115,18 +115,54 @@ function splitCar(car) {
   return { code, spec: spec || "-" };
 }
 
-// 2.5 와 2.5T(터보)는 다른 제원: 터보면 반드시 T 를 붙이고, 자연흡기면 숫자만 (2026-10-20 담당자 지정)
-// 이 배기량이 터보 엔진뿐인 차는 글에 "2.5" 로만 적혀 있어도 T 를 붙인다
-const TURBO_ONLY = {
-  IK: ["2.0", "2.5", "3.3"], RG3: ["2.5", "3.5"], RS4: ["3.5"], JK: ["2.5", "3.5"], JX: ["2.5", "3.5"],
-  MX5: ["2.5"], LX3: ["2.5"],
+// 차종 코드별 출시·판매 제원 (국내, 그 세대의 지난 연식 포함). 2026-10 기준으로 정리 — 담당자가 틀린 곳을 알려 주면 고친다.
+// 표기: 터보 "2.5T" / 자연흡기(N/A) "2.5" / 디젤 "2.2D" / LPI 는 배기량 없이 "LPI" / 하이브리드 "HEV" / 전기 "EV" / 수소 "FCEV"
+const SPEC_LINEUP = {
+  CN7: ["1.6", "1.6T", "2.0T", "HEV", "LPI"], // 아반떼 7세대 (1.6T N라인 초기, 2.0T 아반떼 N)
+  CN8: ["2.0", "HEV"], // 디 올 뉴 아반떼 (2026)
+  DN8: ["2.0", "1.6T", "2.5T", "HEV", "LPI"], // 쏘나타 (2.5T N라인)
+  GN7: ["2.5", "3.5", "HEV", "LPI"], // 그랜저 (HEV 1.6T)
+  IG: ["2.4", "2.5", "3.0", "3.3", "2.2D", "HEV", "LPI"],
+  NX4: ["1.6T", "2.0D", "HEV", "PHEV"], // 투싼
+  MX5: ["2.5T", "HEV"], // 싼타페 5세대 (디젤 없음)
+  TM: ["2.0T", "2.4", "2.5", "2.5T", "2.0D", "2.2D", "HEV", "PHEV"], // 싼타페 4세대
+  LX2: ["3.8", "2.2D"], // 팰리세이드 1세대
+  LX3: ["2.5T", "HEV"], // 팰리세이드 2세대
+  SX2: ["2.0", "1.6T", "HEV", "EV"], // 코나 2세대
+  OS: ["2.0", "1.6T", "1.6D", "HEV", "EV"], // 코나 1세대
+  QX: ["1.6"], // 베뉴
+  AX: ["1.0", "1.0T", "EV"], // 캐스퍼 (EV 는 AX EV)
+  US4: ["3.5", "2.2D", "HEV", "LPI", "EV"], // 스타리아 (EV 는 US4 EV)
+  HR: ["2.5D", "LPI", "EV"], // 포터
+  ST: ["2.5D", "LPI"], // 스타렉스
+  NE: ["EV"], CE: ["EV"], ME1: ["EV"], ST1: ["EV"], JW: ["EV"], // 전기차 전용
+  FE: ["FCEV"], NH2: ["FCEV"], // 넥쏘
+  IK: ["2.0T", "2.5T", "3.3T", "2.2D"], // G70
+  RG3: ["2.5T", "3.5T", "2.2D", "EV"], // G80 (EV 는 전동화 모델)
+  RS4: ["3.5T"], // G90
+  JK: ["2.5T", "3.5T", "2.2D", "EV"], // GV70
+  JX: ["2.5T", "3.5T", "3.0D", "HEV"], // GV80 (HEV 2026-09~)
 };
+function specLineup(code) {
+  return SPEC_LINEUP[String(code || "").trim().split(/\s+/)[0]] || null;
+}
+
+// 2.5 와 2.5T(터보)는 다른 제원: T 는 터보 모델, 숫자만은 자연흡기(N/A) 모델 (2026-10-20 담당자 지정)
+// 그 차종에 이 배기량이 터보뿐이면 글에 "2.5" 로만 적혀 있어도 T 를 붙이고, 디젤이 하나뿐이면 "디젤" → "2.2D" 처럼 채운다
 function normSpec(code, spec) {
   let v = String(spec || "").trim().replace(/\s*(t|터보)$/i, "T");
-  // 디젤은 "3.0D", LPI 는 "3.5 LPI" (배기량을 알면), 모르면 "디젤" / "LPI"
   v = v.replace(/^(\d\.\d)\s*(d|디젤)$/i, "$1D").replace(/^(디젤|diesel)\s*(\d\.\d)$/i, "$2D");
-  v = v.replace(/^(\d\.\d)\s*(lpg|lpi)$/i, "$1 LPI").replace(/^(lpg|lpi)\s*(\d\.\d)$/i, "$2 LPI").replace(/^lpg$/i, "LPI");
-  if (/^\d\.\d$/.test(v) && (TURBO_ONLY[String(code || "").split(/\s+/)[0]] || []).includes(v)) v += "T";
+  // LPI 는 배기량 없이 "LPI" 만 (2026-10-20 담당자 지정)
+  if (/lpg|lpi/i.test(v)) v = "LPI";
+  if (/^하이브리드$|^hev$/i.test(v)) v = "HEV";
+  const line = specLineup(code);
+  if (line) {
+    if (/^\d\.\d$/.test(v) && !line.includes(v) && line.includes(`${v}T`)) v += "T";
+    // 디젤은 배기량 없이 쓰지 않는다 (2026-10-20 담당자 지정): 그 차종의 디젤로 채움.
+    // 디젤이 둘인 싼타페(TM)는 2.0D(2018~2020 초기)·2.2D 중 판매가 많고 F/L 이후 유일한 2.2D
+    const diesel = line.filter((x) => /D$/.test(x));
+    if (v === "디젤" && diesel.length) v = diesel.includes("2.2D") ? "2.2D" : diesel[0];
+  }
   return v || "-";
 }
 
@@ -395,9 +431,13 @@ function fieldsFrom(row, info, ai) {
   // (작성자가 다른 차 이야기를 한 후보는 빼고: 이 글 자체·닉네임에서 찾았거나, 앞뒤 문장/글 제목에 이 차가 나온 것만)
   const carWords = [code, modelName(row.car)].filter((w) => w && w !== "-");
   const sameCar = (h) => /^(게시판명|게시글|작성자 닉네임)/.test(h.from) || carWords.some((w) => `${h.from} ${h.snippet}`.includes(w));
-  const hinted = [...new Set((info.specHints || []).filter(sameCar).map((h) => h.spec))];
+  // 후보는 이 차종에 실제로 출시된 제원(SPEC_LINEUP)에 있는 것만
+  const line = specLineup(code);
+  const hinted = [...new Set((info.specHints || []).filter(sameCar).map((h) => normSpec(code, h.spec)))].filter((v) => !line || line.includes(v));
   const aiSpec = ai.spec && ai.spec !== "-" ? ai.spec : hinted.length === 1 ? hinted[0] : "-";
-  const spec = carSpec !== "-" ? carSpec : normSpec(code, aiSpec);
+  let spec = carSpec !== "-" ? carSpec : normSpec(code, aiSpec);
+  if (spec === "-" && line && line.length === 1) spec = line[0]; // 제원이 하나뿐인 차
+  if (spec === "-" && line && line.length === 2 && line.includes("EV") && /EV$/.test(code)) spec = "EV";
   return {
     title: `${modelName(row.car)}(${row.car}) ${ai.issue}`.trim(),
     code,
