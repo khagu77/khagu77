@@ -11,7 +11,11 @@ const MODEL_NAMES = {
   JW: "GV60", JK: "GV70", JX: "GV80", IK: "G70", RG3: "G80", RS4: "G90",
   DN8: "쏘나타", CN7: "아반떼", CN8: "아반떼", FE: "넥쏘", NH2: "넥쏘", AX: "캐스퍼", SX2: "코나", OS: "코나",
   LX2: "팰리세이드", LX3: "팰리세이드", US4: "스타리아", ST1: "ST1", HR: "포터", ST: "스타렉스", QZ: "엑시언트",
+  // 내연기관과 전기차가 같은 코드인 차: 전기차는 차명에 EV 를 붙인다 (2026-10-20 담당자 지정: "스타리아EV(US4 EV)", "캐스퍼EV(AX EV)")
+  "US4 EV": "스타리아EV", "AX EV": "캐스퍼EV",
 };
+// 위 차들은 차종 칸(상세 표·2페이지 요약표)에도 "US4 EV" 처럼 EV 까지 적는다
+const EV_IN_CODE = new Set(["US4", "AX"]);
 const EV_ONLY = new Set(["NE", "CE", "ME1", "JW", "ST1"]);
 // 수소전기차(넥쏘): 제원은 무조건 FCEV (그냥 EV 아님)
 const FCEV_ONLY = new Set(["FE", "NH2"]);
@@ -105,7 +109,7 @@ function splitCar(car) {
   const parts = String(car || "").trim().split(/\s+/).filter(Boolean);
   let spec = "";
   if (parts.length > 1 && SPEC_WORDS.includes(parts[parts.length - 1].toUpperCase())) spec = parts.pop().toUpperCase();
-  const code = parts.join(" ");
+  const code = spec === "EV" && EV_IN_CODE.has(parts[0]) ? `${parts.join(" ")} EV` : parts.join(" ");
   if (FCEV_ONLY.has(parts[0]) || MODEL_NAMES[parts[0]] === "넥쏘") spec = "FCEV";
   if (!spec && EV_ONLY.has(parts[0])) spec = "EV";
   return { code, spec: spec || "-" };
