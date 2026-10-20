@@ -518,6 +518,10 @@ def test_lx3(tmp_path: Path):
         assert page.inner_text("#selDelete") == "선택 삭제 (1개)"
         page.click("#selDelete")
         assert rows.count() == 4 and "카시트" not in page.inner_text("#results")
+        for _ in range(50):  # 지운 결과가 저장될 때까지
+            if page.evaluate("chrome.storage.local.get('lx3Last').then((x) => x.lx3Last.items.length)") == 4:
+                break
+            page.wait_for_timeout(100)
         page.reload()
         assert rows.count() == 4 and checks() == [False] * 4
         page.click("#selAll")
@@ -733,3 +737,81 @@ def test_final_db(tmp_path: Path):
         assert len(db_rows("raw")) == 2 and "최종" in db_rows("raw")[0]
         ctx.close()
     assert not any("첨부하지 않았고" in m or "고르지 않았고" in m for m in dialogs), dialogs
+
+
+def test_resume(tmp_path: Path):
+    """중단 후 이어하기: 수집·찾기 중 진행 상황이 저장돼 있으면, 화면을 다시 열 때 이어서 할지 묻고
+    남은 것부터 계속한다(이미 한 것은 다시 하지 않음)."""
+    server = start_fake_cafe(tmp_path)
+    port = server.server_address[1]
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True, timezone_id="Asia/Seoul",
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}",
+                  f"--host-resolver-rules=MAP cafe.naver.com 127.0.0.1:{port}", "--no-proxy-server", "--ignore-certificate-errors"],
+            accept_downloads=True)
+        yt_down = {"on": False}  # True 면 유튜브 접속 실패 (다시 수집 확인용)
+        ctx.route("https://www.youtube.com/**", lambda route: route.fulfill(status=503, body="") if yt_down["on"] else route.fulfill(
+            status=200, content_type="application/json" if "/youtubei/" in route.request.url else "text/html",
+            body=json.dumps(YT_PAGES.get(json.loads(route.request.post_data or "{}").get("continuation"), {}))
+            if "/youtubei/" in route.request.url else YT_HTML))
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        ext = f"chrome-extension://{sw.url.split('/')[2]}"
+        page = ctx.new_page()
+        dialogs = []
+        page.on("dialog", lambda d: (dialogs.append(d.message), d.accept()))
+
+        # 0) 실패한 항목 다시 수집: 실패하면 버튼이 생기고, 누르면 실패한 것만 다시 수집
+        page.goto(f"{ext}/app.html")
+        page.wait_for_timeout(1000)
+        page.check("#separate")
+        page.fill("#urls", "https://youtu.be/abcdefghijk")
+        yt_down["on"] = True
+        with page.expect_download(timeout=60000):
+            page.click("#start")
+        page.locator("#retryFailed", has_text="실패한 1개 다시 수집").wait_for(timeout=10000)
+        yt_down["on"] = False
+        with page.expect_download(timeout=60000) as dl:
+            page.click("#retryFailed")
+        retried = tmp_path / "retried.xlsx"
+        dl.value.save_as(retried)
+        assert [r[3] for r in list(load_workbook(retried)["유튜브"].values)[1:]] == ["좋아요", "답글이에요", "멋져요", "마지막"]
+        assert page.is_hidden("#retryFailed")
+
+        # 1) 댓글 수집: 2개 중 1개(카페 글) 끝난 상태로 중단됨 → 다시 열면 이어서 2번째(유튜브)만 수집
+        page.goto(f"{ext}/app.html")
+        page.wait_for_timeout(1500)  # 화면이 다 열린 뒤(이어하기 확인이 끝난 뒤)에 저장
+        page.evaluate("""() => saveResume('comments', {
+          urls: ['https://cafe.naver.com/mycafe/789', 'https://youtu.be/abcdefghijk'], done: 1, separate: true, attached: false,
+          results: [{ platform: 'cafe', url: 'https://cafe.naver.com/mycafe/789', sheetUrl: 'https://cafe.naver.com/mycafe/789', cafeId: '', cafeUrl: 'mycafe',
+            articleId: '789', title: '', author: '', method: '화면', error: '',
+            comments: [{ commentId: 'x', isReply: false, parentId: '', nickname: 'a', content: '중단 전 댓글', writtenAt: '2026.10.19. 10:00', isDeleted: false }] }] })""")
+        before = len(server.requests)
+        with page.expect_download(timeout=60000) as dl:
+            page.reload()
+        out = tmp_path / "resumed.xlsx"
+        dl.value.save_as(out)
+        assert any("중단된 댓글 수집이 있습니다 (2개 중 1개 완료" in m for m in dialogs), dialogs
+        assert len(server.requests) == before  # 끝난 카페 글은 다시 열지 않음
+        wb = load_workbook(out)
+        assert [r[3] for r in list(wb["동호회"].values)[1:]] == ["중단 전 댓글"]
+        assert [r[3] for r in list(wb["유튜브"].values)[1:]] == ["좋아요", "답글이에요", "멋져요", "마지막"], page.inner_text("#progress") + page.inner_text("#summary")
+        assert page.evaluate("loadResume('comments')") is None  # 끝나면 지움
+
+        # 2) 게시물 찾기: 동호회 2곳 중 1곳 끝난 상태로 중단됨 → 이어서 2번째 동호회만 찾음
+        page.goto(f"{ext}/lx3.html")
+        page.wait_for_timeout(1500)
+        page.evaluate("""() => saveResume('lx3', { from: '2026-10-11T12:00', to: '2026-10-12T12:00', q: '시트', ids: ['111', '222'], nextCafe: 1,
+          items: [{ key: '111/1001', cafeId: '111', cafeIndex: 0, articleId: '1001', slug: 'aacafe', title: '중단 전에 찾은 글', text: '',
+            date: new Date(2026, 9, 12, 9, 30).getTime(), hasTime: true, ambiguous: false, checked: true, related: true, note: '', dup: false }] })""")
+        before = len(server.requests)
+        page.reload()
+        page.locator("#summary", has_text="찾은 글").wait_for(timeout=120000)
+        assert any("중단된 게시물 찾기가 있습니다 (동호회 2곳 중 1곳 완료, 찾은 글 1개" in m for m in dialogs), dialogs
+        new = server.requests[before:]
+        assert not any("/cafes/111/menus" in r for r in new) and any("/cafes/222/menus" in r for r in new), new
+        titles = page.locator("#results tbody tr td:nth-child(4)").all_inner_texts()
+        assert titles == ["아이오닉9 전동시트 리콜 공지", "중단 전에 찾은 글"], titles
+        assert page.evaluate("loadResume('lx3')") is None
+        ctx.close()
+    server.shutdown()

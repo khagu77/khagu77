@@ -79,29 +79,33 @@ function pageCanonicalUrls() {
   return urls;
 }
 
-async function collectCafe(result) {
-  const found = await withTab(result.url, async (tabId) => {
-    let hrefs = [];
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const results = await chrome.scripting.executeScript({
-        target: { tabId, allFrames: true },
-        func: scrapeCommentsInFrame,
-        args: [CAFE_PAGE_DELAY],
-      });
-      const answers = results.map((r) => r.result).filter(Boolean);
-      const hit = answers.find((r) => r.found);
-      if (hit) {
-        const canon = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: pageCanonicalUrls });
-        hit.canonical = canon.flatMap((r) => r.result || []);
-        hit.hints = await runInFrames(tabId, cafeSlugHintsInFrame);
-        return hit;
-      }
-      hrefs = answers.map((r) => r.href);
-      if (hrefs.some((h) => h.includes("nid.naver.com"))) break; // 로그인 화면으로 넘어감
-      await sleep(1500);
+// 게시글 화면에서 댓글 읽기 (where: 보이지 않는 틀 또는 탭)
+async function readComments(where) {
+  let hrefs = [];
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const answers = await runInFrames(where, scrapeCommentsInFrame, [CAFE_PAGE_DELAY]);
+    const hit = answers.find((r) => r.found);
+    if (hit) {
+      hit.canonical = (await runInFrames(where, pageCanonicalUrls)).flat();
+      hit.hints = await runInFrames(where, cafeSlugHintsInFrame);
+      return hit;
     }
-    return { found: false, hrefs };
-  });
+    hrefs = answers.map((r) => r.href);
+    if (hrefs.some((h) => h.includes("nid.naver.com"))) break; // 로그인 화면으로 넘어감
+    await sleep(1500);
+  }
+  return { found: false, hrefs };
+}
+
+async function collectCafe(result, row) {
+  // 창·탭을 띄우지 않고 수집 화면 안의 보이지 않는 틀에서 읽는다. 못 읽으면(설정 시) 뒤쪽 탭으로 한 번 더.
+  let found = await withTab(result.url, readComments).catch(() => ({ found: false, hrefs: [] }));
+  const login = (found.hrefs || []).some((h) => h.includes("nid.naver.com"));
+  if (!found.found && !login && (await tabFallbackOn())) {
+    row?.status("숨긴 화면에서 못 읽어 뒤쪽 탭으로 다시 읽는 중…");
+    found = await withTab(result.url, readComments, { mode: "tab" });
+    if (found.found) result.method = "탭";
+  }
   if (!found.found) {
     if ((found.hrefs || []).some((h) => h.includes("nid.naver.com"))) {
       throw new CollectError("네이버 로그인이 필요합니다");
@@ -139,7 +143,7 @@ async function collectCafe(result) {
     writtenAt: r.date,
     isDeleted: r.deleted,
   }));
-  result.method = "화면";
+  result.method = result.method || "화면";
 }
 
 const YT_ID_RE = /^[A-Za-z0-9_-]{11}$/;
@@ -524,6 +528,7 @@ function downloadWorkbook(bytes, name) {
 // ---------------------------------------------------------------------------
 
 let stopRequested = false;
+let lastFailedUrls = [];
 let lastWorkbook = null; // { bytes, name }
 let template = null; // 직접 고른 파일 { name, bytes, info }
 let dbBase = null; // 최종 DB 의 가장 최근 댓글 raw data { name, bytes, info, date }
@@ -678,7 +683,7 @@ async function collectOne(url, row) {
     result.articleId = ids.articleId || "";
     result.cafeUrl = ids.cafeUrl || "";
     row.status("게시글 열어서 댓글 읽는 중…");
-    await collectCafe(result);
+    await collectCafe(result, row);
     row.status("완료", "ok");
   } catch (e) {
     result.error = e.message || String(e);
@@ -690,7 +695,8 @@ async function collectOne(url, row) {
   return result;
 }
 
-async function start() {
+async function start(resume = null) {
+  if (resume) return run(resume);
   const urls = readUrls();
   if (!urls.length) {
     $("#summary").textContent = "URL을 입력하세요.";
@@ -717,6 +723,16 @@ async function start() {
     }
   }
   if (cafeCount) await checkLogin();
+  // 직접 고른 파일에 이어 쓰는 경우, 중단됐다가 이어 할 때를 위해 그 파일도 보관
+  if (template && !separateFile()) {
+    await dbTx("readwrite", (s) => s.put({ key: "resume:raw", kind: "resume", name: template.name, bytes: template.bytes })).catch(() => {});
+  }
+  return run({ urls, done: 0, results: [], separate: separateFile(), attached: !!template && !separateFile() });
+}
+
+// 수집 실행 (처음 또는 이어하기). state: { urls, done, results, separate, attached }
+async function run(state) {
+  const { urls } = state;
   stopRequested = false;
   $("#start").disabled = true;
   $("#stop").disabled = false;
@@ -724,13 +740,19 @@ async function start() {
   $("#progress").hidden = false;
   $("#progress tbody").innerHTML = "";
 
-  const results = [];
-  for (let i = 0; i < urls.length && !stopRequested; i++) {
+  const results = state.results;
+  results.forEach((r, i) => {
+    const row = addProgressRow(i + 1, urls[i]);
+    row.status(r.error ? `실패: ${r.error}` : "완료 (중단 전에 수집)", r.error ? "err" : "ok");
+    row.done(r);
+  });
+  for (let i = state.done; i < urls.length && !stopRequested; i++) {
     $("#summary").textContent = `수집 중… (${i + 1}/${urls.length})`;
     showBusy(`댓글 수집 중 ${i + 1}/${urls.length} — 끝날 때까지 이 탭을 닫지 마세요`, i, urls.length, "댓글 수집 중");
     const row = addProgressRow(i + 1, urls[i]);
     const result = await collectOne(urls[i], row);
     results.push(result);
+    await saveResume("comments", { urls, done: i + 1, results, separate: state.separate, attached: state.attached });
     const nextIsCafe = i + 1 < urls.length && !isYoutubeUrl(urls[i + 1]);
     if (nextIsCafe) {
       $("#summary").textContent = `다음 글을 열기 전에 잠시 기다리는 중… (${i + 1}/${urls.length} 완료)`;
@@ -775,10 +797,15 @@ async function start() {
     $("#summary").textContent =
       `${stopRequested ? "중지됨 - " : ""}${parts.join(", ")}` +
       `${failed ? ` (실패 ${failed}건)` : ""} · ${name} 파일이 다운로드 폴더에 저장되었습니다${dbNote}.`;
+    await clearResume("comments");
   } catch (e) {
     $("#summary").textContent = `엑셀 저장 실패: ${e.message}`;
   }
   hideBusy();
+  // 실패한 글·영상 → 다시 수집 버튼 (다시 수집하면 오늘 파일에 이어 쓰고, 이미 들어간 댓글은 빠짐)
+  lastFailedUrls = stopRequested ? [] : results.filter((r) => r.error).map((r) => r.url);
+  $("#retryFailed").hidden = !lastFailedUrls.length;
+  $("#retryFailed").textContent = `실패한 ${lastFailedUrls.length}개 다시 수집`;
   $("#start").disabled = false;
   $("#stop").disabled = true;
   $("#download").disabled = false;
@@ -809,7 +836,12 @@ document.addEventListener("DOMContentLoaded", () => {
     $("#handoff").hidden = false;
     $("#handoff").textContent = handoff;
   }
-  $("#start").addEventListener("click", start);
+  $("#start").addEventListener("click", () => start());
+  $("#retryFailed").addEventListener("click", () => {
+    $("#urls").value = lastFailedUrls.join("\n");
+    $("#retryFailed").hidden = true;
+    start();
+  });
   $("#stop").addEventListener("click", () => {
     stopRequested = true;
     $("#stop").disabled = true;
@@ -817,9 +849,31 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#download").addEventListener("click", () => lastWorkbook && downloadWorkbook(lastWorkbook.bytes, lastWorkbook.name));
   $("#templateFile").addEventListener("change", (e) => loadTemplate(e.target.files[0]));
-  loadDbBase().then(() => loadTemplate(null));
+  loadDbBase()
+    .then(() => loadTemplate(null))
+    .then(offerResume);
   $("#separate").addEventListener("change", showBaseInfo);
   saveOptions().then((o) => ($("#saveWhere").textContent = `저장 위치: ${saveWhereText(o)} (LX3 화면의 설정에서 바꿀 수 있음)`));
   window.addEventListener("focus", checkLogin);
   checkLogin();
 });
+
+// 중단된 수집이 있으면 이어서 할지 묻는다
+async function offerResume() {
+  const r = await loadResume("comments");
+  if (!r) return;
+  const when = new Date(r.at).toLocaleString();
+  const go = confirm(
+    `중단된 댓글 수집이 있습니다 (${r.urls.length}개 중 ${r.done}개 완료 · ${when}).\n\n` +
+      "· [확인]: 이어서 수집 (남은 것부터, 끝나면 엑셀 저장)\n· [취소]: 버리기",
+  );
+  if (!go) return clearResume("comments");
+  $("#separate").checked = !!r.separate;
+  if (r.attached) {
+    const rec = await dbTx("readonly", (s) => s.get("resume:raw")).catch(() => null);
+    if (rec) template = { name: rec.name, bytes: rec.bytes, info: await analyzeTemplate(await XlsxTemplate.Workbook.open(rec.bytes)) };
+  }
+  showBaseInfo();
+  $("#urls").value = r.urls.join("\n");
+  start(r);
+}

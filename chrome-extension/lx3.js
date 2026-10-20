@@ -92,6 +92,7 @@ function showBaseInfo() {
 let cafeSlugs = {};
 let cafeNames = {};
 let lastSaved = null;
+let lastFailedCafes = []; // 지난 찾기에서 목록을 못 읽은 동호회 (다시 찾기용)
 let lastSearchAt = 0;
 let lastRange = {};
 let diagnostics = []; // 글을 못 읽은 화면의 구조 (진단 파일)
@@ -102,7 +103,7 @@ let diagnostics = []; // 글을 못 읽은 화면의 구조 (진단 파일)
 
 async function loadSettings() {
   const s = await chrome.storage.local
-    .get(["lx3Holidays", "saveFolder", "saveAsk", "lx3VisibleRetry", "lx3Cafes", "lx3Query", "lx3Include", "lx3Exclude", "lx3SearchUrl", "lx3MaxPages", "lx3CafeNames", "lx3Youtube"])
+    .get(["lx3Holidays", "saveFolder", "saveAsk", "lx3TabFallback", "lx3Cafes", "lx3Query", "lx3Include", "lx3Exclude", "lx3SearchUrl", "lx3MaxPages", "lx3CafeNames", "lx3Youtube"])
     .catch(() => ({}));
   $("#cafeList").value = (s.lx3Cafes || DEFAULT_CAFES).join("\n");
   $("#query").value = s.lx3Query ?? DEFAULT_QUERY;
@@ -110,7 +111,7 @@ async function loadSettings() {
   $("#exclude").value = s.lx3Exclude ?? DEFAULT_EXCLUDE;
   $("#searchUrl").value = s.lx3SearchUrl || DEFAULT_SEARCH_URL;
   $("#maxPages").value = s.lx3MaxPages || DEFAULT_MAX_PAGES;
-  $("#visibleRetry").checked = s.lx3VisibleRetry ?? true;
+  $("#tabFallback").checked = s.lx3TabFallback ?? true;
   $("#saveFolder").value = s.saveFolder || "";
   $("#saveAsk").checked = !!s.saveAsk;
   $("#holidays").value = s.lx3Holidays || "";
@@ -128,7 +129,7 @@ function saveSettings() {
       lx3Exclude: $("#exclude").value,
       lx3SearchUrl: normalizeSearchUrl($("#searchUrl").value),
       lx3MaxPages: Math.max(1, Math.min(20, Number($("#maxPages").value) || DEFAULT_MAX_PAGES)),
-      lx3VisibleRetry: $("#visibleRetry").checked,
+      lx3TabFallback: $("#tabFallback").checked,
       saveFolder: cleanFolder($("#saveFolder").value),
       saveAsk: $("#saveAsk").checked,
       lx3Holidays: $("#holidays").value,
@@ -313,7 +314,8 @@ function placeInRange(parsed, { from, to }) {
 // 검색 결과 화면: 게시글 링크마다 제목·날짜·미리보기 글자
 function scanSearchInFrame() {
   const body = document.body;
-  const top = window === window.top;
+  // 카페 화면의 맨 위(탭이면 탭 자체, 수집 화면 안 보이지 않는 틀이면 그 틀)
+  const top = (window === window.top || (window.parent === window.top && (() => { try { return !window.top.location.href; } catch { return true; } })()));
   if (!body) return { items: [], noResult: false, href: location.href, top, title: top ? document.title : "" };
   const pageText = body.innerText || "";
   const noResult = /검색\s*결과가\s*없|검색된\s*(?:게시물|게시글|글)이\s*없|등록된\s*(?:게시물|게시글)이\s*없/.test(pageText);
@@ -422,7 +424,7 @@ function snapshotInFrame() {
     .slice(0, 5)
     .map((r) => r.outerHTML.slice(0, 3000));
   return {
-    href: location.href, top: window === window.top, title: document.title, readyState: document.readyState,
+    href: location.href, top: (window === window.top || (window.parent === window.top && (() => { try { return !window.top.location.href; } catch { return true; } })())), title: document.title, readyState: document.readyState,
     visibility: document.visibilityState, counts: { a: document.querySelectorAll("a").length, iframes: document.querySelectorAll("iframe").length, rows: rows.length },
     iframes: [...document.querySelectorAll("iframe")].map((f) => f.src).slice(0, 10),
     text: body ? String(body.innerText || "").slice(0, 3000) : "", links, rows,
@@ -460,19 +462,19 @@ function setSummary(text, cls = "") {
 }
 
 async function scanSearchPage(url) {
-  const res = await scanSearchPageIn(url, false);
-  // 뒤쪽 탭에서 목록이 안 그려졌으면 작은 창으로 한 번 더
-  // ('결과 없음' 문구도 목록이 그려지기 전 빈 화면일 수 있어 다시 확인)
-  if (!res.items.length && !res.login && $("#visibleRetry").checked) {
-    log("  ↳ 뒤쪽 탭에서 글을 못 읽어 작은 창으로 다시 확인합니다");
-    const again = await scanSearchPageIn(url, true);
+  // 창·탭을 띄우지 않고 수집 화면 안의 보이지 않는 틀에서 읽는다
+  const res = await scanSearchPageIn(url, "frame").catch(() => ({ items: [], noResult: false, login: false, title: "", hints: [] }));
+  // 화면을 아예 못 읽었을 때만(설정 시) 뒤쪽 탭으로 한 번 더. '검색 결과 없음'이 보이면 정말 없는 것이라 탭을 열지 않는다
+  if (!res.items.length && !res.noResult && !res.login && $("#tabFallback").checked) {
+    log("  ↳ 숨긴 화면에서 글을 못 읽어 뒤쪽 탭으로 다시 확인합니다");
+    const again = await scanSearchPageIn(url, "tab");
     again.retried = true;
     return again;
   }
   return res;
 }
 
-async function scanSearchPageIn(url, visible) {
+async function scanSearchPageIn(url, mode) {
   return withTab(url, async (tabId) => {
     let last = { items: [], noResult: false, login: false, title: "", hints: [] };
     let emptyInRow = 0;
@@ -494,7 +496,7 @@ async function scanSearchPageIn(url, visible) {
     last.hints = await runInFrames(tabId, cafeSlugHintsInFrame);
     if (!last.title) last.title = last.hints.find((h) => h.top)?.title || "";
     return last;
-  }, { visible });
+  }, { mode });
 }
 
 // 못 읽은 화면 요약 (로그에 그대로 보이게)
@@ -507,6 +509,12 @@ function snapshotSummary(snap) {
 }
 
 async function readArticleTime(url) {
+  const res = await readArticleTimeIn(url, "frame").catch(() => ({ found: false }));
+  if (!res.found && !res.login && $("#tabFallback").checked) return readArticleTimeIn(url, "tab");
+  return res;
+}
+
+async function readArticleTimeIn(url, mode) {
   return withTab(url, async (tabId) => {
     for (let i = 0; i < 8; i++) {
       const frames = await runInFrames(tabId, readArticleInFrame);
@@ -516,7 +524,7 @@ async function readArticleTime(url) {
       await sleep(1500);
     }
     return { found: false };
-  });
+  }, { mode });
 }
 
 function articleUrl(item) {
@@ -524,17 +532,22 @@ function articleUrl(item) {
   return slug ? shortArticleUrl(slug, item.articleId) : `https://cafe.naver.com/f-e/cafes/${item.cafeId}/articles/${item.articleId}`;
 }
 
-async function search() {
+async function search(resume = null) {
   if (running) return;
+  if (resume) {
+    $("#from").value = resume.from;
+    $("#to").value = resume.to;
+    $("#query").value = resume.q;
+  }
   let win;
   try {
     win = range();
   } catch (e) {
     return setSummary(e.message, "err");
   }
-  const ids = cafeIds();
+  const ids = resume ? resume.ids : cafeIds();
   const q = $("#query").value.trim();
-  if (!ids.length) return setSummary("동호회 목록에 카페 주소를 넣어 주세요.", "err");
+  if (!ids.length && !resume?.retry) return setSummary("동호회 목록에 카페 주소를 넣어 주세요.", "err");
   if (!q) return setSummary("검색어를 넣어 주세요.", "err");
   await saveSettings();
   await checkLogin();
@@ -545,13 +558,19 @@ async function search() {
   $("#log").innerHTML = "";
   diagnostics = [];
   $("#diag").hidden = true;
-  items = [];
+  items = resume ? resume.items.map((x) => ({ ...x, date: x.date ? new Date(x.date) : null })) : [];
   renderResults();
   const maxPages = Math.max(1, Number($("#maxPages").value) || DEFAULT_MAX_PAGES);
-  const seen = new Set();
+  const seen = new Set(items.map((x) => x.key));
   let loginNeeded = false;
+  const checkpoint = (nextCafe) =>
+    saveResume("lx3", { from: $("#from").value, to: $("#to").value, q, ids, nextCafe, items: items.map(serializeItem) });
+  const failedCafes = [];
+  if (resume?.retry) log(`· 못 읽은 동호회 ${ids.length}곳을 다시 찾습니다 (이미 찾은 글 ${items.length}개는 그대로)`);
+  else if (resume) log(`· 중단된 곳부터 이어서 찾습니다 (동호회 ${Math.min(resume.nextCafe + 1, ids.length)}/${ids.length}부터, 이미 찾은 글 ${items.length}개)`);
+  $("#retryCafes").hidden = true;
 
-  for (let ci = 0; ci < ids.length && !stopRequested; ci++) {
+  for (let ci = resume ? resume.nextCafe : 0; ci < ids.length && !stopRequested; ci++) {
     const cafeId = ids[ci];
     let prevKeys = "";
     for (let page = 1; page <= maxPages && !stopRequested; page++) {
@@ -560,6 +579,7 @@ async function search() {
       const res = await scanSearchPage(searchUrl(cafeId, q, page));
       if (res.login) {
         loginNeeded = true;
+        failedCafes.push(cafeId);
         log(`✖ ${cafeId}: 네이버 로그인이 필요합니다`);
         break;
       }
@@ -575,6 +595,7 @@ async function search() {
       const keys = pageItems.map((x) => x.articleId).join(",");
       if (!pageItems.length || keys === prevKeys) {
         if (!pageItems.length && res.snapshot) diagnostics.push({ cafeId, page, url: searchUrl(cafeId, q, page), frames: res.snapshot });
+        if (!pageItems.length && !res.noResult) failedCafes.push(cafeId); // 화면을 못 읽음 → 다시 찾기 대상
         log(`· ${cafeNames[cafeId] || cafeId}: ${page}페이지 ${pageItems.length ? "(앞 페이지와 같음)" : res.noResult ? "검색 결과 없음" : `글 목록을 읽지 못함${snapshotSummary(res.snapshot)}`}`);
         break;
       }
@@ -606,6 +627,7 @@ async function search() {
       if (dated && older === dated) break; // 이 페이지가 모두 기간 이전 → 다음 페이지는 더 이전
       if (page < maxPages) await sleep(randomBetween(CAFE_PAGE_DELAY));
     }
+    if (!stopRequested) await checkpoint(ci + 1);
     if (ci + 1 < ids.length && !stopRequested) await sleep(randomBetween(CAFE_ARTICLE_DELAY));
   }
 
@@ -639,8 +661,10 @@ async function search() {
       item.note = res.login ? "로그인 필요 - 시간 확인 못 함" : "시간 확인 못 함";
     }
     renderResults();
+    if (!stopRequested) await checkpoint(ids.length);
   }
 
+  await clearResume("lx3");
   await chrome.storage.local.set({ lx3CafeNames: cafeNames }).catch(() => {});
   $("#diag").hidden = !diagnostics.length;
   cafeSlugs = await loadCafeSlugs();
@@ -659,6 +683,13 @@ async function search() {
   );
   running = false;
   hideBusy();
+  // 못 읽은 동호회 · 시간 확인 못 한 글 → 다시 찾기 버튼
+  lastFailedCafes = stopRequested ? [] : failedCafes;
+  const unchecked = items.filter((x) => x.ambiguous).length;
+  $("#retryCafes").hidden = !lastFailedCafes.length && !unchecked;
+  $("#retryCafes").textContent = lastFailedCafes.length
+    ? `못 읽은 동호회 다시 찾기 (${lastFailedCafes.length}곳${unchecked ? ` · 시간 미확인 글 ${unchecked}개` : ""})`
+    : `시간 미확인 글 다시 확인 (${unchecked}개)`;
   $("#search").disabled = false;
   $("#stop").disabled = true;
   updateCounts();
@@ -1020,7 +1051,7 @@ async function init() {
     markDuplicates();
     renderResults();
   });
-  for (const id of ["cafeList", "include", "exclude", "searchUrl", "maxPages", "query", "visibleRetry", "saveFolder", "saveAsk", "holidays"]) {
+  for (const id of ["cafeList", "include", "exclude", "searchUrl", "maxPages", "query", "tabFallback", "saveFolder", "saveAsk", "holidays"]) {
     $(`#${id}`).addEventListener("change", async () => {
       if (id === "searchUrl") $("#searchUrl").value = normalizeSearchUrl($("#searchUrl").value);
       if (id === "saveFolder") $("#saveFolder").value = cleanFolder($("#saveFolder").value);
@@ -1047,7 +1078,14 @@ async function init() {
     renderCafeInfo();
   });
   $("#resetRange").addEventListener("click", resetRange);
-  $("#search").addEventListener("click", search);
+  $("#search").addEventListener("click", () => search());
+  // 못 읽은 동호회만 다시 찾고(날짜만 보이는 글의 시간 확인도 다시), 이미 찾은 글에 더한다
+  $("#retryCafes").addEventListener("click", () =>
+    search({
+      retry: true, from: lastRange.from || $("#from").value, to: lastRange.to || $("#to").value, q: $("#query").value.trim(),
+      ids: lastFailedCafes, nextCafe: 0, items: items.map(serializeItem),
+    }),
+  );
   $("#stop").addEventListener("click", () => {
     stopRequested = true;
     $("#stop").disabled = true;
@@ -1063,12 +1101,12 @@ async function init() {
   $("#selAll").addEventListener("click", () => setChecks(() => true));
   $("#selNone").addEventListener("click", () => setChecks(() => false));
   $("#selInvert").addEventListener("click", () => setChecks((x) => !x.checked));
-  $("#selDelete").addEventListener("click", () => {
+  $("#selDelete").addEventListener("click", async () => {
     const n = items.filter((x) => x.checked).length;
     if (!n || !confirm(`체크한 게시물 ${n}개를 목록에서 삭제할까요?`)) return;
     items = items.filter((x) => !x.checked);
     renderResults();
-    saveLast();
+    await saveLast();
   });
   $("#checkAll").addEventListener("change", () => {
     for (const x of items) {
@@ -1098,6 +1136,16 @@ async function init() {
   window.addEventListener("focus", checkLogin);
   checkLogin();
   await restoreLast();
+  // 중단된 찾기가 있으면 이어서 할지 묻는다
+  const r = await loadResume("lx3");
+  if (r) {
+    const go = confirm(
+      `중단된 게시물 찾기가 있습니다 (동호회 ${r.ids.length}곳 중 ${Math.min(r.nextCafe, r.ids.length)}곳 완료, 찾은 글 ${r.items.length}개 · ${new Date(r.at).toLocaleString()}).\n\n` +
+        "· [확인]: 이어서 찾기 (남은 동호회·시간 확인부터)\n· [취소]: 버리기",
+    );
+    if (go) search(r);
+    else await clearResume("lx3");
+  }
 }
 
 init();

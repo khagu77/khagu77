@@ -120,3 +120,4 @@ button.danger { color: var(--red); border-color: var(--red); }
   background-size: 34px 34px; animation: busy-stripes 0.8s linear infinite; transition: width 0.4s; }
 .busy-fill.indeterminate { width: 100%; }
 @keyframes busy-stripes { from { background-position: 0 0; } to { background-position: 34px 0; } }
+body.busy-lock nav.menu a { pointer-events: none; opacity: 0.4; }

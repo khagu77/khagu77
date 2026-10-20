@@ -44,13 +44,14 @@
         <label for="holidays">추가 휴일 <span class="hint">(임시공휴일·회사 휴무 등 기본 달력에 없는 쉬는 날, 예: 2026-07-17, 2026-05-01 · 주말과 법정 공휴일·대체공휴일은 자동)</span></label>
         <textarea id="holidays" rows="1" spellcheck="false" placeholder="2026-07-17, 2026-12-31"></textarea>
         <label class="inline">카페마다 최대 <input type="number" id="maxPages" min="1" max="20" class="tiny"> 페이지까지 봅니다</label>
-        <label class="inline"><input type="checkbox" id="visibleRetry"> 뒤쪽 탭에서 글 목록을 못 읽으면 작은 창을 잠깐 띄워 다시 읽기</label>
+        <label class="inline"><input type="checkbox" id="tabFallback"> 숨긴 화면에서 못 읽으면 뒤쪽 탭으로 다시 읽기 <span class="hint">(평소에는 창·탭을 띄우지 않고 이 화면 안에서 읽습니다)</span></label>
         <div class="buttons"><button id="resetSettings" class="small">설정 처음 값으로</button></div>
       </details>
 
       <div class="buttons">
         <button id="search" class="primary">게시물 찾기</button>
         <button id="stop" disabled>중지</button>
+        <button id="retryCafes" hidden></button>
       </div>
       <div id="summary" class="summary"></div>
       <div id="log" class="log" hidden></div>
@@ -96,7 +97,7 @@
     </section>
 
     <p class="note">
-      네이버 카페는 계정 보호를 위해 검색 화면과 게시글을 탭으로 열어 사람처럼 천천히 읽습니다(카페 하나에 10~20초, 수집 중 탭이 잠깐 열렸다 닫힘).
+      네이버 카페는 계정 보호를 위해 검색 화면과 게시글을 하나씩 열어 사람처럼 천천히 읽습니다(카페 하나에 10~20초). 창·탭은 띄우지 않고 이 화면 안의 보이지 않는 곳에서 읽습니다.
       어제 날짜로만 보이는 글은 정확한 시간을 확인하려고 글을 한 번 열어 봅니다. 내가 열람할 수 있는 글만 찾을 수 있습니다(로그인 필요).
     </p>
   </main>

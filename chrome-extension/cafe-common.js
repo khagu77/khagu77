@@ -130,7 +130,8 @@ function cafeSlugHintsInFrame() {
     if (/카페홈|카페메인/.test(label) || /cafe_name|cafe-name|cafeName|CafeName|cafe_info|cafe_link|home/i.test(cls)) fromUrl(a.href, strong);
     else fromUrl(a.href, weak);
   }
-  return { strong, weak, href: location.href, top: window === window.top, title: window === window.top ? document.title : "" };
+  const top = (window === window.top || (window.parent === window.top && (() => { try { return !window.top.location.href; } catch { return true; } })()));
+  return { strong, weak, href: location.href, top, title: top ? document.title : "" };
 }
 
 // 여러 프레임의 단서 → 가장 그럴듯한 영문 주소 (강한 단서 우선, 약한 단서는 압도적일 때만)
@@ -156,11 +157,16 @@ function markUrl(url) {
   return /^https?:\/\/(?:[\w-]+\.)?(?:cafe\.naver\.com|naver\.me)\//.test(url) && !url.includes("#") ? `${url}#lx3bg` : url;
 }
 
-// visible: true 면 뒤쪽 탭 대신 작은 창을 잠깐 띄워서 연다(뒤쪽 탭에서 화면이 안 그려질 때)
-async function withTab(url, fn, { visible = false } = {}) {
+// 카페 화면 열기. mode:
+//  "frame"(기본) - 수집 화면 안의 보이지 않는 틀에서 연다. 새 탭·창이 뜨지 않아 실수로 닫을 일이 없다.
+//  "tab"        - 뒤쪽 탭으로 연다 (보이지 않는 틀에서 못 읽었을 때 다시 읽기용)
+//  "window"     - 작은 창을 잠깐 띄워서 연다
+// fn 에는 읽을 곳(where)을 넘기고, runInFrames(where, …) 로 그 화면(과 그 안의 틀들)에서 함수를 실행한다.
+async function withTab(url, fn, { visible = false, mode = visible ? "window" : "frame" } = {}) {
+  if (mode === "frame") return withFrame(url, fn);
   let tab;
   let win = null;
-  if (visible) {
+  if (mode === "window") {
     win = await chrome.windows.create({ url: markUrl(url), focused: false, type: "popup", width: 1000, height: 760 });
     tab = win.tabs[0];
   } else {
@@ -180,20 +186,99 @@ async function withTab(url, fn, { visible = false } = {}) {
       chrome.tabs.onUpdated.addListener(listener);
     });
     await sleep(3000); // 카페 화면(iframe/스크립트)이 그려질 시간
-    return await fn(tab.id);
+    return await fn({ tabId: tab.id });
   } finally {
     if (win) chrome.windows.remove(win.id).catch(() => {});
     else chrome.tabs.remove(tab.id).catch(() => {});
   }
 }
 
-async function runInFrames(tabId, func, args = []) {
+// 이 탭(수집 화면) 안의 틀에 카페 화면을 넣을 수 있게, 이 탭에서 여는 카페 틀에만 '틀 안 표시 금지' 머리글을 뗀다
+async function allowCafeFrames(tabId) {
+  await chrome.declarativeNetRequest.updateSessionRules({
+    removeRuleIds: [10],
+    addRules: [{
+      id: 10,
+      priority: 1,
+      action: {
+        type: "modifyHeaders",
+        responseHeaders: [
+          { header: "x-frame-options", operation: "remove" },
+          { header: "content-security-policy", operation: "remove" },
+        ],
+      },
+      condition: {
+        tabIds: [tabId],
+        resourceTypes: ["sub_frame"],
+        requestDomains: ["cafe.naver.com", "m.cafe.naver.com", "naver.me", "nid.naver.com"],
+      },
+    }],
+  });
+}
+
+async function withFrame(url, fn) {
+  const me = await chrome.tabs.getCurrent();
+  if (!me) throw new Error("수집 화면 탭을 찾지 못했습니다");
+  await allowCafeFrames(me.id);
+  const before = new Set(((await chrome.webNavigation.getAllFrames({ tabId: me.id })) || []).map((f) => f.frameId));
+  const frame = document.createElement("iframe");
+  // 화면 뒤에 투명하게 (화면 밖에 두면 크롬이 그리기를 멈출 수 있음). 크기는 실제 화면처럼 줘야 카페 화면이 목록을 그린다
+  frame.style.cssText = "position:fixed;left:0;top:0;width:1280px;height:900px;border:0;opacity:0;pointer-events:none;z-index:-1";
+  frame.setAttribute("aria-hidden", "true");
+  frame.tabIndex = -1;
+  // 카페 화면이 수집 화면 자체를 다른 주소로 바꾸지 못하게(allow-top-navigation 없음)
+  frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox");
+  frame.src = markUrl(url);
   try {
-    const res = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func, args });
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 30000);
+      frame.addEventListener("load", () => {
+        clearTimeout(timer);
+        resolve();
+      }, { once: true });
+      document.body.appendChild(frame);
+    });
+    await sleep(3000); // 카페 화면(스크립트)이 그려질 시간
+    const frames = (await chrome.webNavigation.getAllFrames({ tabId: me.id })) || [];
+    const root = frames.find((f) => f.parentFrameId === 0 && !before.has(f.frameId));
+    if (!root) throw new Error("카페 화면 틀을 찾지 못했습니다");
+    return await fn({ tabId: me.id, rootId: root.frameId });
+  } finally {
+    frame.remove();
+  }
+}
+
+// 읽을 곳 → scripting 대상 (탭이면 그 탭의 모든 틀, 보이지 않는 틀이면 그 틀과 그 안의 틀들)
+async function frameTarget(where) {
+  if (typeof where === "number") return { tabId: where, allFrames: true };
+  if (where.rootId === undefined) return { tabId: where.tabId, allFrames: true };
+  const frames = (await chrome.webNavigation.getAllFrames({ tabId: where.tabId }).catch(() => [])) || [];
+  const ids = new Set([where.rootId]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const f of frames) {
+      if (!ids.has(f.frameId) && ids.has(f.parentFrameId)) {
+        ids.add(f.frameId);
+        grew = true;
+      }
+    }
+  }
+  return { tabId: where.tabId, frameIds: [...ids] };
+}
+
+async function runInFrames(where, func, args = []) {
+  try {
+    const res = await chrome.scripting.executeScript({ target: await frameTarget(where), func, args });
     return res.map((r) => r.result).filter(Boolean);
   } catch {
     return [];
   }
+}
+
+// 보이지 않는 틀에서 못 읽었을 때 뒤쪽 탭으로 다시 읽을지 (설정, 기본 켜짐)
+async function tabFallbackOn() {
+  const { lx3TabFallback } = await chrome.storage.local.get("lx3TabFallback").catch(() => ({}));
+  return lx3TabFallback ?? true;
 }
 
 // ---------------------------------------------------------------------------
@@ -362,6 +447,7 @@ function showBusy(label, done, total, short = "작업 중") {
     (document.querySelector("main") || document.body).prepend(bar);
     busyTitle = document.title;
     window.addEventListener("beforeunload", busyGuard);
+    document.body.classList.add("busy-lock"); // 수집 중에는 위쪽 메뉴로 다른 화면에 가지 못하게
   }
   const pct = total ? Math.max(2, Math.min(100, Math.round((done / total) * 100))) : 0;
   bar.querySelector(".busy-text").textContent = `⏳ ${label}${total ? ` · ${pct}%` : ""}`;
@@ -373,6 +459,7 @@ function showBusy(label, done, total, short = "작업 중") {
 
 function hideBusy() {
   document.getElementById("busyBar")?.remove();
+  document.body.classList.remove("busy-lock");
   if (busyTitle) document.title = busyTitle;
   busyTitle = "";
   window.removeEventListener("beforeunload", busyGuard);
@@ -382,4 +469,20 @@ function hideBusy() {
 function busyGuard(e) {
   e.preventDefault();
   e.returnValue = "";
+}
+
+// ---------------------------------------------------------------------------
+// 이어하기: 수집·찾기 중 진행 상황을 저장해 두고, 실수로 화면을 벗어났다가 다시 열면 이어서 할지 묻는다
+// ---------------------------------------------------------------------------
+
+async function saveResume(kind, state) {
+  await chrome.storage.local.set({ [`resume_${kind}`]: { ...state, at: Date.now() } }).catch(() => {});
+}
+
+async function loadResume(kind) {
+  return (await chrome.storage.local.get(`resume_${kind}`).catch(() => ({})))[`resume_${kind}`] || null;
+}
+
+async function clearResume(kind) {
+  await chrome.storage.local.remove(`resume_${kind}`).catch(() => {});
 }
