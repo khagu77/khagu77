@@ -172,6 +172,11 @@ async function buildCommentsXlsx(sheets, withSentiment = true) {
   const files = await loadTemplate("templates/comments-template.xlsx");
   const tpl = splitSheet(Zip.text(files.get("xl/worksheets/sheet1.xml")));
   const [titleRow, headRow, firstRow, midRow, lastRow] = tpl.rows;
+  const styles = new StyleEditor(Zip.text(files.get("xl/styles.xml")));
+  // 양식의 text 칸 서식을 바탕으로: 작성일은 가운데 정렬, 표 오른쪽 끝 칸은 굵은 테두리로 마무리
+  const endRight = withSentiment ? "thin" : "medium";
+  const dateStyle = (base) => styles.derive(base, { horizontal: "center", right: "thin" });
+  const urlStyle = (base) => styles.derive(base, { right: endRight });
   // 열: A domain · B text · C 작성일 · D 게시글 URL · E 성향(맨 오른쪽, 양식의 성향 칸 서식·색)
   const built = sheets.map((sh, index) => {
     const rows = [];
@@ -186,7 +191,7 @@ async function buildCommentsXlsx(sheets, withSentiment = true) {
       ]),
     );
     const hs = headRow.styles;
-    rows.push(rowXml(2, headRow.attrs, [cellXml("A2", hs.A, "domain"), cellXml("B2", hs.B, "text"), cellXml("C2", hs.B, "작성일"), cellXml("D2", hs.B, "게시글 URL"), ...(withSentiment ? [cellXml("E2", hs.C, "성향")] : [])]));
+    rows.push(rowXml(2, headRow.attrs, [cellXml("A2", hs.A, "domain"), cellXml("B2", hs.B, "text"), cellXml("C2", dateStyle(hs.B), "작성일"), cellXml("D2", urlStyle(hs.B), "게시글 URL"), ...(withSentiment ? [cellXml("E2", hs.C, "성향")] : [])]));
     const links = [];
     const total = sh.rows.length;
     sh.rows.forEach((c, i) => {
@@ -197,8 +202,8 @@ async function buildCommentsXlsx(sheets, withSentiment = true) {
         rowXml(n, pat.attrs, [
           cellXml(`A${n}`, st.A, c.domain || ""),
           cellXml(`B${n}`, st.B, c.text || ""),
-          cellXml(`C${n}`, st.B, c.writtenAt || ""),
-          cellXml(`D${n}`, st.B, c.url || ""),
+          cellXml(`C${n}`, dateStyle(st.B), c.writtenAt || ""),
+          cellXml(`D${n}`, urlStyle(st.B), c.url || ""),
           ...(withSentiment ? [cellXml(`E${n}`, st.C, c.sentiment || "")] : []),
         ]),
       );
@@ -225,5 +230,46 @@ async function buildCommentsXlsx(sheets, withSentiment = true) {
     });
     return { name: sh.name, links, filter: null, xml };
   });
+  files.set("xl/styles.xml", styles.xml);
   return assembleWorkbook(files, built);
+}
+
+// styles.xml 의 칸 서식(xf)을 복제해 정렬·오른쪽 테두리만 바꾼 새 서식을 만든다
+class StyleEditor {
+  constructor(xml) {
+    this.xml = xml;
+    this.cache = new Map();
+  }
+
+  list(tag, item) {
+    const m = this.xml.match(new RegExp(`<${tag} count="\\d+">(.*?)</${tag}>`, "s"));
+    return { whole: m[0], items: m[1].match(new RegExp(`<${item}\\b[^>]*/>|<${item}\\b[^>]*>.*?</${item}>`, "gs")) || [] };
+  }
+
+  append(tag, item, x) {
+    const { whole, items } = this.list(tag, item);
+    this.xml = this.xml.replace(whole, `<${tag} count="${items.length + 1}">${items.join("")}${x}</${tag}>`);
+    return items.length;
+  }
+
+  derive(base, { horizontal, right }) {
+    const key = `${base}|${horizontal || ""}|${right || ""}`;
+    if (this.cache.has(key)) return this.cache.get(key);
+    let xf = this.list("cellXfs", "xf").items[+base];
+    if (!xf) return base;
+    if (right) {
+      const borderId = +(xf.match(/borderId="(\d+)"/) || [0, 0])[1];
+      let border = this.list("borders", "border").items[borderId] || "<border><left/><right/><top/><bottom/><diagonal/></border>";
+      if (border === "<border/>") border = "<border><left/><right/><top/><bottom/><diagonal/></border>";
+      const color = right === "medium" ? '<color indexed="64"/>' : '<color indexed="10"/>';
+      border = border.replace(/<right\/>|<right\b[^>]*>.*?<\/right>/s, `<right style="${right}">${color}</right>`);
+      const id = this.append("borders", "border", border);
+      xf = xf.replace(/borderId="\d+"/, `borderId="${id}"`);
+      if (!/applyBorder=/.test(xf)) xf = xf.replace("<xf ", '<xf applyBorder="1" ');
+    }
+    if (horizontal) xf = xf.replace(/horizontal="[^"]*"/, `horizontal="${horizontal}"`);
+    const idx = this.append("cellXfs", "xf", xf);
+    this.cache.set(key, String(idx));
+    return String(idx);
+  }
 }

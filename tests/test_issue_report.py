@@ -356,6 +356,8 @@ def test_issue_report(tmp_path: Path):
         assert not wb["언론"].auto_filter.ref and not list(wb["언론"].conditional_formatting)  # 필터·성향 색 없음
         assert wb["언론"]["A1"].value == "CN8_가격_공개_언론 댓글"
         assert wb["언론"].max_row == 5 and wb["언론"].max_column == 4
+        assert wb["언론"]["C3"].alignment.horizontal == "center"  # 작성일 가운데 정렬
+        assert wb["언론"]["D2"].border.right.style == "medium" and wb["언론"]["D3"].border.right.style == "medium"  # 표 오른쪽 끝 테두리
 
         # 4. 성향 분석
         page.click("#goSentiment")
