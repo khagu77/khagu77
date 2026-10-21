@@ -274,7 +274,7 @@ table.grid th.s-단순비난, table.grid th .s-단순비난 { color: var(--hate)
 .rsum-row:last-of-type { border-bottom: 0; }
 .rsum-row > span:last-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .rsum-label { flex: 0 0 110px; }
-.rsum-title { margin-bottom: 4px; }
+.rsum-title { display: inline-block; background: var(--brand); color: #fff; padding: 7px 16px; border-radius: 10px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(80, 50, 160, 0.25); }
 @media (prefers-color-scheme: dark) { .rsum-row { border-bottom-color: #3a3060; } }
 
 .len-over { color: var(--neg); font-weight: 700; }
