@@ -276,3 +276,6 @@ table.grid th.s-단순비난, table.grid th .s-단순비난 { color: var(--hate)
 .rsum-label { flex: 0 0 110px; }
 .rsum-title { margin-bottom: 4px; }
 @media (prefers-color-scheme: dark) { .rsum-row { border-bottom-color: #3a3060; } }
+
+.len-over { color: var(--neg); font-weight: 700; }
+.len-ok { color: var(--neu); }

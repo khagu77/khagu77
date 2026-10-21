@@ -68,6 +68,14 @@ function mapTableRows(xml, fn) {
   });
 }
 
+// 글자 폭 대강 (한글 1, 영문·숫자·기호 0.55) — 요약 줄 수 어림용. 14pt 굵은 글씨로 한 줄 ≈ 폭 70 (보낸 화면 기준)
+const SUMMARY_LINE = 70;
+function textWidth(t) {
+  let w = 0;
+  for (const ch of String(t)) w += /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7AF\u4E00-\u9FFF\u3000-\u303F]/.test(ch) ? 1 : 0.55;
+  return w;
+}
+
 const pct = (x) => `${(Math.round(x * 1000) / 10).toFixed(1)}%`;
 const numFmt = (n) => Number(n || 0).toLocaleString("en-US");
 
@@ -76,15 +84,26 @@ function joinQuotes(list, budget, maxEach = 150) {
   return fitQuotes(list, budget, maxEach).text;
 }
 
+// PPT 서체에 없는 이모지 등은 까만 네모로 보이므로 뺀다
+function pptSafe(text) {
+  return String(text || "")
+    .replace(/[\p{Extended_Pictographic}\u{1F000}-\u{1FAFF}\u{1F1E6}-\u{1F1FF}\u{E000}-\u{F8FF}\uFE00-\uFE0F\u200B-\u200D\u2060\u20E3\uFFFD]/gu, "")
+    .replace(/[\uD800-\uDFFF]/g, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // 칸에 들어갈 만큼 → { text, used: 실제로 들어간 댓글 }
 function fitQuotes(list, budget, maxEach = 150) {
   const out = [];
   const used = [];
   let len = 0;
   for (const raw of list) {
-    let t = String(raw || "").replace(/\s+/g, " ").replace(/[‘’]/g, "'").trim();
+    let t = pptSafe(raw).replace(/[‘’]/g, "'");
     if (!t) continue;
-    if (t.length > maxEach) t = `${t.slice(0, maxEach - 1)}…`;
+    const chars = Array.from(t);
+    if (chars.length > maxEach) t = `${chars.slice(0, maxEach - 1).join("")}…`;
     const piece = `‘${t}’`;
     if (out.length && len + piece.length + 2 > budget) break;
     out.push(piece);
@@ -137,7 +156,15 @@ async function buildReportPptx(data) {
   s1 = replaceShape(s1, "직사각형 25", (x) =>
     setParagraphs(x, [`모니터링 기간 : ${md(from)} ${hm(from)} ~ ${md(to)} ${hm(to)}`, `모니터링 채널 : ${data.channelsLabel}`]),
   );
-  s1 = replaceShape(s1, "직사각형 31", (x) => setParagraphs(x, (data.summary.length ? data.summary : [""]).slice(0, 3).map((t) => ` ${t}`)));
+  // 요약: 글상자에 3줄까지 들어감 → 넘치면 글자 크기를 줄여 표를 덮지 않게
+  const sumLines = (data.summary.length ? data.summary : [""]).slice(0, 3).map((t) => ` ${pptSafe(t)}`);
+  s1 = replaceShape(s1, "직사각형 31", (x) => {
+    x = setParagraphs(x, sumLines);
+    const lines = sumLines.reduce((n, t) => n + Math.max(1, Math.ceil(textWidth(t) / SUMMARY_LINE)), 0);
+    if (lines <= 3) return x;
+    const sz = Math.max(1000, Math.floor((1400 * 3) / lines / 50) * 50);
+    return x.replace(/(<a:(?:rPr|endParaRPr)[^>]*?) sz="\d+"/g, `$1 sz="${sz}"`);
+  });
 
   const phrase = data.headline || headlinePhrase(negAll, posAll);
   const headParts =
@@ -174,11 +201,17 @@ async function buildReportPptx(data) {
   // 차트 값 (가로 100% 누적 막대)
   const chartVals = SENTIMENTS.map((s) => CHART_CATS.map((cat) => rate(data.stats[cat === "전 채널" ? "전체" : cat], s)));
   let chart = Zip.text(files.get("ppt/charts/chart1.xml"));
+  // 양식의 긍정 계열엔 수치 표시가 없어 → 다른 계열의 수치 표시 서식을 빌려 넣는다
+  const lblTpl = (chart.match(/<c:dLbls>.*?<\/c:dLbls>/s) || [""])[0];
   let si = -1;
-  chart = chart.replace(/<c:val>(.*?)<\/c:val>/gs, (all2, inner) => {
+  chart = chart.replace(/<c:ser>.*?<\/c:ser>/gs, (ser) => {
     si++;
     const vals = chartVals[si] || [];
-    return `<c:val>${inner.replace(/<c:pt idx="(\d+)"><c:v>[^<]*<\/c:v><\/c:pt>/g, (_, k) => `<c:pt idx="${k}"><c:v>${Math.round((vals[+k] || 0) * 1000) / 1000}</c:v></c:pt>`)}</c:val>`;
+    ser = ser.replace(/<c:val>(.*?)<\/c:val>/s, (all2, inner) => `<c:val>${inner.replace(/<c:pt idx="(\d+)"><c:v>[^<]*<\/c:v><\/c:pt>/g, (_, k) => `<c:pt idx="${k}"><c:v>${Math.round((vals[+k] || 0) * 1000) / 1000}</c:v></c:pt>`)}</c:val>`);
+    if (!/<c:dLbls>/.test(ser) && lblTpl) ser = ser.replace(/(<c:invertIfNegative[^>]*\/>)/, `$1${lblTpl}`);
+    // 막대가 너무 짧은(5% 미만) 칸은 수치가 삐져나오므로 숨김
+    const hide = vals.map((v, k) => (v > 0 && v < 0.05) || !v ? `<c:dLbl><c:idx val="${k}"/><c:delete val="1"/><c:extLst><c:ext uri="{CE6537A1-D6FC-4f65-9D91-7224C49458BB}" xmlns:c15="http://schemas.microsoft.com/office/drawing/2012/chart"/></c:extLst></c:dLbl>` : "").join("");
+    return ser.replace(/<c:dLbls>(?:<c:dLbl>.*?<\/c:dLbl>)*/s, `<c:dLbls>${hide}`);
   });
   files.set("ppt/charts/chart1.xml", chart);
   // 차트 원본 데이터(PPT 에서 '데이터 편집' 했을 때 보이는 엑셀)도 같은 값으로

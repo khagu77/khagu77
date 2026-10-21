@@ -1541,6 +1541,7 @@ function renderReport() {
   $("#rTitle").value = r.title;
   $("#rChannels").value = r.channelsLabel || defaultChannelsLabel();
   $("#rSummary").value = (r.summary || []).join("\n");
+  renderSummaryLen();
   $("#rHeadline").value = r.headline || "";
   for (const col of $$(".qcol")) {
     const s = col.dataset.s;
@@ -1549,6 +1550,17 @@ function renderReport() {
   }
   renderHeadPreview();
   $("#finalMsg").textContent = job.final ? `최종 DB 저장됨: ${fmtDateTime(job.final.savedAt)}` : "";
+}
+
+// 요약 문장 길이: PPT 한 줄(공백 포함 약 60자)을 넘으면 경고
+function renderSummaryLen() {
+  const lines = $("#rSummary").value.split("\n").map((x) => x.trim()).filter(Boolean);
+  const box = $("#rSummaryLen");
+  box.innerHTML = "";
+  lines.forEach((t, i) => {
+    const n = Array.from(t).length;
+    box.append(el("span", { class: n > 60 ? "len-over" : "len-ok", text: `${i ? " · " : ""}${i + 1}줄 ${n}자${n > 60 ? " ⚠ PPT 한 줄 넘음(넘치면 글자를 작게 줄여 넣음)" : " ✔"}` }));
+  });
 }
 
 function readReport() {
@@ -1951,6 +1963,7 @@ async function init() {
   $("#writeSummary").addEventListener("click", writeSummaryOnly);
   $("#rHeadline").addEventListener("input", renderHeadPreview);
   for (const id of ["#rTitle", "#rChannels", "#rSummary", "#rHeadline"]) $(id).addEventListener("change", () => (readReport(), saveJobSoon()));
+  $("#rSummary").addEventListener("input", renderSummaryLen);
   for (const t of $$(".qcol textarea")) t.addEventListener("change", () => (readReport(), saveJobSoon()));
   $("#dlPptx").addEventListener("click", downloadPptx);
   $("#saveFinal").addEventListener("click", saveFinal);

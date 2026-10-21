@@ -464,7 +464,15 @@ def test_issue_report(tmp_path: Path):
         assert page.evaluate("[meaningfulQuote('ㅣㄱㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅅㅂ'), meaningfulQuote('ㅋㅋㅋ 현기 배짱장사 답이 없네')]") == [False, True]
         assert "내용이 없는 댓글은 고르지 않는다" in sys_rep and "내용이 없는 댓글은 주요 댓글에서 뺀다" in sys_rep
         neg_short = q("부정", "short").splitlines()
-        page.fill('.qcol[data-s="부정"] [data-k="long"]', "\n".join(neg_short + ["2페이지 전용 부정 댓글"]))
+        page.fill('.qcol[data-s="부정"] [data-k="long"]', "\n".join(neg_short + ["2페이지 전용 부정 댓글😂👍🏻"]))
+        page.fill('.qcol[data-s="중립"] [data-k="short"]', "직접 고친 중립 댓글🤣")
+        page.dispatch_event('.qcol[data-s="중립"] [data-k="short"]', "change")
+        # 요약이 PPT 한 줄(60자)을 넘으면 화면에 경고, PPT 에선 글자를 줄여 넣는다
+        long_sum = "테스트 요약 첫째 문장 확인 中 " + "가격 부담과 옵션 구성 불만이 이어지는 상황 " * 4
+        page.fill("#rSummary", f"{long_sum}\n{long_sum}")
+        page.dispatch_event("#rSummary", "input")
+        page.dispatch_event("#rSummary", "change")
+        assert "PPT 한 줄 넘음" in page.inner_text("#rSummaryLen")
         pptx = save_download("#dlPptx")
         page.click("#saveFinal")
         page.locator("#finalMsg", has_text="최종 DB 저장 완료").wait_for(timeout=60000)
@@ -519,7 +527,15 @@ def test_issue_report(tmp_path: Path):
     assert "CN8 가격 공개 관련 여론 동향" in slide1 and "테스트 요약 첫째 문장 확인 中" in slide1
     assert "현대하모니 L" in slide1  # 양식 서체 유지
     assert "현기 배짱장사 답이 없네" in slide1 and "현기 배짱장사 답이 없네" not in slide2  # 1페이지에만
-    assert "2페이지 전용 부정 댓글" in slide2
+    assert "‘2페이지 전용 부정 댓글’" in slide2 and "직접 고친 중립 댓글’" in slide1  # 이모지는 빼고 (까만 네모 방지)
+    assert not re.search(r"[\U0001F000-\U0001FAFF\uFE0F]", slide1 + slide2)
+    sum_shape = slide1[slide1.index('name="직사각형 31"'):]
+    sum_shape = sum_shape[: sum_shape.index("</p:sp>")]
+    assert 'sz="1400"' not in sum_shape and re.search(r'sz="1[0-3]\d\d"', sum_shape)  # 넘쳐서 글자 줄임
+    # 그래프: 긍정 계열에도 수치 표시, 5% 미만 막대는 수치 숨김
+    sers = re.findall(r"<c:ser>.*?</c:ser>", chart, re.S)
+    assert len(sers) == 4 and all("<c:dLbls>" in x for x in sers)
+    assert "<c:delete val=\"1\"/>" in chart
     for t in neg_short:
         assert t in slide1 and t not in slide2, t
     # 전체 7개: 긍정 2(좋네요·기대) / 부정 3 / 단순비난 2
