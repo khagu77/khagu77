@@ -281,7 +281,8 @@ table.grid th.s-단순비난, table.grid th .s-단순비난 { color: var(--hate)
 .len-ok { color: var(--neu); }
 
 /* 성향별 댓글 다시 고르기 버튼 */
-.refills { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+.refills { display: inline-flex; gap: 6px; flex-wrap: wrap; margin-left: auto; justify-content: flex-end; }
+#reportMsg { display: block; margin-top: 6px; min-height: 1em; }
 button.refill { color: #fff; font-weight: 700; border: none; }
 button.refill[data-s="긍정"] { background: var(--pos); }
 button.refill[data-s="중립"] { background: var(--neu); }
