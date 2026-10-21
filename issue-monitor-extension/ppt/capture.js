@@ -179,6 +179,35 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
       await new Promise((r) => setTimeout(r, 100));
     }
     await new Promise((r) => setTimeout(r, 300));
+    // 영상 + 아래 글자: 영상 화면과 그 아래 글자만 딱 맞게 (칸 전체 폭의 빈 여백은 빼고) (담당자 수정 2026-10-21)
+    if (el.hasAttribute("data-rpt-vcap")) {
+      const scrEl = el.querySelector("[data-rpt-vscreen]") || el;
+      const sr = scrEl.getBoundingClientRect();
+      let L = sr.left;
+      let T = sr.top;
+      let R = sr.right;
+      let B = sr.bottom;
+      const tw = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      for (let n = tw.nextNode(); n; n = tw.nextNode()) {
+        if (!n.textContent.trim() || (n.parentElement && n.parentElement.closest("video, iframe"))) continue;
+        const rg = doc.createRange();
+        rg.selectNodeContents(n);
+        const r = rg.getBoundingClientRect();
+        if (r.height <= 0 || r.top < sr.bottom - 2) continue; // 영상 위에 겹친 글자(재생 수 등)는 화면 캡처에 이미 들어감
+        L = Math.min(L, r.left);
+        R = Math.max(R, r.right);
+        B = Math.max(B, r.bottom);
+      }
+      const pad = 2;
+      let x = L + window.scrollX - pad;
+      let y = T + window.scrollY - pad;
+      if (doc !== document) {
+        const fr = frame.getBoundingClientRect();
+        x += fr.left + frame.clientLeft;
+        y += fr.top + frame.clientTop;
+      }
+      return { x: Math.max(0, x), y: Math.max(0, y), width: R - L + pad * 2, height: B - T + pad * 2 + 4 };
+    }
     // 본문은 여유 없이(바로 아래 영역이 섞이지 않게), 나머지는 2px 여유
     const rect = toPage(el, target === "body" ? 0 : 2);
     // 아주 긴 본문은 여러 번 나눠 찍어 이어 붙인다 (captureBody). 이어 붙인 그림 크기 한계 때문에 최대 16000px
@@ -407,8 +436,66 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     }
     boilerplateText = norm(boiler.filter((l) => !isDivider(l)).map(text).join("")).slice(0, 300);
   }
+  // ⑥ 본문 어디에 있든 빼는 카페 글쓰기 양식·고정 안내문 (담당자 수정 2026-10-21: 넥쏘 카페 nexocafe/306247)
+  //    넥쏘 카페 양식: 위 "A. 차량에 이상이 생겼을 경우 / (당일, 주말 공휴일 경우 불가능) / 1. 차주명 : / 2. 마지막 수소 충전소 : / 3. 차량 문제점 :"
+  //    아래 "B. 수리후, 후기 작성시 / 1. 방문일 : … 4. 서비스 센터 담당자 성함 :" + 카페 고정 안내문(수소전기차 실제 오너만 … 수소전담서비스 조회)
+  //    → 작성자가 쓴 글만 남긴다. 양식 칸에 값을 적었으면 그 줄은 남기되, 차주명(개인정보) 줄은 항상 뺀다.
+  const FORM_ANY = [
+    /^A\.\s*차량에\s*이상이\s*생겼을\s*경우/,
+    /^\(?\s*당일\s*,?\s*주말\s*(및\s*)?공휴일/,
+    /^B\.\s*수리\s*후\s*,?\s*후기\s*작성/,
+    /^\d+\s*[.)]\s*(차주명|마지막\s*수소\s*충전소|차량\s*문제점|방문일|서비스\s*센터명|사업소\s*또는\s*블루핸즈|서비스\s*센터\s*담당자\s*성함)[^:：]{0,20}[:：]\s*$/,
+    /^\d+\s*[.)]\s*차주명\s*[:：]/,
+    /수소전기차\s*실제\s*오너만\s*등록이\s*가능/,
+    /개인\s*정보\s*노출되는\s*동호회\s*커뮤니티/,
+    /^마시기\s*바라며\s*참고하여\s*불이익/,
+    /^주의할\s*사항은\s*차량에\s*문제\s*발생/,
+    /^마치\s*모든\s*문제가\s*해결\s*될\s*것\s*처럼/,
+    /^절대\s*현혹\s*되지\s*마시기/,
+    /커뮤니티는\s*인터넷\s*실명제\s*동호회/,
+    /^그\s*어떠한\s*부분도\s*어떠한\s*형태/,
+    /^위반시\s*내보내기\s*처리/,
+    /수소전담\s*서비스\s*조회/,
+  ];
+  const extraBoiler = new Set();
+  lines.forEach((l, i) => {
+    if (i <= cut && boilerplateText) return;
+    const t = text(l);
+    if (!l.media && t && FORM_ANY.some((r) => r.test(t))) extraBoiler.add(i);
+  });
+  if (extraBoiler.size) {
+    const hidden = new Set();
+    for (const i of extraBoiler) {
+      const l = lines[i];
+      for (const el of l.els) el.setAttribute("data-rpt-boiler", "");
+      for (const tn of l.nodes) {
+        if (!tn.parentNode) continue;
+        const span = doc.createElement("span");
+        span.setAttribute("data-rpt-boiler", "");
+        tn.parentNode.insertBefore(span, tn);
+        span.appendChild(tn);
+        hidden.add(tn);
+      }
+    }
+    // 양식·안내문만 들어 있는 문단·상자는 자리까지 뺀다
+    for (const el of body.querySelectorAll("p, div, li, blockquote, table")) {
+      if (el.hasAttribute("data-rpt-boiler")) continue;
+      const tw = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let any = false;
+      let only = true;
+      for (let t = tw.nextNode(); t; t = tw.nextNode()) {
+        if (!t.nodeValue.trim()) continue;
+        any = true;
+        if (!hidden.has(t)) {
+          only = false;
+          break;
+        }
+      }
+      if (any && only && !el.querySelector("img, video, iframe")) el.setAttribute("data-rpt-boiler", "");
+    }
+  }
   const bodyText = lines
-    .filter((l, i) => !(i <= cut && boilerplateText) && !l.media)
+    .filter((l, i) => !(i <= cut && boilerplateText) && !extraBoiler.has(i) && !l.media)
     .map((l) => l.text)
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
@@ -499,6 +586,8 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
       if (capText) {
         const cr = comp.getBoundingClientRect();
         comp.setAttribute("data-rpt", `image${images.length}`);
+        comp.setAttribute("data-rpt-vcap", "");
+        videoScreen(img).setAttribute("data-rpt-vscreen", "");
         images.push({ index: images.length, width: cr.width, height: cr.height, src: "", video: true, caption: capText });
         continue;
       }
