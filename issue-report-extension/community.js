@@ -133,12 +133,28 @@ function rowInfo(a, title, ad) {
   }
   const r = rowEl || a.parentElement;
   const notice = r ? /공지|notice/i.test(`${r.className || ""} ${r.querySelector("img[alt]")?.getAttribute("alt") || ""}`) : false;
-  const cm = r ? spacedText(r).match(/\[(\d+)\]|댓글\s*(\d+)/) : null;
-  return { parsed: found, notice, ccount: cm ? +(cm[1] || cm[2]) : null };
+  // 댓글 수: [18] · 댓글 18 · 숫자만 든 댓글 칸(뽐뿌 list_comment2, 보배드림 totreply 등)
+  let ccount = null;
+  if (r) {
+    for (const x of r.querySelectorAll("[class*='comment'],[class*='cmt'],[class*='reply'],[class*='Comment'],[class*='Reply']")) {
+      const m = textOf(x).match(/^[\[(]?\s*(\d{1,5})\s*[\])]?$/);
+      if (m) {
+        ccount = +m[1];
+        break;
+      }
+    }
+    if (ccount == null) {
+      const cm = spacedText(r).replace(title, " ").match(/\[(\d+)\]|댓글\s*(\d+)/);
+      if (cm) ccount = +(cm[1] || cm[2]);
+    }
+  }
+  return { parsed: found, notice, ccount };
 }
 
 class CommunityCollector {
-  constructor({ delays, log, isStopped }) {
+  // ai: 화면 구조로 못 읽은 댓글을 화면 글자에서 골라내는 AI (AiClient, 없으면 null)
+  constructor({ delays, log, isStopped, ai = null }) {
+    this.ai = ai;
     this.delays = delays;
     this.log = log;
     this.isStopped = isStopped;
@@ -229,9 +245,14 @@ class CommunityCollector {
     return [...all.values()];
   }
 
-  // 게시글: 본문·작성 시각·댓글
+  // 게시글: 본문·작성 시각·댓글. 댓글은 반드시 읽어 낸다:
+  // 1) 받아 온 화면에서 (사이트별 칸 이름 → 몰라도 '댓글'이 반복되는 덩어리)
+  // 2) 0개이거나 화면에 보이는 댓글 수보다 모자라면 → 실제 탭으로 열어 끝까지 내리고 '더보기'를 눌러 다 그린 뒤 다시
+  // 3) 그래도 모자라면 → 탭 화면의 글자를 AI 가 읽어 댓글만 그대로 골라냄
+  // 4) 그래도 댓글 수가 보이는데 하나도 못 읽었으면 → 실패로 돌려 '못 읽은 글만 다시' 대상이 되게 함 (0개로 끝내지 않음)
   async readArticle(post) {
     const ad = communityAdapter(post.siteUrl || post.url);
+    const sel = { items: ad.commentItems, text: ad.commentText, date: ad.commentDate };
     const doc = await this.fetchDoc(post.url);
     let body = "";
     for (const s of ad.bodySelectors) {
@@ -250,36 +271,225 @@ class CommunityCollector {
         break;
       }
     }
-    const comments = [];
-    const seen = new Set();
-    for (const sel of ad.commentItems) {
-      const nodes = [...doc.querySelectorAll(sel)];
-      if (!nodes.length) continue;
-      for (const n of nodes) {
-        let t = "";
-        for (const ts of ad.commentText) {
-          const e = n.querySelector(ts);
-          if (e && textOf(e)) {
-            t = textOf(e);
-            break;
-          }
+    const fetched = findCommentsIn(doc, sel);
+    let comments = fetched.comments;
+    let how = fetched.how;
+    let expected = Math.max(expectedCommentCount(doc), post.listCcount ?? post.ccount ?? 0);
+    const enough = () => comments.length > 0 && comments.length >= Math.ceil(expected * 0.8);
+    let live = null;
+    let aiNone = false;
+    if (!enough()) {
+      live = await this.readInTab(post.url, sel, expected).catch((e) => {
+        this.log(`  · 탭으로 열어 읽기 실패: ${korMsg(e.message)}`, "err");
+        return null;
+      });
+      if (live) {
+        expected = Math.max(expected, live.expected || 0);
+        if (live.comments.length > comments.length) {
+          comments = live.comments;
+          how = "탭으로 열어 다시 읽음";
         }
-        t = t.replace(/\s+/g, " ").trim();
-        if (!t || t.length < 1 || /^(삭제된 댓글|삭제 된 댓글|블라인드)/.test(t) || seen.has(t)) continue;
-        seen.add(t);
-        let dtext = "";
-        for (const ds of ad.commentDate) {
-          const e = n.querySelector(ds);
-          if (e && /\d/.test(textOf(e))) {
-            dtext = textOf(e);
-            break;
-          }
-        }
-        const d = parseKoreanDate(dtext);
-        comments.push({ text: t, writtenAt: d ? fmtDateTime(d.date) : dtext, date: d ? d.date.getTime() : null, isReply: /re|reply|depth|child/i.test(n.className || ""), author: "" });
       }
-      if (comments.length) break;
     }
-    return { body: body.slice(0, 3000), date, comments };
+    if (!enough() && (expected > 0 || comments.length === 0) && this.ai) {
+      const pageText = live && live.text ? live.text : String(doc.body ? doc.body.innerText || doc.body.textContent : "");
+      if (expected > 0 || /댓글|코멘트|comment/i.test(pageText)) {
+        this.log(`  · 화면 구조로 댓글을 다 못 읽어 AI 가 화면 글자에서 댓글을 골라냅니다 (보이는 댓글 수 ${expected || "?"}개, 읽은 수 ${comments.length}개)`);
+        const got = await this.ai.extractComments({ title: post.title, body, pageText, expected });
+        if (got.length > comments.length) {
+          comments = got;
+          how = "AI 화면 판독";
+        } else if (!got.length && !comments.length && !expected) aiNone = true; // 댓글 수도 안 보이고 AI 도 못 찾음 = 댓글 없는 글
+      }
+    }
+    const diag = enough() ? null : { url: post.url, expected, got: comments.length, fetched: fetched.groups, live: live ? live.groups : null };
+    if (expected > 0 && !comments.length)
+      throw new Error(`화면에 댓글 ${expected}개가 보이는데 읽지 못했습니다${this.ai ? " (탭·AI 판독 모두 실패 — 잠시 뒤 '못 읽은 글만 다시')" : " (⚙ 설정에 API 키를 넣으면 AI 가 화면에서 댓글을 골라 읽습니다)"}`);
+    const out = [];
+    const seen = new Set();
+    for (const c of comments) {
+      const t = String(c.text || "").replace(/\s+/g, " ").trim();
+      if (!t || /^(삭제된 댓글|삭제 된 댓글|블라인드)/.test(t) || seen.has(t)) continue;
+      seen.add(t);
+      const d = parseKoreanDate(c.dateText);
+      out.push({ text: t, writtenAt: d ? fmtDateTime(d.date) : c.dateText || "", date: d ? d.date.getTime() : null, isReply: !!c.isReply, author: "" });
+    }
+    return { body: body.slice(0, 3000), date, comments: out, expected, how, diag, aiNone };
   }
+
+  // 뒤쪽 탭으로 글을 열어 끝까지 내리고 댓글 '더보기'를 눌러 다 그린 뒤 화면에서 댓글 읽기
+  // → { comments, groups, expected(화면의 댓글 수), text(화면 글자, AI 판독용) }
+  async readInTab(url, sel, expected) {
+    const tab = await chrome.tabs.create({ url, active: false });
+    try {
+      await new Promise((resolve) => {
+        const timer = setTimeout(done, 30000);
+        function done() {
+          clearTimeout(timer);
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve();
+        }
+        function listener(id, info) {
+          if (id === tab.id && info.status === "complete") done();
+        }
+        chrome.tabs.onUpdated.addListener(listener);
+      });
+      let best = { comments: [], groups: [], expected: 0, text: "" };
+      let stable = 0;
+      for (let round = 0; round < 8 && !this.isStopped(); round++) {
+        const prep = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: expandCommentPage }).catch((e) => (this.log(`  · 탭 화면 펼치기 실패: ${e.message}`, "err"), []));
+        await sleep(1500);
+        const res = await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: true }, func: findCommentsIn, args: [null, sel] }).catch((e) => (this.log(`  · 탭 화면 읽기 실패: ${e.message}`, "err"), []));
+        const before = best.comments.length;
+        for (const r of res) if (r.result && r.result.comments.length > best.comments.length) best = { ...best, ...r.result };
+        for (const r of prep) {
+          if (!r.result) continue;
+          best.expected = Math.max(best.expected, r.result.expected || 0);
+          if ((r.result.text || "").length > best.text.length) best.text = r.result.text;
+        }
+        const want = Math.max(expected || 0, best.expected);
+        const clicked = prep.some((r) => r.result && r.result.clicked);
+        stable = best.comments.length === before && !clicked ? stable + 1 : 0;
+        if (best.comments.length && best.comments.length >= want && !clicked) break;
+        if (stable >= 2 && (best.comments.length || round >= 3)) break;
+      }
+      return best;
+    } finally {
+      chrome.tabs.remove(tab.id).catch(() => {});
+    }
+  }
+}
+
+// (탭 화면 안에서 실행) 끝까지 내리고 댓글 '더보기'·다음 댓글 쪽을 한 번 누른다 → { clicked, expected, text }
+function expandCommentPage() {
+  const se = document.scrollingElement || document.documentElement;
+  if (se) se.scrollTop = se.scrollHeight;
+  window.scrollTo(0, document.body ? document.body.scrollHeight : 0);
+  let clicked = false;
+  const MORE = /^(댓글\s*)?(더\s*보기|더보기|이전\s*댓글|댓글\s*더|more|load more)(\s*[\[(]?\d*[\])]?)?\s*[▼+]?$/i;
+  for (const e of document.querySelectorAll("a, button, span[onclick], div[onclick]")) {
+    const t = String(e.innerText || e.textContent || "").replace(/\s+/g, " ").trim();
+    if (!t || t.length > 30 || !MORE.test(t)) continue;
+    const near = `${e.className || ""} ${e.id || ""} ${e.closest("[class*='comment'],[class*='cmt'],[class*='reply'],[id*='comment'],[id*='cmt']") ? "comment" : ""}`;
+    if (!/comment|cmt|reply|댓글/i.test(near + t)) continue;
+    if (e.dataset.imrClicked) continue;
+    e.dataset.imrClicked = "1";
+    try {
+      e.click();
+      clicked = true;
+    } catch {}
+  }
+  const text = String((document.body && document.body.innerText) || "");
+  let expected = 0;
+  for (const m of text.replace(/\s+/g, " ").matchAll(/(?:댓글|코멘트|comment)s?\s*[\[(:：]?\s*(\d{1,4})\s*[\])]?(?:\s*개)?/gi)) expected = Math.max(expected, +m[1]);
+  return { clicked, expected, text: text.slice(0, 60000) };
+}
+
+// 화면에 보이는 댓글 수 ("댓글 18", "댓글 [18]", "Comment 18")
+function expectedCommentCount(doc) {
+  const t = (doc.body ? doc.body.textContent : "").replace(/\s+/g, " ");
+  let n = 0;
+  for (const m of t.matchAll(/(?:댓글|코멘트|comment)s?\s*[\[(:：]?\s*(\d{1,4})\s*[\])]?(?:\s*개)?/gi)) n = Math.max(n, +m[1]);
+  return n;
+}
+
+// 화면 구조를 몰라도 댓글 찾기 (받아 온 문서에도, 탭 화면 안에서도 쓰므로 혼자 동작해야 함)
+// 이름(class·id)에 comment·cmt·reply·댓글 이 들어간 요소를 모양별로 묶어, 댓글처럼 반복되는 묶음을 고른다.
+// sel: 사이트별 칸 이름 { items, text, date } — 있으면 먼저 써 본다
+// → { comments: [{ text, dateText, isReply }], groups: [진단용 묶음 요약], how }
+function findCommentsIn(root, sel) {
+  const doc = root && root.querySelectorAll ? root : document;
+  const T = (e) => String((e && (e.innerText || e.textContent)) || "").replace(/[ \t\u00a0]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
+  // 1) 사이트별 칸 이름
+  if (sel && sel.items) {
+    for (const s of sel.items) {
+      const out = [];
+      for (const n of doc.querySelectorAll(s)) {
+        let t = "";
+        for (const ts of sel.text || []) {
+          const e = n.querySelector(ts);
+          if (e && T(e)) {
+            t = T(e);
+            break;
+          }
+        }
+        if (!t) continue;
+        let dateText = "";
+        for (const ds of sel.date || []) {
+          const e = n.querySelector(ds);
+          if (e && /\d/.test(T(e))) {
+            dateText = T(e);
+            break;
+          }
+        }
+        out.push({ text: t.slice(0, 2000), dateText, isReply: /re_|reply|depth|child|answer/i.test(String(n.className || "")) });
+      }
+      if (out.length) return { comments: out, groups: [{ sig: s, n: out.length }], how: "칸 이름" };
+    }
+  }
+  const COMMENT = /comment|cmt|reply|댓글|memo/i;
+  const TEXTY = /content|text|txt|memo|body|cont|desc|view/i;
+  const NOISE = /^(답글|답변|댓글|추천|반대|신고|삭제|수정|더보기|접기|등록|취소|\d+|[\d\s:./-]+)$/;
+  const DATE = /20\d{2}[.\-/]\s*\d{1,2}[.\-/]\s*\d{1,2}\.?\s*\d{1,2}:\d{2}(?::\d{2})?|\d{2}[.\-/]\d{2}[.\-/]\d{2}\s+\d{1,2}:\d{2}|\d+\s*(?:분|시간|일)\s*전|(?:^|\s)\d{1,2}:\d{2}(?::\d{2})?(?=\s|$)/;
+  const sigOf = (el) => {
+    const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/).filter(Boolean).sort().join(".") : "";
+    return `${el.tagName}.${cls}#${String(el.id || "").replace(/\d+/g, "N")}`;
+  };
+  const groups = new Map();
+  for (const el of doc.querySelectorAll("[id],[class]")) {
+    const sig = sigOf(el);
+    if (!COMMENT.test(sig)) continue;
+    if (/^(SCRIPT|STYLE|TEXTAREA|INPUT|BUTTON|FORM|SELECT|IMG)$/.test(el.tagName)) continue;
+    if (el.querySelector("textarea, input[type=text]")) continue; // 댓글 쓰는 칸
+    if (!groups.has(sig)) groups.set(sig, []);
+    groups.get(sig).push(el);
+  }
+  const cands = [];
+  for (const [sig, els] of groups) {
+    const items = els.filter((e) => !els.some((o) => o !== e && o.contains(e)));
+    const texts = items.map(T).filter((t) => t.length >= 2 && !NOISE.test(t));
+    if (!texts.length) continue;
+    const avg = texts.reduce((a, t) => a + t.length, 0) / texts.length;
+    if (avg < 3 || avg > 2000) continue;
+    const texty = TEXTY.test(sig);
+    const numbered = /#.*N/.test(sig);
+    cands.push({ sig, items, n: texts.length, texty, numbered, avg, score: texts.length * (1 + (texty ? 0.6 : 0) + (numbered ? 0.6 : 0)) });
+  }
+  cands.sort((a, b) => b.score - a.score);
+  const summary = cands.slice(0, 8).map((c) => ({ sig: c.sig, n: c.n, avg: Math.round(c.avg), sample: (c.items[0].outerHTML || "").slice(0, 600) }));
+  const best = cands[0];
+  if (!best) return { comments: [], groups: summary, how: "" };
+  // 덩어리 안에서 댓글 글자: 내용·글자 이름이 붙은 칸 → 없으면 가장 긴 글 줄(닉네임·날짜·버튼 글자 제외)
+  const pickText = (item) => {
+    if (best.texty) return T(item);
+    let bestT = "";
+    for (const e of item.querySelectorAll("*")) {
+      const sig = sigOf(e);
+      if (TEXTY.test(sig) && !/date|time|nick|name|writer|btn|button/i.test(sig)) {
+        const t = T(e);
+        if (t.length > bestT.length && !NOISE.test(t)) bestT = t;
+      }
+    }
+    if (bestT) return bestT;
+    const lines = T(item)
+      .split("\n")
+      .map((l) => l.replace(DATE, " ").trim())
+      .filter((l) => l.length >= 2 && !NOISE.test(l));
+    return lines.sort((a, b) => b.length - a.length)[0] || "";
+  };
+  const comments = [];
+  for (const item of best.items) {
+    const text = pickText(item);
+    if (!text || NOISE.test(text)) continue;
+    // 날짜: 이 댓글만 담은 가까운 조상까지 올라가며 찾기
+    let dateText = "";
+    for (let e = item, k = 0; e && k < 4 && !dateText; k++, e = e.parentElement) {
+      if (k > 0 && best.items.filter((x) => e.contains(x)).length > 1) break;
+      const m = T(e).match(DATE);
+      if (m) dateText = m[0].trim();
+    }
+    const cls = `${item.className || ""} ${item.parentElement ? item.parentElement.className || "" : ""}`;
+    comments.push({ text: text.slice(0, 2000), dateText, isReply: /re_|reply|depth|child|answer/i.test(String(cls)) });
+  }
+  return { comments, groups: summary, how: comments.length ? "반복 덩어리" : "" };
 }

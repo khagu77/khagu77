@@ -797,21 +797,35 @@ function checkedPosts() {
   return sortPosts(job.posts.filter((p) => p.checked));
 }
 
-async function collectComments(onlyFailed = false) {
+// 3단계 표에서 고른 글 (선택해서 다시 수집)
+const commentSel = new Set();
+
+// mode: "new"(아직 안 읽은 글) | "failed"(못 읽은 글만) | "selected"(표에서 고른 글만 다시)
+async function collectComments(mode = "new") {
   if (running) return;
   const posts = checkedPosts();
   if (!posts.length) return setMsg("#commentsMsg", "2단계에서 체크한 게시글이 없습니다.", "err");
   const todo = posts.filter((p) => {
     const st = job.commentStatus[p.key];
-    return onlyFailed ? st && !st.ok : !st || !st.ok;
+    if (mode === "selected") return commentSel.has(p.key);
+    return mode === "failed" ? st && !st.ok : !st || !st.ok;
   });
-  if (!todo.length) return setMsg("#commentsMsg", onlyFailed ? "다시 읽을 글이 없습니다." : "모든 글의 댓글을 이미 모았습니다. 다시 모으려면 2단계부터 다시 하세요.", "ok");
-  // 댓글 수가 0 으로 확인된 언론 기사는 열지 않고 건너뜀
-  for (const p of todo.filter((x) => x.channel === "news" && x.ccount === 0)) {
+  if (!todo.length)
+    return setMsg(
+      "#commentsMsg",
+      mode === "selected" ? "다시 수집할 글을 표에서 체크하세요." : mode === "failed" ? "다시 읽을 글이 없습니다." : "모든 글의 댓글을 이미 모았습니다. 다시 모으려면 표에서 글을 골라 '선택한 글 다시 수집'을 누르세요.",
+      mode === "selected" ? "err" : "ok",
+    );
+  if (mode === "selected") {
+    const analyzed = job.comments.filter((c) => commentSel.has(c.postKey) && c.sentiment).length;
+    if (!confirm(`고른 글 ${todo.length}건의 댓글을 다시 수집합니다.${analyzed ? `\n(이 글들의 기존 댓글 ${analyzed}개와 성향 분석은 새로 모은 댓글로 바뀌니, 4단계에서 'AI 성향 분석 시작'을 다시 눌러 주세요)` : ""}`)) return;
+  }
+  // 댓글 수가 0 으로 확인된 언론 기사는 열지 않고 건너뜀 (고른 글은 다시 확인)
+  for (const p of todo.filter((x) => mode !== "selected" && x.channel === "news" && x.ccount === 0)) {
     job.commentStatus[p.key] = { ok: true, count: 0, note: p.external ? "언론사 자체 사이트 — 네이버 댓글 없음" : "댓글 없음 — 건너뜀" };
     job.comments = job.comments.filter((c) => c.postKey !== p.key);
   }
-  todo.splice(0, todo.length, ...todo.filter((x) => !(x.channel === "news" && x.ccount === 0)));
+  todo.splice(0, todo.length, ...todo.filter((x) => mode === "selected" || !(x.channel === "news" && x.ccount === 0)));
   if (!todo.length) {
     await saveJob();
     renderCommentPosts();
@@ -830,11 +844,12 @@ async function collectComments(onlyFailed = false) {
   const nc = new NewsCollector({ delays, log, isStopped, replies: settings.newsReplies });
   const cc = new CafeCollector({ delays, log, isStopped });
   const yc = new YoutubeCollector({ log, isStopped });
-  const mc = new CommunityCollector({ delays, log, isStopped });
+  const mc = new CommunityCollector({ delays, log, isStopped, ai: aiReady() ? new AiClient(settings, log) : null });
   log(`댓글 수집: ${todo.length}건`);
   for (let i = 0; i < todo.length && !stopRequested; i++) {
     const p = todo[i];
     showWork(`댓글 수집 ${i + 1}/${todo.length} · ${chName(p)} · ${p.title.slice(0, 30)}`, i, todo.length);
+    let note = "";
     try {
       let list = [];
       if (p.channel === "news") list = await nc.readComments(p);
@@ -879,11 +894,23 @@ async function collectComments(onlyFailed = false) {
         }
         if (!p.title) p.title = p.url;
         list = a.comments;
+        if (a.how && a.how !== "칸 이름") log(`  · ${p.source}: 댓글을 '${a.how}' 방식으로 읽음`);
+        if (a.how === "AI 화면 판독") note = "AI 가 화면에서 읽음";
+        if (a.aiNone) note = "AI 확인: 댓글 없음";
+        if (a.diag) {
+          job.diag = [...(job.diag || []).filter((d) => d.url !== a.diag.url), { ...a.diag, site: p.source, at: Date.now() }].slice(-10);
+          if (!a.aiNone && list.length) {
+            note = `⚠ 화면엔 댓글 ${a.expected}개인데 ${list.length}개만 읽음`;
+            log(`  · ${p.source} — ${p.title.slice(0, 40)}: ${note}`, "err");
+          }
+        }
       }
       job.comments = job.comments.filter((c) => c.postKey !== p.key);
       list.forEach((c, k) => job.comments.push({ id: `${p.key}#${k}`, postKey: p.key, channel: p.channel, text: c.text, writtenAt: c.writtenAt || "", date: c.date || null, isReply: !!c.isReply, sentiment: "" }));
-      job.commentStatus[p.key] = { ok: true, count: list.length };
+      job.commentStatus[p.key] = { ok: true, count: list.length, ...(note ? { note } : {}) };
+      if (p.channel === "community" && p.listCcount === undefined && p.ccount != null) p.listCcount = p.ccount; // 목록에 보이던 댓글 수 기억
       p.ccount = list.length;
+      commentSel.delete(p.key);
       log(`  · ${chName(p)} ${p.source || ""} — ${p.title.slice(0, 40)}: 댓글 ${list.length}개`);
     } catch (e) {
       if (e instanceof StopError) break;
@@ -913,28 +940,55 @@ async function collectComments(onlyFailed = false) {
 
 function renderCommentPosts() {
   const posts = checkedPosts();
+  const keys = new Set(posts.map((p) => p.key));
+  for (const k of [...commentSel]) if (!keys.has(k)) commentSel.delete(k);
   const tbody = $("#commentsTable tbody");
   tbody.innerHTML = "";
   for (const p of posts) {
     const st = job.commentStatus[p.key];
+    const warn = st?.note && st.note.startsWith("⚠");
     tbody.appendChild(
       el(
         "tr",
         { class: st && !st.ok ? "off" : "" },
+        el(
+          "td",
+          { class: "c-chk" },
+          el("input", {
+            type: "checkbox",
+            checked: commentSel.has(p.key),
+            onchange: (e) => {
+              if (e.target.checked) commentSel.add(p.key);
+              else commentSel.delete(p.key);
+              updateCommentSel();
+            },
+          }),
+        ),
         el("td", { text: chName(p) }),
         el("td", { text: p.source || "" }),
         el("td", {}, el("a", { href: p.url, target: "_blank", text: p.title || p.url })),
         el("td", { class: "c-n", text: st?.ok ? numFmt(st.count) : "" }),
-        el("td", { class: st && !st.ok ? "err" : "", text: !st ? "대기" : st.ok ? st.note || "완료" : st.error }),
+        el("td", { class: (st && !st.ok) || warn ? "err" : "", text: !st ? "대기" : st.ok ? st.note || "완료" : st.error }),
       ),
     );
   }
-  if (!posts.length) tbody.appendChild(el("tr", {}, el("td", { colspan: 5, class: "hint", text: "2단계에서 게시글을 수집·체크하세요." })));
+  if (!posts.length) tbody.appendChild(el("tr", {}, el("td", { colspan: 6, class: "hint", text: "2단계에서 게시글을 수집·체크하세요." })));
+  updateCommentSel();
+  $("#copyDiag").hidden = !(job.diag || []).length;
   const done = posts.filter((p) => job.commentStatus[p.key]?.ok).length;
   const failed = posts.filter((p) => job.commentStatus[p.key] && !job.commentStatus[p.key].ok).length;
   const by = CH_ORDER.map((c) => `${CH_NAME[c]} ${numFmt(job.comments.filter((x) => x.channel === c).length)}`).join(" · ");
   $("#commentsInfo").textContent = `체크한 게시글 ${posts.length}건`;
   $("#commentsSummary").textContent = `댓글을 모은 글 ${done}/${posts.length}건${failed ? ` · 못 읽은 글 ${failed}건` : ""} · 댓글 ${numFmt(job.comments.length)}개 (${by})`;
+}
+
+function updateCommentSel() {
+  $("#recollectSel").textContent = `선택한 글 댓글 다시 수집 (${commentSel.size})`;
+  $("#recollectSel").disabled = !commentSel.size || running;
+  const all = $("#commentsAll");
+  const n = checkedPosts().length;
+  all.checked = n > 0 && commentSel.size === n;
+  all.indeterminate = commentSel.size > 0 && commentSel.size < n;
 }
 
 function postMap() {
@@ -1758,8 +1812,30 @@ async function init() {
   $("#goComments").addEventListener("click", () => showTab("comments"));
 
   // 3단계
-  $("#collectComments").addEventListener("click", () => collectComments(false));
-  $("#retryComments").addEventListener("click", () => collectComments(true));
+  $("#collectComments").addEventListener("click", () => collectComments("new"));
+  $("#retryComments").addEventListener("click", () => collectComments("failed"));
+  $("#recollectSel").addEventListener("click", () => collectComments("selected"));
+  $("#commentsAll").addEventListener("change", (e) => {
+    for (const p of checkedPosts()) e.target.checked ? commentSel.add(p.key) : commentSel.delete(p.key);
+    renderCommentPosts();
+  });
+  $("#selZero").addEventListener("click", () => {
+    for (const p of checkedPosts()) {
+      const st = job.commentStatus[p.key];
+      if ((st?.ok && st.count === 0 && !/언론사 자체 사이트/.test(st.note || "")) || (st && !st.ok) || /^⚠/.test(st?.note || "")) commentSel.add(p.key);
+    }
+    renderCommentPosts();
+  });
+  $("#selNone").addEventListener("click", () => (commentSel.clear(), renderCommentPosts()));
+  $("#copyDiag").addEventListener("click", async () => {
+    const text = JSON.stringify({ version: chrome.runtime.getManifest().version, diag: job.diag || [] }, null, 1);
+    try {
+      await navigator.clipboard.writeText(text);
+      setMsg("#commentsMsg", "✔ 진단 정보를 복사했습니다 — 채팅에 붙여 넣어 보내 주세요", "ok");
+    } catch {
+      await downloadBytes(new TextEncoder().encode(text), `${ymd()}_댓글 진단 정보.txt`, settings.saveFolder);
+    }
+  });
   $("#stopComments").addEventListener("click", () => (stopRequested = true));
   $("#dlComments").addEventListener("click", downloadComments);
   $("#goSentiment").addEventListener("click", () => showTab("sentiment"));

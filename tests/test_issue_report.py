@@ -151,6 +151,9 @@ def claude(body, calls):
     if "댓글 성향 분석" in system:
         rows = re.findall(r"^(\d+)\t(?:└답글 )?(.*)$", user, re.M)
         return {"results": [{"id": i, "s": senti_of(t)} for i, t in rows]}
+    if "★ 댓글 화면 판독 규칙 ★" in system:
+        found = re.findall(r"^댓글내용: (.*)$", user, re.M)
+        return {"comments": [{"text": t, "date": "", "reply": False} for t in found]}
     if "★ 보고서 작성 규칙 ★" in system:
         ids = {}
         for sec in re.split(r"\n## ", user)[1:]:
@@ -347,6 +350,14 @@ def test_issue_report(tmp_path: Path):
         assert page.evaluate("job.posts.filter(p => p.key === 'clien.net:111').map(p => [p.exact, new Date(p.date).getHours()])[0]") == [True, 8]
         assert "댓글 없음 — 건너뜀" in page.inner_text("#commentsTable")
         page.locator("#workBar").wait_for(state="hidden")
+        assert "댓글 7개" in page.inner_text("#commentsSummary")
+        # 표에서 고른 글만 댓글 다시 수집
+        page.locator("#commentsTable tbody tr", has_text="아반떼 가격 진짜 비싸네요").locator("input[type=checkbox]").check()
+        assert page.inner_text("#recollectSel") == "선택한 글 댓글 다시 수집 (1)"
+        page.click("#recollectSel")
+        wait_js(page, "document.querySelector('#commentsLog').textContent.includes('댓글 수집: 1건')")
+        page.locator("#workBar").wait_for(state="hidden")
+        assert page.inner_text("#recollectSel") == "선택한 글 댓글 다시 수집 (0)"
         assert "댓글 7개" in page.inner_text("#commentsSummary")
         raw_xlsx = save_download("#dlComments")
         wb = load_workbook(raw_xlsx)
@@ -618,3 +629,141 @@ def test_cafe_via_search(tmp_path: Path):
     assert "네이버 검색을 거쳐 읽음" in log, log
     assert any(r.startswith("search.naver.com") for r in server.requests), server.requests
     assert any("art=SEARCHKEY" in r for r in server.requests)
+
+
+# ---------------------------------------------------------------- 뽐뿌: 댓글이 받아 온 화면에 없거나 구조를 몰라도 반드시 읽는다
+PPOM_HEAD = '<html><head><meta charset="euc-kr"></head><body><div class="board-contents">아반떼 가격 너무 올랐네요 본문입니다</div>'
+
+
+def ppom_view(no):
+    if no == "980149":  # 댓글을 화면이 열린 뒤 불러옴 (받아 온 화면엔 없음)
+        return PPOM_HEAD + (
+            '<span>댓글 [3]</span><div id="cbox"></div><script>setTimeout(function(){var h="";'
+            '["가격 실화냐 너무 비싸","옵션 장사 오지네","그래도 디자인은 좋음"].forEach(function(t,i){'
+            'h+=\'<div class="comment_wrapper"><div id="commentContent_\'+i+\'" class="mid-text-area">\'+t+\'</div><span class="eng-day">2026-08-06 09:0\'+i+\'</span></div>\';});'
+            'document.getElementById("cbox").innerHTML=h;},400);</script></body></html>'
+        )
+    if no == "980162":  # 처음엔 2개, '댓글 더보기'를 눌러야 나머지
+        item = lambda t: f'<div class="comment_wrapper"><div class="mid-text-area">{t}</div></div>'
+        return PPOM_HEAD + (
+            '<span>댓글 [4]</span><div id="cbox">' + item("첫 댓글 비싸요") + item("둘째 댓글 기대돼요") + '</div>'
+            '<a href="#" class="comment_more" onclick="more();return false">댓글 더보기</a>'
+            "<script>function more(){document.getElementById('cbox').insertAdjacentHTML('beforeend',"
+            + json.dumps(item("셋째 댓글 노조 탓") + item("넷째 댓글 그냥 그래"))
+            + ");document.querySelector('.comment_more').remove();}</script></body></html>"
+        )
+    if no == "980135":  # 이름으로는 댓글인지 알 수 없는 구조 → AI 가 화면 글자에서
+        return PPOM_HEAD + '<span>댓글 [2]</span><div class="zz"><p>닉네임A</p><p>댓글내용: 이 가격이면 안 산다</p></div><div class="zz"><p>닉네임B</p><p>댓글내용: 투싼이 낫겠네</p></div></body></html>'
+    return PPOM_HEAD + '<span>댓글 [2]</span><div class="zz"><p>알 수 없는 구조</p></div></body></html>'
+
+
+PPOM_LIST = (
+    '<html><head><meta charset="euc-kr"></head><body><table>'
+    '<tr class="baseList"><td><a href="view.php?id=car&amp;no=980149"><span class="baseList-title">아반떼 가격 실화냐</span></a>'
+    '<span class="list_comment2"><span>18</span></span></td><td><time class="baseList-time">2026-08-06 08:00:00</time></td></tr>'
+    '<tr class="baseList"><td><a href="view.php?id=car&amp;no=980100"><span>아반떼 가격 옛날 글</span></a></td><td>2026-07-01 08:00:00</td></tr>'
+    "</table></body></html>"
+)
+
+
+def ppom_page(path):
+    m = re.search(r"no=(\d+)", path)
+    body = ppom_view(m.group(1)) if "view.php" in path and m else PPOM_LIST
+    return "text/html; charset=euc-kr", body.encode("euc-kr")
+
+
+def start_https(tmp_path: Path, host: str, page_fn):
+    import ssl
+    import subprocess
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    cert, key = tmp_path / "ppom-cert.pem", tmp_path / "ppom-key.pem"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", f"/CN={host}",
+                    "-keyout", str(key), "-out", str(cert)], check=True, capture_output=True)
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            ctype, data = page_fn(self.path)
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(cert, key)
+    server.socket = tls.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def test_community_comments_must_collect(tmp_path: Path):
+    claude_calls = []
+    with sync_playwright() as p:
+        # 탭으로 여는 화면에는 route 가 걸리지 않아, 진짜 주소를 내 컴퓨터의 가짜 서버로 돌린다
+        server = start_https(tmp_path, "www.ppomppu.co.kr", ppom_page)
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile"),
+            executable_path=CHROMIUM,
+            headless=True,
+            timezone_id="Asia/Seoul",
+            args=[
+                f"--disable-extensions-except={EXT_DIR}",
+                f"--load-extension={EXT_DIR}",
+                f"--host-resolver-rules=MAP www.ppomppu.co.kr 127.0.0.1:{server.server_address[1]}",
+                "--no-proxy-server",
+                "--ignore-certificate-errors",
+            ],
+        )
+
+        def anthropic(route):
+            body = json.loads(route.request.post_data)
+            out = json.dumps(claude(body, claude_calls), ensure_ascii=False)
+            route.fulfill(status=200, headers={"content-type": "text/event-stream", "access-control-allow-origin": "*"}, body=sse(out))
+
+        ctx.route("https://api.anthropic.com/**", anthropic)
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        ext_id = sw.url.split("/")[2]
+        page = ctx.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"chrome-extension://{ext_id}/app.html")
+        wait_js(page, "typeof CommunityCollector === 'function' && typeof settings === 'object'")
+        res = page.evaluate(
+            """async () => {
+              const logs = [];
+              const make = (ai) => new CommunityCollector({ delays: { community: [0, 0] }, log: (m) => logs.push(m), isStopped: () => false,
+                ai: ai ? new AiClient({ ...settings, apiKey: "sk-ant-test" }) : null });
+              const mc = make(true);
+              const site = { name: "뽐뿌", url: "https://www.ppomppu.co.kr/zboard/zboard.php?id=car" };
+              const post = (no) => ({ siteUrl: site.url, url: `https://www.ppomppu.co.kr/zboard/view.php?id=car&no=${no}`, title: "아반떼 가격" });
+              const out = {};
+              const kw = parseKeywords("아반떼 가격");
+              const found = await mc.search(site, kw, { from: new Date(2026, 7, 5), to: new Date(2026, 7, 7) });
+              out.list = found.map((f) => [f.title, f.ccount]);
+              for (const no of ["980149", "980162", "980135"]) {
+                const a = await mc.readArticle(post(no));
+                out[no] = { how: a.how, texts: a.comments.map((c) => c.text), dates: a.comments.map((c) => c.writtenAt) };
+              }
+              try { await make(false).readArticle(post("980170")); out.fail = "no error"; } catch (e) { out.fail = e.message; }
+              out.logs = logs;
+              return out;
+            }"""
+        )
+        assert res["list"] == [["아반떼 가격 실화냐", 18]], res
+        assert res["980149"]["how"] == "탭으로 열어 다시 읽음" and res["980149"]["texts"] == ["가격 실화냐 너무 비싸", "옵션 장사 오지네", "그래도 디자인은 좋음"], res
+        assert res["980149"]["dates"][0] == "2026-08-06 09:00", res
+        assert res["980162"]["texts"] == ["첫 댓글 비싸요", "둘째 댓글 기대돼요", "셋째 댓글 노조 탓", "넷째 댓글 그냥 그래"], res
+        assert res["980135"]["how"] == "AI 화면 판독" and res["980135"]["texts"] == ["이 가격이면 안 산다", "투싼이 낫겠네"], res
+        extract = [c for c in claude_calls if "★ 댓글 화면 판독 규칙 ★" in c["system"]]
+        assert "한 글자도 바꾸거나" in extract[0]["system"] and "화면에 보이는 댓글 수: 2개" in extract[0]["user"]
+        # 읽지 못하면 0개로 끝내지 않고 실패로 남겨 '못 읽은 글만 다시' 대상이 된다
+        assert "댓글 2개가 보이는데 읽지 못했습니다" in res["fail"], res
+        assert not errors, errors
+        ctx.close()
+        server.shutdown()

@@ -182,11 +182,17 @@
       <div class="buttons">
         <button id="collectComments" class="primary">댓글 수집 시작</button>
         <button id="retryComments">못 읽은 글만 다시</button>
+        <button id="recollectSel" disabled>선택한 글 댓글 다시 수집 (0)</button>
         <button id="stopComments" class="danger" disabled>중지</button>
+      </div>
+      <div class="buttons small">
+        <button id="selZero" title="댓글 0개로 읽힌 글·못 읽은 글·화면 댓글 수보다 적게 읽은 글을 고릅니다 (언론사 자체 사이트 기사 제외)">댓글 0개·못 읽은 글 모두 선택</button>
+        <button id="selNone">선택 해제</button>
+        <button id="copyDiag" hidden title="댓글을 못 읽은 사이트의 화면 구조 요약 — 보내 주시면 그 사이트에 맞춰 고칩니다">진단 정보 복사</button>
       </div>
       <div id="commentsSummary" class="summary"></div>
       <table id="commentsTable" class="grid">
-        <thead><tr><th class="c-ch">채널</th><th class="c-src">출처</th><th>게시글</th><th class="c-n">댓글</th><th class="c-ai">상태</th></tr></thead>
+        <thead><tr><th class="c-chk"><input type="checkbox" id="commentsAll" title="모두 선택"></th><th class="c-ch">채널</th><th class="c-src">출처</th><th>게시글</th><th class="c-n">댓글</th><th class="c-ai">상태</th></tr></thead>
         <tbody></tbody>
       </table>
       <div class="buttons sticky">

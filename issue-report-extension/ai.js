@@ -210,6 +210,34 @@ function promptPreview(job, settings) {
   ];
 }
 
+// 화면 구조로 못 읽은 커뮤니티 댓글: 화면 글자에서 댓글만 골라냄
+const EXTRACT_RULES = `★ 댓글 화면 판독 규칙 ★
+너는 인터넷 게시판 글 화면을 글자로 옮긴 것에서 '독자 댓글'만 골라내는 도구다.
+1. 댓글 본문은 한 글자도 바꾸거나 줄이거나 고치지 말고 화면에 있는 그대로 옮긴다 (맞춤법·비속어·이모티콘도 그대로).
+2. 닉네임·아이디·레벨·날짜·추천/반대 수·IP·'답글/신고/추천/삭제' 같은 버튼 글자는 text 에 넣지 않는다.
+3. 글 본문, 메뉴, 광고, 공지, 다른 글 목록·인기글, 댓글 쓰는 칸 안내 문구는 댓글이 아니다.
+4. '삭제된 댓글입니다' 처럼 내용이 없는 댓글은 뺀다.
+5. 댓글 옆에 작성 날짜·시각이 보이면 보이는 그대로 date 에 넣고, 없으면 빈 글자.
+6. 다른 댓글에 단 답글(대댓글)이면 reply 를 true 로.
+7. 화면 순서대로, 빠짐없이 모두. 댓글이 하나도 없으면 빈 배열.`;
+
+const EXTRACT_SCHEMA = {
+  type: "object",
+  properties: {
+    comments: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { text: { type: "string" }, date: { type: "string" }, reply: { type: "boolean" } },
+        required: ["text", "date", "reply"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["comments"],
+  additionalProperties: false,
+};
+
 // ---------------------------------------------------------------------------
 
 class AiClient {
@@ -251,6 +279,19 @@ class AiClient {
 
   async ping() {
     await this.client.messages.create({ model: this.model.id, max_tokens: 64, output_config: { effort: "low" }, messages: [{ role: "user", content: "OK 라고만 답해" }] });
+  }
+
+  // 커뮤니티 글 화면 글자 → [{ text, dateText, isReply }]
+  async extractComments({ title, body, pageText, expected }) {
+    let t = String(pageText || "").replace(/[ \t\u00a0]+/g, " ").replace(/\n{3,}/g, "\n\n");
+    // 글 본문 앞쪽(메뉴 등)은 잘라 낸다
+    const head = String(body || "").slice(0, 40).trim();
+    const at = head ? t.indexOf(head) : -1;
+    if (at > 0) t = t.slice(at);
+    t = t.slice(0, 50000);
+    const user = `글 제목: ${title || "(모름)"}\n화면에 보이는 댓글 수: ${expected ? `${expected}개` : "모름"}\n\n아래 화면 글자에서 댓글만 골라 줘.\n<page>\n${t}\n</page>`;
+    const res = await this.callJson(EXTRACT_RULES, user, EXTRACT_SCHEMA, "low");
+    return (res.comments || []).filter((c) => c && String(c.text || "").trim()).map((c) => ({ text: String(c.text), dateText: String(c.date || ""), isReply: !!c.reply }));
   }
 
   // 보고서 작성 목적 → 키워드 글 (화면의 키워드 칸 형식)
