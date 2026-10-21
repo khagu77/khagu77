@@ -357,7 +357,8 @@ def test_issue_report(tmp_path: Path):
         assert wb["언론"]["A1"].value == "CN8_가격_공개_언론 댓글"
         assert wb["언론"].max_row == 5 and wb["언론"].max_column == 4
         assert wb["언론"]["C3"].alignment.horizontal == "center"  # 작성일 가운데 정렬
-        assert wb["언론"]["D2"].border.right.style == "medium" and wb["언론"]["D3"].border.right.style == "medium"  # 표 오른쪽 끝 테두리
+        assert wb["언론"]["D2"].border.right.style == "thin" and wb["언론"]["D3"].border.right.style == "thin"  # 표 오른쪽 끝 테두리 (다른 칸과 같은 두께)
+        assert wb["언론"].column_dimensions["D"].width >= len("https://n.news.naver.com/mnews/article/001/0000000001")  # URL 길이에 맞춘 너비
 
         # 4. 성향 분석
         page.click("#goSentiment")

@@ -173,8 +173,8 @@ async function buildCommentsXlsx(sheets, withSentiment = true) {
   const tpl = splitSheet(Zip.text(files.get("xl/worksheets/sheet1.xml")));
   const [titleRow, headRow, firstRow, midRow, lastRow] = tpl.rows;
   const styles = new StyleEditor(Zip.text(files.get("xl/styles.xml")));
-  // 양식의 text 칸 서식을 바탕으로: 작성일은 가운데 정렬, 표 오른쪽 끝 칸은 굵은 테두리로 마무리
-  const endRight = withSentiment ? "thin" : "medium";
+  // 양식의 text 칸 서식을 바탕으로: 작성일은 가운데 정렬, 표 오른쪽 끝 칸도 다른 칸과 같은 얇은 테두리로 마무리
+  const endRight = "thin";
   const dateStyle = (base) => styles.derive(base, { horizontal: "center", right: "thin" });
   const urlStyle = (base) => styles.derive(base, { right: endRight });
   // 열: A domain · B text · C 작성일 · D 게시글 URL · E 성향(맨 오른쪽, 양식의 성향 칸 서식·색)
@@ -218,8 +218,8 @@ async function buildCommentsXlsx(sheets, withSentiment = true) {
         .replace(/<mergeCell ref="A1:C1"\/>/, `<mergeCell ref="A1:${lastCol}1"/>`)
         .replace(
           /<cols>.*?<\/cols>/s,
-          '<cols><col min="1" max="1" width="13.6640625" style="1" customWidth="1"/><col min="2" max="2" width="130" style="5" customWidth="1"/>' +
-            '<col min="3" max="3" width="17" style="1" customWidth="1"/><col min="4" max="4" width="44" style="1" customWidth="1"/>' +
+          `<cols><col min="1" max="1" width="${fitWidth(sh.rows.map((c) => c.domain), 13.7, 30)}" style="1" customWidth="1"/><col min="2" max="2" width="130" style="5" customWidth="1"/>` +
+            `<col min="3" max="3" width="${fitWidth(sh.rows.map((c) => c.writtenAt), 12, 30)}" style="1" customWidth="1"/><col min="4" max="4" width="${fitWidth(sh.rows.map((c) => c.url), 20, 120)}" style="1" customWidth="1"/>` +
             '<col min="5" max="5" width="10" style="18" customWidth="1"/><col min="6" max="16384" width="8.33203125" style="1"/></cols>',
         )
         // 성향 색(조건부 서식)도 맨 오른쪽 성향 열로 (성향 없는 파일은 지움)
@@ -232,6 +232,18 @@ async function buildCommentsXlsx(sheets, withSentiment = true) {
   });
   files.set("xl/styles.xml", styles.xml);
   return assembleWorkbook(files, built);
+}
+
+// 글자 길이에 맞는 열 너비 (한글은 두 칸으로 셈)
+function fitWidth(values, min, max) {
+  let w = 0;
+  for (const v of values) {
+    const t = String(v ?? "");
+    let n = 0;
+    for (const ch of t) n += /[ㄱ-힣]/.test(ch) ? 2 : 1;
+    w = Math.max(w, n);
+  }
+  return Math.round(Math.min(max, Math.max(min, w * 1.1 + 3)) * 10) / 10;
 }
 
 // styles.xml 의 칸 서식(xf)을 복제해 정렬·오른쪽 테두리만 바꾼 새 서식을 만든다
