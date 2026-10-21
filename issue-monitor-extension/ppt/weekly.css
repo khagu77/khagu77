@@ -13,7 +13,9 @@ main { padding-top: 4px; }
 .lv-경고 { color: #0563c1; font-weight: 700; }
 .lv-심각 { color: #c00000; font-weight: 700; }
 #dayList { display: flex; flex-wrap: wrap; gap: 6px; }
-#dayList .day { border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-size: 12px; }
+#dayList .day { border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-size: 12px; background: var(--card); color: var(--text); }
+#dayList button.day { cursor: pointer; }
+#dayList .day.off { opacity: 0.55; text-decoration: line-through; border-style: dashed; }
 #dayList .day.ok { border-color: #0b57d0; }
 #dayList .day.warn { border-color: #f59e0b; background: #fff7e6; }
 #dayList .day.none { opacity: 0.6; }

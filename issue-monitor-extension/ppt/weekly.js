@@ -157,6 +157,8 @@ function isNewCar(code) {
 // ---------------------------------------------------------------------------
 // 게시글 모으기 + 추천
 // ---------------------------------------------------------------------------
+let excludedDays = new Set(); // 이번 주 작성에서 뺀 날 (날짜 칩을 눌러 빼기/넣기)
+
 async function loadWeek() {
   const v = $("#weekDate").value;
   const base = v ? new Date(`${v}T00:00`) : new Date();
@@ -176,7 +178,9 @@ async function loadWeek() {
     try {
       details = await PptRead.read(f.bytes);
     } catch {}
-    chips.push(`<span class="day ${f.partial ? "warn" : "ok"}">${md(k)}(${dow(k)}) ${esc(DailyPpt.KIND_LABEL[f.kind])} ${details.length}건${f.partial ? " · ⚠ 일부만 있는 PPT(전체 PPT 를 데일리 DB 에 올려 주세요)" : ""}</span>`);
+    const off = excludedDays.has(k);
+    chips.push(`<button type="button" class="day ${off ? "off" : f.partial ? "warn" : "ok"}" data-day="${k}" title="${off ? "눌러서 다시 넣기" : "눌러서 이 날 보고서를 이번 주 작성에서 빼기"}">${off ? "✕ " : "✓ "}${md(k)}(${dow(k)}) ${esc(DailyPpt.KIND_LABEL[f.kind])} ${details.length}건${off ? " · 뺌" : f.partial ? " · ⚠ 일부만 있는 PPT(전체 PPT 를 데일리 DB 에 올려 주세요)" : ""}</button>`);
+    if (off) continue;
     for (const x of details) {
       if (!x.title) continue;
       const issue = x.title.replace(/^.*?\([^)]*\)\s*/, "").trim() || x.short || x.title;
@@ -199,6 +203,13 @@ async function loadWeek() {
     }
   }
   $("#dayList").innerHTML = chips.join("");
+  for (const b of document.querySelectorAll("#dayList [data-day]")) {
+    b.addEventListener("click", () => {
+      const k = b.dataset.day;
+      excludedDays.has(k) ? excludedDays.delete(k) : excludedDays.add(k);
+      loadWeek();
+    });
+  }
   $("#weekInfo").textContent = `${DailyPpt.dateKey(week.start)}(월) ~ ${DailyPpt.dateKey(week.end)}(${dow(DailyPpt.dateKey(week.end))}) · 근무일 ${week.workdays.length}일 · 게시글 ${cands.length}건`;
   recommend();
   renderCands();
@@ -246,6 +257,13 @@ function recommend() {
         n++;
       }
     }
+  }
+  // 겹치는 글을 빼느라 10건이 안 되면, 남은 글 중 점수 높은 순으로 채운다
+  let total = cands.filter((c) => c.picked).length;
+  for (const c of cands.filter((x) => !x.picked && !x.dup).sort(byScore)) {
+    if (total >= TOTAL) break;
+    c.picked = true;
+    total++;
   }
 }
 
@@ -405,6 +423,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#reRecommend").addEventListener("click", () => {
     recommend();
     renderCands();
+  });
+  // 선택 초기화: 체크를 모두 지움 (처음부터 직접 고를 때)
+  $("#clearPicks").addEventListener("click", () => {
+    for (const c of cands) c.picked = false;
+    renderCands();
+  });
+  // 기간 초기화: 기준일을 오늘로, 뺀 날도 모두 다시 넣고 새로 불러와 추천대로 체크
+  $("#resetWeek").addEventListener("click", () => {
+    excludedDays = new Set();
+    $("#weekDate").value = DailyPpt.dateKey(new Date());
+    loadWeek().catch((e) => setSummary(`불러오지 못했습니다: ${e.message || e}`, "err"));
   });
   $("#buildWeekly").addEventListener("click", () => buildWeekly());
 

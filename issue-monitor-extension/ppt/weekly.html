@@ -22,9 +22,11 @@
       <div class="buttons">
         <label>기준일 <input type="date" id="weekDate"></label>
         <button id="loadWeek" class="primary">이 주 게시글 불러오기</button>
+        <button id="resetWeek" title="기준일을 오늘로, 뺀 날도 다시 넣고 추천대로 다시 체크">↺ 초기화</button>
         <span id="weekInfo" class="hint"></span>
       </div>
       <div id="dayList"></div>
+      <div class="hint">날짜를 누르면 그날 보고서를 이번 주 작성에서 빼거나 다시 넣을 수 있습니다 (데일리 DB 파일은 그대로).</div>
     </section>
 
     <section class="wk-box">
@@ -32,6 +34,7 @@
       <div class="buttons">
         <b id="pickCount" class="count-red"></b>
         <button id="reRecommend">추천대로 다시 체크</button>
+        <button id="clearPicks">선택 모두 해제</button>
       </div>
       <table id="candTable" hidden>
         <thead><tr><th></th><th>보고일</th><th>No</th><th>구분</th><th>차종</th><th>현상</th><th>단계</th><th>조회 / 댓글 (일일 보고 때)</th><th>신규/중복</th></tr></thead>
