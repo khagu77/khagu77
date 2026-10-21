@@ -348,14 +348,24 @@ function mentionsAnyCar(text, carCodes) {
   return titleCarCodes(text, carCodes).length > 0 || OTHER_BRAND_RE.test(String(text || ""));
 }
 
+// 카페에서 흔히 쓰는 줄임말을 정식 차명으로 ("아오5"·"아이오5"·"ioniq5" → 아이오닉5) (담당자 지적 2026-10-22)
+function normalizeCarSlang(text) {
+  return String(text || "")
+    .replace(/(?<![가-힣])아(?:이)?오(?:닉)?\s?([569])(?!\d)/g, "아이오닉$1")
+    .replace(/ioniq\s?([569])(?!\d)/gi, "아이오닉$1");
+}
+
 function titleCarCodes(title, carCodes) {
-  const t = String(title || "").replace(/\s+/g, "");
+  const raw = normalizeCarSlang(title);
+  const t = raw.replace(/\s+/g, "");
   const found = new Map(); // 기본 코드 → 가장 긴 이름의 코드
   for (const { code, names } of carCodes) {
     for (const n of [code, ...names]) {
       const nn = n.replace(/\s+/g, "");
-      if (nn.length < 3 && !/^[A-Z]{2,3}\d/.test(nn)) continue;
-      if (!t.toUpperCase().includes(nn.toUpperCase())) continue;
+      if (nn.length < 3 && !/^[A-Z]{2,3}\d/.test(nn)) {
+        // "아5"·"아6"·"아9" 같은 두 글자 줄임말: 앞뒤에 다른 글자가 붙지 않은 경우만 (예: "제 아5 차량")
+        if (!/^[가-힣]\d$/.test(nn) || !new RegExp(`(?<![가-힣A-Za-z0-9])${nn}(?!\\d)`).test(raw)) continue;
+      } else if (!t.toUpperCase().includes(nn.toUpperCase())) continue;
       const base = code.split(" ")[0];
       const prev = found.get(base);
       if (!prev || nn.length > prev.len) found.set(base, { code, len: nn.length });

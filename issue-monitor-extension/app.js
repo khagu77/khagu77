@@ -1503,7 +1503,7 @@ function finalizeRow(row, it, src) {
 // 작성자의 다른 글로 타사 차(예: 기아 EV6)로 확인되면 보고서에서 뺀다.
 // (네이버 화면을 더 열게 되므로 한 번 수집에 최대 AUTHOR_LOOKUP_MAX 명까지)
 const AUTHOR_LOOKUP_MAX = 60;
-const AUTHOR_POST_READS = 3; // 제목에 차명이 없을 때 작성자의 다른 글 본문·댓글을 열어 보는 최대 수 (한 사람당)
+const AUTHOR_POST_READS = 5; // 제목에 차명이 없을 때 작성자의 다른 글 본문·댓글을 열어 보는 최대 수 (한 사람당)
 const AUTHOR_POST_READS_MAX = 120; // 한 번 수집에 전체 상한 (네이버 화면 수 보호)
 // 차종을 끝내 못 정한 글: 제목·본문의 세대 표시([디올뉴]·디 올 뉴 = 새 세대)가 있으면 카페 기본 차종 중 가장 최근 세대로
 // (담당자 수정 2026-10-21: 넥쏘 카페 「[디올뉴] …」 글을 "-" 로 둠 → NH2)
@@ -1579,9 +1579,28 @@ async function refineUncertainCars(src, items, judged, ctx) {
         log(`${src.name}: 「${it ? it.title : key}」 작성자의 다른 글로 보아 타사 차(${r.car_code || "현대차·제네시스 아님"}) → 제외`);
         continue;
       }
-      if (r.car_code && r.car_code !== j.car_code) {
+      if (r.car_code && r.car_code.trim() !== "-" && r.car_code !== j.car_code) {
         j.car_code = r.car_code;
         changed++;
+        continue;
+      }
+      // AI 가 그래도 비워 두면: 작성자의 다른 글(제목·본문·댓글)에 나온 차가 한 종류뿐이면 그 차로 정한다
+      // (담당자 지적 2026-10-22: 아이오닉 멤버스 cafeclip/1323002 — 작성자 이전 글로 아이오닉5(NE)가 분명한데 "-")
+      if (!j.car_code || j.car_code.trim() === "-") {
+        const a = asks.find((x) => x.key === key);
+        const codes = state.carCodeList || parseCarCodes(state.settings.carCodes);
+        const text = a ? [a.nick, ...(a.authorTitles || []), ...(a.authorTexts || []).map((t) => `${t.title}\n${t.body}\n${t.comments || ""}`)].join("\n") : "";
+        const found = [...new Set(titleCarCodes(text, codes).map((c) => c.split(" ")[0]))];
+        if (found.length === 1 && !(a && a.needCar && !text)) {
+          // 카페 기본 차종 중 같은 차가 있으면 그 표기(세대·PE)를 우선
+          const hints = String((a && a.carHint) || "").split("/").map((x) => x.trim()).filter(Boolean);
+          const pick = hints.find((h) => h.split(" ")[0] === found[0]) || titleCarCodes(text, codes).find((c) => c.split(" ")[0] === found[0]);
+          if (pick) {
+            j.car_code = pick;
+            changed++;
+            log(`${src.name}: 「${a.title}」 작성자의 다른 글에 나온 차(${found[0]})로 차종을 ${pick} 로 정함`);
+          }
+        }
       }
     }
     log(`${src.name}: 차종을 모르거나 애매한 글 ${asks.length}건 작성자 글 확인 → ${changed}건 차종 코드 수정${dropped ? `, ${dropped}건 타사 차로 제외` : ""}`);
