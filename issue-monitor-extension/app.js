@@ -1355,6 +1355,25 @@ function finalizeRow(row, it, src) {
 const AUTHOR_LOOKUP_MAX = 60;
 const AUTHOR_POST_READS = 3; // 제목에 차명이 없을 때 작성자의 다른 글 본문·댓글을 열어 보는 최대 수 (한 사람당)
 const AUTHOR_POST_READS_MAX = 120; // 한 번 수집에 전체 상한 (네이버 화면 수 보호)
+// 차종을 끝내 못 정한 글: 제목·본문의 세대 표시([디올뉴]·디 올 뉴 = 새 세대)가 있으면 카페 기본 차종 중 가장 최근 세대로
+// (담당자 수정 2026-10-21: 넥쏘 카페 「[디올뉴] …」 글을 "-" 로 둠 → NH2)
+function applyGenTags(src, items, judged) {
+  const base = (c) => String(c).replace(/ (EV|HEV|PHEV|N)$/, "");
+  const yr = (c) => (state.codeYears && state.codeYears[base(c)]) || 0;
+  for (const it of items) {
+    const j = judged.get(it.key);
+    if (!j || !j.relevant || (j.car_code && j.car_code.trim() !== "-")) continue;
+    if (!/디\s*올\s*뉴|디올뉴|all\s*new/i.test(`${it.title}\n${it.body || ""}`)) continue;
+    const hints = String(it.carHint || "").split("/").map((x) => x.trim()).filter(Boolean);
+    if (hints.length < 2) continue;
+    const newest = hints.slice().sort((a, b) => yr(b) - yr(a))[0];
+    if (!yr(newest)) continue;
+    j.car_code = newest;
+    j.car_uncertain = false;
+    log(`${src.name}: 「${it.title}」 '디 올 뉴' 표시로 최신 세대 ${newest} 로 정함`);
+  }
+}
+
 async function refineUncertainCars(src, items, judged, ctx) {
   const targets = items.filter((it) => {
     const j = judged.get(it.key);
@@ -1488,6 +1507,7 @@ async function processSource(src, posts, readBody, ctx) {
       log(`${src.name} AI 판정 실패(${e.message}) → 키워드로 대신 판정`, "err");
     }
     if (src.kind === "cafe") await refineUncertainCars(src, items, judged, ctx);
+    applyGenTags(src, items, judged);
     for (const it of items) {
       const j = judged.get(it.key);
       let row;

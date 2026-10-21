@@ -476,10 +476,26 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     const r = img.getBoundingClientRect();
     if (img.tagName !== "IMG") {
       if (r.width < 80 || r.height < 60) continue;
-      // 영상 아래에 작성자 설명 글(캡션)이 있으면 영상 칸 전체(화면 + 설명 글)를 찍는다 (담당자 수정 2026-10-19: "모니터 먹통ㅋㅋ" 포함)
+      // 영상 아래에 글(설명 캡션·영상 제목 등)이 있으면 영상 칸 전체(화면 + 아래 글)를 찍는다
+      // (담당자 수정 2026-10-19 "모니터 먹통ㅋㅋ", 2026-10-21 넥쏘 카페 "경고등" — 영상 화면만 찍으면 안 됨)
       const comp = img.closest(".se-component") || img;
-      const capEl = comp.querySelector(".se-caption, .se-module-text, figcaption");
-      const capText = capEl ? (capEl.innerText || "").trim() : "";
+      const scr = videoScreen(img).getBoundingClientRect();
+      let capText = "";
+      const capEl = comp.querySelector(".se-caption, .se-module-text, figcaption, [class*='caption' i], [class*='title' i], [class*='desc' i]");
+      if (capEl && (capEl.innerText || "").trim()) capText = capEl.innerText.trim();
+      if (!capText) {
+        // 클래스 이름과 상관없이 영상 화면 아래쪽에 보이는 글자가 있으면 캡션으로 본다
+        const walker = doc.createTreeWalker(comp, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          const t = n.textContent.trim();
+          if (!t || !n.parentElement || n.parentElement.closest("video, iframe")) continue;
+          const tr = n.parentElement.getBoundingClientRect();
+          if (tr.height > 0 && tr.top >= scr.bottom - 2) {
+            capText = t;
+            break;
+          }
+        }
+      }
       if (capText) {
         const cr = comp.getBoundingClientRect();
         comp.setAttribute("data-rpt", `image${images.length}`);
