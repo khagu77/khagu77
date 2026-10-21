@@ -875,6 +875,59 @@ async function renderDb() {
   tbody.textContent = "";
   $("#dbEmpty").hidden = list.length > 0;
   $("#dbTable").hidden = !list.length;
+
+  // ---- 합계 줄 (머리글 바로 아래): AI 비용 합계, 건수 합계 (합본에 들어간 기록은 합본 수량으로 한 번만) ----
+  // 기록 X 의 글 대부분(80% 이상)이 그 뒤에 만든 합본 기록에 들어 있으면 X 는 그 합본에 포함된 것으로 보고 따로 세지 않는다
+  const keysOf = new Map(list.map((e) => [e.id, new Set((e.rows || []).map((r) => urlKey(r.url)))]));
+  const absorbed = new Set();
+  for (const x of list) {
+    const xs = keysOf.get(x.id);
+    if (!xs.size) continue;
+    for (const y of list) {
+      if (y === x || !y.base || y.finishedAt <= x.finishedAt) continue;
+      const ys = keysOf.get(y.id);
+      let hit = 0;
+      for (const k of xs) if (ys.has(k)) hit++;
+      if (hit / xs.size >= 0.8) {
+        absorbed.add(x.id);
+        break;
+      }
+    }
+  }
+  const counted = list.filter((e) => !absorbed.has(e.id));
+  const totalCount = counted.reduce((n, e) => n + (e.count || 0), 0);
+  const totalReport = counted.reduce((n, e) => n + (e.rows || []).filter((r) => r.report).length, 0);
+  const totalCost = list.reduce((n, e) => n + (e.costUsd || 0), 0);
+  const totalTime = list.reduce((n, e) => n + Math.max(0, (e.finishedAt || 0) - (e.startedAt || 0)), 0);
+  const starts = list.map((e) => e.range && e.range.start).filter(Boolean);
+  const ends = list.map((e) => e.range && e.range.end).filter(Boolean);
+  tbody.append(
+    el("tr", { class: "db-total" },
+      el("td", {}, el("b", { text: `합계 (${list.length}회)` })),
+      el("td", { text: starts.length ? `${fmtDateTime(new Date(Math.min(...starts)))} ~ ${fmtDateTime(new Date(Math.max(...ends)))}` : "" }),
+      el("td", {}, el("b", { class: "count-red", text: `${totalCount}건` })),
+      el("td", { text: `${totalReport}건` }),
+      el("td", { text: fmtDuration(totalTime) }),
+      el("td", {}, el("b", { text: `$${totalCost.toFixed(2)}` })),
+      el("td", { class: "hint", text: absorbed.size ? `합본에 들어간 기록 ${absorbed.size}개는 건수에서 합본 수량으로 한 번만 셈` : "" }),
+      el("td", {})
+    )
+  );
+
+  // AI 비용 전일(바로 앞 기록) 대비: 늘면 빨간 ▲, 줄면 파란 ▼
+  const byTime = [...list].sort((a, b) => a.finishedAt - b.finishedAt);
+  const prevOf = new Map(byTime.map((e, i) => [e.id, i > 0 ? byTime[i - 1] : null]));
+  const costCell = (e) => {
+    if (!e.costUsd) return el("td", { text: "-" });
+    const prev = prevOf.get(e.id);
+    const d = prev && prev.costUsd ? e.costUsd - prev.costUsd : null;
+    const mark =
+      d == null || Math.abs(d) < 0.005
+        ? null
+        : el("span", { class: d > 0 ? "cost-up" : "cost-down", title: `전일(${fmtDateTime(new Date(prev.finishedAt))}) $${prev.costUsd.toFixed(2)} 대비`, text: ` ${d > 0 ? "▲" : "▼"} $${Math.abs(d).toFixed(2)}` });
+    return el("td", {}, `$${e.costUsd.toFixed(2)}`, mark);
+  };
+
   for (const e of list) {
     const rows = deserializeRows(e.rows);
     tbody.append(
@@ -886,7 +939,7 @@ async function renderDb() {
         el("td", {}, el("b", { class: "count-red", text: `${e.count}건` })),
         el("td", { text: `${rows.filter((r) => r.report).length}건` }),
         el("td", { text: fmtDuration(e.finishedAt - e.startedAt) }),
-        el("td", { text: e.costUsd ? `$${e.costUsd.toFixed(2)}` : "-" }),
+        costCell(e),
         el("td", { class: "hint", text: [e.base ? `합본(${e.base})` : "", e.stopped ? "중지됨" : "", e.blocked ? "네이버 중단" : ""].filter(Boolean).join(" · ") }),
         el(
           "td",

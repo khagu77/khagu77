@@ -320,3 +320,9 @@ nav .tab.work.active .step { background: var(--blue); border-color: var(--blue);
   .appbar { background: #0b2545; }
   nav .tab.admin.active { color: #0b2545; }
 }
+
+/* 데일리 DB 합계 줄 · AI 비용 증감 */
+#dbTable tr.db-total td { background: #eef3fa; border-bottom: 2px solid var(--blue); font-weight: 700; }
+.cost-up { color: #d93025; font-weight: 700; font-size: 12px; }
+.cost-down { color: #1a5fd0; font-weight: 700; font-size: 12px; }
+@media (prefers-color-scheme: dark) { #dbTable tr.db-total td { background: #1c2b40; } .cost-down { color: #6ea3ff; } }
