@@ -257,3 +257,22 @@ button.primary.senti:hover { background: #115e59; }
 @media (prefers-color-scheme: dark) { .rsum-hit { color: #c6b6f5; } }
 .qcol[data-s="중립"] b { color: var(--neu); }
 .qcol b { font-size: 14px; }
+
+/* 표 제목 칸·필터 버튼도 성향 색 (선택된 필터 버튼은 흰 글자) */
+table.grid th.s-긍정, table.grid th .s-긍정 { color: var(--pos); }
+table.grid th.s-중립, table.grid th .s-중립 { color: var(--neu); }
+table.grid th.s-부정, table.grid th .s-부정 { color: var(--neg); }
+table.grid th.s-단순비난, table.grid th .s-단순비난 { color: var(--hate); }
+.seg button.s-긍정.on, .seg button.s-중립.on, .seg button.s-부정.on, .seg button.s-단순비난.on { color: #fff; }
+.seg button.s-긍정.on { background: var(--pos); }
+.seg button.s-중립.on { background: var(--neu); }
+.seg button.s-부정.on { background: var(--neg); }
+.seg button.s-단순비난.on { background: var(--hate); }
+
+/* 보고서 요약: 항목 사이 줄간격 넓게, 긴 키워드 줄은 칸 안에서 줄바꿈 */
+.rsum-row { margin: 0; padding: 9px 0; border-bottom: 1px dashed #e4dcf7; line-height: 1.75; flex-wrap: nowrap; }
+.rsum-row:last-of-type { border-bottom: 0; }
+.rsum-row > span:last-child { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.rsum-label { flex: 0 0 110px; }
+.rsum-title { margin-bottom: 4px; }
+@media (prefers-color-scheme: dark) { .rsum-row { border-bottom-color: #3a3060; } }

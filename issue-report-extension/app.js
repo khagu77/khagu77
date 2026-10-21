@@ -1358,7 +1358,15 @@ function renderReportSummary() {
     ),
     job.purpose ? el("div", { class: "rsum-row" }, el("span", { class: "rsum-label", text: "작성 목적" }), el("span", { class: "rsum-purpose", text: job.purpose })) : null,
   );
-  const head = el("tr", {}, ...["채널", "수집 게시글", "댓글", "긍정", "중립", "부정", "단순비난", "부정+단순비난", "게시글 성향 (긍/중/부/단)"].map((t) => el("th", { text: t })));
+  // 제목 칸도 성향 색으로
+  const head = el(
+    "tr",
+    {},
+    ...["채널", "수집 게시글", "댓글"].map((t) => el("th", { text: t })),
+    ...SENTIMENTS.map((s) => el("th", { class: `s-${s}`, text: s })),
+    el("th", {}, el("span", { class: "s-부정", text: "부정" }), "+", el("span", { class: "s-단순비난", text: "단순비난" })),
+    el("th", {}, "게시글 성향 (", ...SENTIMENTS.flatMap((s, i) => [i ? "/" : "", el("span", { class: `s-${s}`, text: s[0] })]), ")"),
+  );
   const tbody = el("tbody");
   const checked = job.posts.filter((p) => p.checked);
   for (const k of ["전체", ...CH_ORDER.filter((c) => job.channels[c] || checked.some((p) => p.channel === c)).map((c) => CH_NAME[c])]) {
