@@ -315,7 +315,29 @@ def test_issue_report(tmp_path: Path):
         sys_rel = next(c["system"] for c in claude_calls if "게시물 관련성 판독" in c["system"])
         assert "CN8 가격 공개 이후 가격·옵션 여론 파악" in sys_rel and "가장 중요한 규칙" in sys_rel
 
+        # 4-1. 손으로 판정 고치기 → 교정 사례로 기록, 지시사항을 주고 재분석 → 명령 규칙 메모리에 저장
+        row = page.locator("#cmtTable tbody tr", has_text="디자인 좋네요 기대됩니다")
+        row.locator("select").select_option("중립")
+        page.click("#reBox summary")
+        page.fill("#reInstr", "가격 때문에 다른 차를 사겠다는 댓글은 부정으로 본다")
+        n_calls = len(claude_calls)
+        page.click("#reRun")
+        page.locator("#reResult", has_text="재분석").wait_for(timeout=60000)
+        assert "메모리에 저장" in page.inner_text("#reResult")
+        sys_re = [c["system"] for c in claude_calls[n_calls:] if "댓글 성향 분석" in c["system"]]
+        assert sys_re and "가격 때문에 다른 차를 사겠다는 댓글은 부정으로 본다" in sys_re[0] and "명령 규칙 메모리" in sys_re[0]
+        assert "“디자인 좋네요 기대됩니다” → 중립" in sys_re[0]  # 교정 사례
+        re_user = "".join(c["user"] for c in claude_calls[n_calls:] if "댓글 성향 분석" in c["system"])
+        assert "디자인 좋네요 기대됩니다" not in re_user  # 손으로 고친 판정은 그대로 둠
+        assert row.locator("select").input_value() == "중립"
+        page.click('nav .tab[data-tab="prompt"]')
+        assert "가격 때문에 다른 차를 사겠다는 댓글은 부정으로 본다" in page.input_value("#memoryMd")
+        assert "디자인 좋네요 기대됩니다" in page.inner_text("#corrList")
+        md = save_download("#dlMemory")
+        assert "## 성향 교정 사례 (자동 기록)" in md.read_text(encoding="utf-8")
+
         # 5. 보고서
+        page.click('nav .tab[data-tab="sentiment"]')
         page.click("#goReport")
         page.click("#writeReport")
         page.locator("#reportMsg", has_text="초안").wait_for(timeout=60000)

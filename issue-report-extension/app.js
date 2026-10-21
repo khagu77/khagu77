@@ -897,7 +897,7 @@ function estimateCost(n) {
   return (inTok * m.price[0] + outTok * m.price[1]) / 1e6;
 }
 
-async function runSentiment(all = false) {
+async function runSentiment(all = false, re = null) {
   if (running) return;
   if (!aiReady()) return setMsg("#sentimentMsg", "설정에서 Anthropic API 키를 넣어 주세요.", "err");
   const list = activeComments();
@@ -905,7 +905,7 @@ async function runSentiment(all = false) {
     if (!confirm(`댓글 ${numFmt(list.length)}개를 처음부터 다시 분석합니다. (손으로 고친 판정도 다시 정해집니다) 계속할까요?`)) return;
     for (const c of list) c.sentiment = "";
   }
-  const todo = list.filter((c) => !c.sentiment);
+  const todo = re ? re.targets : list.filter((c) => !c.sentiment);
   if (!todo.length) return setMsg("#sentimentMsg", "분석할 댓글이 없습니다.", "ok");
   if (todo.length > 300 && !confirm(`댓글 ${numFmt(todo.length)}개를 분석합니다. 예상 요금 ${usdText(estimateCost(todo.length))} 안팎. 계속할까요?`)) return;
   running = true;
@@ -924,8 +924,13 @@ async function runSentiment(all = false) {
     for (let i = 0; i < ordered.length && !stopRequested; i += CHUNK) {
       const part = ordered.slice(i, i + CHUNK);
       const items = part.map((c) => ({ id: c.id, postTitle: pm.get(c.postKey)?.title || "", channelName: CH_NAME[c.channel], text: c.text, isReply: c.isReply }));
-      const res = await ai.classifySentiments(job, items, (done) => showWork(`AI 성향 분석 ${numFmt(i + done)}/${numFmt(ordered.length)}`, i + done, ordered.length));
-      for (const c of part) if (res.has(c.id)) c.sentiment = res.get(c.id);
+      const res = await ai.classifySentiments(job, items, (done) => showWork(`AI ${re ? "재" : "성향 "}분석 ${numFmt(i + done)}/${numFmt(ordered.length)}`, i + done, ordered.length), re?.extra || "");
+      for (const c of part) {
+        if (!res.has(c.id)) continue;
+        c.sentiment = res.get(c.id);
+        c.aiSentiment = c.sentiment;
+        c.manual = false;
+      }
       await saveJob();
       renderSentimentStats();
     }
@@ -939,8 +944,73 @@ async function runSentiment(all = false) {
   $("#runSentiment").disabled = false;
   $("#rerunSentiment").disabled = false;
   $("#stopSentiment").disabled = true;
+  if (re) {
+    // 판정이 바뀐 댓글 수 (예: 중립→부정 12개)
+    const moves = new Map();
+    let changed = 0;
+    let left = 0;
+    for (const c of re.targets) {
+      const before = re.prev.get(c.id);
+      if (!c.sentiment) {
+        c.sentiment = before; // 중지·오류로 다시 못 한 댓글은 원래 판정으로 되돌림
+        left++;
+        continue;
+      }
+      if (c.sentiment !== before) {
+        changed++;
+        const k = `${before}→${c.sentiment}`;
+        moves.set(k, (moves.get(k) || 0) + 1);
+      }
+    }
+    const detail = [...moves.entries()].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}개`).join(", ");
+    const msg = `✔ 재분석 ${numFmt(re.targets.length - left)}개 중 판정이 바뀐 댓글 ${numFmt(changed)}개${detail ? ` (${detail})` : ""}${left ? ` · 다시 못 한 ${left}개는 원래 판정 유지` : ""}${re.saved ? " · 지시사항을 명령 규칙 메모리에 저장했습니다" : ""}`;
+    $("#reResult").textContent = msg;
+    log(msg);
+  }
   await saveJob();
   renderSentiment();
+}
+
+// 아래 표에 지금 보이는 댓글 (채널·성향·검색 필터)
+function viewComments() {
+  const q = compactLower($("#cmtSearch").value);
+  return activeComments().filter(
+    (c) => (view.cmtChannel === "all" || c.channel === view.cmtChannel) && (view.cmtSenti === "all" || (c.sentiment || "") === view.cmtSenti) && (!q || compactLower(c.text).includes(q)),
+  );
+}
+
+// 지시사항을 주고 재분석 (지시사항은 메모리에 저장해 다음 보고서에도 적용할 수 있다)
+async function reanalyze() {
+  if (running) return;
+  if (!aiReady()) return setMsg("#sentimentMsg", "설정에서 Anthropic API 키를 넣어 주세요.", "err");
+  const instr = $("#reInstr").value.trim();
+  const scope = $("#reScope").value;
+  const keepManual = $("#reKeepManual").checked;
+  let targets = scope === "view" ? viewComments() : activeComments();
+  if (SENTIMENTS.includes(scope)) targets = targets.filter((c) => c.sentiment === scope);
+  targets = targets.filter((c) => c.sentiment && !(keepManual && c.manual));
+  if (!targets.length) return ($("#reResult").textContent = "재분석할 댓글이 없습니다 (아직 분석하지 않았거나, 범위에 맞는 댓글이 없음).");
+  if (!instr && !confirm("재분석 지시사항이 비어 있습니다. 지금 규칙(메모리·교정 사례 포함) 그대로 다시 분석할까요?")) return;
+  if (!confirm(`댓글 ${numFmt(targets.length)}개를 다시 분석합니다. 예상 요금 ${usdText(estimateCost(targets.length))} 안팎. 계속할까요?`)) return;
+  let saved = false;
+  if (instr && $("#reSave").checked) {
+    const d = new Date();
+    settings.memoryMd = appendMemory(settings.memoryMd, "성향 분석 규칙", `- ${instr.replace(/\s*\n\s*/g, " ")} _(${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}, ${job.issueName || "이슈"})_`);
+    await saveSettings(settings);
+    saved = true;
+  }
+  const prev = new Map(targets.map((c) => [c.id, c.sentiment]));
+  for (const c of targets) c.sentiment = "";
+  // 메모리에 저장했으면 메모리로 들어가므로, 저장하지 않은 지시사항만 이번 분석에 따로 붙인다
+  await runSentiment(false, { targets, prev, extra: saved ? "" : instr, saved });
+}
+
+// 손으로 고친 판정 → 교정 사례로 기록 (다음 성향 분석 때 AI 가 참고)
+async function recordCorrection(c, before) {
+  if (!c.sentiment || c.sentiment === before) return;
+  const text = String(c.text).replace(/\s+/g, " ").trim().slice(0, 200);
+  settings.corrections = [{ text, ai: c.aiSentiment || before || "", to: c.sentiment, issue: job.issueName || "", at: Date.now() }, ...(settings.corrections || []).filter((x) => x.text !== text)].slice(0, 200);
+  await saveSettings(settings);
 }
 
 function renderSentimentStats() {
@@ -989,8 +1059,10 @@ function renderCommentRows() {
     const p = pm.get(c.postKey) || {};
     const sel = el("select", { class: c.sentiment ? `s-${c.sentiment}` : "" }, el("option", { value: "", text: "(미분석)" }), ...SENTIMENTS.map((s) => el("option", { value: s, text: s, selected: c.sentiment === s })));
     sel.addEventListener("change", () => {
+      const before = c.sentiment;
       c.sentiment = sel.value;
       c.manual = true;
+      recordCorrection(c, before);
       sel.className = c.sentiment ? `s-${c.sentiment}` : "";
       saveJobSoon();
       renderSentimentStats();
@@ -1282,9 +1354,36 @@ async function openJob(id) {
 // 명령 프롬프트 · 설정
 // ---------------------------------------------------------------------------
 
+function renderCorrections() {
+  const box = $("#corrList");
+  box.innerHTML = "";
+  if (!settings.corrections.length) box.appendChild(el("div", { class: "hint", text: "아직 없습니다. 4단계 '댓글별 성향'에서 판정을 고치면 여기에 쌓입니다." }));
+  for (const c of settings.corrections) {
+    box.appendChild(
+      el(
+        "div",
+        { class: "item" },
+        el("span", { class: "t", title: c.text, text: `“${c.text}”` }),
+        el("span", { class: "hint", text: c.ai ? `${c.ai} →` : "" }),
+        el("b", { class: `s-${c.to}`, text: c.to }),
+        el("span", { class: "hint", text: c.issue || "" }),
+        el("button", {
+          text: "삭제",
+          onclick: async () => {
+            settings.corrections = settings.corrections.filter((x) => x !== c);
+            await saveSettings(settings);
+            renderPrompt();
+          },
+        }),
+      ),
+    );
+  }
+}
+
 function renderPrompt() {
   $("#promptBuilt").textContent = PROMPT_BUILT_AT;
-  $("#customPrompt").value = settings.customPrompt || "";
+  $("#memoryMd").value = settings.memoryMd || DEFAULT_MEMORY;
+  renderCorrections();
   readSetup();
   const box = $("#promptView");
   box.innerHTML = "";
@@ -1450,6 +1549,7 @@ async function init() {
   // 4단계
   $("#runSentiment").addEventListener("click", () => runSentiment(false));
   $("#rerunSentiment").addEventListener("click", () => runSentiment(true));
+  $("#reRun").addEventListener("click", reanalyze);
   $("#stopSentiment").addEventListener("click", () => (stopRequested = true));
   for (const [seg, key] of [["#cmtChannel", "cmtChannel"], ["#cmtSenti", "cmtSenti"]]) {
     for (const b of $$(`${seg} button`)) b.addEventListener("click", () => {
@@ -1492,10 +1592,37 @@ async function init() {
 
   // 명령 프롬프트 · 설정
   $("#savePrompt").addEventListener("click", async () => {
-    settings.customPrompt = $("#customPrompt").value.trim();
+    settings.memoryMd = $("#memoryMd").value;
+    settings.customPrompt = "";
     await saveSettings(settings);
     renderPrompt();
     setMsg("#promptMsg", "✔ 저장했습니다 — 다음 AI 작업부터 적용됩니다", "ok");
+  });
+  $("#dlMemory").addEventListener("click", async () => {
+    settings.memoryMd = $("#memoryMd").value;
+    await saveSettings(settings);
+    let md = settings.memoryMd.replace(/\s+$/, "");
+    if (settings.corrections.length) md += `\n\n## 성향 교정 사례 (자동 기록)\n${settings.corrections.map((c) => `- “${c.text}” → ${c.to}${c.ai ? ` (AI: ${c.ai})` : ""}${c.issue ? ` _[${c.issue}]_` : ""}`).join("\n")}`;
+    await downloadBytes(new TextEncoder().encode(`${md}\n`), `${ymd()}_명령 규칙 메모리.md`, settings.saveFolder);
+  });
+  $("#ulMemory").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (!f) return;
+    let text = await f.text();
+    // 받았던 파일의 '성향 교정 사례' 부분은 교정 목록으로 되돌린다
+    const m = text.match(/\n## 성향 교정 사례 \(자동 기록\)\n([\s\S]*)$/);
+    if (m) {
+      text = text.slice(0, m.index);
+      const back = [...m[1].matchAll(/^- “(.*)” → (긍정|중립|부정|단순비난)(?: \(AI: (긍정|중립|부정|단순비난)\))?(?: _\[(.*)\]_)?$/gm)].map((x) => ({ text: x[1], to: x[2], ai: x[3] || "", issue: x[4] || "", at: Date.now() }));
+      const have = new Set(settings.corrections.map((c) => c.text));
+      settings.corrections = [...settings.corrections, ...back.filter((c) => !have.has(c.text))].slice(0, 200);
+    }
+    if (!confirm("불러온 파일 내용으로 지금 메모리를 바꿀까요?")) return;
+    settings.memoryMd = text;
+    await saveSettings(settings);
+    renderPrompt();
+    setMsg("#promptMsg", "✔ 메모리를 불러왔습니다", "ok");
   });
   $("#saveSettings").addEventListener("click", saveSettingsFromForm);
   $("#testKey").addEventListener("click", async () => {

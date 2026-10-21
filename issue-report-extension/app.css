@@ -217,3 +217,12 @@ button.ai-btn:hover { background: #e4dbfa; }
 .modebox { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 10px 0 4px; padding: 7px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
 .modebox .modelabel { font-weight: 700; }
 .modebox label.radio { display: inline-flex; align-items: center; gap: 4px; margin: 0; font-weight: 600; cursor: pointer; }
+
+.rebox { margin: 10px 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
+.rebox textarea { background: var(--card); }
+.rebox select { width: auto; }
+#reResult { margin-top: 6px; font-weight: 600; }
+.corrlist { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-size: 12px; }
+.corrlist .item { display: flex; gap: 8px; align-items: center; padding: 3px 0; border-bottom: 1px dashed var(--border); }
+.corrlist .item .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.corrlist .item button { padding: 0 6px; font-size: 11px; }

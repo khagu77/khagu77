@@ -6,7 +6,7 @@ const SENTIMENT_BATCH = 60; // 성향 분석 한 번에 보낼 댓글 수
 const SENTIMENTS = ["긍정", "중립", "부정", "단순비난"];
 
 // 기본 규칙을 마지막으로 고친 때 ('명령 프롬프트' 화면에 표시)
-const PROMPT_BUILT_AT = "2026-10-21 (v1.0.1)";
+const PROMPT_BUILT_AT = "2026-10-21 (v1.0.5)";
 
 function issueContext(job) {
   const kw = parseKeywords(job.keywords);
@@ -17,10 +17,24 @@ function issueContext(job) {
 - 모니터링 기간: ${fmtDateTime(job.from)} ~ ${fmtDateTime(job.to)}`;
 }
 
-// '명령 프롬프트' 화면에서 담당자가 추가한 지시사항 (모든 AI 단계에 붙고, 기본 규칙보다 우선)
-function customInstructions(settings) {
-  const t = String(settings?.customPrompt || "").trim();
-  return t ? `\n\n[추가 지시사항 — 담당자가 수시로 추가한 것, 아래 기본 규칙과 충돌하면 이것을 따른다]\n${t}` : "";
+// 명령 규칙 메모리(Markdown, 담당자가 쌓아 온 규칙) + 이번 재분석 지시사항. 모든 AI 단계에 붙고 기본 규칙보다 우선
+function customInstructions(settings, extra = "") {
+  let out = "";
+  const md = String(settings?.memoryMd || "").trim();
+  if (memoryHasRules(md)) out += `\n\n[명령 규칙 메모리 — 담당자가 쌓아 온 규칙(Markdown). 위 기본 규칙과 충돌하면 이것을 따른다]\n${md}`;
+  const old = String(settings?.customPrompt || "").trim();
+  if (old) out += `\n\n[추가 지시사항]\n${old}`;
+  if (String(extra || "").trim()) out += `\n\n[이번 재분석 지시사항 — 담당자가 방금 준 것, 가장 우선해서 따른다]\n${extra.trim()}`;
+  return out;
+}
+
+// 담당자가 손으로 고친 성향 판정 사례 (최근 것부터) — 같은 유형은 이렇게 판정하도록
+function correctionExamples(settings, limit = 40) {
+  const list = (settings?.corrections || []).slice(0, limit);
+  if (!list.length) return "";
+  return `\n\n[담당자가 직접 고친 성향 판정 사례 — 같은 유형의 댓글은 담당자 판정을 따른다]\n${list
+    .map((c) => `- “${String(c.text).replace(/\s+/g, " ").slice(0, 160)}” → ${c.to}${c.ai ? ` (AI 는 ${c.ai} 로 판정했었음)` : ""}`)
+    .join("\n")}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,12 +98,12 @@ const SENTIMENT_RULES = `★★★ 가장 중요한 규칙 — 댓글 성향 분
 6. 확신이 서지 않으면 억지로 극단으로 보내지 말고 문맥상 가장 그럴듯한 것을 고르되, 태도가 드러나지 않으면 중립으로 둔다.
 7. 모든 id 에 대해 빠짐없이 하나씩 답한다.`;
 
-function sentimentSystem(job, settings) {
+function sentimentSystem(job, settings, extra = "") {
   return `너는 현대자동차 온라인 여론 모니터링 담당자다. 이번 이슈에 대한 온라인 댓글의 성향을 4단계(긍정/중립/부정/단순비난)로 정확히 판정한다.
 
 ${issueContext(job)}
 
-${SENTIMENT_RULES}${customInstructions(settings)}`;
+${SENTIMENT_RULES}${correctionExamples(settings)}${customInstructions(settings, extra)}`;
 }
 
 const SENTIMENT_SCHEMA = {
@@ -259,9 +273,9 @@ class AiClient {
   }
 
   // comments: [{id, postTitle, channelName, text, isReply}] (같은 글의 댓글끼리 이어서) → Map(id → 성향)
-  async classifySentiments(job, comments, onBatch) {
+  async classifySentiments(job, comments, onBatch, extra = "") {
     const out = new Map();
-    const system = sentimentSystem(job, this.settings);
+    const system = sentimentSystem(job, this.settings, extra);
     for (let i = 0; i < comments.length; i += SENTIMENT_BATCH) {
       const batch = comments.slice(i, i + SENTIMENT_BATCH);
       let lastTitle = null;
@@ -280,8 +294,8 @@ class AiClient {
         this.log(`  · 성향 분석 묶음 실패(${korMsg(e.message)}) → 반으로 나눠 다시`, "err");
         if (batch.length > 10) {
           const half = Math.ceil(batch.length / 2);
-          const a = await this.classifySentiments(job, batch.slice(0, half));
-          const b = await this.classifySentiments(job, batch.slice(half));
+          const a = await this.classifySentiments(job, batch.slice(0, half), null, extra);
+          const b = await this.classifySentiments(job, batch.slice(half), null, extra);
           for (const [k, v] of [...a, ...b]) out.set(k, v);
           onBatch?.(Math.min(i + SENTIMENT_BATCH, comments.length), comments.length);
           continue;
@@ -295,7 +309,7 @@ class AiClient {
       // 빠진 댓글은 한 번 더
       const missing = batch.filter((c) => !out.has(c.id));
       if (missing.length && missing.length < batch.length) {
-        const again = await this.classifySentiments(job, missing).catch(() => new Map());
+        const again = await this.classifySentiments(job, missing, null, extra).catch(() => new Map());
         for (const [k, v] of again) out.set(k, v);
       }
       onBatch?.(Math.min(i + SENTIMENT_BATCH, comments.length), comments.length);

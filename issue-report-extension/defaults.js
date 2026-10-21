@@ -142,9 +142,44 @@ const DELAYS = {
   slow: { page: [6000, 10000], article: [8000, 14000], cafeGap: [8000, 15000], community: [5000, 9000], news: [1500, 3000] },
 };
 
+// 명령 규칙 메모리 (Markdown): 담당자가 쌓아 가는 판정·작성 규칙. 모든 AI 단계에 붙는다
+const MEMORY_INTRO = "담당자가 쌓아 가는 판정·작성 규칙입니다. 모든 AI 단계에 붙고, 기본 규칙과 다르면 이것을 따릅니다.";
+const DEFAULT_MEMORY = `# 명령 규칙 메모리\n\n${MEMORY_INTRO}\n\n## 공통 규칙\n\n## 게시물 관련성 규칙\n\n## 성향 분석 규칙\n\n## 보고서 작성 규칙\n`;
+
+// 메모리에 실제 규칙(제목·안내 문장 말고)이 있는지
+function memoryHasRules(md) {
+  return String(md || "")
+    .split("\n")
+    .some((l) => l.trim() && !l.trim().startsWith("#") && l.trim() !== MEMORY_INTRO);
+}
+
+// 메모리의 '## 섹션' 끝에 한 줄 보태기 (섹션이 없으면 맨 끝에 새로)
+function appendMemory(md, section, line) {
+  const lines = String(md || DEFAULT_MEMORY).replace(/\s+$/, "").split("\n");
+  const head = lines.findIndex((l) => l.trim() === `## ${section}`);
+  if (head < 0) return `${lines.join("\n")}\n\n## ${section}\n${line}\n`;
+  let end = lines.length;
+  for (let i = head + 1; i < lines.length; i++) {
+    if (/^#{1,2}\s/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+  let at = end;
+  while (at > head + 1 && !lines[at - 1].trim()) at--;
+  lines.splice(at, 0, line);
+  return `${lines.join("\n")}\n`;
+}
+
 async function loadSettings() {
   const { imrSettings } = await chrome.storage.local.get("imrSettings").catch(() => ({}));
   const s = { ...DEFAULT_SETTINGS, ...(imrSettings || {}) };
+  if (s.memoryMd === undefined) {
+    // 예전 '추가 지시사항'은 메모리의 공통 규칙으로 옮긴다
+    s.memoryMd = s.customPrompt ? appendMemory(DEFAULT_MEMORY, "공통 규칙", s.customPrompt) : DEFAULT_MEMORY;
+    s.customPrompt = "";
+  }
+  if (!Array.isArray(s.corrections)) s.corrections = [];
   for (const c of s.cafes) if (c.viaSearch === undefined) c.viaSearch = VIA_SEARCH_CAFES.includes(c.slug);
   if (!s.youtubeChannels?.length) s.youtubeChannels = DEFAULT_YOUTUBE_CHANNELS.map((c) => ({ ...c }));
   return s;

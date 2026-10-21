@@ -204,6 +204,26 @@
         <span id="costEstimate" class="hint"></span>
       </div>
       <div id="sentimentSummary" class="summary"></div>
+      <details id="reBox" class="rebox">
+        <summary>🔁 성향 분석이 마음에 안 들면 — 지시사항을 주고 재분석</summary>
+        <label for="reInstr">재분석 지시사항 <span class="hint">(무엇을 어떻게 다르게 판정할지)</span></label>
+        <textarea id="reInstr" rows="3" placeholder="예) 가격 때문에 다른 차(쏘나타·투싼 등)를 사겠다는 댓글은 부정으로 본다. '그돈씨', '현기'만 쓴 짧은 비꼼은 단순비난."></textarea>
+        <div class="inline">
+          <label for="reScope">범위</label>
+          <select id="reScope">
+            <option value="all">분석한 댓글 전체</option>
+            <option value="view">아래 표에 지금 보이는 댓글만 (채널·성향·검색 필터)</option>
+            <option value="긍정">긍정 판정만</option>
+            <option value="중립">중립 판정만</option>
+            <option value="부정">부정 판정만</option>
+            <option value="단순비난">단순비난 판정만</option>
+          </select>
+          <label class="check inline-check"><input type="checkbox" id="reKeepManual" checked> 손으로 고친 판정은 그대로</label>
+          <label class="check inline-check"><input type="checkbox" id="reSave" checked> 지시사항을 명령 규칙 메모리에 저장 (다음에도 적용)</label>
+          <button id="reRun" class="primary">재분석 시작</button>
+        </div>
+        <div id="reResult" class="hint"></div>
+      </details>
       <table id="statTable" class="grid stat">
         <thead><tr><th>채널</th><th>게시글</th><th>댓글</th><th>긍정</th><th>중립</th><th>부정</th><th>단순 비난</th><th>미분석</th></tr></thead>
         <tbody></tbody>
@@ -284,9 +304,16 @@
     <!-- ===================== 명령 프롬프트 ===================== -->
     <section id="tab-prompt" hidden>
       <div class="hint">AI 에게 보내는 기본 규칙입니다. <b>게시물 관련성 판독</b>과 <b>댓글 성향 분석</b>을 가장 중요한 규칙으로 강조해 두었고, 1단계의 <b>보고서 작성 목적</b>이 모든 단계에 함께 들어갑니다. 기본 규칙 마지막 수정: <span id="promptBuilt"></span></div>
-      <label for="customPrompt">추가 지시사항 <span class="hint">(모든 AI 단계에 붙고, 기본 규칙과 다르면 이것이 우선)</span></label>
-      <textarea id="customPrompt" rows="6" placeholder="예) 출고 지연 불만은 가격 이슈와 별개이므로 성향 분석에서는 이슈 대상(가격)에 대한 태도만 본다."></textarea>
-      <div class="buttons"><button id="savePrompt" class="primary">추가 지시사항 저장</button><span id="promptMsg" class="hint"></span></div>
+      <label for="memoryMd">🧠 명령 규칙 메모리 (Markdown) <span class="hint">— 모든 AI 단계에 붙고, 기본 규칙과 다르면 이것이 우선. 4단계 재분석 지시사항을 '메모리에 저장'하면 여기에 쌓입니다</span></label>
+      <textarea id="memoryMd" rows="14" class="mono" spellcheck="false"></textarea>
+      <div class="buttons">
+        <button id="savePrompt" class="primary">메모리 저장</button>
+        <button id="dlMemory">⬇ .md 파일로 받기</button>
+        <label class="filebtn">📂 .md 파일 불러오기<input type="file" id="ulMemory" accept=".md,.markdown,.txt" hidden></label>
+        <span id="promptMsg" class="hint"></span>
+      </div>
+      <h2>성향 교정 사례 <span class="hint">— 4단계에서 손으로 고친 판정이 자동으로 쌓이고, 성향 분석 때 AI 가 같은 유형을 이렇게 판정하도록 참고합니다 (최근 40개)</span></h2>
+      <div id="corrList" class="corrlist"></div>
       <div id="promptView"></div>
     </section>
 
