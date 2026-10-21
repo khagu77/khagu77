@@ -1312,8 +1312,9 @@ function renderReportSummary() {
   const box = $("#reportSummary");
   box.innerHTML = "";
   const kw = parseKeywords(job.keywords);
-  const lines = kw.groups.map((terms) => terms.map((alts) => alts.join("|")).join(" "));
-  const nQueries = searchQueries(kw).length;
+  // | 조합을 풀어 실제로 검색한 검색어로 보여 준다 (키워드 줄마다 골고루, 상한까지)
+  const words = searchQueries(kw);
+  const total = totalQueries(kw);
   const stats = computeStats();
   const now = job.final ? new Date(job.final.savedAt) : new Date();
   box.append(
@@ -1331,8 +1332,8 @@ function renderReportSummary() {
       el(
         "span",
         { class: "rsum-kw" },
-        ...lines.flatMap((w, i) => [i ? ", " : "", el("b", { text: w })]),
-        el("span", { class: "hint", text: `  (펼친 검색어 ${nQueries}개${kw.exclude.length ? ` · 제외: ${kw.exclude.join(", ")}` : ""})` }),
+        ...words.flatMap((w, i) => [i ? ", " : "", el("b", { text: w })]),
+        el("span", { class: "hint", text: `  (검색어 ${words.length}개${total > words.length ? ` · 전체 조합 ${total}개 중` : ""}${kw.exclude.length ? ` · 제외: ${kw.exclude.join(", ")}` : ""})` }),
       ),
     ),
     el(
