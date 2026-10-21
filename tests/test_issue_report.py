@@ -479,9 +479,21 @@ def test_issue_report(tmp_path: Path):
         assert scores[0] > scores[1] and scores[0] > scores[2], scores
         assert page.evaluate("[calmQuote('현기 배짱장사 답이 없네 ㅋㅋ'), calmQuote('다음 달 출고 예정이라고 하네요')]") == [False, True]
         n_calls = len(claude_calls)
-        page.click("#refillNeutral")
-        page.locator("#reportMsg", has_text="비용 없음").wait_for()
+        page.click('.refill[data-s="중립"]')
+        page.locator("#reportMsg", has_text="중립 댓글을 다시 골랐습니다").wait_for()
         assert q("중립", "short") and len(claude_calls) == n_calls
+        # 다른 성향도 성향 색 버튼으로 AI 없이 다시 고르기 (1·2페이지 겹치지 않음)
+        assert page.evaluate("getComputedStyle(document.querySelector('.refill[data-s=\"부정\"]')).backgroundColor") == "rgb(217, 48, 37)"
+        bg = page.evaluate("[...document.querySelectorAll('.qcol')].map((e) => getComputedStyle(e).backgroundColor)")
+        assert len(set(bg)) == 4, bg  # 성향별로 흐린 배경색이 다름
+        page.click('.refill[data-s="부정"]')
+        page.locator("#reportMsg", has_text="부정 댓글을 다시 골랐습니다 — 센 댓글부터").wait_for()
+        assert q("부정", "short") and not set(q("부정", "short").splitlines()) & set(q("부정", "long").splitlines())
+        assert len(claude_calls) == n_calls
+        # 다시 고른 뒤 손으로 1페이지 댓글을 2페이지에 겹치게 넣어도 PPT 에선 빠진다
+        neg_short = q("부정", "short").splitlines()
+        page.fill('.qcol[data-s="부정"] [data-k="long"]', "\n".join(neg_short + ["@홍길동 2페이지 전용 부정 댓글😂👍🏻"]))
+        page.dispatch_event('.qcol[data-s="부정"] [data-k="long"]', "change")
         page.fill('.qcol[data-s="중립"] [data-k="short"]', "직접 고친 중립 댓글🤣")
         page.dispatch_event('.qcol[data-s="중립"] [data-k="short"]', "change")
         # 요약이 PPT 한 줄(60자)을 넘으면 화면에 경고, PPT 에선 글자를 줄여 넣는다
@@ -555,7 +567,9 @@ def test_issue_report(tmp_path: Path):
     assert "CN8 가격 공개 관련 여론 동향" in slide1 and "테스트 요약 첫째 문장 확인 中" in slide1
     assert "현대하모니 L" in slide1  # 양식 서체 유지
     assert "현기 배짱장사 답이 없네" in slide1 and "현기 배짱장사 답이 없네" not in slide2  # 1페이지에만
-    assert "‘2페이지 전용 부정 댓글’" in slide2 and "홍길동" not in slide2  # @닉네임·이모지는 빼고 and "직접 고친 중립 댓글’" in slide1  # 이모지는 빼고 (까만 네모 방지)
+    s2text = "".join(re.findall(r"<a:t>(.*?)</a:t>", slide2))
+    assert "‘2페이지 전용 부정 댓글’" in slide2 and "홍길동" not in slide2, s2text  # @닉네임·이모지는 빼고
+    assert "직접 고친 중립 댓글’" in slide1  # 이모지는 빼고 (까만 네모 방지)
     assert not re.search(r"[\U0001F000-\U0001FAFF\uFE0F]", slide1 + slide2)
     sum_shape = slide1[slide1.index('name="직사각형 31"'):]
     sum_shape = sum_shape[: sum_shape.index("</p:sp>")]

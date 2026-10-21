@@ -279,3 +279,19 @@ table.grid th.s-단순비난, table.grid th .s-단순비난 { color: var(--hate)
 
 .len-over { color: var(--neg); font-weight: 700; }
 .len-ok { color: var(--neu); }
+
+/* 성향별 댓글 다시 고르기 버튼 */
+.refills { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+button.refill { color: #fff; font-weight: 700; border: none; }
+button.refill[data-s="긍정"] { background: var(--pos); }
+button.refill[data-s="중립"] { background: var(--neu); }
+button.refill[data-s="부정"] { background: var(--neg); }
+button.refill[data-s="단순비난"] { background: var(--hate); }
+button.refill:hover { filter: brightness(0.9); }
+@media (prefers-color-scheme: dark) { button.refill { color: #111; } }
+
+/* 성향별 주요 댓글 상자: 아주 흐린 성향 색 배경·테두리 */
+.qcol[data-s="긍정"] { background: color-mix(in srgb, var(--pos) 7%, var(--card)); border-color: color-mix(in srgb, var(--pos) 30%, var(--border)); }
+.qcol[data-s="중립"] { background: color-mix(in srgb, var(--neu) 7%, var(--card)); border-color: color-mix(in srgb, var(--neu) 30%, var(--border)); }
+.qcol[data-s="부정"] { background: color-mix(in srgb, var(--neg) 7%, var(--card)); border-color: color-mix(in srgb, var(--neg) 30%, var(--border)); }
+.qcol[data-s="단순비난"] { background: color-mix(in srgb, var(--hate) 9%, var(--card)); border-color: color-mix(in srgb, var(--hate) 35%, var(--border)); }

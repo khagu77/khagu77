@@ -1457,16 +1457,18 @@ async function writeReport() {
   $("#writeReport").disabled = false;
 }
 
-// 중립 댓글만 다시 고르기 (AI 없이 · 비용 없음): 밋밋하되 이슈와 관계있는 성의 있는 중립 댓글부터 1·2페이지 칸을 채움
-function refillNeutral() {
+// 성향별 댓글만 다시 고르기 (AI 없이 · 비용 없음): 후보 순서대로 1페이지 5개 · 2페이지 20개 (겹치지 않음)
+// 긍정·부정·단순비난은 센 댓글부터, 중립은 밋밋하되 이슈와 관계있는 성의 있는 댓글부터 ('ㅋㅋㅋ' 많은 댓글은 맨 뒤)
+function refillQuotes(s) {
   const r = readReport();
-  const pool = quotePool().중립.map((c) => c.text);
-  if (!pool.length) return setMsg("#reportMsg", "고를 만한 중립 댓글이 없습니다.", "err");
-  r.short.중립 = pool.slice(0, 5);
-  r.long.중립 = pool.slice(5, 25);
+  const pool = quotePool()[s].map((c) => c.text);
+  if (!pool.length) return setMsg("#reportMsg", `고를 만한 ${s} 댓글이 없습니다.`, "err");
+  r.short[s] = pool.slice(0, 5);
+  r.long[s] = pool.slice(5, 25);
   saveJobSoon();
   renderReport();
-  setMsg("#reportMsg", `✔ 중립 댓글을 다시 골랐습니다 — 밋밋하되 이슈와 관계있는 성의 있는 댓글부터 (AI 안 씀 · 비용 없음). 1페이지 ${r.short.중립.length}개 · 2페이지 ${r.long.중립.length}개`, "ok");
+  const how = s === "중립" ? "밋밋하되 이슈와 관계있는 성의 있는 댓글부터" : "센 댓글부터";
+  setMsg("#reportMsg", `✔ ${s} 댓글을 다시 골랐습니다 — ${how} (AI 안 씀 · 비용 없음). 1페이지 ${r.short[s].length}개 · 2페이지 ${r.long[s].length}개`, "ok");
 }
 
 // 제목·요약만 다시 (주요 댓글 칸은 손대지 않음) — 후보 댓글을 적게 보내 비용이 훨씬 적다
@@ -1548,13 +1550,15 @@ function renderReportSummary() {
         " 확인",
         el("span", {
           class: "hint",
-          text: `  (${CH_ORDER.filter((c) => job.posts.some((p) => p.channel === c))
-            .map((c) => `${CH_NAME[c]} ${job.posts.filter((p) => p.channel === c && p.checked).length}/${job.posts.filter((p) => p.channel === c).length}`)
-            .join(" · ")})`,
+          text: job.posts.length
+            ? `  (${CH_ORDER.filter((c) => job.posts.some((p) => p.channel === c))
+                .map((c) => `${CH_NAME[c]} ${job.posts.filter((p) => p.channel === c && p.checked).length}/${job.posts.filter((p) => p.channel === c).length}`)
+                .join(" · ")})`
+            : "",
         }),
       ),
     ),
-    job.purpose ? el("div", { class: "rsum-row" }, el("span", { class: "rsum-label", text: "작성 목적" }), el("span", { class: "rsum-purpose", text: job.purpose })) : null,
+    ...(job.purpose ? [el("div", { class: "rsum-row" }, el("span", { class: "rsum-label", text: "작성 목적" }), el("span", { class: "rsum-purpose", text: job.purpose }))] : []),
   );
   // 제목 칸도 성향 색으로
   const head = el(
@@ -2049,7 +2053,7 @@ async function init() {
   // 5단계
   $("#writeReport").addEventListener("click", writeReport);
   $("#writeSummary").addEventListener("click", writeSummaryOnly);
-  $("#refillNeutral").addEventListener("click", refillNeutral);
+  for (const b of $$(".refill")) b.addEventListener("click", () => refillQuotes(b.dataset.s));
   $("#rHeadline").addEventListener("input", renderHeadPreview);
   for (const id of ["#rTitle", "#rChannels", "#rSummary", "#rHeadline"]) $(id).addEventListener("change", () => (readReport(), saveJobSoon()));
   $("#rSummary").addEventListener("input", renderSummaryLen);
