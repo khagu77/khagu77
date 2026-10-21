@@ -465,6 +465,13 @@ def test_issue_report(tmp_path: Path):
         assert "내용이 없는 댓글은 고르지 않는다" in sys_rep and "내용이 없는 댓글은 주요 댓글에서 뺀다" in sys_rep
         neg_short = q("부정", "short").splitlines()
         page.fill('.qcol[data-s="부정"] [data-k="long"]', "\n".join(neg_short + ["2페이지 전용 부정 댓글😂👍🏻"]))
+        # 중립은 밋밋한 댓글로: AI 규칙·메모리 + AI 없이 다시 고르는 버튼
+        assert "최대한 중립스러운 댓글" in sys_rep and "정말 별 의미 없는 최대한 중립스러운 댓글" in sys_rep
+        assert page.evaluate("[calmQuote('현기 배짱장사 답이 없네 ㅋㅋ'), calmQuote('다음 달 출고 예정이라고 하네요')]") == [False, True]
+        n_calls = len(claude_calls)
+        page.click("#refillNeutral")
+        page.locator("#reportMsg", has_text="비용 없음").wait_for()
+        assert q("중립", "short") and len(claude_calls) == n_calls
         page.fill('.qcol[data-s="중립"] [data-k="short"]', "직접 고친 중립 댓글🤣")
         page.dispatch_event('.qcol[data-s="중립"] [data-k="short"]', "change")
         # 요약이 PPT 한 줄(60자)을 넘으면 화면에 경고, PPT 에선 글자를 줄여 넣는다

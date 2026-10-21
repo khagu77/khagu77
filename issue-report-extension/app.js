@@ -1324,16 +1324,24 @@ function meaningfulQuote(text) {
   return words.join("").length >= 4;
 }
 
+// 중립 샘플감: 욕·조롱·센 말·ㅋㅋ·물음표/느낌표 연발이 없는 밋밋한 댓글
+function calmQuote(text) {
+  const t = String(text || "");
+  STRONG_RE.lastIndex = 0;
+  return !STRONG_RE.test(t) && !/ㅋ{2,}|ㅎ{3,}|[!?]{2,}|ㅡㅡ|;;/.test(t);
+}
+
 function quotePool(per = 110) {
   const pool = {};
   const list = activeComments().filter((c) => c.sentiment && meaningfulQuote(c.text));
   for (const s of SENTIMENTS) {
     const mine = list.filter((c) => c.sentiment === s);
     // 채널마다 센 댓글부터 (같은 점수면 무작위) → 채널을 돌아가며 담아 채널이 고루 섞이게
+    // 중립만 거꾸로: 감정·자극이 가장 적은 밋밋한 댓글부터
     const byCh = CH_ORDER.map((ch) =>
       mine
         .filter((c) => c.channel === ch)
-        .map((c) => ({ c, k: intensity(c.text) + Math.random() }))
+        .map((c) => ({ c, k: (s === "중립" ? (calmQuote(c.text) ? 1000 : 0) - intensity(c.text) : intensity(c.text)) + Math.random() }))
         .sort((a, b) => b.k - a.k)
         .map((x) => x.c),
     );
@@ -1412,6 +1420,18 @@ async function writeReport() {
   hideWork();
   running = false;
   $("#writeReport").disabled = false;
+}
+
+// 중립 댓글만 다시 고르기 (AI 없이 · 비용 없음): 가장 밋밋한 중립 댓글로 1·2페이지 칸을 채움
+function refillNeutral() {
+  const r = readReport();
+  const pool = quotePool().중립.map((c) => c.text);
+  if (!pool.length) return setMsg("#reportMsg", "고를 만한 중립 댓글이 없습니다.", "err");
+  r.short.중립 = pool.slice(0, 5);
+  r.long.중립 = pool.slice(5, 25);
+  saveJobSoon();
+  renderReport();
+  setMsg("#reportMsg", `✔ 중립 댓글을 가장 밋밋한 댓글로 다시 골랐습니다 (AI 안 씀 · 비용 없음). 1페이지 ${r.short.중립.length}개 · 2페이지 ${r.long.중립.length}개`, "ok");
 }
 
 // 제목·요약만 다시 (주요 댓글 칸은 손대지 않음) — 후보 댓글을 적게 보내 비용이 훨씬 적다
@@ -1961,6 +1981,7 @@ async function init() {
   // 5단계
   $("#writeReport").addEventListener("click", writeReport);
   $("#writeSummary").addEventListener("click", writeSummaryOnly);
+  $("#refillNeutral").addEventListener("click", refillNeutral);
   $("#rHeadline").addEventListener("input", renderHeadPreview);
   for (const id of ["#rTitle", "#rChannels", "#rSummary", "#rHeadline"]) $(id).addEventListener("change", () => (readReport(), saveJobSoon()));
   $("#rSummary").addEventListener("input", renderSummaryLen);
