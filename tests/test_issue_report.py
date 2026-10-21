@@ -441,6 +441,20 @@ def test_issue_report(tmp_path: Path):
         assert "긍정 칸은 센 댓글 순으로 채웠습니다" in page.inner_text("#reportMsg")
         sys_rep = next(c["system"] for c in claude_calls if "★ 보고서 작성 규칙 ★" in c["system"])
         assert "가장 자극적이고 반응이 센 댓글" in sys_rep and "원문 그대로" in sys_rep
+        # 보고서다운 용어·근거 있는 내용·많이 나온 논점 위주 요약 (기본 규칙 + 마크다운 메모리)
+        assert "호구론 → 국내 구매자 차별 인식" in sys_rep and "근거 없는 내용 금지" in sys_rep
+        assert "계약 취소·인수 거부 인증 확인'처럼 수집 자료에서 실제로 확인되지 않는 내용은 쓰지 않는다" in sys_rep  # 메모리 규칙
+        user_rep = next(c["user"] for c in claude_calls if "★ 보고서 작성 규칙 ★" in c["system"])
+        assert "[성향별 자주 나온 말" in user_rep and re.search(r"부정·단순비난 댓글 \d+개: .+\(\d+\)", user_rep), user_rep
+        # 요약만 다시 쓰기: 주요 댓글 칸은 그대로 두고 제목·요약만 (후보 댓글을 적게 보냄)
+        page.fill('.qcol[data-s="중립"] [data-k="short"]', "직접 고친 중립 댓글")
+        page.fill("#rTitle", "임시 제목")
+        n_calls = len(claude_calls)
+        page.click("#writeSummary")
+        page.locator("#reportMsg", has_text="요약만 다시 썼습니다").wait_for(timeout=60000)
+        assert page.input_value("#rTitle") == "CN8 가격 공개 관련 여론 동향"
+        assert page.input_value('.qcol[data-s="중립"] [data-k="short"]') == "직접 고친 중립 댓글"
+        assert len(claude_calls) == n_calls + 1 and "주요 댓글은 고르지 말고" in claude_calls[-1]["user"]
         pptx = save_download("#dlPptx")
         page.click("#saveFinal")
         page.locator("#finalMsg", has_text="최종 DB 저장 완료").wait_for(timeout=60000)

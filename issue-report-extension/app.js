@@ -1272,9 +1272,34 @@ function statsText(stats) {
     const r = (s) => (st.comments ? `${((st[s] / st.comments) * 100).toFixed(1)}%` : "-");
     lines.push(`${k}: 게시글 ${st.posts} · 댓글 ${st.comments} · 긍정 ${r("긍정")} · 중립 ${r("중립")} · 부정 ${r("부정")} · 단순비난 ${r("단순비난")}`);
   }
-  const titles = job.posts.filter((p) => p.checked).slice(0, 40).map((p) => `- (${chName(p)}) ${p.title}`);
+  const titles = job.posts.filter((p) => p.checked).slice(0, 60).map((p) => `- (${chName(p)}) ${p.title}`);
   lines.push("", "[수집 게시글 제목 일부]", ...titles);
+  // 요약이 실제로 많이 나온 말을 짚도록: 성향별로 자주 나온 말과 그 말이 나온 댓글 수
+  const list = activeComments().filter((c) => c.sentiment);
+  const groups = [
+    ["부정·단순비난", list.filter((c) => c.sentiment === "부정" || c.sentiment === "단순비난")],
+    ["긍정", list.filter((c) => c.sentiment === "긍정")],
+    ["중립", list.filter((c) => c.sentiment === "중립")],
+  ];
+  lines.push("", "[성향별 자주 나온 말 — 말(그 말이 나온 댓글 수). 요약은 이 빈도를 근거로 쓴다]");
+  for (const [name, cs] of groups) if (cs.length) lines.push(`${name} 댓글 ${cs.length}개: ${topWords(cs.map((c) => c.text), 30).map(([w, n]) => `${w}(${n})`).join(", ")}`);
   return lines.join("\n");
+}
+
+// 댓글들에서 자주 나온 말 (댓글 하나에 여러 번 나와도 1로 셈, 흔한 조사·군말 제외)
+const STOP_WORDS = new Set("그냥 진짜 정말 너무 이제 근데 그리고 그래서 하는 있는 없는 같은 이런 저런 그런 이거 저거 그거 우리 사람 생각 지금 다들 정도 하나 뭐가 이건 그게 있음 없음 해서 하고 하면 하네 하네요 합니다 입니다 있다 없다 한다 된다 였다 같다 같네요 같아요 ㅋㅋ ㅋㅋㅋ ㅎㅎ".split(" "));
+function topWords(texts, n) {
+  const cnt = new Map();
+  for (const t of texts) {
+    const seen = new Set();
+    for (let w of String(t).match(/[가-힣A-Za-z0-9]{2,12}/g) || []) {
+      w = w.replace(/(으로|에서|에게|까지|부터|보다|처럼|이랑|은|는|이|가|을|를|에|의|도|로|와|과|만|요)$/, "");
+      if (w.length < 2 || /^\d+$/.test(w) || STOP_WORDS.has(w) || seen.has(w)) continue;
+      seen.add(w);
+      cnt.set(w, (cnt.get(w) || 0) + 1);
+    }
+  }
+  return [...cnt.entries()].filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1]).slice(0, n);
 }
 
 // 성향마다 후보 댓글 (채널 골고루, 너무 짧은 것 제외)
@@ -1377,6 +1402,35 @@ async function writeReport() {
   hideWork();
   running = false;
   $("#writeReport").disabled = false;
+}
+
+// 제목·요약만 다시 (주요 댓글 칸은 손대지 않음) — 후보 댓글을 적게 보내 비용이 훨씬 적다
+async function writeSummaryOnly() {
+  if (running) return;
+  if (!aiReady()) return setMsg("#reportMsg", "설정에서 Anthropic API 키를 넣어 주세요.", "err");
+  const stats = computeStats();
+  if (!stats["전체"].comments) return setMsg("#reportMsg", "4단계 성향 분석을 먼저 해 주세요.", "err");
+  readReport();
+  running = true;
+  $("#writeReport").disabled = $("#writeSummary").disabled = true;
+  showWork("AI 요약 다시 쓰는 중", 0, 0);
+  const ai = new AiClient(settings);
+  try {
+    const pool = quotePool(15);
+    const res = await ai.writeSummary(job, statsText(stats), pool);
+    const r = ensureReport();
+    r.title = res.title || r.title;
+    r.summary = (res.summary || []).slice(0, 3);
+    addUsage(ai);
+    await saveJob();
+    renderReport();
+    setMsg("#reportMsg", `✔ 요약만 다시 썼습니다 — 주요 댓글은 그대로 (비용 ${usdText(ai.costUsd())}).`, "ok");
+  } catch (e) {
+    setMsg("#reportMsg", `요약 다시 쓰기 실패: ${korMsg(e.message)}`, "err");
+  }
+  hideWork();
+  running = false;
+  $("#writeReport").disabled = $("#writeSummary").disabled = false;
 }
 
 function ensureReport() {
@@ -1884,6 +1938,7 @@ async function init() {
 
   // 5단계
   $("#writeReport").addEventListener("click", writeReport);
+  $("#writeSummary").addEventListener("click", writeSummaryOnly);
   $("#rHeadline").addEventListener("input", renderHeadPreview);
   for (const id of ["#rTitle", "#rChannels", "#rSummary", "#rHeadline"]) $(id).addEventListener("change", () => (readReport(), saveJobSoon()));
   for (const t of $$(".qcol textarea")) t.addEventListener("change", () => (readReport(), saveJobSoon()));

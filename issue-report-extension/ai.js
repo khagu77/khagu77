@@ -6,7 +6,7 @@ const SENTIMENT_BATCH = 60; // 성향 분석 한 번에 보낼 댓글 수
 const SENTIMENTS = ["긍정", "중립", "부정", "단순비난"];
 
 // 기본 규칙을 마지막으로 고친 때 ('명령 프롬프트' 화면에 표시)
-const PROMPT_BUILT_AT = "2026-10-21 (v1.0.5)";
+const PROMPT_BUILT_AT = "2026-10-21 (v1.0.20)";
 
 function issueContext(job) {
   const kw = parseKeywords(job.keywords);
@@ -138,7 +138,11 @@ const REPORT_RULES = `★ 보고서 작성 규칙 ★
    예) "8/5, CN8 가격 공개 이후 온라인 전 채널 전반에서 가격 인상 폭에 대한 내용 및 유료 옵션 선택을 꼼수로 보는 부정적 반응 지배적으로 확인 中"
    예) "확인 중인 주요 부정 여론은 옵션 유료화(계기반/통풍시트/HUD 등) 및 동급, 경쟁 차종 대비 높은 가격이며, 채널 특성상 언론과 유튜브 중심으로 노조, 현대차 전반에 대한 단순 비난성 여론 또한 다수 확인. 한편 동호회 內, 실구매자들의 계약 인증 및 축하 여론 일부 확인"
 3. summary 는 정확히 2문장(두 줄 글머리표): 첫째 = 이슈 발생 시점·전체 여론 흐름, 둘째 = 주요 부정(또는 우세한) 여론의 구체적 내용과 채널별 특징, 그리고 반대 성향 여론.
-   각 문장은 90~150자.
+   각 문장은 70~120자로 짧고 간결하게, 읽자마자 포인트가 딱 짚히도록 쓴다.
+   ★ 요약 내용: 실제 댓글·게시글에 **가장 많이 등장하고 반응이 센 논점** 2~3개만 많이 나온 순서대로 짚는다 ('성향별 자주 나온 말'의 댓글 수와 후보 댓글을 근거로). 드물게 나온 이야기를 주요 여론처럼 쓰지 않는다.
+   ★ 근거 없는 내용 금지: 주어진 통계·게시글 제목·후보 댓글에서 직접 확인되는 사실만 쓴다. '계약 취소 인증 확인', '불매 확산'처럼 실제 인증 글·다수 사례가 자료에 없으면 쓰지 않으며, 몇 건 안 되는 이야기는 '일부 언급' 정도로만 쓴다. 추측·과장·단정 금지.
+   ★ 보고서다운 용어: 커뮤니티 은어·속어·조롱 표현(예: 호구론, 장난질, 흑우, 개돼지, 현기, 국뽕)은 요약 문장에 쓰지 않고 보고서 용어로 바꿔 쓴다.
+     예) 호구론 → 국내 구매자 차별 인식 / 옵션 장난질 → 옵션 구성·유료화 불만 / 현기 → 현대차·기아 (단, 주요 댓글 샘플은 원문 그대로)
 4. title 은 "<이슈명> 관련 여론 동향" 형태로 25자 이내.
 5. 주요 댓글은 반드시 주어진 댓글 목록에서 id 로 고른다 (새로 지어내지 않는다). quotes_short·quotes_long 에는 댓글 글이 아니라 id(예: "c12")만 넣는다 — 프로그램이 id 로 원문을 그대로 보고서에 넣는다(맞춤법·욕설·ㅋㅋ 등 고치지 않음).
    ★ 선정 우선순위: 이번 보고서 목적·이슈에 딱 맞으면서 **가장 자극적이고 반응이 센 댓글**(강한 감정, 직설적인 불만·비난·조롱, 거친 표현, 구체적인 금액·비교로 날 선 말, 많은 사람이 공감할 만한 한 줄)을 맨 앞에 둔다. 밋밋한 인사·단순 질문은 뒤로 미루거나 빼되, 긍정·중립도 그 성향 안에서 가장 강하고 분명한 댓글을 고른다.
@@ -367,6 +371,17 @@ class AiClient {
   }
 
   // stats: 통계 글, pool: {성향: [{id, text, channelName}]} → {title, summary[], quotes_short{}, quotes_long{}}
+  // 제목·요약만 (주요 댓글은 고르지 않음)
+  async writeSummary(job, stats, pool) {
+    const lines = [];
+    for (const s of SENTIMENTS) {
+      lines.push(`\n## ${s} 댓글 예시`);
+      for (const c of pool[s] || []) lines.push(`- (${c.channelName}) ${String(c.text).replace(/\s+/g, " ").slice(0, 200)}`);
+    }
+    const schema = { type: "object", properties: { title: { type: "string" }, summary: { type: "array", items: { type: "string" } } }, required: ["title", "summary"], additionalProperties: false };
+    return this.callJson(reportSystem(job, this.settings), `${stats}\n\n이번에는 주요 댓글은 고르지 말고 title 과 summary 만 규칙대로 다시 써 줘. 아래는 성향별 댓글 예시다.${lines.join("\n")}`, schema, "medium");
+  }
+
   async writeReport(job, stats, pool) {
     const lines = [];
     for (const s of SENTIMENTS) {
