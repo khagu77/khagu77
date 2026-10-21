@@ -1333,19 +1333,44 @@ async function writeReport() {
       return { ...c, id };
     });
     const res = await ai.writeReport(job, statsText(stats), shortPool);
-    const pick = (ids) => (ids || []).map((id) => idMap.get(String(id).trim())).filter(Boolean);
+    // AI 가 id 대신 'c12 (언론) …'·댓글 글 자체로 돌려줘도 후보 댓글을 찾아 넣는다
+    const norm = (t) => String(t || "").replace(/\s+/g, "");
+    const texts = [...idMap.values()];
+    const find = (v) => {
+      const raw = String(v || "").trim();
+      const idm = raw.match(/^\[?(c\d+)\]?(?![\d])/i);
+      if (idm && idMap.has(idm[1].toLowerCase())) return idMap.get(idm[1].toLowerCase());
+      const t = norm(raw.replace(/^\[?c\d+\]?\s*/i, "").replace(/^\((언론|동호회|유튜브|커뮤니티)\)\s*/, "").replace(/^["“'‘]|["”'’]$/g, ""));
+      if (t.length < 4) return null;
+      return texts.find((x) => norm(x) === t) || texts.find((x) => norm(x).startsWith(t) || t.startsWith(norm(x).slice(0, 300))) || texts.find((x) => norm(x).includes(t)) || null;
+    };
+    const pick = (list) => [...new Set((list || []).map(find).filter(Boolean))];
+    // 그래도 비면 강도 순 후보로 채움 (후보는 이미 센 댓글부터 채널을 섞어 정렬돼 있음)
+    const filled = [];
+    const quotes = (key, n) =>
+      Object.fromEntries(
+        SENTIMENTS.map((s) => {
+          let got = pick(res[key]?.[s]);
+          if (!got.length && pool[s].length) {
+            got = pool[s].slice(0, n).map((c) => c.text);
+            filled.push(s);
+          }
+          return [s, got];
+        }),
+      );
     job.report = {
       title: res.title || `${job.issueName} 관련 여론 동향`,
       summary: (res.summary || []).slice(0, 3),
       headline: job.report?.headline || "",
       channelsLabel: job.report?.channelsLabel || defaultChannelsLabel(),
-      short: Object.fromEntries(SENTIMENTS.map((s) => [s, pick(res.quotes_short?.[s])])),
-      long: Object.fromEntries(SENTIMENTS.map((s) => [s, pick(res.quotes_long?.[s])])),
+      short: quotes("quotes_short", 5),
+      long: quotes("quotes_long", 20),
     };
     addUsage(ai);
     await saveJob();
     renderReport();
-    setMsg("#reportMsg", `✔ 초안을 만들었습니다 (비용 ${usdText(ai.costUsd())}). 고친 뒤 'PPT 보고서 받기'를 누르세요.`, "ok");
+    const fillNote = filled.length ? ` · AI 가 고른 댓글을 찾지 못한 ${[...new Set(filled)].join("·")} 칸은 센 댓글 순으로 채웠습니다` : "";
+    setMsg("#reportMsg", `✔ 초안을 만들었습니다 (비용 ${usdText(ai.costUsd())})${fillNote}. 고친 뒤 'PPT 보고서 받기'를 누르세요.`, "ok");
   } catch (e) {
     setMsg("#reportMsg", `초안 작성 실패: ${korMsg(e.message)}`, "err");
   }

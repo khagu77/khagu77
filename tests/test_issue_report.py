@@ -155,15 +155,22 @@ def claude(body, calls):
         found = re.findall(r"^댓글내용: (.*)$", user, re.M)
         return {"comments": [{"text": t, "date": "", "reply": False} for t in found]}
     if "★ 보고서 작성 규칙 ★" in system:
-        ids = {}
+        ids, rows = {}, {}
         for sec in re.split(r"\n## ", user)[1:]:
             name = sec.split(" ")[0]
             ids[name] = re.findall(r"^(c\d+)\t", sec, re.M)
+            rows[name] = re.findall(r"^(c\d+)\t\((?:.*?)\) (.*)$", sec, re.M)
+        short = {k: ids.get(k, [])[:2] for k in ["긍정", "중립", "부정", "단순비난"]}
+        long = {k: ids.get(k, []) for k in ["긍정", "중립", "부정", "단순비난"]}
+        # 실제 AI 처럼 id 대신 'c5 (언론) 글'·댓글 글 자체로 돌려주거나, 아예 비워 두는 경우
+        short["부정"] = [f"{i} (언론) {t}" for i, t in rows.get("부정", [])][:2]
+        long["부정"] = [t for _, t in rows.get("부정", [])]
+        short["긍정"] = []
         return {
             "title": "CN8 가격 공개 관련 여론 동향",
             "summary": ["테스트 요약 첫째 문장 확인 中", "테스트 요약 둘째 문장 다수 확인"],
-            "quotes_short": {k: ids.get(k, [])[:2] for k in ["긍정", "중립", "부정", "단순비난"]},
-            "quotes_long": {k: ids.get(k, []) for k in ["긍정", "중립", "부정", "단순비난"]},
+            "quotes_short": short,
+            "quotes_long": long,
         }
     return {}
 
@@ -427,6 +434,11 @@ def test_issue_report(tmp_path: Path):
         page.click("#writeReport")
         page.locator("#reportMsg", has_text="초안").wait_for(timeout=60000)
         assert page.input_value("#rTitle") == "CN8 가격 공개 관련 여론 동향"
+        # id 가 아닌 글로 돌려줘도 찾아 넣고, 빈 칸은 센 댓글 순으로 채운다
+        q = lambda s, k: page.input_value(f'.qcol[data-s="{s}"] [data-k="{k}"]')
+        assert q("부정", "short") and q("부정", "long") and q("긍정", "short") and q("단순비난", "long"), page.inner_text("#reportMsg")
+        assert all(not re.match(r"c\d+", l) for l in q("부정", "short").splitlines())
+        assert "긍정 칸은 센 댓글 순으로 채웠습니다" in page.inner_text("#reportMsg")
         sys_rep = next(c["system"] for c in claude_calls if "★ 보고서 작성 규칙 ★" in c["system"])
         assert "가장 자극적이고 반응이 센 댓글" in sys_rep and "원문 그대로" in sys_rep
         pptx = save_download("#dlPptx")
