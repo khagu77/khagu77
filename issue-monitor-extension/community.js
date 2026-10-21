@@ -19,6 +19,9 @@ function communityAdapter(url) {
       articleUrl: (id) => `https://www.bobaedream.co.kr/view?code=${encodeURIComponent(code)}&No=${id}`,
       bodySelectors: [".bodyCont", ".content02", "#print_area .article-body"],
       dateSelectors: [".writerProfile .countGroup", ".writerProfile", ".countGroup"],
+      viewSelectors: [".writerProfile .countGroup", ".countGroup"],
+      commentCountSelectors: [".commentWrap .cmtTit em", ".cmtTit strong", "#cmt_reply_count", ".commentCount", ".cmt_num"],
+      commentItemSelectors: [".commentlistbox li", "#cmt_list li", ".commentList li", ".cmt_list > li"],
     };
   }
 
@@ -34,6 +37,10 @@ function communityAdapter(url) {
       articleUrl: (id) => `https://www.clien.net/service/board/${board}/${id}`,
       bodySelectors: [".post_article", ".post_content", ".post_view"],
       dateSelectors: [".post_author .view_count.date", ".post_author", ".post_information"],
+      // 클리앙: 조회수는 '조회' 글자 없이 눈 아이콘 + 숫자로만 나옴
+      viewSelectors: [".post_author .view_count:not(.date)", ".view_info .view_count", ".post_view .view_count"],
+      commentCountSelectors: [".post_reply .reply_count", ".comment_head .comment_count", ".comment_head strong", ".post_comment .reply_count"],
+      commentItemSelectors: [".comment_row:not(.blocked)", ".comment .comment_row"],
     };
   }
 
@@ -51,6 +58,9 @@ function communityAdapter(url) {
       articleUrl: (no) => `https://www.ppomppu.co.kr/zboard/view.php?id=${encodeURIComponent(id)}&no=${no}`,
       bodySelectors: [".board-contents", "td.board-contents", ".view-contents"],
       dateSelectors: [".sub-top-text-box", ".topTitle-mainbox", ".view_info", "td.han"],
+      viewSelectors: [],
+      commentCountSelectors: [".sub-top-text-box .list_comment2", ".topTitle-mainbox .list_comment2", "#comment_count", ".comment_count"],
+      commentItemSelectors: ["#quote .comment_line", ".comment_wrapper .comment_line", "div[id^='commentContent_']", ".comment_line"],
     };
   }
 
@@ -112,6 +122,20 @@ function spacedText(el) {
   if (!el) return "";
   const parts = [];
   const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const t = n.nodeValue.trim();
+    if (t) parts.push(t);
+  }
+  return parts.join(" ");
+}
+
+// 눈에 보이는 글자만 (script·style 안의 글자는 빼고) — 조회수·댓글 수 찾기용
+function visibleText(el) {
+  if (!el) return "";
+  const parts = [];
+  const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+    acceptNode: (n) => (n.parentElement && n.parentElement.closest("script, style, noscript, template") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  });
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
     const t = n.nodeValue.trim();
     if (t) parts.push(t);
@@ -272,9 +296,51 @@ class CommunityCollector {
         if (comments) break;
       }
     }
-    const head = spacedText(doc.body).slice(0, 4000);
-    const vm = head.match(/조회(?:수)?\s*[:：]?\s*([\d,]+)/);
-    const cm = head.match(/댓글\s*[:：(]?\s*([\d,]+)/);
-    return { title: post.title || textOf(titleEl), body, ts, comments, views: vm ? +vm[1].replace(/,/g, "") : null, ccount: cm ? +cm[1].replace(/,/g, "") : null };
+    // 조회수·댓글 수 (담당자 지적 2026-10-22: 커뮤니티 글은 조회수·댓글이 잘 안 나옴)
+    // ① 사이트별 자리 → ② 글 제목 근처 글자에서 '조회 1,234' '댓글 [12]' 같은 표현 → ③ 댓글 줄 수 세기
+    const numIn = (t) => {
+      const m = String(t || "").match(/(\d[\d,]*)/);
+      return m ? +m[1].replace(/,/g, "") : null;
+    };
+    const pickNum = (sels) => {
+      for (const sel of sels || []) {
+        const v = numIn(textOf(doc.querySelector(sel)));
+        if (v != null) return v;
+      }
+      return null;
+    };
+    const full = visibleText(doc.body);
+    const t0 = post.title ? full.indexOf(post.title.slice(0, 12)) : -1;
+    const near = t0 >= 0 ? full.slice(Math.max(0, t0 - 300), t0 + 3000) : full.slice(0, 8000);
+    const vMatch = (s) => s.match(/조회(?:수)?\s*[:：]?\s*(\d[\d,]*)/);
+    const cMatch = (s) => s.match(/댓글(?:수)?\s*[:：(\[]?\s*(\d[\d,]*)/) || s.match(/코멘트\s*[:：(\[]?\s*(\d[\d,]*)/);
+    let views = null;
+    for (const sel of ad.viewSelectors || []) {
+      const t = textOf(doc.querySelector(sel));
+      if (!t) continue;
+      const m = /조회/.test(t) ? vMatch(t) : null;
+      views = m ? +m[1].replace(/,/g, "") : numIn(t);
+      if (views != null) break;
+    }
+    if (views == null) {
+      const m = vMatch(near) || vMatch(full);
+      views = m ? +m[1].replace(/,/g, "") : null;
+    }
+    let ccount = pickNum(ad.commentCountSelectors);
+    if (ccount == null) {
+      const m = cMatch(near);
+      ccount = m ? +m[1].replace(/,/g, "") : null;
+    }
+    if (ccount == null) {
+      for (const sel of ad.commentItemSelectors || []) {
+        const n = doc.querySelectorAll(sel).length;
+        if (n) {
+          ccount = n;
+          break;
+        }
+      }
+    }
+    if (ccount == null && /댓글이\s*없|첫\s*댓글|등록된\s*댓글이\s*없/.test(full)) ccount = 0;
+    return { title: post.title || textOf(titleEl), body, ts, comments, views, ccount };
   }
 }
