@@ -1331,6 +1331,13 @@ function calmQuote(text) {
   return !STRONG_RE.test(t) && !/ㅋ{2,}|ㅎ{3,}|[!?]{2,}|ㅡㅡ|;;/.test(t);
 }
 
+// 'ㅋㅋㅋㅋㅋㅋ', 'ㅎㅎㅎㅎㅎ'가 많은 댓글 (인용 후보에서 맨 뒤로 → 가능한 한 안 고름)
+function laughHeavy(text) {
+  const t = String(text || "").replace(/\s+/g, "");
+  const n = (t.match(/[ㅋㅎ]/g) || []).length;
+  return n >= 8 || (n >= 4 && n / Math.max(1, t.length) >= 0.25);
+}
+
 // 중립 샘플 점수: 밋밋하되(자극 적음) 이슈와 관계있고 성의 있는(구체적인) 댓글일수록 높게
 function neutralScore(text, terms) {
   const t = String(text || "");
@@ -1369,7 +1376,7 @@ function quotePool(per = 110) {
     const byCh = CH_ORDER.map((ch) =>
       mine
         .filter((c) => c.channel === ch)
-        .map((c) => ({ c, k: (s === "중립" ? neutralScore(c.text, terms) : intensity(c.text)) + Math.random() }))
+        .map((c) => ({ c, k: (s === "중립" ? neutralScore(c.text, terms) : intensity(c.text)) + Math.random() - (laughHeavy(c.text) ? 1000 : 0) }))
         .sort((a, b) => b.k - a.k)
         .map((x) => x.c),
     );

@@ -469,6 +469,8 @@ def test_issue_report(tmp_path: Path):
         assert "최대한 중립스러운 댓글" in sys_rep and "1페이지는 이번 이슈와 관계있는 성의 있는 내용" in sys_rep  # 기본 규칙 + 메모리
         assert page.evaluate("stripMentions('@user-abc12 @김철수 가격이 문제 a@b.com')") == "가격이 문제 a@b.com"
         assert "'@닉네임' 부분은 지운다" in sys_rep
+        assert page.evaluate("[laughHeavy('맨날 풀옵으로 비교하냐 ㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋ'), laughHeavy('가격 좀 비싸네요 ㅋㅋ')]") == [True, False]
+        assert "'ㅋㅋㅋㅋㅋㅋ', 'ㅎㅎㅎㅎㅎ'가 많이 들어간 댓글은 주요 댓글에서 가능한 한 제외" in sys_rep
         assert "정말 별 의미 없는" not in sys_rep  # 예전 메모리 문장은 지워짐
         assert "깡통 → 기본 모델" in sys_rep and "'깡통' 대신 '기본 모델'" in sys_rep
         assert "summary 에는 중립 여론·중립 비율을 쓰지 않는다" in sys_rep and "요약에는 중립 여론·중립 비율을 언급하지 않는다" in sys_rep
