@@ -166,15 +166,27 @@ async function buildPostsXlsx(sheets, withSentiment = false) {
 // 댓글 엑셀 (성향 분석 전: 성향 칸 비움 / 성향 분석 후: 긍정·중립·부정·단순비난)
 // 샘플(CN8 가격 공개 동호회 댓글 성향 분석) 양식: 1행 제목, 2행 domain / text / 성향 + 참고용 작성일 / 게시글 URL
 // sheets: [{ name, title, rows: [{ domain, text, sentiment, writtenAt, url }] }]
-async function buildCommentsXlsx(sheets) {
+// withSentiment=false(댓글 raw data): 성향 열 없이 A~D 만 / true(성향 분석): 맨 오른쪽 E 에 성향 열과 색
+// 필터(자동 필터)는 걸지 않는다
+async function buildCommentsXlsx(sheets, withSentiment = true) {
   const files = await loadTemplate("templates/comments-template.xlsx");
   const tpl = splitSheet(Zip.text(files.get("xl/worksheets/sheet1.xml")));
   const [titleRow, headRow, firstRow, midRow, lastRow] = tpl.rows;
+  // 열: A domain · B text · C 작성일 · D 게시글 URL · E 성향(맨 오른쪽, 양식의 성향 칸 서식·색)
   const built = sheets.map((sh, index) => {
     const rows = [];
-    rows.push(titleRow.xml.replace(/<row r="\d+"/, '<row r="1"').replace(/(<c r="A1"[^>]*><is><t[^>]*>).*?(<\/t>)/s, `$1${escapeXml(sh.title)}$2`));
+    const ts = titleRow.styles;
+    rows.push(
+      rowXml(1, titleRow.attrs, [
+        cellXml("A1", ts.A, sh.title),
+        cellXml("B1", ts.B, ""),
+        cellXml("C1", ts.B, ""),
+        cellXml("D1", withSentiment ? ts.B : ts.C, ""),
+        ...(withSentiment ? [cellXml("E1", ts.C, "")] : []),
+      ]),
+    );
     const hs = headRow.styles;
-    rows.push(rowXml(2, headRow.attrs, [cellXml("A2", hs.A, "domain"), cellXml("B2", hs.B, "text"), cellXml("C2", hs.C, "성향"), cellXml("D2", hs.B, "작성일"), cellXml("E2", hs.B, "게시글 URL")]));
+    rows.push(rowXml(2, headRow.attrs, [cellXml("A2", hs.A, "domain"), cellXml("B2", hs.B, "text"), cellXml("C2", hs.B, "작성일"), cellXml("D2", hs.B, "게시글 URL"), ...(withSentiment ? [cellXml("E2", hs.C, "성향")] : [])]));
     const links = [];
     const total = sh.rows.length;
     sh.rows.forEach((c, i) => {
@@ -185,22 +197,33 @@ async function buildCommentsXlsx(sheets) {
         rowXml(n, pat.attrs, [
           cellXml(`A${n}`, st.A, c.domain || ""),
           cellXml(`B${n}`, st.B, c.text || ""),
-          cellXml(`C${n}`, st.C, c.sentiment || ""),
-          cellXml(`D${n}`, st.B, c.writtenAt || ""),
-          cellXml(`E${n}`, st.B, c.url || ""),
+          cellXml(`C${n}`, st.B, c.writtenAt || ""),
+          cellXml(`D${n}`, st.B, c.url || ""),
+          ...(withSentiment ? [cellXml(`E${n}`, st.C, c.sentiment || "")] : []),
         ]),
       );
       if (c.domain) links.push({ ref: `A${n}`, url: `https://${c.domain}/` });
-      if (c.url) links.push({ ref: `E${n}`, url: c.url });
+      if (c.url) links.push({ ref: `D${n}`, url: c.url });
     });
     const last = total + 2;
-    const filter = `$A$2:$E$${last}`;
-    const xml = finishSheet(tpl, rows, links, last, "E", index, (x) =>
-      x
-        .replace(/<autoFilter ref="[^"]*"/, `<autoFilter ref="A2:E${last}"`)
-        .replace(/<col min="4" max="5"[^>]*\/>/, '<col min="4" max="4" width="17" style="1" customWidth="1"/><col min="5" max="5" width="44" style="1" customWidth="1"/>'),
-    );
-    return { name: sh.name, links, filter, xml };
+    const lastCol = withSentiment ? "E" : "D";
+    const xml = finishSheet(tpl, rows, links, last, lastCol, index, (x) => {
+      x = x
+        .replace(/<autoFilter[^>]*\/>|<autoFilter[^>]*>.*?<\/autoFilter>/s, "")
+        .replace(/<mergeCell ref="A1:C1"\/>/, `<mergeCell ref="A1:${lastCol}1"/>`)
+        .replace(
+          /<cols>.*?<\/cols>/s,
+          '<cols><col min="1" max="1" width="13.6640625" style="1" customWidth="1"/><col min="2" max="2" width="130" style="5" customWidth="1"/>' +
+            '<col min="3" max="3" width="17" style="1" customWidth="1"/><col min="4" max="4" width="44" style="1" customWidth="1"/>' +
+            '<col min="5" max="5" width="10" style="18" customWidth="1"/><col min="6" max="16384" width="8.33203125" style="1"/></cols>',
+        )
+        // 성향 색(조건부 서식)도 맨 오른쪽 성향 열로 (성향 없는 파일은 지움)
+        .replace(/sqref="C1:C1048576"/, 'sqref="E1:E1048576"')
+        .replace(/,C1\)\)\)/g, ",E1)))");
+      if (!withSentiment) x = x.replace(/<conditionalFormatting.*?<\/conditionalFormatting>/gs, "").replace(/<col min="5" max="5"[^>]*\/>/, "");
+      return x;
+    });
+    return { name: sh.name, links, filter: null, xml };
   });
   return assembleWorkbook(files, built);
 }

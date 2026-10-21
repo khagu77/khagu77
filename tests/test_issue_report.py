@@ -350,9 +350,12 @@ def test_issue_report(tmp_path: Path):
         assert "댓글 7개" in page.inner_text("#commentsSummary")
         raw_xlsx = save_download("#dlComments")
         wb = load_workbook(raw_xlsx)
-        assert [c.value for c in wb["언론"][2]][:3] == ["domain", "text", "성향"]
+        assert [c.value for c in wb["언론"][2]] == ["domain", "text", "작성일", "게시글 URL"]  # 성향 분석 전 파일엔 성향 열 없음
+        assert wb["언론"]["B3"].font.name == "현대산스 Text Medium"
+        assert "A1:D1" in [str(r) for r in wb["언론"].merged_cells.ranges]
+        assert not wb["언론"].auto_filter.ref and not list(wb["언론"].conditional_formatting)  # 필터·성향 색 없음
         assert wb["언론"]["A1"].value == "CN8_가격_공개_언론 댓글"
-        assert wb["언론"].max_row == 5 and wb["언론"]["C3"].value is None
+        assert wb["언론"].max_row == 5 and wb["언론"].max_column == 4
 
         # 4. 성향 분석
         page.click("#goSentiment")
@@ -360,7 +363,11 @@ def test_issue_report(tmp_path: Path):
         page.locator("#sentimentSummary", has_text="분석한 댓글 7개").wait_for(timeout=60000)
         senti_xlsx = save_download("#dlSentiment")
         wb = load_workbook(senti_xlsx)
-        got = {r[1]: r[2] for ws in wb.worksheets for r in ws.iter_rows(min_row=3, values_only=True)}
+        got = {r[1]: r[4] for ws in wb.worksheets for r in ws.iter_rows(min_row=3, values_only=True)}
+        cfs = [str(r.sqref) for r in wb["언론"].conditional_formatting]
+        assert cfs == ["E1:E1048576"]  # 성향 색도 성향 열에
+        assert [c.value for c in wb["언론"][2]] == ["domain", "text", "작성일", "게시글 URL", "성향"]  # 성향은 맨 오른쪽
+        assert wb["언론"]["E2"].font.name == "현대산스 Text Medium" and not wb["언론"].auto_filter.ref
         assert got["현기 배짱장사 답이 없네"] == "단순비난"
         assert got["가격이 너무 비싸요 4천은 심했다"] == "부정"
         assert got["디자인 좋네요 기대됩니다"] == "긍정"

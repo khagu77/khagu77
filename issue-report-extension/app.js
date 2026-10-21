@@ -959,7 +959,7 @@ async function makeCommentsFile(withSentiment) {
     }),
   }));
   const name = withSentiment ? `${fileBase()}_댓글 성향 분석.xlsx` : `${fileBase()}_댓글 raw data.xlsx`;
-  return { name, bytes: await buildCommentsXlsx(sheets) };
+  return { name, bytes: await buildCommentsXlsx(sheets, withSentiment) };
 }
 
 async function downloadComments() {
