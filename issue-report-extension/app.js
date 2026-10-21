@@ -179,9 +179,15 @@ function renderQueryPreview() {
   const kw = parseKeywords($("#keywords").value);
   const qs = searchQueries(kw);
   const cq = cafeQueries(kw);
-  $("#queryPreview").textContent = qs.length
-    ? `뉴스 검색어 ${qs.length}개: ${qs.map((q) => `"${q}"`).join(", ")}${kw.exclude.length ? ` · 제외: ${kw.exclude.join(", ")}` : ""} / 동호회 검색어(카페마다): ${cq.map((q) => `"${q}"`).join(", ")} — 조합의 나머지 조건은 AI 판독으로 거릅니다`
-    : "";
+  const total = totalQueries(kw);
+  $("#queryPreview").replaceChildren(
+    qs.length
+      ? `뉴스 검색어 ${qs.length}개: ${qs.map((q) => `"${q}"`).join(", ")}${kw.exclude.length ? ` · 제외: ${kw.exclude.join(", ")}` : ""} / 동호회 검색어(카페마다): ${cq.map((q) => `"${q}"`).join(", ")} — 조합의 나머지 조건은 AI 판독으로 거릅니다`
+      : "",
+    total > qs.length
+      ? el("div", { class: "err", text: `⚠ 조합을 펼치면 검색어가 ${total}개라 뉴스 검색은 ${qs.length}개만 씁니다(키워드 줄마다 골고루). 빠지는 조합이 걱정되면 줄을 나누거나 | 로 묶은 말을 줄여 주세요.` })
+      : "",
+  );
 }
 
 function renderCafeList() {
@@ -651,7 +657,10 @@ function renderPosts() {
       el("td", { text: chName(p) }),
       el("td", { text: p.source || "", title: p.source || "" }),
       el("td", { title: `${p.title}\n${String(postText(p)).slice(0, 300)}` }, el("a", { href: p.url, target: "_blank", text: p.title || p.url })),
-      el("td", { text: p.date ? fmtDateTime(p.date) + (p.exact === false ? "(일)" : "") : "-" }),
+      // 목록에 날짜만 보이는 글은 시각을 모른다 → '시간 확인 전' (동호회 글은 3단계에서 글을 열 때 정확한 시각으로 바뀜)
+      p.date && p.exact === false
+        ? el("td", { title: "목록에 날짜만 보여 시각을 아직 모릅니다. 동호회 글은 3단계 댓글 수집 때 글을 열어 정확한 작성 시각으로 바뀝니다." }, fmtDateTime(p.date).slice(0, 10), el("span", { class: "hint", text: " 시간 확인 전" }))
+        : el("td", { text: p.date ? fmtDateTime(p.date) : "-" }),
       el("td", { class: "c-n", text: p.ccount != null ? numFmt(p.ccount) : "" }),
       el("td", {}, postSentimentSelect(p)),
       el(
@@ -835,7 +844,19 @@ async function collectComments(onlyFailed = false) {
         list = r.comments;
       } else {
         const a = await mc.readArticle(p);
-        if (a.date && !p.date) p.date = a.date;
+        // 목록에 날짜만 보였던 글은 글 화면의 정확한 작성 시각으로 바꾸고, 기간 밖이면 뺀다
+        if (a.date && (!p.date || p.exact === false)) {
+          if (!p.direct && (a.date < job.from || a.date >= job.to)) {
+            p.checked = false;
+            p.note = "작성 시각이 기간 밖";
+            job.commentStatus[p.key] = { ok: true, count: 0, note: "기간 밖이라 뺌" };
+            log(`  · 기간 밖이라 뺌: ${p.title} (${fmtDateTime(a.date)})`);
+            await mc.wait(delays.community);
+            continue;
+          }
+          p.date = a.date;
+          p.exact = true;
+        }
         if (!p.title) p.title = p.url;
         list = a.comments;
       }
@@ -1250,7 +1271,8 @@ function renderReportSummary() {
   const box = $("#reportSummary");
   box.innerHTML = "";
   const kw = parseKeywords(job.keywords);
-  const words = searchQueries(kw);
+  const lines = kw.groups.map((terms) => terms.map((alts) => alts.join("|")).join(" "));
+  const nQueries = searchQueries(kw).length;
   const stats = computeStats();
   const now = job.final ? new Date(job.final.savedAt) : new Date();
   box.append(
@@ -1265,7 +1287,12 @@ function renderReportSummary() {
       "div",
       { class: "rsum-row" },
       el("span", { class: "rsum-label", text: "수집 키워드" }),
-      el("span", { class: "rsum-kw" }, ...words.flatMap((w, i) => [i ? ", " : "", el("b", { text: w })]), kw.exclude.length ? el("span", { class: "hint", text: `  · 제외: ${kw.exclude.join(", ")}` }) : null),
+      el(
+        "span",
+        { class: "rsum-kw" },
+        ...lines.flatMap((w, i) => [i ? ", " : "", el("b", { text: w })]),
+        el("span", { class: "hint", text: `  (펼친 검색어 ${nQueries}개${kw.exclude.length ? ` · 제외: ${kw.exclude.join(", ")}` : ""})` }),
+      ),
     ),
     job.purpose ? el("div", { class: "rsum-row" }, el("span", { class: "rsum-label", text: "작성 목적" }), el("span", { class: "rsum-purpose", text: job.purpose })) : null,
   );

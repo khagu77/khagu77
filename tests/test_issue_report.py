@@ -23,14 +23,19 @@ pytestmark = pytest.mark.skipif(not CHROMIUM, reason="CHROMIUM_PATH 미설정")
 YT_CHANNEL = "UCabcdefghijklmnopqrstuv"
 
 # ---------------------------------------------------------------- 네이버 뉴스
+# 실제 네이버 뉴스 검색처럼: 제목·요약문 링크가 같은 언론사 주소, 링크 안에 화면낭독용 '새 창 열림', 「네이버뉴스」 링크는 따로
 NEWS_SEARCH = (
-    "<html><body><ul>"
-    '<li><a href="https://n.news.naver.com/mnews/article/001/0000000001">아반떼 가격 공개 기사</a> <a href="https://n.news.naver.com/mnews/article/001/0000000001">네이버뉴스</a></li>'
-    '<li><a href="https://n.news.naver.com/mnews/article/002/0000000002">댓글 없는 아반떼 기사</a></li>'
+    "<html><body><div class='list'>"
+    '<div class="news_item"><div class="profile"><a class="press" href="https://www.yna.co.kr/">연합뉴스<span class="blind">새 창 열림</span></a>'
+    '<span class="info">2026.08.06.</span><a href="https://n.news.naver.com/mnews/article/001/0000000001">네이버뉴스</a></div>'
+    '<a class="news_tit" href="https://www.yna.co.kr/view/AKR0001"><span class="headline">아반떼 가격 공개 기사</span><span class="blind">새 창 열림</span></a>'
+    '<a class="news_dsc" href="https://www.yna.co.kr/view/AKR0001">현대차는 최근 신형 아반떼에서 불거진 가격 논란 이후 투싼의 가격 산정을 놓고 막판까지 고심한 것으로 알려졌다. 투싼은 가격 인상분을...<span class="blind">새 창 열림</span></a></div>'
+    '<div class="news_item"><a class="news_tit" href="https://n.news.naver.com/mnews/article/002/0000000002">댓글 없는 아반떼 기사 제목</a><span class="info">2026.08.06.</span></div>'
     # 언론사 자체 사이트 기사 (「네이버뉴스」 링크 없음)
-    '<li class="bx"><div class="news_info"><a class="info press" href="https://www.hankyung.com/">한국경제</a><span class="info">2026.08.06.</span></div>'
-    '<a class="news_tit" href="https://www.hankyung.com/article/2026080612345">아반떼 가격 공개 외부 언론사 기사</a><div class="dsc">아반떼 가격 이야기</div></li>'
-    "</ul></body></html>"
+    '<div class="news_item"><div class="profile"><a class="press" href="https://www.hankyung.com/">한국경제<span class="blind">새 창 열림</span></a><span class="info">2026.08.06.</span></div>'
+    '<a class="news_tit" href="https://www.hankyung.com/article/2026080612345"><span class="headline">아반떼 가격 공개 외부 언론사 기사</span><span class="blind">새 창 열림</span></a>'
+    '<a class="news_dsc" href="https://www.hankyung.com/article/2026080612345">기존 4세대 투싼과 비슷한 가격대를 형성하면서 앞서 출시한 디 올 뉴 아반떼와의 가격 격차가 대폭 줄어들었다. 소비자들의 평가는...<span class="blind">새 창 열림</span></a></div>'
+    "</div></body></html>"
 )
 NEWS_COMMENTS = {
     "news001,0000000001": ["가격이 너무 비싸요 4천은 심했다", "현기 배짱장사 답이 없네", "디자인 좋네요 기대됩니다"],
@@ -93,7 +98,7 @@ YT_NEXT = {"frameworkUpdates": {"entityBatchUpdate": {"mutations": [yt_comment("
 # ---------------------------------------------------------------- 클리앙
 CLIEN_LIST = (
     "<html><body>"
-    '<div class="list_item"><a href="/service/board/cm_car/111">아반떼 가격 진짜 비싸네요</a><span class="timestamp">2026-08-06 08:00:00</span></div>'
+    '<div class="list_item"><a href="/service/board/cm_car/111">아반떼 가격 진짜 비싸네요</a><span class="timestamp">2026-08-06</span></div>'
     '<div class="list_item"><a href="/service/board/cm_car/112">무관한 아반떼 가격 광고</a><span class="timestamp">2026-08-06 07:00:00</span></div>'
     '<div class="list_item"><a href="/service/board/cm_car/113">타이어 교체 후기</a><span class="timestamp">2026-08-06 06:00:00</span></div>'
     '<div class="list_item"><a href="/service/board/cm_car/100">아반떼 가격 옛날 글</a><span class="timestamp">2026-08-01 06:00:00</span></div>'
@@ -243,6 +248,11 @@ def test_issue_report(tmp_path: Path):
         page.click("#suggestKeywords")
         page.locator("#suggestMsg", has_text="추천 완료").wait_for(timeout=30000)
         assert page.input_value("#keywords") == "CN8|아반떼 가격|가격표\n아반떼 옵션 유료\n-렌트"
+        # 조합이 많아도 둘째 줄(계약 취소)이 검색어에서 빠지지 않는다
+        page.fill("#keywords", "아반떼|CN8|아방|디올뉴아반떼 투싼|NX5|디올뉴투싼 가격|가격표|비싸|역전|차이\n아반떼|CN8|아방|디올뉴아반떼 계약 취소|취소|해지|환불|위약금")
+        page.dispatch_event("#keywords", "input")
+        assert '"아반떼 계약 취소"' in page.inner_text("#queryPreview") and '"아반떼 계약 위약금"' in page.inner_text("#queryPreview")
+        assert '"아반떼 투싼 가격"' in page.inner_text("#queryPreview")
         page.fill("#keywords", "CN8|아반떼 가격\n-렌트")
         assert '"CN8 가격"' in page.inner_text("#queryPreview") and '"아반떼 가격"' in page.inner_text("#queryPreview")
         page.uncheck("#chCafe")
@@ -265,9 +275,10 @@ def test_issue_report(tmp_path: Path):
         page.locator("#postsSummary", has_text="관련 게시글").wait_for(timeout=120000)
         summary = page.inner_text("#postsSummary")
         # 언론 3(댓글 있는 기사·댓글 없는 기사·언론사 자체 사이트 기사 모두) + 유튜브 1(기간 밖 영상 제외) + 클리앙 1(무관 1·키워드 없음 1·기간 밖 1 제외)
-        assert "관련 게시글 5건" in summary, (summary, page.evaluate("job.posts.map(p => [p.title, p.checked, p.ai && p.ai.relevant, p.postSentiment])"))
+        assert "관련 게시글 5건" in summary, (summary, page.evaluate("job.posts.map(p => [p.key, p.title, p.source, p.date])"))
         # 게시글 자체 성향: AI 판독 때 함께 정해 표에 보이고, 손으로 고칠 수 있다
         clien_row = page.locator("#postsTable tbody tr", has_text="아반떼 가격 진짜 비싸네요")
+        assert "시간 확인 전" in clien_row.inner_text()
         assert clien_row.locator("select").input_value() == "부정"
         assert "게시글 자체 성향 (체크한 글 5건)" in page.inner_text("#postsSentiment")
         assert "부정 1건" in page.inner_text("#postsSentiment")
@@ -289,6 +300,10 @@ def test_issue_report(tmp_path: Path):
         assert wb.sheetnames == ["언론", "유튜브", "커뮤니티"]
         assert [c.value for c in wb["언론"][1]] == ["No", "출처", "제목", "작성시간", "Link"]
         news_rows = {r[4]: r[1] for r in wb["언론"].iter_rows(min_row=2, values_only=True)}
+        news_titles = {r[4]: r[2] for r in wb["언론"].iter_rows(min_row=2, values_only=True)}
+        assert news_titles["https://www.hankyung.com/article/2026080612345"] == "아반떼 가격 공개 외부 언론사 기사"  # 요약문이 아니라 제목
+        assert all("새 창" not in str(v) for r in wb["언론"].iter_rows(min_row=2, values_only=True) for v in r)
+        assert all(r[3] for r in wb["언론"].iter_rows(min_row=2, values_only=True))  # 작성시간이 비지 않음
         assert news_rows["https://www.hankyung.com/article/2026080612345"] == "한국경제"
         assert "https://n.news.naver.com/mnews/article/002/0000000002" in news_rows  # 댓글 없는 기사도 목록에
         assert len(news_rows) == 3
@@ -309,6 +324,8 @@ def test_issue_report(tmp_path: Path):
         assert "뒤로·앞으로 가기를 막았습니다" in page.inner_text("#workBarText")
         page.locator("#commentsSummary", has_text="댓글을 모은 글 5/5").wait_for(timeout=120000)
         assert "언론사 자체 사이트 — 네이버 댓글 없음" in page.inner_text("#commentsTable")
+        # 목록에 날짜만 보였던 커뮤니티 글은 글 화면의 정확한 작성 시각으로 바뀜
+        assert page.evaluate("job.posts.filter(p => p.key === 'clien.net:111').map(p => [p.exact, new Date(p.date).getHours()])[0]") == [True, 8]
         assert "댓글 없음 — 건너뜀" in page.inner_text("#commentsTable")
         page.locator("#workBar").wait_for(state="hidden")
         assert "댓글 7개" in page.inner_text("#commentsSummary")
@@ -362,8 +379,8 @@ def test_issue_report(tmp_path: Path):
             page.screenshot(path=os.path.join(os.environ["SHOT_DIR"], "report-summary.png"))
         summary_box = page.inner_text("#reportSummary")
         assert "2026-08-05 07:00 ~ 2026-08-06 10:00" in summary_box
-        assert "CN8 가격, 아반떼 가격" in summary_box
-        assert page.locator("#reportSummary .rsum-kw b").count() == 2
+        assert "CN8|아반떼 가격" in summary_box and "펼친 검색어 2개" in summary_box
+        assert page.locator("#reportSummary .rsum-kw b").count() == 1
         assert "커뮤니티" in summary_box and "부정+단순비난" in summary_box
         page.click("#writeReport")
         page.locator("#reportMsg", has_text="초안").wait_for(timeout=60000)

@@ -158,22 +158,36 @@ function parseKeywords(text) {
   return { groups, exclude };
 }
 
-// 검색창에 넣을 검색어들 (조합을 펼친 것, 같은 것은 하나만)
-function searchQueries(kw, limit = 40) {
-  const out = [];
-  for (const terms of kw.groups) {
+// 검색창에 넣을 검색어 상한 (뉴스 검색 시간 때문에)
+const QUERY_LIMIT = 100;
+
+// 줄마다 조합을 모두 펼친 검색어
+function expandLines(kw) {
+  return kw.groups.map((terms) => {
     let combos = [[]];
     for (const alts of terms) {
       const next = [];
       for (const c of combos) for (const a of alts) next.push([...c, a]);
-      combos = next.slice(0, limit);
+      combos = next.slice(0, 1000);
     }
-    for (const c of combos) {
-      const q = c.join(" ");
-      if (!out.includes(q)) out.push(q);
-    }
+    return [...new Set(combos.map((c) => c.join(" ")))];
+  });
+}
+
+// 검색창에 넣을 검색어들 (조합을 펼친 것, 같은 것은 하나만). 상한을 넘으면 줄마다 돌아가며 골고루 담아
+// 어느 키워드 줄도 빠지지 않게 한다
+function searchQueries(kw, limit = QUERY_LIMIT) {
+  const lines = expandLines(kw);
+  const out = [];
+  for (let i = 0; out.length < limit && lines.some((l) => l.length > i); i++) {
+    for (const l of lines) if (l[i] && !out.includes(l[i]) && out.length < limit) out.push(l[i]);
   }
-  return out.slice(0, limit);
+  return out;
+}
+
+// 펼친 검색어 전체 수 (상한 넘었는지 알려 주기용)
+function totalQueries(kw) {
+  return new Set(expandLines(kw).flat()).size;
 }
 
 // 동호회(카페 안 검색)용 검색어: 줄마다 첫 단어 자리의 말들만 (예: "아반떼|디올뉴아반떼 투싼 가격" → 아반떼, 디올뉴아반떼)

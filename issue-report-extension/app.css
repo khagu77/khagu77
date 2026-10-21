@@ -11,9 +11,9 @@
   --red: #d93025;
   --green: #0f7b3f;
   --pos: #1f6fd1;
-  --neu: #7a8594;
+  --neu: #1b7a3d; /* 중립: 진녹색 */
   --neg: #d93025;
-  --hate: #7b1fa2;
+  --hate: #b8860b; /* 단순비난: 진노랑 */
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -26,6 +26,8 @@
     --blue: #a993ea;
     --brand: #4a3a85;
     --green: #3ccf7d;
+    --neu: #4cc27a;
+    --hate: #e0b84a;
   }
 }
 * { box-sizing: border-box; }
@@ -121,7 +123,7 @@ table.stat td, table.stat th { text-align: right; }
 table.stat td:first-child, table.stat th:first-child { text-align: left; }
 table.stat tr.total td { font-weight: 700; }
 .s-긍정 { color: var(--pos); font-weight: 700; }
-.s-중립 { color: var(--neu); }
+.s-중립 { color: var(--neu); font-weight: 700; }
 .s-부정 { color: var(--neg); font-weight: 700; }
 .s-단순비난 { color: var(--hate); font-weight: 700; }
 .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
@@ -240,3 +242,10 @@ button.ai-btn:hover { background: #e4dbfa; }
 @media (prefers-color-scheme: dark) { .rsum-kw b { color: #c6b6f5; } }
 .rsum-purpose { flex: 1; white-space: pre-wrap; }
 .rsum-table { margin-top: 8px; background: var(--card); }
+
+/* 성향 풀다운: 고른 성향 색으로 굵게 */
+select.s-긍정, select.s-중립, select.s-부정, select.s-단순비난 { font-weight: 700; }
+select option[value="긍정"] { color: var(--pos); }
+select option[value="중립"] { color: var(--neu); }
+select option[value="부정"] { color: var(--neg); }
+select option[value="단순비난"] { color: var(--hate); }
