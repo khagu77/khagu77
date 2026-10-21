@@ -421,13 +421,15 @@ class CafeCollector {
   }
 
   // 한 카페에서 검색어들로 기간 안의 글 찾기 → [{key, url, title, date, exact, snippet, ccount}]
-  async search(cafe, queries, range, maxPages) {
+  async search(cafe, queries, range, maxPages, onProgress) {
+    onProgress?.("카페 번호 확인");
     const clubId = await this.clubId(cafe);
     const found = new Map();
     for (const q of queries) {
       let prevKeys = "";
       for (let page = 1; page <= maxPages; page++) {
         if (this.isStopped()) throw new StopError("중지됨");
+        onProgress?.(`"${q}" ${page}페이지`);
         const res = await this.scanSearch(this.searchUrl(clubId, q, page));
         if (!res) {
           this.log(`  · ${cafe.name} "${q}" ${page}페이지: 화면을 읽지 못함`, "err");
@@ -465,6 +467,7 @@ class CafeCollector {
             ccount: x.ccount,
           });
         }
+        this.log(`  · ${cafe.fullName || cafe.name} "${q}" ${page}페이지: 글 ${items.length}개 · 지금까지 기간 안 ${found.size}개`);
         if (dated && older === dated) break; // 이 페이지가 모두 기간 이전
         if (page < maxPages) await this.wait(this.delays.page);
       }

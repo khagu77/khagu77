@@ -176,6 +176,14 @@ function searchQueries(kw, limit = 40) {
   return out.slice(0, limit);
 }
 
+// 동호회(카페 안 검색)용 검색어: 줄마다 첫 단어 자리의 말들만 (예: "아반떼|디올뉴아반떼 투싼 가격" → 아반떼, 디올뉴아반떼)
+// 카페 검색은 사람 속도로 화면을 열어 읽어 느리므로, 조합을 모두 펼치지 않고 넓게 찾은 뒤 나머지 조건은 AI 판독(또는 키워드)으로 거른다
+function cafeQueries(kw, limit = 6) {
+  const out = [];
+  for (const terms of kw.groups) for (const a of terms[0] || []) if (!out.includes(a)) out.push(a);
+  return out.slice(0, limit);
+}
+
 const compactLower = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
 
 // 글자에 키워드 조합이 들어 있는지

@@ -178,8 +178,9 @@ function validateSetup() {
 function renderQueryPreview() {
   const kw = parseKeywords($("#keywords").value);
   const qs = searchQueries(kw);
+  const cq = cafeQueries(kw);
   $("#queryPreview").textContent = qs.length
-    ? `검색할 검색어 ${qs.length}개: ${qs.map((q) => `"${q}"`).join(", ")}${kw.exclude.length ? ` · 제외: ${kw.exclude.join(", ")}` : ""}`
+    ? `뉴스 검색어 ${qs.length}개: ${qs.map((q) => `"${q}"`).join(", ")}${kw.exclude.length ? ` · 제외: ${kw.exclude.join(", ")}` : ""} / 동호회 검색어(카페마다): ${cq.map((q) => `"${q}"`).join(", ")} — 조합의 나머지 조건은 AI 판독으로 거릅니다`
     : "";
 }
 
@@ -432,11 +433,13 @@ async function collectPosts() {
     if (job.channels.cafe && !stopRequested) {
       const cc = new CafeCollector({ delays, log, isStopped });
       const cafes = settings.cafes.filter((c) => job.cafes.includes(c.slug));
+      const cq = cafeQueries(kw);
+      log(`동호회: ${cafes.length}곳 · 카페 검색어 ${cq.map((q) => `"${q}"`).join(", ")} (조합의 나머지 조건은 AI 판독으로 거름)`);
       for (let i = 0; i < cafes.length && !stopRequested; i++) {
         const cafe = cafes[i];
         showWork(`동호회 검색 ${i + 1}/${cafes.length} · ${cafe.name}`, i, cafes.length);
         try {
-          const list = await cc.search(cafe, queries, range, Math.max(1, +settings.cafeMaxPages || 5));
+          const list = await cc.search(cafe, cq, range, Math.max(1, +settings.cafeMaxPages || 5), (what) => showWork(`동호회 검색 ${i + 1}/${cafes.length} · ${cafe.name} · ${what}`, i, cafes.length));
           list.forEach(add);
           log(`동호회 ${cafe.name}: 기간 안 글 ${list.length}건`);
         } catch (e) {
