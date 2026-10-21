@@ -399,9 +399,9 @@ def test_issue_report(tmp_path: Path):
             page.screenshot(path=os.path.join(os.environ["SHOT_DIR"], "report-summary.png"))
         summary_box = page.inner_text("#reportSummary")
         assert "2026-08-05 07:00 ~ 2026-08-06 10:00" in summary_box
-        assert "CN8|아반떼 가격" in summary_box and "펼친 검색어 2개" in summary_box
+        assert "CN8 가격, 아반떼 가격" in summary_box and "|" not in page.inner_text("#reportSummary .rsum-kw") and "검색어 2개" in summary_box
         assert re.search(r"후보 \d+건 중 관련 게시글 5건 확인", summary_box) and "커뮤니티 1/2" in summary_box, [l for l in summary_box.splitlines() if "후보" in l or "수집 결과" in l]
-        assert page.locator("#reportSummary .rsum-kw b").count() == 1
+        assert page.locator("#reportSummary .rsum-kw b").count() == 2
         assert "커뮤니티" in summary_box and "부정+단순비난" in summary_box
         page.click("#writeReport")
         page.locator("#reportMsg", has_text="초안").wait_for(timeout=60000)
