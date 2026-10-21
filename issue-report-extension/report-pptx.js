@@ -73,7 +73,13 @@ const numFmt = (n) => Number(n || 0).toLocaleString("en-US");
 
 // 인용 댓글을 글자 수 한도 안에서 ‘…’, ‘…’ 로 잇는다
 function joinQuotes(list, budget, maxEach = 150) {
+  return fitQuotes(list, budget, maxEach).text;
+}
+
+// 칸에 들어갈 만큼 → { text, used: 실제로 들어간 댓글 }
+function fitQuotes(list, budget, maxEach = 150) {
   const out = [];
+  const used = [];
   let len = 0;
   for (const raw of list) {
     let t = String(raw || "").replace(/\s+/g, " ").replace(/[‘’]/g, "'").trim();
@@ -82,9 +88,17 @@ function joinQuotes(list, budget, maxEach = 150) {
     const piece = `‘${t}’`;
     if (out.length && len + piece.length + 2 > budget) break;
     out.push(piece);
+    used.push(raw);
     len += piece.length + 2;
   }
-  return out.join(", ");
+  return { text: out.join(", "), used };
+}
+
+// 1페이지에 실제로 들어간 댓글은 2페이지에서 뺀다 (두 페이지에 같은 댓글이 겹치지 않게)
+const quoteKey = (t) => String(t || "").replace(/[\s‘’'"“”]/g, "");
+function withoutQuotes(list, shown) {
+  const keys = new Set((shown || []).map(quoteKey));
+  return (list || []).filter((t) => !keys.has(quoteKey(t)));
 }
 
 // 1페이지 머리 문장의 판단 표현 (부정·긍정 비율로)
@@ -144,11 +158,14 @@ async function buildReportPptx(data) {
   );
 
   // 성향별 주요 내용 (짧은 인용)
+  const page1Shown = {};
   s1 = replaceShape(s1, "표 17", (x) =>
     mapTableRows(x, (i, cells) => {
       if (i === 0) return null;
       const s = SENTIMENTS[i - 1];
-      const text = joinQuotes(data.short[s] || [], 230, 90) || "-";
+      const fit = fitQuotes(data.short[s] || [], 230, 90);
+      page1Shown[s] = fit.used;
+      const text = fit.text || "-";
       return { cells: cells.map((c, j) => (j === 1 ? setParagraphs(c, [pct(rate(all, s))]) : j === 2 ? setParagraphs(c, [text]) : c)) };
     }),
   );
@@ -183,7 +200,8 @@ async function buildReportPptx(data) {
   s2 = replaceShape(s2, "제목 9", (x) => setParagraphs(x, [titleParts]));
   // 줄 높이는 글자 양에 맞춰 나누되 표 전체 높이는 양식과 같게
   const TOTAL_CHARS = 2700;
-  const have = SENTIMENTS.map((s) => (data.long[s] || []).reduce((n, t) => n + String(t).length + 4, 0));
+  const long = Object.fromEntries(SENTIMENTS.map((s) => [s, withoutQuotes(data.long[s], page1Shown[s])]));
+  const have = SENTIMENTS.map((s) => (long[s] || []).reduce((n, t) => n + String(t).length + 4, 0));
   const budgets = SENTIMENTS.map((s, k) => Math.min(have[k], Math.max(260, Math.round(TOTAL_CHARS / 4))));
   let spare = TOTAL_CHARS - budgets.reduce((a, b) => a + b, 0);
   for (let pass = 0; pass < 3 && spare > 20; pass++) {
@@ -196,7 +214,7 @@ async function buildReportPptx(data) {
       spare -= take;
     }
   }
-  const texts = SENTIMENTS.map((s, k) => joinQuotes(data.long[s] || [], budgets[k]) || "-");
+  const texts = SENTIMENTS.map((s, k) => joinQuotes(long[s] || [], budgets[k]) || "-");
   s2 = replaceShape(s2, "표 16", (x) => {
     let bodyTotal = 0;
     x.replace(/<a:tr h="(\d+)">/g, (_, h) => (bodyTotal += +h));

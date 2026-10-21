@@ -436,7 +436,7 @@ def test_issue_report(tmp_path: Path):
         assert page.input_value("#rTitle") == "CN8 가격 공개 관련 여론 동향"
         # id 가 아닌 글로 돌려줘도 찾아 넣고, 빈 칸은 센 댓글 순으로 채운다
         q = lambda s, k: page.input_value(f'.qcol[data-s="{s}"] [data-k="{k}"]')
-        assert q("부정", "short") and q("부정", "long") and q("긍정", "short") and q("단순비난", "long"), page.inner_text("#reportMsg")
+        assert q("부정", "short") and q("부정", "long") and q("긍정", "short") and q("단순비난", "short"), page.inner_text("#reportMsg")
         assert all(not re.match(r"c\d+", l) for l in q("부정", "short").splitlines())
         assert "긍정 칸은 센 댓글 순으로 채웠습니다" in page.inner_text("#reportMsg")
         sys_rep = next(c["system"] for c in claude_calls if "★ 보고서 작성 규칙 ★" in c["system"])
@@ -455,6 +455,13 @@ def test_issue_report(tmp_path: Path):
         assert page.input_value("#rTitle") == "CN8 가격 공개 관련 여론 동향"
         assert page.input_value('.qcol[data-s="중립"] [data-k="short"]') == "직접 고친 중립 댓글"
         assert len(claude_calls) == n_calls + 1 and "주요 댓글은 고르지 말고" in claude_calls[-1]["user"]
+        # 1페이지 댓글은 2페이지에 겹치지 않는다: AI 초안에서도 빼고, 손으로 겹치게 넣어도 PPT 에서 뺀다
+        for sname in ["긍정", "부정", "단순비난"]:
+            assert not set(q(sname, "short").splitlines()) & set(q(sname, "long").splitlines()), sname
+        sys_dup = "quotes_short(1페이지)에 고른 댓글은 quotes_long(2페이지)에 다시 넣지 않는다" in sys_rep
+        assert sys_dup and "2페이지 주요 댓글에 다시 넣지 않는다" in sys_rep and "나머지 댓글 중 중요하다고 판단되는 댓글" in sys_rep
+        neg_short = q("부정", "short").splitlines()
+        page.fill('.qcol[data-s="부정"] [data-k="long"]', "\n".join(neg_short + ["2페이지 전용 부정 댓글"]))
         pptx = save_download("#dlPptx")
         page.click("#saveFinal")
         page.locator("#finalMsg", has_text="최종 DB 저장 완료").wait_for(timeout=60000)
@@ -508,7 +515,10 @@ def test_issue_report(tmp_path: Path):
         chart = z.read("ppt/charts/chart1.xml").decode()
     assert "CN8 가격 공개 관련 여론 동향" in slide1 and "테스트 요약 첫째 문장 확인 中" in slide1
     assert "현대하모니 L" in slide1  # 양식 서체 유지
-    assert "현기 배짱장사 답이 없네" in slide2 or "노조 월급 주려고 올렸네 현기" in slide2
+    assert "현기 배짱장사 답이 없네" in slide1 and "현기 배짱장사 답이 없네" not in slide2  # 1페이지에만
+    assert "2페이지 전용 부정 댓글" in slide2
+    for t in neg_short:
+        assert t in slide1 and t not in slide2, t
     # 전체 7개: 긍정 2(좋네요·기대) / 부정 3 / 단순비난 2
     assert "28.6%" in slide1 and "42.9%" in slide1
     assert "<c:v>0.286</c:v>" in chart

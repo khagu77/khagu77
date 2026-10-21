@@ -1372,24 +1372,27 @@ async function writeReport() {
     const pick = (list) => [...new Set((list || []).map(find).filter(Boolean))];
     // 그래도 비면 강도 순 후보로 채움 (후보는 이미 센 댓글부터 채널을 섞어 정렬돼 있음)
     const filled = [];
-    const quotes = (key, n) =>
+    // skip: 1페이지에 넣은 댓글 → 2페이지에는 같은 댓글을 넣지 않는다
+    const quotes = (key, n, skip = {}) =>
       Object.fromEntries(
         SENTIMENTS.map((s) => {
-          let got = pick(res[key]?.[s]);
-          if (!got.length && pool[s].length) {
-            got = pool[s].slice(0, n).map((c) => c.text);
+          const no = new Set((skip[s] || []).map(norm));
+          let got = pick(res[key]?.[s]).filter((t) => !no.has(norm(t)));
+          if (!got.length && pool[s].some((c) => !no.has(norm(c.text)))) {
+            got = pool[s].filter((c) => !no.has(norm(c.text))).slice(0, n).map((c) => c.text);
             filled.push(s);
           }
           return [s, got];
         }),
       );
+    const short = quotes("quotes_short", 5);
     job.report = {
       title: res.title || `${job.issueName} 관련 여론 동향`,
       summary: (res.summary || []).slice(0, 3),
       headline: job.report?.headline || "",
       channelsLabel: job.report?.channelsLabel || defaultChannelsLabel(),
-      short: quotes("quotes_short", 5),
-      long: quotes("quotes_long", 20),
+      short,
+      long: quotes("quotes_long", 20, short),
     };
     addUsage(ai);
     await saveJob();
