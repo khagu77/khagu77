@@ -265,7 +265,7 @@ def test_issue_report(tmp_path: Path):
         page.locator("#postsSummary", has_text="관련 게시글").wait_for(timeout=120000)
         summary = page.inner_text("#postsSummary")
         # 언론 3(댓글 있는 기사·댓글 없는 기사·언론사 자체 사이트 기사 모두) + 유튜브 1(기간 밖 영상 제외) + 클리앙 1(무관 1·키워드 없음 1·기간 밖 1 제외)
-        assert "관련 게시글 5건" in summary, summary
+        assert "관련 게시글 5건" in summary, (summary, page.evaluate("job.posts.map(p => [p.title, p.checked, p.ai && p.ai.relevant, p.postSentiment])"))
         # 게시글 자체 성향: AI 판독 때 함께 정해 표에 보이고, 손으로 고칠 수 있다
         clien_row = page.locator("#postsTable tbody tr", has_text="아반떼 가격 진짜 비싸네요")
         assert clien_row.locator("select").input_value() == "부정"
@@ -377,14 +377,28 @@ def test_issue_report(tmp_path: Path):
         page.locator("#dbTable .badge.final").wait_for()
         backup = save_download("#dbExport")
 
-        # 언론만 다시 수집: 다른 채널의 게시글·댓글·성향 분석은 그대로
+        # 예전 버전으로 판독해 게시글 성향이 빈 글 → '채우기' 버튼 (체크는 그대로)
         page.click('nav .tab[data-tab="posts"]')
+        blank_yt = "job.posts.filter(p => p.channel === 'youtube').forEach(p => { p.postSentiment = ''; p.postSentimentManual = false; }); renderPosts();"
+        page.evaluate(blank_yt)
+        assert "1건" in page.inner_text("#fillPostSenti")
+        page.click("#fillPostSenti")
+        page.wait_for_function("job.posts.filter(p => p.channel === 'youtube').every(p => p.postSentiment)", timeout=30000)
+        assert page.evaluate("job.posts.filter(p => p.channel === 'youtube').every(p => p.checked)")
+        page.evaluate(blank_yt)
+
+        # 언론만 다시 수집: 다른 채널의 게시글·댓글·성향 분석은 그대로 (성향이 빈 다른 채널 글은 성향만 채움)
         for c in ["cafe", "youtube", "community"]:
             box = page.locator(f'#runChannels input[value="{c}"]')
             if box.count():
                 box.uncheck()
         page.click("#collectPosts")
         page.locator("#postsSummary", has_text="언론 새로 수집").wait_for(timeout=120000)
+        # 다른 채널 글의 성향은 그대로 남아 있고, 빈 글이 없으니 '채우기' 버튼은 숨김
+        assert page.locator("#postsTable tbody tr", has_text="아반떼 가격 진짜 비싸네요").locator("select").input_value() == "단순비난"
+        assert page.locator("#fillPostSenti").is_hidden()
+        assert "성향이 빈 1건" in page.text_content("#postsLog")
+        assert page.evaluate("job.posts.filter(p => p.channel === 'youtube').every(p => p.postSentiment)")
         page.click('nav .tab[data-tab="comments"]')
         assert "댓글 4개" in page.inner_text("#commentsSummary"), page.inner_text("#commentsSummary")
         page.click('nav .tab[data-tab="sentiment"]')

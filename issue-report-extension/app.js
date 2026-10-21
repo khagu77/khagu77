@@ -549,8 +549,15 @@ async function collectPosts() {
   await saveJob();
 
   // AI 관련성 판독
-  if (!stopRequested) await judgePosts(log, fresh);
-  else for (const p of fresh) p.checked = p.direct || matchesKeywords(`${p.title} ${postText(p)}`, kw);
+  if (!stopRequested) {
+    await judgePosts(log, fresh);
+    // 다시 수집하지 않은 채널의 글 중 게시글 성향이 빈 글(예전 버전으로 판독)은 체크는 그대로 두고 성향만 채운다
+    const blank = kept.filter((p) => !p.postSentiment);
+    if (!stopRequested && blank.length && aiReady()) {
+      log(`다른 채널 글 중 게시글 성향이 빈 ${blank.length}건의 성향을 채웁니다 (체크는 그대로)`);
+      await judgePosts(log, blank, true);
+    }
+  } else for (const p of fresh) p.checked = p.direct || matchesKeywords(`${p.title} ${postText(p)}`, kw);
 
   hideWork();
   running = false;
@@ -675,18 +682,41 @@ function postSentimentSelect(p) {
   return sel;
 }
 
+// 게시글 성향이 빈 글만 판독해 채운다 (체크·손으로 고친 성향은 그대로)
+async function fillPostSentiments() {
+  if (running) return;
+  if (!aiReady()) return setMsg("#postsMsg", "설정에서 Anthropic API 키를 넣어 주세요.", "err");
+  const blank = job.posts.filter((p) => !p.postSentiment);
+  if (!blank.length) return;
+  running = true;
+  const log = logTo("#postsLog");
+  log(`게시글 성향이 빈 ${blank.length}건의 성향을 채웁니다 (체크는 그대로)`);
+  await judgePosts(log, blank, true);
+  hideWork();
+  running = false;
+  await saveJob();
+  renderPosts();
+}
+
 function renderPostSentimentSummary() {
   const checked = job.posts.filter((p) => p.checked);
   const rated = checked.filter((p) => p.postSentiment);
+  const blank = job.posts.filter((p) => !p.postSentiment);
+  const fill = $("#fillPostSenti");
+  fill.hidden = !blank.length || running;
+  fill.textContent = `게시글 성향이 비어 있는 글 ${blank.length}건 — 채우기`;
   if (!rated.length) return ($("#postsSentiment").textContent = "");
-  const parts = SENTIMENTS.map((s) => {
+  // 성향별 건수는 굵게, 성향 색으로
+  const parts = SENTIMENTS.flatMap((s, i) => {
     const n = rated.filter((p) => p.postSentiment === s).length;
-    return `${s} ${n}건(${((n / rated.length) * 100).toFixed(1)}%)`;
+    return [i ? " · " : "", el("b", { class: `s-${s}`, text: `${s} ${n}건(${((n / rated.length) * 100).toFixed(1)}%)` })];
   });
-  const by = CH_ORDER.filter((c) => rated.some((p) => p.channel === c))
-    .map((c) => `${CH_NAME[c]}: ${SENTIMENTS.map((s) => rated.filter((p) => p.channel === c && p.postSentiment === s).length).join("/")}`)
-    .join(" · ");
-  $("#postsSentiment").textContent = `게시글 자체 성향 (체크한 글 ${rated.length}건): ${parts.join(" · ")}  —  채널별 긍/중/부/단: ${by}`;
+  const by = CH_ORDER.filter((c) => rated.some((p) => p.channel === c)).flatMap((c, i) => [
+    i ? " · " : "",
+    `${CH_NAME[c]}: `,
+    ...SENTIMENTS.flatMap((s, k) => [k ? "/" : "", el("b", { class: `s-${s}`, text: String(rated.filter((p) => p.channel === c && p.postSentiment === s).length) })]),
+  ]);
+  $("#postsSentiment").replaceChildren(`게시글 자체 성향 (체크한 글 ${rated.length}건): `, ...parts, "  —  채널별 긍/중/부/단: ", ...by);
 }
 
 function togglePost(p, on, tr) {
@@ -1606,6 +1636,7 @@ async function init() {
   // 2단계
   $("#collectPosts").addEventListener("click", collectPosts);
   $("#rejudge").addEventListener("click", rejudge);
+  $("#fillPostSenti").addEventListener("click", fillPostSentiments);
   $("#stopPosts").addEventListener("click", () => (stopRequested = true));
   for (const b of $$("#postsFilter button")) b.addEventListener("click", () => {
     view.postsFilter = b.dataset.f;
