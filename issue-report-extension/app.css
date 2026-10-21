@@ -226,3 +226,17 @@ button.ai-btn:hover { background: #e4dbfa; }
 .corrlist .item { display: flex; gap: 8px; align-items: center; padding: 3px 0; border-bottom: 1px dashed var(--border); }
 .corrlist .item .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .corrlist .item button { padding: 0 6px; font-size: 11px; }
+
+#postsTable select { padding: 2px 4px; font-size: 12px; }
+#postsSentiment { margin: 2px 0 4px; font-weight: 600; }
+
+/* 5단계 보고서 요약 */
+.rsum { margin: 4px 0 14px; padding: 12px 14px; border: 1px solid #d6c9f5; border-radius: 12px; background: #f7f4fe; }
+@media (prefers-color-scheme: dark) { .rsum { background: #241d3d; border-color: #4a3a85; } }
+.rsum-title { font-size: 15px; font-weight: 800; color: var(--blue); margin-bottom: 6px; }
+.rsum-row { display: flex; gap: 10px; align-items: baseline; margin: 3px 0; flex-wrap: wrap; }
+.rsum-label { min-width: 92px; font-weight: 700; color: var(--muted); }
+.rsum-kw b { color: #6a52b8; font-weight: 800; }
+@media (prefers-color-scheme: dark) { .rsum-kw b { color: #c6b6f5; } }
+.rsum-purpose { flex: 1; white-space: pre-wrap; }
+.rsum-table { margin-top: 8px; background: var(--card); }

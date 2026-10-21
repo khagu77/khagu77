@@ -152,6 +152,7 @@
         <button id="stopPosts" class="danger" disabled>중지</button>
       </div>
       <div id="postsSummary" class="summary"></div>
+      <div id="postsSentiment" class="hint"></div>
       <div class="toolbar">
         <span class="seg" id="postsFilter">
           <button data-f="all" class="on">전체</button><button data-f="news">언론</button><button data-f="cafe">동호회</button><button data-f="youtube">유튜브</button><button data-f="community">커뮤니티</button>
@@ -162,7 +163,7 @@
         </span>
       </div>
       <table id="postsTable" class="grid">
-        <thead><tr><th class="c-chk">수집</th><th class="c-ch">채널</th><th class="c-src">출처</th><th>제목 <span class="hint">(누르면 원문)</span></th><th class="c-date">작성시간</th><th class="c-n">댓글</th><th class="c-ai">AI 판독</th></tr></thead>
+        <thead><tr><th class="c-chk">수집</th><th class="c-ch">채널</th><th class="c-src">출처</th><th>제목 <span class="hint">(누르면 원문)</span></th><th class="c-date">작성시간</th><th class="c-n">댓글</th><th class="c-sel">게시글 성향</th><th class="c-ai">AI 판독</th></tr></thead>
         <tbody></tbody>
       </table>
       <div class="buttons sticky">
@@ -253,6 +254,7 @@
 
     <!-- ===================== 5. 보고서·DB ===================== -->
     <section id="tab-report" hidden>
+      <div id="reportSummary" class="rsum"></div>
       <div class="hint">AI 가 보고서 작성 목적에 맞춰 제목·요약 문장·성향별 대표 댓글을 고릅니다. 받기 전에 아래 칸에서 자유롭게 고치세요. PPT 는 샘플 양식(서체·색·표·차트)을 그대로 씁니다.</div>
       <div class="buttons">
         <button id="writeReport" class="primary">AI 보고서 초안 작성</button>

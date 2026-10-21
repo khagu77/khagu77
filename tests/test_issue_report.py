@@ -141,7 +141,7 @@ def claude(body, calls):
         return {"lines": ["CN8|아반떼 가격|가격표", "아반떼 옵션 유료"], "exclude": ["렌트"], "note": "차종과 가격 표현을 묶었습니다."}
     if "게시물 관련성 판독" in system:
         posts = re.findall(r'<post id="(\d+)">\n.*?\n.*?\n제목: (.*?)\n', user)
-        res = [{"id": i, "relevant": "무관" not in t and "타이어" not in t, "reason": "테스트"} for i, t in posts]
+        res = [{"id": i, "relevant": "무관" not in t and "타이어" not in t, "reason": "테스트", "s": senti_of(t)} for i, t in posts]
         return {"results": res}
     if "댓글 성향 분석" in system:
         rows = re.findall(r"^(\d+)\t(?:└답글 )?(.*)$", user, re.M)
@@ -217,7 +217,8 @@ def test_issue_report(tmp_path: Path):
         page = ctx.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.on("dialog", lambda d: d.accept())
+        dismiss_next = []
+        page.on("dialog", lambda d: d.dismiss() if dismiss_next and dismiss_next.pop() else d.accept())
         page.goto(f"chrome-extension://{ext_id}/app.html")
 
         def save_download(button):
@@ -265,6 +266,24 @@ def test_issue_report(tmp_path: Path):
         summary = page.inner_text("#postsSummary")
         # 언론 3(댓글 있는 기사·댓글 없는 기사·언론사 자체 사이트 기사 모두) + 유튜브 1(기간 밖 영상 제외) + 클리앙 1(무관 1·키워드 없음 1·기간 밖 1 제외)
         assert "관련 게시글 5건" in summary, summary
+        # 게시글 자체 성향: AI 판독 때 함께 정해 표에 보이고, 손으로 고칠 수 있다
+        clien_row = page.locator("#postsTable tbody tr", has_text="아반떼 가격 진짜 비싸네요")
+        assert clien_row.locator("select").input_value() == "부정"
+        assert "게시글 자체 성향 (체크한 글 5건)" in page.inner_text("#postsSentiment")
+        assert "부정 1건" in page.inner_text("#postsSentiment")
+        clien_row.locator("select").select_option("단순비난")
+        assert "단순비난 1건" in page.inner_text("#postsSentiment")
+        # 'AI 관련성 다시 판독'에서 [취소] = 체크는 그대로 두고 성향만 새로 채움 (손으로 고친 성향도 유지)
+        page.locator("#postsTable tbody tr", has_text="아반떼 가격 공개 외부 언론사 기사").locator("input[type=checkbox]").uncheck()
+        dismiss_next.append(True)
+        page.click("#rejudge")
+        page.wait_for_function("document.querySelector('#postsLog').textContent.split('AI 판독 완료').length > 2", timeout=30000)
+        page.wait_for_function("!document.body.classList.contains('working')", timeout=30000)
+        assert not page.locator("#postsTable tbody tr", has_text="아반떼 가격 공개 외부 언론사 기사").locator("input[type=checkbox]").is_checked()
+        assert clien_row.locator("select").input_value() == "단순비난"
+        page.locator("#postsTable tbody tr", has_text="아반떼 가격 공개 외부 언론사 기사").locator("input[type=checkbox]").check()
+        sys_rel0 = next(c["system"] for c in claude_calls if "게시물 관련성 판독" in c["system"])
+        assert "게시글 자체(제목·내용)가 이번 이슈 대상에 대해 보이는 성향" in sys_rel0
         posts_xlsx = save_download("#dlPosts")
         wb = load_workbook(posts_xlsx)
         assert wb.sheetnames == ["언론", "유튜브", "커뮤니티"]
@@ -339,6 +358,13 @@ def test_issue_report(tmp_path: Path):
         # 5. 보고서
         page.click('nav .tab[data-tab="sentiment"]')
         page.click("#goReport")
+        if os.environ.get("SHOT_DIR"):
+            page.screenshot(path=os.path.join(os.environ["SHOT_DIR"], "report-summary.png"))
+        summary_box = page.inner_text("#reportSummary")
+        assert "2026-08-05 07:00 ~ 2026-08-06 10:00" in summary_box
+        assert "CN8 가격, 아반떼 가격" in summary_box
+        assert page.locator("#reportSummary .rsum-kw b").count() == 2
+        assert "커뮤니티" in summary_box and "부정+단순비난" in summary_box
         page.click("#writeReport")
         page.locator("#reportMsg", has_text="초안").wait_for(timeout=60000)
         assert page.input_value("#rTitle") == "CN8 가격 공개 관련 여론 동향"

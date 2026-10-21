@@ -50,7 +50,12 @@ const RELEVANCE_RULES = `★★★ 가장 중요한 규칙 — 게시물 관련�
 3. 판단 근거가 부족한 짧은 글은 제목·출처(동호회 이름·채널)·작성 시점으로 이 이슈와의 관련 가능성을 따져, 이 이슈에 대한 반응일 가능성이 높으면 true, 낮으면 false 로 정한다.
 4. 언론 기사는 이 이슈가 기사의 주제이거나 주요 내용일 때만 true. 여러 소식을 묶은 기사에서 한 줄 언급만 있으면 false.
 5. 유튜브 영상은 제목·설명이 이 이슈를 다루는 영상만 true.
-6. reason 에는 판단 근거를 20자 안팎 한국어로 적는다 (예: "CN8 가격 인상 불만 글", "기아 K5 이야기로 무관").`;
+6. reason 에는 판단 근거를 20자 안팎 한국어로 적는다 (예: "CN8 가격 인상 불만 글", "기아 K5 이야기로 무관").
+7. s 에는 게시글 자체(제목·내용)가 이번 이슈 대상에 대해 보이는 성향을 긍정/중립/부정/단순비난 중 하나로 적는다. 기준은 댓글 성향과 같다:
+   - 긍정: 호의·기대·칭찬·지지·구매(계약) 의사 / 중립: 사실 보도·정보 공유·질문·후기 중 태도가 드러나지 않음
+   - 부정: 구체적 이유가 있는 불만·비판·우려 / 단순비난: 근거 없이 회사·브랜드·노조를 비하·조롱·욕함
+   - 언론 기사는 기사의 논조(제목·본문이 이슈를 어떻게 다루는가)로 본다. 사실만 전하는 기사는 중립, 비판·우려 중심 기사는 부정, 호평·기대 중심 기사는 긍정.
+   - 관련 없는 글(relevant=false)도 s 는 채우되, 판단할 내용이 없으면 중립.`;
 
 function relevanceSystem(job, settings) {
   return `너는 현대자동차 온라인 여론 모니터링 담당자다. 수집된 게시물(언론 기사·동호회 글·자동차 커뮤니티 글·유튜브 영상)마다 이번 보고서의 이슈와 관련이 있는지 판독한다.
@@ -67,8 +72,8 @@ const RELEVANCE_SCHEMA = {
       type: "array",
       items: {
         type: "object",
-        properties: { id: { type: "string" }, relevant: { type: "boolean" }, reason: { type: "string" } },
-        required: ["id", "relevant", "reason"],
+        properties: { id: { type: "string" }, relevant: { type: "boolean" }, reason: { type: "string" }, s: { type: "string", enum: SENTIMENTS } },
+        required: ["id", "relevant", "reason", "s"],
         additionalProperties: false,
       },
     },
@@ -265,7 +270,7 @@ class AiClient {
       const res = await this.callJson(system, `다음 게시물 ${batch.length}건을 판독해 id 마다 결과를 돌려줘.\n\n${text}`, RELEVANCE_SCHEMA, "medium");
       for (const r of res.results || []) {
         const p = batch[+String(r.id).replace(/\D/g, "") - 1];
-        if (p) out.set(p.key, { relevant: !!r.relevant, reason: r.reason || "" });
+        if (p) out.set(p.key, { relevant: !!r.relevant, reason: r.reason || "", s: SENTIMENTS.includes(r.s) ? r.s : "" });
       }
       onBatch?.(Math.min(i + RELEVANCE_BATCH, posts.length), posts.length);
     }

@@ -566,11 +566,12 @@ function sortPosts(list) {
   return list.sort((a, b) => CH_ORDER.indexOf(a.channel) - CH_ORDER.indexOf(b.channel) || (b.date || 0) - (a.date || 0));
 }
 
-async function judgePosts(log, list = job.posts) {
+async function judgePosts(log, list = job.posts, keepChecks = false) {
   const kw = parseKeywords(job.keywords);
   if (!list.length) return;
   if (!aiReady()) {
     log("API 키가 없어 AI 판독 없이 키워드로만 고릅니다 (설정에서 API 키를 넣으면 AI 가 관련성을 판독합니다)", "err");
+    if (keepChecks) return;
     for (const p of list) {
       p.checked = p.direct || matchesKeywords(`${p.title} ${postText(p)}`, kw);
       p.ai = null;
@@ -584,22 +585,28 @@ async function judgePosts(log, list = job.posts) {
     const res = await ai.judgeRelevance(job, items, (done, total) => showWork(`AI 관련성 판독 ${done}/${total}`, done, total));
     for (const p of list) {
       const r = res.get(p.key);
+      if (r?.s && !p.postSentimentManual) p.postSentiment = r.s;
+      if (keepChecks) {
+        if (r) p.ai = r;
+        continue;
+      }
       p.ai = r || null;
       p.checked = r ? r.relevant || (p.direct && !p.title) : p.direct || matchesKeywords(`${p.title} ${postText(p)}`, kw);
     }
     log(`AI 판독 완료: 관련 ${list.filter((p) => p.ai?.relevant).length}건 · 무관 ${list.filter((p) => p.ai && !p.ai.relevant).length}건 · 비용 ${usdText(ai.costUsd())}`);
   } catch (e) {
     log(`AI 판독 실패(${korMsg(e.message)}) → 키워드로 대신 고릅니다`, "err");
-    for (const p of list) if (!p.ai) p.checked = p.direct || matchesKeywords(`${p.title} ${postText(p)}`, kw);
+    if (!keepChecks) for (const p of list) if (!p.ai) p.checked = p.direct || matchesKeywords(`${p.title} ${postText(p)}`, kw);
   }
   addUsage(ai);
 }
 
 async function rejudge() {
   if (running || !job.posts.length) return;
+  const keep = !confirm("체크(수집 여부)도 AI 판정대로 다시 정할까요?\n\n[확인] 체크를 AI 판정대로 다시 정함 (손으로 바꾼 체크는 바뀜)\n[취소] 지금 체크는 그대로 두고, AI 판독 이유·게시글 성향만 새로 채움");
   running = true;
   const log = logTo("#postsLog");
-  await judgePosts(log);
+  await judgePosts(log, job.posts, keep);
   hideWork();
   running = false;
   await saveJob();
@@ -639,6 +646,7 @@ function renderPosts() {
       el("td", { title: `${p.title}\n${String(postText(p)).slice(0, 300)}` }, el("a", { href: p.url, target: "_blank", text: p.title || p.url })),
       el("td", { text: p.date ? fmtDateTime(p.date) + (p.exact === false ? "(일)" : "") : "-" }),
       el("td", { class: "c-n", text: p.ccount != null ? numFmt(p.ccount) : "" }),
+      el("td", {}, postSentimentSelect(p)),
       el(
         "td",
         { class: "ai", title: p.ai?.reason || "" },
@@ -648,15 +656,44 @@ function renderPosts() {
     );
     tbody.appendChild(tr);
   }
-  if (!list.length) tbody.appendChild(el("tr", {}, el("td", { colspan: 7, class: "hint", text: job.posts.length ? "이 조건에 맞는 글이 없습니다." : "'게시글 수집 시작'을 누르세요." })));
+  if (!list.length) tbody.appendChild(el("tr", {}, el("td", { colspan: 8, class: "hint", text: job.posts.length ? "이 조건에 맞는 글이 없습니다." : "'게시글 수집 시작'을 누르세요." })));
+  renderPostSentimentSummary();
   const by = CH_ORDER.map((c) => `${CH_NAME[c]} ${job.posts.filter((p) => p.channel === c && p.checked).length}`).join(" · ");
   if (job.posts.length && !running) $("#postsSummary").textContent = `체크한 게시글 ${job.posts.filter((p) => p.checked).length}건 / 후보 ${job.posts.length}건 (${by})`;
+}
+
+// 게시글 자체 성향 (AI 관련성 판독 때 함께 판정, 손으로 고칠 수 있음)
+function postSentimentSelect(p) {
+  const sel = el("select", { class: p.postSentiment ? `s-${p.postSentiment}` : "" }, el("option", { value: "", text: "-" }), ...SENTIMENTS.map((s) => el("option", { value: s, text: s, selected: p.postSentiment === s })));
+  sel.addEventListener("change", () => {
+    p.postSentiment = sel.value;
+    p.postSentimentManual = true;
+    sel.className = p.postSentiment ? `s-${p.postSentiment}` : "";
+    saveJobSoon();
+    renderPostSentimentSummary();
+  });
+  return sel;
+}
+
+function renderPostSentimentSummary() {
+  const checked = job.posts.filter((p) => p.checked);
+  const rated = checked.filter((p) => p.postSentiment);
+  if (!rated.length) return ($("#postsSentiment").textContent = "");
+  const parts = SENTIMENTS.map((s) => {
+    const n = rated.filter((p) => p.postSentiment === s).length;
+    return `${s} ${n}건(${((n / rated.length) * 100).toFixed(1)}%)`;
+  });
+  const by = CH_ORDER.filter((c) => rated.some((p) => p.channel === c))
+    .map((c) => `${CH_NAME[c]}: ${SENTIMENTS.map((s) => rated.filter((p) => p.channel === c && p.postSentiment === s).length).join("/")}`)
+    .join(" · ");
+  $("#postsSentiment").textContent = `게시글 자체 성향 (체크한 글 ${rated.length}건): ${parts.join(" · ")}  —  채널별 긍/중/부/단: ${by}`;
 }
 
 function togglePost(p, on, tr) {
   p.checked = on;
   tr.classList.toggle("off", !on);
   saveJobSoon();
+  renderPostSentimentSummary();
 }
 
 let saveTimer = null;
@@ -1178,7 +1215,57 @@ function ensureReport() {
   return job.report;
 }
 
+// 보고서 요약: 작성 기준 일시·수집 키워드·채널별 게시글/댓글/성향
+function renderReportSummary() {
+  const box = $("#reportSummary");
+  box.innerHTML = "";
+  const kw = parseKeywords(job.keywords);
+  const words = searchQueries(kw);
+  const stats = computeStats();
+  const now = job.final ? new Date(job.final.savedAt) : new Date();
+  box.append(
+    el("div", { class: "rsum-title", text: `📋 ${job.issueName || "보고서"} — 보고서 요약` }),
+    el(
+      "div",
+      { class: "rsum-row" },
+      el("span", { class: "rsum-label", text: "작성 기준 일시" }),
+      el("span", {}, el("b", { text: `${fmtDateTime(job.from)} ~ ${fmtDateTime(job.to)}` }), el("span", { class: "hint", text: `  (모니터링 기간 · ${job.final ? "최종 저장" : "지금"} ${fmtDateTime(now)})` })),
+    ),
+    el(
+      "div",
+      { class: "rsum-row" },
+      el("span", { class: "rsum-label", text: "수집 키워드" }),
+      el("span", { class: "rsum-kw" }, ...words.flatMap((w, i) => [i ? ", " : "", el("b", { text: w })]), kw.exclude.length ? el("span", { class: "hint", text: `  · 제외: ${kw.exclude.join(", ")}` }) : null),
+    ),
+    job.purpose ? el("div", { class: "rsum-row" }, el("span", { class: "rsum-label", text: "작성 목적" }), el("span", { class: "rsum-purpose", text: job.purpose })) : null,
+  );
+  const head = el("tr", {}, ...["채널", "수집 게시글", "댓글", "긍정", "중립", "부정", "단순비난", "부정+단순비난", "게시글 성향 (긍/중/부/단)"].map((t) => el("th", { text: t })));
+  const tbody = el("tbody");
+  const checked = job.posts.filter((p) => p.checked);
+  for (const k of ["전체", ...CH_ORDER.filter((c) => job.channels[c] || checked.some((p) => p.channel === c)).map((c) => CH_NAME[c])]) {
+    const st = stats[k];
+    const ch = CH_ORDER.find((c) => CH_NAME[c] === k);
+    const posts = checked.filter((p) => !ch || p.channel === ch);
+    const pct1 = (n) => (st.comments ? `${((n / st.comments) * 100).toFixed(1)}%` : "-");
+    const ps = SENTIMENTS.map((s) => posts.filter((p) => p.postSentiment === s).length).join(" / ");
+    tbody.append(
+      el(
+        "tr",
+        { class: k === "전체" ? "total" : "" },
+        el("td", { text: k }),
+        el("td", { text: numFmt(st.posts) }),
+        el("td", { text: `${numFmt(st.comments)}${st.미분석 ? ` (+미분석 ${numFmt(st.미분석)})` : ""}` }),
+        ...SENTIMENTS.map((s) => el("td", { class: `s-${s}`, text: pct1(st[s]) })),
+        el("td", { class: "s-부정", text: pct1(st.부정 + st.단순비난) }),
+        el("td", { text: posts.some((p) => p.postSentiment) ? ps : "-" }),
+      ),
+    );
+  }
+  box.append(el("table", { class: "grid stat rsum-table" }, el("thead", {}, head), tbody));
+}
+
 function renderReport() {
+  renderReportSummary();
   const r = ensureReport();
   $("#rTitle").value = r.title;
   $("#rChannels").value = r.channelsLabel || defaultChannelsLabel();
