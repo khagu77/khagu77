@@ -1672,18 +1672,49 @@ async function downloadPptx() {
 }
 
 // 최종 DB 저장: 아직 안 만든 파일까지 모두 만들어 함께 보관
+// 고른 폴더에 파일들을 쓴다 (같은 이름이 있으면 덮어씀). 폴더가 없으면 파일마다 '다른 이름으로 저장' 창
+async function saveFilesTo(dir, files) {
+  if (dir) {
+    for (const f of files) {
+      const h = await dir.getFileHandle(cleanFileName(f.name), { create: true });
+      const w = await h.createWritable();
+      await w.write(f.bytes);
+      await w.close();
+    }
+    return `'${dir.name}' 폴더`;
+  }
+  for (const f of files) {
+    const ext = (f.name.match(/\.(\w+)$/) || [])[1] || "";
+    const url = await blobToDataUrl(new Blob([f.bytes], { type: MIME[ext.toLowerCase()] || "application/octet-stream" }));
+    await chrome.downloads.download({ url, filename: cleanFileName(f.name), saveAs: true, conflictAction: "uniquify" });
+  }
+  return "고른 위치";
+}
+
 async function saveFinal() {
   if (running) return;
   if (!job.posts.some((p) => p.checked)) return setMsg("#finalMsg", "수집한 게시글이 없습니다.", "err");
   readReport();
+  // 저장할 폴더를 먼저 묻는다 (버튼을 누른 순간에만 물을 수 있음). 지난번 고른 폴더에서 시작
+  let dir = null;
+  if (window.showDirectoryPicker) {
+    try {
+      dir = await window.showDirectoryPicker({ id: "imr-final", mode: "readwrite", startIn: "downloads" });
+    } catch (e) {
+      if (e.name === "AbortError") return setMsg("#finalMsg", "저장할 폴더를 고르지 않아 취소했습니다.", "err");
+      dir = null; // 폴더 고르기를 못 쓰는 환경 → 파일마다 저장 위치를 묻는다
+    }
+  }
   running = true;
   showWork("최종 DB 저장: 파일 만드는 중", 0, 0);
   try {
     const made = [];
+    const files = [];
     const put = async (kind, f) => {
       await DB.putFile(job.id, kind, f.name, f.bytes);
       job.files[kind] = { name: f.name, at: Date.now() };
       made.push(f.name);
+      files.push(f);
     };
     await put("posts", await makePostsFile());
     await put("postsSentiment", await makePostsFile(true));
@@ -1694,7 +1725,9 @@ async function saveFinal() {
     await put("pptx", await makePptxFile());
     job.final = { savedAt: Date.now(), stats: computeStats() };
     await saveJob();
-    setMsg("#finalMsg", `✔ 최종 DB 저장 완료 — 파일 ${made.length}개 함께 보관 (보고서 DB 메뉴에서 다시 받을 수 있습니다)`, "ok");
+    showWork("최종 DB 저장: 고른 폴더에 파일 쓰는 중", 0, 0);
+    const where = await saveFilesTo(dir, files);
+    setMsg("#finalMsg", `✔ 최종 DB 저장 완료 — 파일 ${made.length}개를 ${where}에 저장하고 DB 에도 보관 (보고서 DB 메뉴에서 다시 받을 수 있습니다)`, "ok");
   } catch (e) {
     setMsg("#finalMsg", `저장 실패: ${korMsg(e.message)}`, "err");
   }

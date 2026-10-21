@@ -491,8 +491,19 @@ def test_issue_report(tmp_path: Path):
         page.dispatch_event("#rSummary", "change")
         assert "PPT 한 줄 넘음" in page.inner_text("#rSummaryLen")
         pptx = save_download("#dlPptx")
+        # 최종 저장: 저장할 폴더를 묻는다 (취소하면 저장 안 함) → 고른 폴더에 모든 파일
+        page.evaluate("() => { window.showDirectoryPicker = async () => { throw new DOMException('cancel', 'AbortError'); }; }")
+        page.click("#saveFinal")
+        page.locator("#finalMsg", has_text="폴더를 고르지 않아 취소").wait_for()
+        page.evaluate("""() => { window.__saved = [];
+          window.showDirectoryPicker = async (opt) => ({ name: '보고서폴더', getFileHandle: async (n, o) => ({ createWritable: async () => ({
+            write: async (b) => window.__saved.push([n, (b.byteLength ?? b.length) > 1000, opt.mode]), close: async () => {} }) }) }); }""")
         page.click("#saveFinal")
         page.locator("#finalMsg", has_text="최종 DB 저장 완료").wait_for(timeout=60000)
+        assert "'보고서폴더' 폴더에 저장" in page.inner_text("#finalMsg")
+        saved = page.evaluate("window.__saved")
+        assert len(saved) == 5 and all(big and mode == "readwrite" for _, big, mode in saved), saved
+        assert any(n.endswith("_여론 동향 보고서.pptx") for n, _, _ in saved) and any(n.endswith("_성향분석 포함.xlsx") for n, _, _ in saved)
 
         # 보고서 DB · 백업
         page.click('nav .tab[data-tab="db"]')
