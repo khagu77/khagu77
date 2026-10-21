@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>이슈 모니터링 보고서 작성</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div id="workBar" class="workbar" hidden>
+    <div class="workbar-track"><div id="workBarFill" class="workbar-fill"></div></div>
+    <div id="workBarText" class="workbar-text"></div>
+  </div>
+  <header class="appbar">
+    <div class="appbar-in">
+      <div class="appbar-row">
+        <h1><img src="icons/emblem-white.png" alt="현대자동차" class="logo">이슈 모니터링 보고서 작성 <span id="version" class="ver"></span></h1>
+        <nav class="nav-admin" aria-label="관리">
+          <button class="tab admin" data-tab="db">🗄 보고서 DB</button>
+          <button class="tab admin" data-tab="prompt">📝 명령 프롬프트</button>
+          <button class="tab admin" data-tab="settings">⚙ 설정</button>
+        </nav>
+      </div>
+      <nav class="nav-work" aria-label="업무">
+        <button class="tab work active" data-tab="setup"><span class="step">1</span>🎯 목적·채널·키워드</button>
+        <button class="tab work" data-tab="posts"><span class="step">2</span>🔍 게시글 수집</button>
+        <button class="tab work" data-tab="comments"><span class="step">3</span>💬 댓글 수집</button>
+        <button class="tab work" data-tab="sentiment"><span class="step">4</span>🧠 성향 분석</button>
+        <button class="tab work" data-tab="report"><span class="step">5</span>📊 보고서·DB</button>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <div id="jobBar" class="jobbar">
+      <span>작업 중인 보고서: <b id="jobTitle">(새 보고서)</b> <span id="jobState" class="hint"></span></span>
+      <span class="buttons small inline-buttons">
+        <button id="newJob" title="지금 작업은 보고서 DB 에 그대로 두고 새 보고서를 시작합니다">＋ 새 보고서 시작</button>
+      </span>
+    </div>
+    <div id="resumeBox" class="resumebox" hidden></div>
+
+    <!-- ===================== 1. 목적·채널·키워드 ===================== -->
+    <section id="tab-setup">
+      <h2>보고서 작성 목적 <span class="hint">— AI 가 게시물 관련성 판독·댓글 성향 분석·PPT 요약 작성 때 모두 이 목적에 맞춰 판단합니다</span></h2>
+      <textarea id="purpose" rows="4" placeholder="예) 8/5 CN8(디 올 뉴 아반떼) 가격 공개 이후 가격 인상 폭·옵션 구성에 대한 온라인 여론을 파악해 경영진에 보고. 특히 경쟁 차종 대비 가격 인식, 옵션 유료화 불만, 노조·현대차 전반 비난 여론의 비중을 확인하고 싶음."></textarea>
+
+      <div class="grid2">
+        <div>
+          <label for="issueName">이슈명 <span class="hint">(보고서 제목·파일명에 씀. 예: CN8 가격 공개)</span></label>
+          <input type="text" id="issueName" placeholder="CN8 가격 공개">
+        </div>
+        <div>
+          <label>수집 기간</label>
+          <div class="inline nomargin">
+            <input type="datetime-local" id="rangeFrom">
+            <span>~</span>
+            <input type="datetime-local" id="rangeTo">
+          </div>
+          <div class="buttons small">
+            <button data-range="24">최근 24시간</button>
+            <button data-range="48">최근 48시간</button>
+            <button data-range="168">최근 7일</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="labelrow">
+        <label for="keywords">수집 키워드 <span class="hint">(조합 키워드 가능)</span></label>
+        <button id="suggestKeywords" class="ai-btn" title="보고서 작성 목적·이슈명을 읽고 AI 가 수집 키워드를 추천해 키워드 칸에 넣습니다">🤖 목적으로 키워드 추천</button>
+        <span id="suggestMsg" class="hint"></span>
+      </div>
+      <textarea id="keywords" rows="4" placeholder="CN8|아반떼 가격|가격표&#10;디 올 뉴 아반떼&#10;-렌트"></textarea>
+      <div class="hint keyhelp">
+        한 줄 = 검색어 하나(줄끼리는 '또는') · 한 줄 안의 띄어 쓴 단어 = 모두 들어간 글('그리고') · <b>A|B</b> = A 또는 B · <b>-단어</b> = 그 말이 들어간 글 빼기<br>
+        예) <code>CN8|아반떼 가격|가격표</code> → "CN8 가격", "CN8 가격표", "아반떼 가격", "아반떼 가격표" 로 검색
+      </div>
+      <div id="queryPreview" class="hint"></div>
+
+      <h2>채널 설정</h2>
+      <div class="channels">
+        <!-- 언론 -->
+        <div class="chbox">
+          <label class="check big"><input type="checkbox" id="chNews" checked> 📰 언론 <span class="hint">(네이버 뉴스 — 댓글 있는 기사만)</span></label>
+          <div class="hint">키워드로 네이버 뉴스를 자동 검색합니다. 꼭 넣을 기사는 아래에 주소를 넣으세요.</div>
+          <label for="newsUrls" class="sub">수집 URL 직접 입력 <span class="hint">(한 줄에 하나, 네이버 뉴스 기사 주소)</span></label>
+          <textarea id="newsUrls" rows="3" placeholder="https://n.news.naver.com/mnews/article/001/0012345678"></textarea>
+          <label class="check"><input type="checkbox" id="newsAuto" checked> 키워드로 네이버 뉴스 자동 검색</label>
+        </div>
+        <!-- 동호회 -->
+        <div class="chbox">
+          <label class="check big"><input type="checkbox" id="chCafe" checked> 🚗 동호회 <span class="hint">(네이버 카페 — 네이버 로그인 필요)</span></label>
+          <div id="loginState" class="status">네이버 로그인 확인 중…</div>
+          <div class="buttons small">
+            <button id="cafeAll">전체 선택</button>
+            <button id="cafeNone">전체 해제</button>
+            <span class="hint" id="cafeCount"></span>
+          </div>
+          <input type="text" id="cafeFilter" placeholder="동호회 이름·차종으로 찾기 (예: 아반떼, CN8)" class="filter">
+          <div id="cafeList" class="picklist"></div>
+          <details>
+            <summary>동호회 추가·삭제</summary>
+            <div class="inline">
+              <input type="text" id="cafeAddName" placeholder="동호회 이름">
+              <input type="text" id="cafeAddSlug" placeholder="카페 주소 (cafe.naver.com/ 뒤 영문)">
+              <input type="text" id="cafeAddCar" placeholder="차종 (선택)">
+              <button id="cafeAdd">추가</button>
+            </div>
+            <div class="hint">목록의 ✕ 를 누르면 동호회가 목록에서 빠집니다.</div>
+          </details>
+          <label for="cafeUrls" class="sub">카페 글 URL 직접 입력 <span class="hint">(선택, 한 줄에 하나)</span></label>
+          <textarea id="cafeUrls" rows="2" placeholder="https://cafe.naver.com/avantemd/1951443"></textarea>
+        </div>
+        <!-- 유튜브 -->
+        <div class="chbox">
+          <label class="check big"><input type="checkbox" id="chYoutube" checked> ▶ 유튜브 <span class="hint">(등록한 채널의 기간 안 영상)</span></label>
+          <div class="inline">
+            <input type="text" id="ytAdd" placeholder="채널 ID (UC…) 또는 @핸들, 채널 주소">
+            <button id="ytAddBtn">채널 추가</button>
+          </div>
+          <div class="buttons small">
+            <button id="ytAll">전체 선택</button>
+            <button id="ytNone">전체 해제</button>
+            <span class="hint" id="ytCount"></span>
+          </div>
+          <div id="ytList" class="picklist"></div>
+          <label for="ytUrls" class="sub">영상 URL 직접 입력 <span class="hint">(선택, 한 줄에 하나)</span></label>
+          <textarea id="ytUrls" rows="2" placeholder="https://www.youtube.com/watch?v=..."></textarea>
+        </div>
+        <!-- 커뮤니티 -->
+        <div class="chbox">
+          <label class="check big"><input type="checkbox" id="chCommunity" checked> 💬 자동차 커뮤니티</label>
+          <div id="commList" class="picklist one"></div>
+          <div class="hint">게시판 목록을 기간만큼 넘기며 <b>제목</b>에 키워드 조합이 있는 글을 고릅니다.</div>
+          <label for="commUrls" class="sub">커뮤니티 글 URL 직접 입력 <span class="hint">(선택, 한 줄에 하나)</span></label>
+          <textarea id="commUrls" rows="2" placeholder="https://www.clien.net/service/board/cm_car/12345678"></textarea>
+        </div>
+      </div>
+      <div class="buttons sticky">
+        <button id="saveSetup">저장</button>
+        <button id="goCollect" class="primary">다음: 게시글 수집 →</button>
+        <span id="setupMsg" class="hint"></span>
+      </div>
+    </section>
+
+    <!-- ===================== 2. 게시글 수집 ===================== -->
+    <section id="tab-posts" hidden>
+      <div id="postsInfo" class="hint"></div>
+      <div class="buttons">
+        <button id="collectPosts" class="primary">게시글 수집 시작</button>
+        <button id="rejudge" title="AI 관련성 판독만 다시 합니다">AI 관련성 다시 판독</button>
+        <button id="stopPosts" class="danger" disabled>중지</button>
+      </div>
+      <div id="postsSummary" class="summary"></div>
+      <div class="toolbar">
+        <span class="seg" id="postsFilter">
+          <button data-f="all" class="on">전체</button><button data-f="news">언론</button><button data-f="cafe">동호회</button><button data-f="youtube">유튜브</button><button data-f="community">커뮤니티</button>
+        </span>
+        <label class="check inline-check"><input type="checkbox" id="showUnrelated"> AI 가 관련 없다고 본 글도 보기</label>
+        <span class="buttons small inline-buttons">
+          <button id="checkAll">보이는 글 모두 체크</button><button id="uncheckAll">모두 체크 해제</button>
+        </span>
+      </div>
+      <table id="postsTable" class="grid">
+        <thead><tr><th class="c-chk">수집</th><th class="c-ch">채널</th><th class="c-src">출처</th><th>제목 <span class="hint">(누르면 원문)</span></th><th class="c-date">작성시간</th><th class="c-n">댓글</th><th class="c-ai">AI 판독</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="buttons sticky">
+        <button id="dlPosts" class="primary">게시글 목록 엑셀 받기</button>
+        <button id="goComments">다음: 체크한 글 댓글 수집 →</button>
+        <span id="postsMsg" class="hint"></span>
+      </div>
+      <details><summary>수집 기록</summary><pre id="postsLog" class="log"></pre></details>
+    </section>
+
+    <!-- ===================== 3. 댓글 수집 ===================== -->
+    <section id="tab-comments" hidden>
+      <div id="commentsInfo" class="hint"></div>
+      <div class="buttons">
+        <button id="collectComments" class="primary">댓글 수집 시작</button>
+        <button id="retryComments">못 읽은 글만 다시</button>
+        <button id="stopComments" class="danger" disabled>중지</button>
+      </div>
+      <div id="commentsSummary" class="summary"></div>
+      <table id="commentsTable" class="grid">
+        <thead><tr><th class="c-ch">채널</th><th class="c-src">출처</th><th>게시글</th><th class="c-n">댓글</th><th class="c-ai">상태</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="buttons sticky">
+        <button id="dlComments" class="primary">댓글 엑셀 받기</button>
+        <button id="goSentiment">다음: 성향 분석 →</button>
+        <span id="commentsMsg" class="hint"></span>
+      </div>
+      <details><summary>수집 기록</summary><pre id="commentsLog" class="log"></pre></details>
+    </section>
+
+    <!-- ===================== 4. 성향 분석 ===================== -->
+    <section id="tab-sentiment" hidden>
+      <div id="sentimentInfo" class="hint"></div>
+      <div class="buttons">
+        <button id="runSentiment" class="primary">AI 성향 분석 시작</button>
+        <button id="rerunSentiment" title="이미 분석한 댓글까지 모두 다시 분석합니다">처음부터 다시 분석</button>
+        <button id="stopSentiment" class="danger" disabled>중지</button>
+        <span id="costEstimate" class="hint"></span>
+      </div>
+      <div id="sentimentSummary" class="summary"></div>
+      <table id="statTable" class="grid stat">
+        <thead><tr><th>채널</th><th>게시글</th><th>댓글</th><th>긍정</th><th>중립</th><th>부정</th><th>단순 비난</th><th>미분석</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <h2>댓글별 성향 <span class="hint">— 틀린 판정은 바로 고칠 수 있습니다 (고친 것은 보고서·엑셀에 반영)</span></h2>
+      <div class="toolbar">
+        <span class="seg" id="cmtChannel">
+          <button data-f="all" class="on">전체</button><button data-f="news">언론</button><button data-f="cafe">동호회</button><button data-f="youtube">유튜브</button><button data-f="community">커뮤니티</button>
+        </span>
+        <span class="seg" id="cmtSenti">
+          <button data-f="all" class="on">전체</button><button data-f="긍정">긍정</button><button data-f="중립">중립</button><button data-f="부정">부정</button><button data-f="단순비난">단순비난</button><button data-f="">미분석</button>
+        </span>
+        <input type="text" id="cmtSearch" placeholder="댓글 내용으로 찾기" class="filter small">
+      </div>
+      <table id="cmtTable" class="grid">
+        <thead><tr><th class="c-ch">채널</th><th>댓글</th><th class="c-src">게시글</th><th class="c-sel">성향</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div id="cmtPager" class="buttons small"></div>
+      <div class="buttons sticky">
+        <button id="dlSentiment" class="primary">성향 분석 엑셀 받기</button>
+        <button id="goReport">다음: 보고서 작성 →</button>
+        <span id="sentimentMsg" class="hint"></span>
+      </div>
+      <details><summary>분석 기록</summary><pre id="sentimentLog" class="log"></pre></details>
+    </section>
+
+    <!-- ===================== 5. 보고서·DB ===================== -->
+    <section id="tab-report" hidden>
+      <div class="hint">AI 가 보고서 작성 목적에 맞춰 제목·요약 문장·성향별 대표 댓글을 고릅니다. 받기 전에 아래 칸에서 자유롭게 고치세요. PPT 는 샘플 양식(서체·색·표·차트)을 그대로 씁니다.</div>
+      <div class="buttons">
+        <button id="writeReport" class="primary">AI 보고서 초안 작성</button>
+        <span id="reportMsg" class="hint"></span>
+      </div>
+      <div class="grid2">
+        <div>
+          <label for="rTitle">보고서 제목</label>
+          <input type="text" id="rTitle" placeholder="CN8 가격 공개 관련 여론 동향">
+        </div>
+        <div>
+          <label for="rChannels">모니터링 채널 문구</label>
+          <input type="text" id="rChannels">
+        </div>
+      </div>
+      <label for="rSummary">요약 (한 줄에 한 문장, 글머리표 2개)</label>
+      <textarea id="rSummary" rows="4"></textarea>
+      <label for="rHeadline">1페이지 판단 문구 <span class="hint">(예: 압도적으로 높은 편 — 비우면 비율로 자동)</span></label>
+      <input type="text" id="rHeadline" placeholder="(자동)">
+      <div id="rHeadPreview" class="hint"></div>
+      <h2>성향별 주요 댓글 <span class="hint">— 한 줄에 댓글 하나. 1페이지는 짧게, 2페이지는 많이 (넘치면 앞에서부터 들어갈 만큼만)</span></h2>
+      <div class="quotes">
+        <div class="qcol" data-s="긍정"><b>긍정</b><label>1페이지</label><textarea rows="5" data-k="short"></textarea><label>2페이지</label><textarea rows="8" data-k="long"></textarea></div>
+        <div class="qcol" data-s="중립"><b>중립</b><label>1페이지</label><textarea rows="5" data-k="short"></textarea><label>2페이지</label><textarea rows="8" data-k="long"></textarea></div>
+        <div class="qcol" data-s="부정"><b>부정</b><label>1페이지</label><textarea rows="5" data-k="short"></textarea><label>2페이지</label><textarea rows="8" data-k="long"></textarea></div>
+        <div class="qcol" data-s="단순비난"><b>단순비난</b><label>1페이지</label><textarea rows="5" data-k="short"></textarea><label>2페이지</label><textarea rows="8" data-k="long"></textarea></div>
+      </div>
+      <div class="buttons sticky">
+        <button id="dlPptx" class="primary">PPT 보고서 받기</button>
+        <button id="saveFinal" class="primary green">✔ 최종 DB 저장 (모든 파일 함께)</button>
+        <span id="finalMsg" class="hint"></span>
+      </div>
+    </section>
+
+    <!-- ===================== 보고서 DB ===================== -->
+    <section id="tab-db" hidden>
+      <div class="hint">보고서를 만들 때 생긴 모든 자료(게시글·댓글·성향·보고서 문장)와 파일(게시글 엑셀·댓글 엑셀·성향 엑셀·PPT)을 이 PC 크롬 안에 보관합니다. 다른 PC 로 옮기거나 보관하려면 백업 파일로 내보내세요.</div>
+      <div class="buttons">
+        <button id="dbExport">전체 백업 내보내기 (.zip)</button>
+        <label class="filebtn">백업 가져오기<input type="file" id="dbImport" accept=".zip" hidden></label>
+        <span id="dbMsg" class="hint"></span>
+      </div>
+      <table id="dbTable" class="grid">
+        <thead><tr><th>상태</th><th>보고서</th><th>기간</th><th>게시글</th><th>댓글</th><th>부정+비난</th><th>파일</th><th>저장</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <!-- ===================== 명령 프롬프트 ===================== -->
+    <section id="tab-prompt" hidden>
+      <div class="hint">AI 에게 보내는 기본 규칙입니다. <b>게시물 관련성 판독</b>과 <b>댓글 성향 분석</b>을 가장 중요한 규칙으로 강조해 두었고, 1단계의 <b>보고서 작성 목적</b>이 모든 단계에 함께 들어갑니다. 기본 규칙 마지막 수정: <span id="promptBuilt"></span></div>
+      <label for="customPrompt">추가 지시사항 <span class="hint">(모든 AI 단계에 붙고, 기본 규칙과 다르면 이것이 우선)</span></label>
+      <textarea id="customPrompt" rows="6" placeholder="예) 출고 지연 불만은 가격 이슈와 별개이므로 성향 분석에서는 이슈 대상(가격)에 대한 태도만 본다."></textarea>
+      <div class="buttons"><button id="savePrompt" class="primary">추가 지시사항 저장</button><span id="promptMsg" class="hint"></span></div>
+      <div id="promptView"></div>
+    </section>
+
+    <!-- ===================== 설정 ===================== -->
+    <section id="tab-settings" hidden>
+      <h2>AI (Claude)</h2>
+      <div class="grid2">
+        <div>
+          <label for="apiKey">Anthropic API 키</label>
+          <input type="password" id="apiKey" placeholder="sk-ant-…" autocomplete="off">
+        </div>
+        <div>
+          <label for="model">모델</label>
+          <select id="model"></select>
+        </div>
+      </div>
+      <div class="buttons"><button id="testKey">키 확인</button><span id="keyMsg" class="hint"></span></div>
+      <div class="hint">API 키는 이 PC 크롬 안에만 저장되고, 게시글 제목·내용 일부와 댓글 글자가 판독을 위해 Anthropic 으로 전송됩니다(유료). 키가 없으면 관련성은 키워드로만 고르고 성향 분석·보고서 초안은 할 수 없습니다.</div>
+      <h2>수집</h2>
+      <div class="grid3">
+        <div><label for="speed">수집 속도</label><select id="speed"><option value="normal">보통</option><option value="slow">천천히 (보호조치가 걱정될 때)</option></select></div>
+        <div><label for="cafeMaxPages">동호회 검색어마다 볼 페이지 수</label><input type="text" id="cafeMaxPages"></div>
+        <div><label for="newsMaxPages">뉴스 검색어마다 볼 페이지 수 <span class="hint">(10건/페이지)</span></label><input type="text" id="newsMaxPages"></div>
+      </div>
+      <label class="check"><input type="checkbox" id="newsReplies"> 네이버 뉴스 댓글의 답글까지 모으기 (요청이 많아져 느려짐)</label>
+      <h2>자동차 커뮤니티 게시판</h2>
+      <textarea id="commBoards" rows="4" class="mono" placeholder="이름 | 게시판 주소"></textarea>
+      <div class="hint">한 줄에 "이름 | 게시판 주소". 보배드림·클리앙·뽐뿌는 사이트에 맞춰 읽고, 그 밖의 사이트는 일반 방식으로 읽습니다.</div>
+      <h2>파일</h2>
+      <div class="grid2">
+        <div><label for="saveFolder">다운로드 폴더 안 저장 폴더 <span class="hint">(비우면 다운로드 폴더)</span></label><input type="text" id="saveFolder" placeholder="예: 이슈 모니터링"></div>
+        <div><label for="usdKrw">요금 표시 환율 (원/달러)</label><input type="text" id="usdKrw"></div>
+      </div>
+      <div class="buttons sticky"><button id="saveSettings" class="primary">설정 저장</button><span id="settingsMsg" class="hint"></span></div>
+    </section>
+  </main>
+
+  <script src="lib/anthropic.js"></script>
+  <script src="lib/zip.js"></script>
+  <script src="defaults.js"></script>
+  <script src="common.js"></script>
+  <script src="db.js"></script>
+  <script src="cafe.js"></script>
+  <script src="news.js"></script>
+  <script src="youtube.js"></script>
+  <script src="community.js"></script>
+  <script src="ai.js"></script>
+  <script src="xlsx-out.js"></script>
+  <script src="report-pptx.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
