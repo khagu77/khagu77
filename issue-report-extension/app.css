@@ -1,11 +1,12 @@
-/* 온라인 오전 일일동향 확장과 같은 디자인: 현대차 블루 상단 띠 + 단계 번호 업무 메뉴 + 오른쪽 위 관리 메뉴 */
+/* 온라인 오전 일일동향 확장과 같은 구성이지만, 헷갈리지 않게 색은 연보라: 연보라 상단 띠 + 단계 번호 업무 메뉴 + 오른쪽 위 관리 메뉴 */
 :root {
   --bg: #f6f7f9;
   --card: #ffffff;
   --text: #1b1d21;
   --muted: #6b7280;
   --border: #d9dde3;
-  --blue: #002c5f; /* 현대차 블루 */
+  --blue: #6a52b8; /* 이 확장의 강조색(보라) — 버튼·글자 */
+  --brand: #7d66c9; /* 상단 띠 연보라 */
   --naver: #03c75a;
   --red: #d93025;
   --green: #0f7b3f;
@@ -22,7 +23,8 @@
     --muted: #9aa0a8;
     --border: #3a3d43;
     --red: #ff6b5f;
-    --blue: #5b8fd9;
+    --blue: #a993ea;
+    --brand: #4a3a85;
     --green: #3ccf7d;
   }
 }
@@ -97,8 +99,8 @@ table.grid { width: 100%; border-collapse: collapse; font-size: 12px; margin-top
 table.grid th, table.grid td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 table.grid th { background: var(--bg); position: sticky; top: 0; z-index: 2; white-space: nowrap; }
 table.grid td { overflow: hidden; text-overflow: ellipsis; }
-table.grid tbody tr:hover td { background: #e8f0fb; }
-@media (prefers-color-scheme: dark) { table.grid tbody tr:hover td { background: #1e3350; } }
+table.grid tbody tr:hover td { background: #f0ebfb; }
+@media (prefers-color-scheme: dark) { table.grid tbody tr:hover td { background: #2e2650; } }
 table.grid tr.off td { color: var(--muted); }
 table.grid tr.off td a { color: var(--muted); }
 table.grid td a { color: var(--blue); text-decoration: none; }
@@ -157,16 +159,16 @@ label.filebtn { display: inline-flex; align-items: center; margin: 0; padding: 6
 pre.prompt { white-space: pre-wrap; font-size: 11.5px; max-height: 420px; overflow: auto; background: var(--bg); padding: 10px; border-radius: 8px; border: 1px solid var(--border); margin: 0; }
 details { margin-top: 12px; }
 details > summary {
-  list-style: none; display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border: 1px solid #b7d9ff;
-  border-radius: 999px; background: #e8f3ff; color: #0b57d0; font-weight: 700; font-size: 12.5px; cursor: pointer; user-select: none;
+  list-style: none; display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border: 1px solid #d6c9f5;
+  border-radius: 999px; background: #f1ecfc; color: #5b44a8; font-weight: 700; font-size: 12.5px; cursor: pointer; user-select: none;
 }
 details > summary::-webkit-details-marker { display: none; }
 details > summary::before { content: "▶"; font-size: 9px; transition: transform 0.15s; }
 details[open] > summary::before { transform: rotate(90deg); }
-details[open] > summary { background: #0b57d0; border-color: #0b57d0; color: #fff; }
+details[open] > summary { background: #6a52b8; border-color: #6a52b8; color: #fff; }
 @media (prefers-color-scheme: dark) {
-  details > summary { background: #1c2b40; border-color: #2d4a73; color: #8ab4f8; }
-  details[open] > summary { background: #3b6fd1; border-color: #3b6fd1; color: #fff; }
+  details > summary { background: #2a2245; border-color: #4a3a85; color: #c6b6f5; }
+  details[open] > summary { background: #6a52b8; border-color: #6a52b8; color: #fff; }
 }
 
 /* 작업 중 표시줄 */
@@ -174,7 +176,7 @@ details[open] > summary { background: #0b57d0; border-color: #0b57d0; color: #ff
 .workbar-track { height: 8px; background: rgba(255, 255, 255, 0.25); overflow: hidden; }
 .workbar-fill {
   height: 100%; width: 100%; transition: width 0.6s ease;
-  background: repeating-linear-gradient(-45deg, #ffffff 0 12px, #9cc3ff 12px 24px);
+  background: repeating-linear-gradient(-45deg, #ffffff 0 12px, #cbbdf3 12px 24px);
   background-size: 34px 34px; animation: workbar-move 0.8s linear infinite;
 }
 @keyframes workbar-move { from { background-position: 0 0; } to { background-position: 34px 0; } }
@@ -182,18 +184,18 @@ details[open] > summary { background: #0b57d0; border-color: #0b57d0; color: #ff
 body.working { padding-top: 46px; }
 
 /* 상단 메뉴: 현대차 블루 띠 */
-.appbar { display: block; background: var(--blue); color: #fff; }
+.appbar { display: block; background: var(--brand); color: #fff; }
 .appbar-in { max-width: 1600px; margin: 0 auto; padding: 18px 18px 0; }
 .appbar-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .appbar h1 { margin: 0; font-size: 24px; font-weight: 800; color: #fff; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; }
 .appbar h1 .logo { height: 26px; margin-right: 4px; }
 .appbar .ver { font-size: 14px; font-weight: 400; color: #fff; opacity: 0.6; }
 nav.nav-admin { display: flex; gap: 6px; }
-nav .tab.admin { background: transparent; border: 1px solid rgba(255, 255, 255, 0.28); color: #dbe6f3; border-radius: 8px; padding: 6px 11px; font-size: 13px; font-weight: 600; }
+nav .tab.admin { background: transparent; border: 1px solid rgba(255, 255, 255, 0.4); color: #f1ecfc; border-radius: 8px; padding: 6px 11px; font-size: 13px; font-weight: 600; }
 nav .tab.admin:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
 nav .tab.admin.active { background: #fff; border-color: #fff; color: var(--blue); }
 nav.nav-work { display: flex; gap: 4px; margin-top: 14px; flex-wrap: wrap; }
-nav .tab.work { display: flex; align-items: center; gap: 8px; background: transparent; border: 0; color: #b9cbe2; font-size: 17px; font-weight: 800; padding: 12px 20px 14px; border-radius: 12px 12px 0 0; }
+nav .tab.work { display: flex; align-items: center; gap: 8px; background: transparent; border: 0; color: #e6defa; font-size: 17px; font-weight: 800; padding: 12px 20px 14px; border-radius: 12px 12px 0 0; }
 nav .tab.work:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
 nav .tab.work .step { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid currentColor; font-size: 12px; }
 nav .tab.work.active { background: var(--card); color: var(--blue); }
@@ -201,13 +203,13 @@ nav .tab.work.active .step { background: var(--blue); border-color: var(--blue);
 nav .tab.work.done .step { background: var(--green); border-color: var(--green); color: #fff; }
 .appbar + main { margin-top: 0; border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
 @media (prefers-color-scheme: dark) {
-  .appbar { background: #0b2545; }
-  nav .tab.admin.active { color: #0b2545; }
+  .appbar { background: var(--brand); }
+  nav .tab.admin.active { color: #4a3a85; }
 }
 body.working nav .tab { pointer-events: none; opacity: 0.6; }
 
 .labelrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 .labelrow label { margin: 0; }
-button.ai-btn { padding: 3px 10px; font-size: 12px; font-weight: 700; color: #0b57d0; border-color: #b7d9ff; background: #e8f3ff; border-radius: 999px; }
-button.ai-btn:hover { background: #d6e9ff; }
-@media (prefers-color-scheme: dark) { button.ai-btn { background: #1c2b40; border-color: #2d4a73; color: #8ab4f8; } }
+button.ai-btn { padding: 3px 10px; font-size: 12px; font-weight: 700; color: #5b44a8; border-color: #d6c9f5; background: #f1ecfc; border-radius: 999px; }
+button.ai-btn:hover { background: #e4dbfa; }
+@media (prefers-color-scheme: dark) { button.ai-btn { background: #2a2245; border-color: #4a3a85; color: #c6b6f5; } }

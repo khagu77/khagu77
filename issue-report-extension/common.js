@@ -299,29 +299,89 @@ async function downloadBytes(bytes, name, folder = "") {
   a.remove();
 }
 
-let workGuard = false;
+// 작업 중 표시줄: 맨 위에 고정된 현대차 블루 막대 + 진행률, 탭 제목에도 진행 상황
+let workText = "";
+let workNote = "";
+let workNoteTimer = null;
+let workActive = false;
+
 function showWork(text, done = 0, total = 0) {
+  workActive = true;
+  workText = text;
   const bar = $("#workBar");
   bar.hidden = false;
   document.body.classList.add("working");
-  $("#workBarText").textContent = `${text} — 끝날 때까지 이 화면을 닫지 마세요`;
+  $("#workBarText").textContent = `${text} — ${workNote || "끝날 때까지 이 화면을 닫거나 뒤로 가지 마세요"}`;
   $("#workBarFill").style.width = total ? `${Math.max(4, Math.min(100, Math.round((done / total) * 100)))}%` : "100%";
   document.title = `⏳ ${total ? `${Math.min(done + 1, total)}/${total} ` : ""}이슈 모니터링`;
-  if (!workGuard) {
-    workGuard = true;
-    window.addEventListener("beforeunload", beforeUnloadGuard);
-  }
 }
 
 function hideWork() {
+  workActive = false;
   $("#workBar").hidden = true;
   document.body.classList.remove("working");
   document.title = "이슈 모니터링 보고서 작성";
-  workGuard = false;
-  window.removeEventListener("beforeunload", beforeUnloadGuard);
 }
 
-function beforeUnloadGuard(e) {
+// 작업 중인지 (app.js 가 수집·분석 중 여부로 바꿔 끼움)
+let isWorking = () => workActive;
+
+function noteWork(text) {
+  workNote = text;
+  clearTimeout(workNoteTimer);
+  workNoteTimer = setTimeout(() => {
+    workNote = "";
+    if (workActive) showWork(workText);
+  }, 4000);
+  if (workActive) showWork(workText);
+}
+
+// 뒤로·앞으로 가기(마우스 제스처·트랙패드 밀기·단축키): 작업 중이면 막고 그대로 머문다
+history.pushState({ guard: true }, "");
+window.addEventListener("popstate", () => {
+  if (isWorking()) {
+    history.pushState({ guard: true }, "");
+    noteWork("작업 중이라 뒤로·앞으로 가기를 막았습니다");
+  } else history.back();
+});
+
+// 백스페이스(입력 칸 밖)·Alt+←/→·⌘+[/] 단축키도 작업 중에는 막는다
+window.addEventListener(
+  "keydown",
+  (e) => {
+    if (!isWorking()) return;
+    const t = e.target;
+    const typing = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+    const nav =
+      (e.key === "Backspace" && !typing) ||
+      (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) ||
+      (e.metaKey && (e.key === "[" || e.key === "]" || e.key === "ArrowLeft" || e.key === "ArrowRight")) ||
+      e.key === "BrowserBack" ||
+      e.key === "BrowserForward";
+    if (nav) {
+      e.preventDefault();
+      e.stopPropagation();
+      noteWork("작업 중이라 뒤로·앞으로 가기를 막았습니다");
+    }
+  },
+  true,
+);
+
+// 마우스 옆 버튼(뒤로·앞으로)
+window.addEventListener(
+  "mouseup",
+  (e) => {
+    if (isWorking() && (e.button === 3 || e.button === 4)) {
+      e.preventDefault();
+      noteWork("작업 중이라 뒤로·앞으로 가기를 막았습니다");
+    }
+  },
+  true,
+);
+
+// 창·탭 닫기, 새로고침: 작업 중이면 크롬이 '나가시겠습니까?' 를 묻게 한다
+window.addEventListener("beforeunload", (e) => {
+  if (!isWorking()) return;
   e.preventDefault();
   e.returnValue = "";
-}
+});

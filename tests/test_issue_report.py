@@ -274,7 +274,15 @@ def test_issue_report(tmp_path: Path):
         # 3. 댓글 수집
         page.click("#goComments")
         page.click("#collectComments")
+        # 작업 중에는 로딩바가 보이고, 뒤로 가기(마우스 제스처·단축키)를 막는다
+        page.locator("#workBar").wait_for(state="visible")
+        page.go_back()
+        page.keyboard.press("Alt+ArrowLeft")
+        page.wait_for_timeout(500)
+        assert page.url.endswith("/app.html")
+        assert "뒤로·앞으로 가기를 막았습니다" in page.inner_text("#workBarText")
         page.locator("#commentsSummary", has_text="댓글을 모은 글 3/3").wait_for(timeout=120000)
+        page.locator("#workBar").wait_for(state="hidden")
         assert "댓글 7개" in page.inner_text("#commentsSummary")
         raw_xlsx = save_download("#dlComments")
         wb = load_workbook(raw_xlsx)

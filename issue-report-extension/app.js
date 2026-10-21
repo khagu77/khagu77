@@ -1279,6 +1279,7 @@ async function saveSettingsFromForm() {
 // ---------------------------------------------------------------------------
 
 async function init() {
+  isWorking = () => running || workActive;
   $("#version").textContent = `v${chrome.runtime.getManifest().version}`;
   settings = await loadSettings();
   const { imrCurrentJob } = await chrome.storage.local.get("imrCurrentJob").catch(() => ({}));
