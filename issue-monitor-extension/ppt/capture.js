@@ -762,12 +762,44 @@ function cdp(tabId, method, params = {}) {
   return chrome.debugger.sendCommand({ tabId }, method, params);
 }
 
-// 캡처용 창: 화면에 띄우지 않고(최소화) 한 개를 계속 다시 쓴다 (담당자 요청 2026-10-20: 창이 떴다 사라지며 실수로 닫는 일 방지)
-// 최소화 창에서 캡처가 안 되는 PC 면 한 번만 확인하고, 그다음부터는 작은 창 하나를 띄워 둔 채 계속 쓴다 (글마다 열고 닫지 않음)
-// 담당자가 창을 닫아 버려도 다음 글에서 새로 연다. 30초 동안 안 쓰면 저절로 닫힌다.
-let capWin = null; // { winId, tabId, hidden }
+// 캡처용 창 (담당자 요청 2026-10-20: 큰 창이 떴다 사라지며 실수로 닫는 일 방지)
+// 맥 크롬은 최소화했거나 다른 창에 완전히 가려진 창은 화면을 그리지 않아 캡처가 안 된다 (2026-10-21 담당자 맥에서 확인:
+// 최소화 시험이 실패해 큰 창이 그대로 떴음). 그래서 PC 마다 되는 방법을 한 번 시험해 기억해 두고 쓴다:
+//   ① min    : 최소화 창 (화면에 전혀 안 보임 — 되는 PC 에서만)
+//   ② corner : 화면 오른쪽 아래 구석에 절반쯤 화면 밖으로 걸쳐 둔 작은 창 (구석에 작게만 보임)
+// 작은 창은 작업 화면을 가리지 않고, 캡처 순간에 다른 창에 완전히 가려져 있으면 그때만 맨 앞으로 올린다.
+// 한 창을 계속 다시 쓰고(글마다 열고 닫지 않음), 담당자가 닫아 버리면 다음 글에서 새로 연다. 30초 동안 안 쓰면 저절로 닫힌다.
+const CAPTURE_MODES = ["min", "corner"];
+let capWin = null; // { winId, tabId, mode }
 let capIdleTimer = null;
-let capHiddenChecked = false;
+let capChecked = false;
+
+function capBounds() {
+  const sc = window.screen;
+  const L = sc.availLeft || 0;
+  const T = sc.availTop || 0;
+  const W = sc.availWidth || 1440;
+  const H = sc.availHeight || 900;
+  // 크롬은 창의 절반 이상이 화면 안에 있어야 해서, 작은 창을 오른쪽 아래 구석에 절반만 걸쳐 둔다
+  const w = 320;
+  const h = 220;
+  return { left: Math.round(L + W - w * 0.6), top: Math.round(T + H - h * 0.6), width: w, height: h };
+}
+
+async function raiseCapWindow() {
+  if (capWin) await chrome.windows.update(capWin.winId, { focused: true, state: "normal" }).catch(() => {});
+}
+
+async function placeCapWindow(mode) {
+  if (!capWin) return;
+  capWin.mode = mode;
+  if (mode === "min") {
+    await chrome.windows.update(capWin.winId, { state: "minimized" }).catch(() => {});
+    return;
+  }
+  await chrome.windows.update(capWin.winId, { state: "normal" }).catch(() => {});
+  await chrome.windows.update(capWin.winId, { ...capBounds(), focused: false }).catch(() => {});
+}
 
 async function captureWindow() {
   clearTimeout(capIdleTimer);
@@ -779,15 +811,13 @@ async function captureWindow() {
       capWin = null; // 담당자가 닫음 → 새로 연다
     }
   }
-  const { captureHidden, captureWinId } = await chrome.storage.local.get(["captureHidden", "captureWinId"]).catch(() => ({}));
+  const { captureMode, captureWinId } = await chrome.storage.local.get(["captureMode", "captureWinId"]).catch(() => ({}));
   if (captureWinId) await chrome.windows.remove(captureWinId).catch(() => {}); // 지난번에 끊겨 남은 캡처 창
-  const hidden = captureHidden !== false;
-  const win = await chrome.windows.create(
-    hidden
-      ? { url: "about:blank", state: "minimized" }
-      : { url: "about:blank", focused: false, type: "normal", width: CAPTURE_WIDTH, height: CAPTURE_HEIGHT },
-  );
-  capWin = { winId: win.id, tabId: win.tabs[0].id, hidden };
+  const mode = CAPTURE_MODES.includes(captureMode) ? captureMode : "min";
+  const win = await chrome.windows
+    .create(mode === "min" ? { url: "about:blank", state: "minimized" } : { url: "about:blank", focused: false, type: "normal", ...capBounds() })
+    .catch(() => chrome.windows.create({ url: "about:blank", focused: false, type: "normal", width: 320, height: 220 }));
+  capWin = { winId: win.id, tabId: win.tabs[0].id, mode };
   await chrome.storage.local.set({ captureWinId: win.id }).catch(() => {});
   return capWin;
 }
@@ -801,21 +831,21 @@ async function closeCaptureWindow() {
   await chrome.storage.local.remove("captureWinId").catch(() => {});
 }
 
-// 최소화 창에서도 화면 캡처가 되는지 한 번 확인 (안 되면 작은 창으로 띄워서 계속)
-async function ensureCapturable(tabId) {
-  if (!capWin || !capWin.hidden || capHiddenChecked) return;
-  capHiddenChecked = true;
-  const ok = await withTimeout(cdp(tabId, "Page.captureScreenshot", { format: "png", clip: { x: 0, y: 0, width: 10, height: 10, scale: 1 } }), 6000)
+const testShot = (tabId) =>
+  withTimeout(cdp(tabId, "Page.captureScreenshot", { format: "png", clip: { x: 0, y: 0, width: 10, height: 10, scale: 1 } }), 5000)
     .then((r) => !!(r && r.data))
     .catch(() => false);
-  if (ok) {
-    await chrome.storage.local.set({ captureHidden: true }).catch(() => {});
-    return;
+
+// 지금 방식으로 화면 캡처가 되는지 한 번 시험하고, 안 되면 다음 방식으로 옮긴다 (되는 방식을 기억)
+async function ensureCapturable(tabId) {
+  if (!capWin || capChecked) return;
+  capChecked = true;
+  if (capWin.mode === "min") {
+    await sleep(300);
+    if (await testShot(tabId)) return chrome.storage.local.set({ captureMode: "min" }).catch(() => {});
+    await placeCapWindow("corner");
   }
-  await chrome.storage.local.set({ captureHidden: false }).catch(() => {});
-  capWin.hidden = false;
-  await chrome.windows.update(capWin.winId, { state: "normal" }).catch(() => {});
-  await chrome.windows.update(capWin.winId, { width: CAPTURE_WIDTH, height: CAPTURE_HEIGHT, focused: false }).catch(() => {});
+  await chrome.storage.local.set({ captureMode: "corner" }).catch(() => {});
 }
 
 // 캡처 창에서 글을 열고 크롬 디버거를 붙인다: 화면 배율 고정 + 삭제 안내 같은 알림창(alert)을 자동으로 닫고 문구를 기록
@@ -982,11 +1012,18 @@ async function probe(tabId, mode, target) {
 
 async function shot(tabId, rect) {
   if (!rect || rect.width < 4 || rect.height < 4) return null;
-  const res = await cdp(tabId, "Page.captureScreenshot", {
+  const params = {
     format: "png",
     captureBeyondViewport: true,
     clip: { x: rect.x, y: rect.y, width: Math.ceil(rect.width), height: Math.ceil(rect.height), scale: 1 },
-  });
+  };
+  let res = await withTimeout(cdp(tabId, "Page.captureScreenshot", params), 8000).catch(() => null);
+  if (!res) {
+    // 캡처 창이 다른 창에 완전히 가려져 화면이 안 그려지는 경우: 그 작은 창만 잠깐 맨 앞으로 올려서 다시
+    await raiseCapWindow();
+    await sleep(500);
+    res = await cdp(tabId, "Page.captureScreenshot", params);
+  }
   const bin = atob(res.data);
   const u8 = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);

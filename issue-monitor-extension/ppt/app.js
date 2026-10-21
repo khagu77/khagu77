@@ -442,7 +442,7 @@ function fieldsFrom(row, info, ai) {
   const sameCar = (h) => /^(게시판명|게시글|작성자 닉네임)/.test(h.from) || carWords.some((w) => `${h.from} ${h.snippet}`.includes(w));
   // 후보는 이 차종에 실제로 출시된 제원(SPEC_LINEUP)에 있는 것만
   const line = specLineup(code);
-  const hinted = [...new Set((info.specHints || []).filter(sameCar).map((h) => normSpec(code, h.spec)))].filter((v) => v !== "-" && (isTruck(code) ? /^\d+(\.\d)?t$/.test(v) : !line || line.includes(v)));
+  const hinted = [...new Set((info?.specHints || []).filter(sameCar).map((h) => normSpec(code, h.spec)))].filter((v) => v !== "-" && (isTruck(code) ? /^\d+(\.\d)?t$/.test(v) : !line || line.includes(v)));
   const aiSpec = ai.spec && ai.spec !== "-" ? ai.spec : hinted.length === 1 ? hinted[0] : "-";
   let spec = carSpec !== "-" ? carSpec : normSpec(code, aiSpec);
   if (spec === "-" && line && line.length === 1) spec = line[0]; // 제원이 하나뿐인 차
@@ -563,7 +563,7 @@ async function loadPptProgress() {
   const p = await kvGet("pptProgress").catch(() => null);
   if (!p || !p.items || !p.items.length || Date.now() - p.at > 3 * 86400000) return null;
   const now = new Set(excelItems.map((r) => r.url));
-  const usable = p.items.filter((x) => now.has(x.url));
+  const usable = p.items.filter((x) => now.has(x.url) && !/캡처 실패/.test(x.error || "")); // 캡처 실패한 글은 다시 한다
   return usable.length ? { ...p, items: usable } : null;
 }
 
