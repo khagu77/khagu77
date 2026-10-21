@@ -288,37 +288,36 @@ body.working { padding-top: 46px; }
 .resumebox .buttons { margin-top: 8px; }
 @media (prefers-color-scheme: dark) { .resumebox { background: #3a2a0a; color: #fcd58a; } }
 
-/* ---- 메뉴: 업무(크게) / 관리(작게) 구분 (2026-10-21) ---- */
-header { flex-direction: column; align-items: stretch; }
-nav.mainnav { display: flex; justify-content: space-between; align-items: stretch; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
-.nav-work { display: flex; gap: 10px; flex-wrap: wrap; }
+/* ---- 메뉴: 시안 B — 맨 위 현대차 블루 띠, 업무 메뉴는 큰 탭, 관리 메뉴는 오른쪽 위 작게 (2026-10-21 담당자 선택) ---- */
+.appbar { display: block; background: var(--blue); color: #fff; }
+.appbar-in { max-width: 1600px; margin: 0 auto; padding: 18px 18px 0; }
+.appbar-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.appbar h1 { margin: 0; font-size: 24px; font-weight: 800; color: #fff; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; }
+.appbar h1 .logo { width: 34px; height: 34px; margin: 0; border-radius: 8px; }
+.appbar h1 .logo { background: #fff; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85); }
+.appbar .ver { font-size: 14px; font-weight: 400; color: #fff; opacity: 0.6; }
+nav.nav-admin { display: flex; gap: 6px; }
+nav .tab.admin {
+  background: transparent; border: 1px solid rgba(255, 255, 255, 0.28); color: #dbe6f3;
+  border-radius: 8px; padding: 6px 11px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+nav .tab.admin:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+nav .tab.admin.active { background: #fff; border-color: #fff; color: var(--blue); }
+nav.nav-work { display: flex; gap: 4px; margin-top: 14px; flex-wrap: wrap; }
 nav .tab.work {
-  display: flex; align-items: center; gap: 10px; min-width: 200px; padding: 12px 18px 12px 12px;
-  border: 2px solid var(--border); border-radius: 14px; background: var(--card); color: var(--text);
-  font-size: 17px; font-weight: 800; text-align: left; cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06); transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+  display: flex; align-items: center; gap: 8px; background: transparent; border: 0; color: #b9cbe2;
+  font-size: 18px; font-weight: 800; padding: 12px 24px 14px; border-radius: 12px 12px 0 0; cursor: pointer;
 }
-nav .tab.work:hover { border-color: var(--blue); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 44, 95, 0.15); }
+nav .tab.work:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
 nav .tab.work .step {
-  display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%;
-  background: var(--bg); color: var(--muted); font-size: 13px; font-weight: 800; border: 1px solid var(--border);
+  display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%;
+  border: 1.5px solid currentColor; font-size: 12px;
 }
-nav .tab.work .ico { font-size: 22px; line-height: 1; }
-nav .tab.work .lbl { display: flex; flex-direction: column; line-height: 1.2; }
-nav .tab.work .lbl small { font-size: 11.5px; font-weight: 500; color: var(--muted); margin-top: 2px; }
-nav .tab.work.active { background: var(--blue); border-color: var(--blue); color: #fff; box-shadow: 0 6px 16px rgba(0, 44, 95, 0.3); }
-nav .tab.work.active .lbl small { color: #cfe0f5; }
-nav .tab.work.active .step { background: #fff; color: var(--blue); border-color: #fff; }
-
-.nav-admin {
-  display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 12px; border-radius: 12px;
-  background: var(--bg); border: 1px dashed var(--border); align-self: center;
-}
-.nav-admin-title { font-size: 11.5px; font-weight: 700; color: var(--muted); margin-right: 2px; letter-spacing: 0.04em; }
-nav .tab.admin { padding: 6px 10px; font-size: 13px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--muted); font-weight: 600; cursor: pointer; }
-nav .tab.admin:hover { background: var(--card); border-color: var(--border); color: var(--text); }
-nav .tab.admin.active { background: #3c4a5c; border-color: #3c4a5c; color: #fff; }
+nav .tab.work.active { background: var(--card); color: var(--blue); }
+nav .tab.work.active .step { background: var(--blue); border-color: var(--blue); color: #fff; }
+/* 띠 아래 내용 상자가 선택한 탭과 이어지게 */
+.appbar + main { margin-top: 0; border-top: 0; border-top-left-radius: 0; border-top-right-radius: 0; }
 @media (prefers-color-scheme: dark) {
-  nav .tab.work.active { background: #1f5fae; border-color: #1f5fae; }
-  nav .tab.admin.active { background: #4b5a6e; border-color: #4b5a6e; }
+  .appbar { background: #0b2545; }
+  nav .tab.admin.active { color: #0b2545; }
 }

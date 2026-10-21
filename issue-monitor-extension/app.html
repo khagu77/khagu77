@@ -11,23 +11,25 @@
     <div class="workbar-track"><div id="workBarFill" class="workbar-fill"></div></div>
     <div id="workBarText" class="workbar-text"></div>
   </div>
-  <main>
-    <header>
-      <h1><img src="icons/icon48.png" alt="" class="logo">온라인 오전 일일동향 수집 및 보고서 작성 <span id="version" class="hint"></span></h1>
-      <nav class="mainnav">
-        <div class="nav-work" aria-label="업무">
-          <button class="tab work active" data-tab="collect"><span class="step">1</span><span class="ico">🔍</span><span class="lbl">수집<small>부정 이슈 모으기·엑셀</small></span></button>
-          <button class="tab work" data-tab="ppt"><span class="step">2</span><span class="ico">📊</span><span class="lbl">PPT·RAW 작성<small>일일 보고서·RAW data</small></span></button>
-          <button class="tab work" data-tab="weekly"><span class="step">3</span><span class="ico">🗓</span><span class="lbl">주간 보고서<small>매주 마지막 근무일</small></span></button>
-        </div>
-        <div class="nav-admin" aria-label="관리">
-          <span class="nav-admin-title">관리</span>
+  <!-- 맨 위 현대차 블루 띠: 업무 메뉴(크게) + 관리 메뉴(오른쪽 위 작게) — 담당자 선택 시안 B (2026-10-21) -->
+  <header class="appbar">
+    <div class="appbar-in">
+      <div class="appbar-row">
+        <h1><img src="icons/icon48.png" alt="" class="logo">온라인 오전 일일동향 수집 및 보고서 작성 <span id="version" class="ver"></span></h1>
+        <nav class="nav-admin" aria-label="관리">
           <button class="tab admin" data-tab="db">🗄 데일리 DB</button>
           <button class="tab admin" data-tab="prompt">📝 명령 프롬프트</button>
           <button class="tab admin" data-tab="settings">⚙ 설정</button>
-        </div>
+        </nav>
+      </div>
+      <nav class="nav-work" aria-label="업무">
+        <button class="tab work active" data-tab="collect"><span class="step">1</span>🔍 수집</button>
+        <button class="tab work" data-tab="ppt"><span class="step">2</span>📊 PPT·RAW 작성</button>
+        <button class="tab work" data-tab="weekly"><span class="step">3</span>🗓 주간 보고서</button>
       </nav>
-    </header>
+    </div>
+  </header>
+  <main>
 
     <!-- ===================== 수집 ===================== -->
     <section id="tab-collect">
