@@ -296,3 +296,8 @@ button.refill:hover { filter: brightness(0.9); }
 .qcol[data-s="중립"] { background: color-mix(in srgb, var(--neu) 7%, var(--card)); border-color: color-mix(in srgb, var(--neu) 30%, var(--border)); }
 .qcol[data-s="부정"] { background: color-mix(in srgb, var(--neg) 7%, var(--card)); border-color: color-mix(in srgb, var(--neg) 30%, var(--border)); }
 .qcol[data-s="단순비난"] { background: color-mix(in srgb, var(--hate) 9%, var(--card)); border-color: color-mix(in srgb, var(--hate) 35%, var(--border)); }
+
+/* 성향별 주요 댓글 제목 줄: 제목은 왼쪽, 다시 고르기 버튼은 오른쪽 */
+.qhead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 18px 0 6px; }
+.qhead h2 { margin: 0; }
+.qhead .refills { margin-left: auto; }
