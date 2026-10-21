@@ -313,6 +313,8 @@ def test_issue_report(tmp_path: Path):
         wbs = load_workbook(senti_posts)
         assert [c.value for c in wbs["커뮤니티"][1]] == ["No", "출처", "제목", "작성시간", "Link", "성향"]
         assert wbs["커뮤니티"]["F2"].value == "단순비난" and wbs["커뮤니티"]["F1"].font.name == "현대산스 Text Medium"
+        cf = [(str(r.sqref), [x.text for x in r.rules]) for r in wbs["언론"].conditional_formatting]
+        assert cf and cf[0][0].startswith("F2:F") and set(cf[0][1]) == {"긍정", "중립", "부정", "단순비난"}  # 성향 칸 색
         wb = load_workbook(posts_xlsx)
         assert wb.sheetnames == ["언론", "유튜브", "커뮤니티"]
         assert [c.value for c in wb["언론"][1]] == ["No", "출처", "제목", "작성시간", "Link"]

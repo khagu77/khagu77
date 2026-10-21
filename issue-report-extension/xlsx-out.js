@@ -113,6 +113,16 @@ function finishSheet(tpl, rowsXml, links, lastRow, lastCol, index, extra = (x) =
 
 // 게시글 목록 엑셀: 시트마다 No / 출처 / 제목 / 작성시간 / Link (샘플: 20260806_CN8_가격 공개_동호회 게시물)
 // sheets: [{ name, rows: [{ source, title, date, url }] }]
+// 성향 칸 색 (샘플 '댓글 성향 분석' 엑셀의 색과 같음): [글자색, 바탕색]
+const SENTI_DXF = [
+  ["FF002060", "FFBDD7EE"], // 긍정
+  ["FF006100", "FFC6EFCE"], // 중립
+  ["FF9C0006", "FFFFC7CE"], // 부정
+  ["FF9C5700", "FFFFEB9C"], // 단순비난
+].map(([fg, bg]) => `<dxf><font><b/><color rgb="${fg}"/></font><fill><patternFill><bgColor rgb="${bg}"/></patternFill></fill></dxf>`);
+// '단순비난' 을 '부정' 보다 먼저 (글자 포함 검사라 순서 중요하지 않지만 우선순위 명확히)
+const SENTI_CF = [["단순비난", 3], ["부정", 2], ["중립", 1], ["긍정", 0]];
+
 // withSentiment: 오른쪽에 '성향'(게시글 자체 성향) 열을 더한다 (머리글·칸 서식은 양식의 출처 열과 같게)
 async function buildPostsXlsx(sheets, withSentiment = false) {
   const files = await loadTemplate("templates/posts-template.xlsx");
@@ -139,8 +149,17 @@ async function buildPostsXlsx(sheets, withSentiment = false) {
       );
       if (p.url) links.push({ ref: `E${n}`, url: p.url });
     });
-    return { name: sh.name, links, filter: null, xml: finishSheet(tpl, rows, links, sh.rows.length + 1, withSentiment ? "F" : "E", index) };
+    // 성향 칸 색: 샘플 성향 분석 엑셀과 같은 조건부 서식 (긍정 파랑·중립 초록·부정 빨강·단순비난 노랑)
+    const cf = withSentiment
+      ? `<conditionalFormatting sqref="F2:F${Math.max(2, sh.rows.length + 1)}">${SENTI_CF.map(([word, dxf], k) => `<cfRule type="containsText" dxfId="${dxf}" priority="${k + 1}" operator="containsText" text="${word}"><formula>NOT(ISERROR(SEARCH("${word}",F2)))</formula></cfRule>`).join("")}</conditionalFormatting>`
+      : "";
+    const xml = finishSheet(tpl, rows, links, sh.rows.length + 1, withSentiment ? "F" : "E", index, (x) => (cf ? x.replace(/(<phoneticPr[^>]*\/>)/, `$1${cf}`) : x));
+    return { name: sh.name, links, filter: null, xml };
   });
+  if (withSentiment) {
+    const st = Zip.text(files.get("xl/styles.xml"));
+    files.set("xl/styles.xml", st.replace(/<dxfs count="0"\/>/, `<dxfs count="${SENTI_DXF.length}">${SENTI_DXF.join("")}</dxfs>`));
+  }
   return assembleWorkbook(files, built);
 }
 
