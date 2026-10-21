@@ -460,6 +460,9 @@ def test_issue_report(tmp_path: Path):
             assert not set(q(sname, "short").splitlines()) & set(q(sname, "long").splitlines()), sname
         sys_dup = "quotes_short(1페이지)에 고른 댓글은 quotes_long(2페이지)에 다시 넣지 않는다" in sys_rep
         assert sys_dup and "2페이지 주요 댓글에 다시 넣지 않는다" in sys_rep and "나머지 댓글 중 중요하다고 판단되는 댓글" in sys_rep
+        # 내용 없는 자음·ㅋㅋ·욕 줄임말 댓글은 주요 댓글 후보에서 뺀다
+        assert page.evaluate("[meaningfulQuote('ㅣㄱㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅅㅂ'), meaningfulQuote('ㅋㅋㅋ 현기 배짱장사 답이 없네')]") == [False, True]
+        assert "내용이 없는 댓글은 고르지 않는다" in sys_rep and "내용이 없는 댓글은 주요 댓글에서 뺀다" in sys_rep
         neg_short = q("부정", "short").splitlines()
         page.fill('.qcol[data-s="부정"] [data-k="long"]', "\n".join(neg_short + ["2페이지 전용 부정 댓글"]))
         pptx = save_download("#dlPptx")

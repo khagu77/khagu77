@@ -1317,9 +1317,16 @@ function intensity(text) {
   return sc;
 }
 
+// 보고서에 넣을 만한 댓글인지: 'ㅣㄱㅋㅋㅋㅋㅅㅂ'처럼 자음·모음·ㅋㅋ·욕 줄임말만 있고 내용(낱말)이 없는 댓글은 뺀다
+function meaningfulQuote(text) {
+  const t = String(text || "");
+  const words = (t.replace(/[ㄱ-ㅎㅏ-ㅣ]+/g, " ").match(/[가-힣A-Za-z0-9]+/g) || []).filter((w) => /[가-힣]{2,}|[A-Za-z]{3,}/.test(w));
+  return words.join("").length >= 4;
+}
+
 function quotePool(per = 110) {
   const pool = {};
-  const list = activeComments().filter((c) => c.sentiment && c.text.replace(/\s+/g, "").length >= 6);
+  const list = activeComments().filter((c) => c.sentiment && meaningfulQuote(c.text));
   for (const s of SENTIMENTS) {
     const mine = list.filter((c) => c.sentiment === s);
     // 채널마다 센 댓글부터 (같은 점수면 무작위) → 채널을 돌아가며 담아 채널이 고루 섞이게
