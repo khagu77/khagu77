@@ -394,6 +394,10 @@ def test_issue_report(tmp_path: Path):
         page.locator("#dbTable .badge.final").wait_for()
         backup = save_download("#dbExport")
 
+        # 예전 버전으로 읽은 언론 글이 있으면 '언론만 다시 수집' 안내
+        page.click('nav .tab[data-tab="posts"]')
+        page.evaluate("job.posts.filter(p => p.external).forEach(p => { p.source = '새 창 열림'; }); renderPosts();")
+        assert page.is_visible("#oldNewsNotice") and "언론만 체크" in page.inner_text("#oldNewsNotice")
         # 예전 버전으로 판독해 게시글 성향이 빈 글 → '채우기' 버튼 (체크는 그대로)
         page.click('nav .tab[data-tab="posts"]')
         blank_yt = "job.posts.filter(p => p.channel === 'youtube').forEach(p => { p.postSentiment = ''; p.postSentimentManual = false; }); renderPosts();"
@@ -414,6 +418,7 @@ def test_issue_report(tmp_path: Path):
         # 다른 채널 글의 성향은 그대로 남아 있고, 빈 글이 없으니 '채우기' 버튼은 숨김
         assert page.locator("#postsTable tbody tr", has_text="아반떼 가격 진짜 비싸네요").locator("select").input_value() == "단순비난"
         assert page.locator("#fillPostSenti").is_hidden()
+        assert page.is_hidden("#oldNewsNotice")  # 다시 수집하면 안내가 사라짐
         assert "성향이 빈 1건" in page.text_content("#postsLog")
         assert page.evaluate("job.posts.filter(p => p.channel === 'youtube').every(p => p.postSentiment)")
         page.click('nav .tab[data-tab="comments"]')

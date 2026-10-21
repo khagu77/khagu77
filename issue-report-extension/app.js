@@ -638,8 +638,17 @@ function renderRunChannels() {
   box.append(el("span", { class: "hint", text: "— 일부만 체크하면 그 채널만 새로 모으고, 다른 채널의 게시글·댓글·성향 분석은 그대로 둡니다" }));
 }
 
+// 예전 버전으로 읽은 언론 글(출처·제목에 '새 창 열림', 요약문이 제목) → 언론만 다시 수집하라고 안내
+function renderOldNewsNotice() {
+  const old = job.posts.filter((p) => p.channel === "news" && (/새\s*창\s*열림/.test(`${p.source} ${p.title}`) || (p.external && p.title.length > 110)));
+  const box = $("#oldNewsNotice");
+  box.hidden = !old.length || running;
+  box.textContent = `⚠ 예전 버전으로 수집된 언론 글 ${old.length}건이 있습니다(제목에 요약문이 들어가고 작성시간이 빔). 아래 '이번에 수집할 채널'에서 언론만 체크하고 「게시글 수집 시작」을 누르면 새 방식으로 다시 모읍니다. 다른 채널은 그대로 두고, 성향이 빈 글은 함께 채웁니다.`;
+}
+
 function renderPosts() {
   renderRunChannels();
+  renderOldNewsNotice();
   const info = [];
   info.push(`기간 ${fmtDateTime(job.from)} ~ ${fmtDateTime(job.to)}`);
   info.push(`채널 ${CH_ORDER.filter((c) => job.channels[c]).map((c) => CH_NAME[c]).join("·")}`);
