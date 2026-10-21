@@ -69,6 +69,7 @@ function renderSource() {
       ? "부정 이슈 수집 결과 표(검토·수정한 그대로)를 사용합니다. 다른 엑셀로 만들려면 아래에 첨부하세요."
       : "수집 결과가 없으면 전체 엑셀을 아래에 첨부해 주세요.";
   $("#excelLabel").firstChild.textContent = solo ? "전체(통합) 엑셀 첨부 (필수) " : "다른 엑셀로 작성 (선택) ";
+  refreshFullPptBtn();
 }
 
 async function setSource({ mode, bytes, label, titles } = {}) {
@@ -810,8 +811,13 @@ async function onLearnPpt() {
   $("#learnPptFile").value = "";
   if (!file) return;
   try {
-    const edited = await PptRead.read(new Uint8Array(await file.arrayBuffer()));
+    const fileBytes = new Uint8Array(await file.arrayBuffer());
+    const edited = await PptRead.read(fileBytes);
     if (!edited.length) throw new Error("이 파일에서 상세 슬라이드를 찾지 못했습니다");
+    // 담당자 수정본 = 그날 최종본 (데일리 DB). 날짜는 파일 이름(예: 261021)에서, 없으면 보고서 날짜
+    const rd = reportDate();
+    const pptDate = DailyPpt.dateFromName(file.name) || `${rd.y}-${pad(rd.m)}-${pad(rd.d)}`;
+    await DailyPpt.add({ date: pptDate, kind: "edited", partial: !!edited.partial, name: file.name, bytes: fileBytes, count: edited.length }).catch(() => {});
     const { pptSnapshots = [] } = await chrome.storage.local.get("pptSnapshots");
     const byKey = new Map();
     for (const s of [...pptSnapshots].reverse()) for (const x of s.items) byKey.set(x.key, x); // 최신 원본 우선
@@ -848,7 +854,7 @@ async function onLearnPpt() {
     }
     await savePptLearned(learned);
     await savePptExamples(exList);
-    const msg = `수정한 PPT 학습 완료: 원본과 비교해 고친 글 ${diffs}건${examples ? ` · 원본이 없어 확정 예시로 저장 ${examples}건` : ""}. 다음 PPT 작성부터 반영됩니다.`;
+    const msg = `수정한 PPT 학습 완료: 원본과 비교해 고친 글 ${diffs}건${examples ? ` · 원본이 없어 확정 예시로 저장 ${examples}건` : ""}. 다음 PPT 작성부터 반영됩니다. 이 파일을 ${pptDate} 최종본으로 데일리 DB 에 저장했습니다${edited.partial ? " (나눠 쓴 일부 PPT — 전체 PPT 도 [전체 PPT 첨부하기]로 올려 주세요)" : ""}.`;
     setSummary(msg + (lines.length ? `\n${lines.join("\n")}` : ""), "ok");
     $("#doneTitle").textContent = "✅ 수정한 PPT 학습 완료";
     $("#doneText").textContent = msg;
@@ -857,6 +863,33 @@ async function onLearnPpt() {
   } catch (err) {
     setSummary(`수정한 PPT 를 읽지 못했습니다: ${err.message || err}`, "err");
   }
+}
+
+// 1인용(나눠 쓰기)일 때: 담당자들이 합친 전체 PPT 를 올려 그날의 전체 최종본으로 데일리 DB 에 저장 (주간 보고서 바탕)
+async function onFullPpt() {
+  const file = $("#fullPptFile").files[0];
+  $("#fullPptFile").value = "";
+  if (!file) return;
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const details = await PptRead.read(bytes);
+    if (!details.length) throw new Error("이 파일에서 상세 슬라이드를 찾지 못했습니다");
+    const rd = reportDate();
+    const date = DailyPpt.dateFromName(file.name) || `${rd.y}-${pad(rd.m)}-${pad(rd.d)}`;
+    await DailyPpt.add({ date, kind: "full", partial: !!details.partial, name: file.name, bytes, count: details.length });
+    setSummary(`전체 PPT 를 ${date} 최종본으로 데일리 DB 에 저장했습니다 (${details.length}건${details.partial ? " · ⚠ 이 파일도 일부만 들어 있는 것 같습니다" : ""}).`, details.partial ? "err" : "ok");
+  } catch (err) {
+    setSummary(`전체 PPT 를 읽지 못했습니다: ${err.message || err}`, "err");
+  }
+}
+
+function refreshFullPptBtn() {
+  const btn = $("#fullPptBtn");
+  if (!btn) return;
+  const partial = source.mode === "solo" || !countPlan().all;
+  btn.classList.toggle("disabled", !partial);
+  $("#fullPptFile").disabled = !partial;
+  btn.title = partial ? "담당자들이 합친 전체 PPT 를 올려 그날 최종본으로 데일리 DB 에 저장" : "전체 작성일 때는 필요 없습니다 (내가 만든 PPT 가 전체 최종본)";
 }
 
 function selectedVisuals(it) {
@@ -1214,6 +1247,10 @@ async function buildPptWork(opts = {}) {
     try {
       await saveFile(saveDir, fileName.replace(/\.pptx$/i, "_시스템 작성본.pptx"), bytes, "application/vnd.openxmlformats-officedocument.presentationml.presentation");
     } catch {}
+    // 데일리 DB 에 그날 PPT 로 보관 (주간 보고서 바탕). 나눠 쓴(1인용) PPT 는 일부로 표시
+    try {
+      await DailyPpt.add({ date: `${y}-${pad(m)}-${pad(d)}`, kind: "system", partial: !plan.all, name: fileName, bytes, count: list.length });
+    } catch {}
     done(where, size);
     return `${where} (${size})`;
   } catch (e) {
@@ -1267,6 +1304,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#rawBuild").addEventListener("click", buildRaw);
   $("#rawFile").addEventListener("change", onRawFile);
   $("#learnPptFile").addEventListener("change", onLearnPpt);
+  $("#fullPptFile").addEventListener("change", onFullPpt);
+  refreshFullPptBtn();
+  for (const el of ["#countAll", "#countTotal", "#countMine"]) $(el).addEventListener("input", refreshFullPptBtn);
   showRawInfo(await kvGet("rawLatest").catch(() => null));
   $("#openSettings").addEventListener("click", openSettings);
   $("#changeFolder").addEventListener("click", openSettings);

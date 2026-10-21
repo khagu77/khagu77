@@ -100,8 +100,9 @@
       <button id="rawBuild" disabled>RAW data 엑셀 파일 받기</button>
     </div>
     <div class="learnbox">
-      <label class="filebtn">수정한 PPT 올려서 학습<input type="file" id="learnPptFile" accept=".pptx" hidden></label>
-      <span class="hint">PPT 를 받은 뒤 PowerPoint 에서 고쳤다면, 고친 파일을 올려 주세요. 시스템이 쓴 원본과 비교해 바뀐 부분을 학습해 다음 작성부터 반영합니다. (PPT 를 받을 때 같은 폴더에 '…_시스템 작성본.pptx' 원본도 함께 저장되니, 그 파일은 고치지 말고 두세요)</span>
+      <label class="filebtn">수정한 PPT 올리기 (학습 + 최종본 저장)<input type="file" id="learnPptFile" accept=".pptx" hidden></label>
+      <label class="filebtn" id="fullPptBtn">전체 PPT 첨부하기 (1인용일 때)<input type="file" id="fullPptFile" accept=".pptx" hidden></label>
+      <span class="hint">PPT 를 받은 뒤 PowerPoint 에서 고쳤다면, 고친 파일을 올려 주세요. 시스템이 쓴 원본과 비교해 바뀐 부분을 학습하고, 그 파일을 그날 <b>최종본</b>으로 데일리 DB 에 저장합니다(안 올리면 시스템 작성본이 최종본). 나눠 쓰기(1인용)일 때는 합친 <b>전체 PPT</b> 를 따로 첨부해 주세요 — 주간 보고서는 전체 PPT 로 만듭니다. (같은 폴더의 '…_시스템 작성본.pptx' 는 고치지 말고 두세요)</span>
     </div>
     <div id="summary" class="summary"></div>
     <div id="stats" class="stats" hidden></div>
@@ -132,6 +133,7 @@
   <script src="pptx.js"></script>
   <script src="raw.js"></script>
   <script src="pptread.js"></script>
+  <script src="dailyppt.js"></script>
   <script src="ai.js"></script>
   <script src="capture.js"></script>
   <script src="app.js"></script>

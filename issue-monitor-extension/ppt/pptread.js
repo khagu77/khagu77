@@ -29,6 +29,7 @@
     const names = [...files.keys()].filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n)).sort((a, b) => +a.match(/\d+/)[0] - +b.match(/\d+/)[0]);
     const details = [];
     const summary = new Map();
+    let maxNo = 0; // 2페이지 요약표의 칸 수 (나눠 쓴 PPT 는 상세 슬라이드가 이보다 적음)
     for (const n of names) {
       const doc = new DOMParser().parseFromString(dec.decode(files.get(n)), "application/xml");
       const tbls = all(doc, A, "tbl");
@@ -50,6 +51,8 @@
           kind: (kindCell.match(/^(품질|응대|결품|제도)/) || [])[1] || "",
           level: c(0, 5) ? levelOf(c(0, 5)) : "",
           progress: c(0, 7) ? cellText(c(0, 7)) : "",
+          views: c(2, 5) ? cellText(c(2, 5)) : "",
+          commentCount: c(2, 6) ? cellText(c(2, 6)) : "",
           cafe: c(1, 1) ? cellText(c(1, 1)).replace(/^동호회\s*/, "") : "",
           url: (urlCell.match(/https?:\/\/\S+/) || [""])[0],
           body: bodyParas.filter((s) => !/^댓글 반응/.test(s)).join(" "),
@@ -61,12 +64,15 @@
         if (!rows.length || !rows[0].some((h) => /내용\s*요약/.test(h))) continue;
         for (const r of rows.slice(1)) {
           const no = +String(r[0] || "").replace(/\D/g, "");
+          if (no) maxNo = Math.max(maxNo, no);
           if (!no || !r[3]) continue;
           summary.set(no, { code: r[1], kind: r[2], short: r[3], duplicate: r[5], region: r[6], focus: r[7] });
         }
       }
     }
     for (const d of details) Object.assign(d, summary.get(d.no) ? { short: summary.get(d.no).short, duplicate: summary.get(d.no).duplicate, region: summary.get(d.no).region, focus: summary.get(d.no).focus } : {});
+    details.maxNo = maxNo;
+    details.partial = maxNo > 0 && details.filter((d) => d.no).length < maxNo;
     return details;
   }
 

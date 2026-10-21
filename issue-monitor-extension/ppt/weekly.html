@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>주간 보고서 작성</title>
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="weekly.css">
+</head>
+<body>
+  <main>
+    <section class="wk-box">
+      <h3>① 주간 보고서 양식 <span class="hint">지난주 주간 보고서 PPT 를 한 번 넣어 두면 그 표 모양 그대로 매주 채웁니다.</span></h3>
+      <div class="buttons">
+        <label class="filebtn">양식 PPT 넣기<input type="file" id="tplFile" accept=".pptx" hidden></label>
+        <span id="tplInfo" class="hint"></span>
+      </div>
+    </section>
+
+    <section class="wk-box">
+      <h3>② 주간 기간과 일일 보고서 <span class="hint">그 주 월요일 ~ 마지막 근무일(보통 금요일, 금요일이 휴일이면 목요일)의 데일리 DB 일일 PPT 최종본으로 만듭니다.</span></h3>
+      <div class="buttons">
+        <label>기준일 <input type="date" id="weekDate"></label>
+        <button id="loadWeek" class="primary">이 주 게시글 불러오기</button>
+        <span id="weekInfo" class="hint"></span>
+      </div>
+      <div id="dayList"></div>
+    </section>
+
+    <section class="wk-box">
+      <h3>③ 주간 보고 게시글 고르기 <span class="hint">추천 10건(하루 2건, 근무일이 적으면 건수 많은 날 3건 · 경고·심각 반드시 포함 · 신차 · 조회수 높은 순)에 체크해 두었습니다. 바꿔도 됩니다.</span></h3>
+      <div class="buttons">
+        <b id="pickCount" class="count-red"></b>
+        <button id="reRecommend">추천대로 다시 체크</button>
+      </div>
+      <table id="candTable" hidden>
+        <thead><tr><th></th><th>보고일</th><th>No</th><th>구분</th><th>차종</th><th>현상</th><th>단계</th><th>조회 / 댓글 (일일 보고 때)</th><th>신규/중복</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p id="candEmpty" class="hint">위에서 [이 주 게시글 불러오기]를 눌러 주세요.</p>
+    </section>
+
+    <section class="wk-box">
+      <h3>④ 주간 보고서 만들기</h3>
+      <div class="buttons">
+        <span>저장 위치: <b id="wkWhere">다운로드 폴더</b></span>
+        <button id="pickWkFolder" type="button">저장 폴더 선택</button>
+        <button id="clearWkFolder" type="button">기본 위치로</button>
+      </div>
+      <label for="wkName">파일 이름 <span class="hint">({날짜} 자리에 마지막 근무일이 YYMMDD 로 들어갑니다)</span></label>
+      <input type="text" id="wkName" value="{날짜}_주간 모니터링 보고서">
+      <div class="buttons">
+        <button id="buildWeekly" class="primary" disabled>주간 보고서 만들기 (조회수·댓글 새로 읽기)</button>
+        <label class="check"><input type="checkbox" id="wkAuto"> 자동 작성</label>
+        <label>시각 <input type="time" id="wkTime" value="16:00"></label>
+        <span class="hint">켜 두면 그 주 마지막 근무일 이 시각에 추천 10건으로 자동 작성·저장합니다 (처음엔 꺼져 있음).</span>
+      </div>
+      <div id="summary" class="summary"></div>
+    </section>
+
+    <section class="wk-box">
+      <h3>주간 보고서 보관함 <span class="hint">만든 주간 보고서를 보관합니다 (최근 20개).</span></h3>
+      <table id="histTable" hidden>
+        <thead><tr><th>만든 일시</th><th>주간 기간</th><th>파일 이름</th><th>건수</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p id="histEmpty" class="hint">아직 만든 주간 보고서가 없습니다.</p>
+    </section>
+  </main>
+
+  <script src="../defaults.js"></script>
+  <script src="zip.js"></script>
+  <script src="pptread.js"></script>
+  <script src="dailyppt.js"></script>
+  <script src="weeklypptx.js"></script>
+  <script src="capture.js"></script>
+  <script src="weekly.js"></script>
+</body>
+</html>

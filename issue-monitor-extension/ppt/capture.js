@@ -1170,6 +1170,33 @@ async function captureCafePost(url, onStep = () => {}, known = {}) {
   }
 }
 
+// 주간 보고서: 지금 시점의 조회수·댓글 수만 다시 읽는다 (캡처·작성자 글 확인 없이, 같은 작은 캡처 창으로)
+async function readPostCounts(url, known = {}) {
+  const searchFirst = needsSearchEntry(url, known.cafe);
+  const { tabId, dialogs, close } = await openWindow(searchFirst ? "about:blank" : url);
+  try {
+    const readInfo = async (tries) => {
+      let got = null;
+      for (let attempt = 0; attempt < tries; attempt++) {
+        if (dialogs.some((m) => DELETED_RE.test(m))) break;
+        got = await withTimeout(probe(tabId, "info"), 40000).catch(() => null);
+        if (got && (!got.error || got.error === "login" || got.error === "deleted")) break;
+        await sleep(1500);
+      }
+      return got;
+    };
+    let info = searchFirst ? null : await readInfo(4);
+    if (searchFirst || (info && info.error === "nobody")) {
+      if (await enterViaSearch(tabId, url, { ...known }, () => {}).catch(() => false)) info = await readInfo(4);
+    }
+    if (dialogs.some((m) => DELETED_RE.test(m)) || (info && info.error === "deleted")) return { deleted: true };
+    if (!info || info.error) return null;
+    return { views: info.views || "", commentCount: info.commentCount || "" };
+  } finally {
+    await close();
+  }
+}
+
 async function captureCafePostOnce(url, onStep = () => {}, known = {}) {
   const saved = await chrome.storage.local.get(["boilerplates"]).catch(() => ({}));
   knownBoilerplates = [...SEED_BOILERPLATES, ...(saved.boilerplates || []).filter((k) => !SEED_BOILERPLATES.includes(k))];

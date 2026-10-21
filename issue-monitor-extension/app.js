@@ -3,6 +3,7 @@
 const $ = (sel) => document.querySelector(sel);
 const params = new URLSearchParams(location.search);
 const AUTO = params.get("auto") === "1";
+const WEEKLY_AUTO = params.get("weekly") === "1"; // 마지막 근무일 정해진 시각: 주간 보고서 자동 작성
 
 const state = {
   settings: null,
@@ -102,8 +103,9 @@ function setSummary(text) {
 
 function showTab(name) {
   for (const b of document.querySelectorAll("nav .tab")) b.classList.toggle("active", b.dataset.tab === name);
-  for (const t of ["collect", "ppt", "db", "prompt", "settings"]) $(`#tab-${t}`).hidden = t !== name;
+  for (const t of ["collect", "ppt", "weekly", "db", "prompt", "settings"]) $(`#tab-${t}`).hidden = t !== name;
   if (name === "ppt") sendPptSource();
+  if (name === "weekly" && !$("#weeklyFrame").getAttribute("src")) $("#weeklyFrame").setAttribute("src", "ppt/weekly.html"); // 처음 열 때 불러옴
   if (name === "db") renderDb();
   if (name === "prompt") renderPrompt();
 }
@@ -126,15 +128,24 @@ function workNow() {
     const p = state.progress || { done: 0, total: 0 };
     return { kind: "collect", done: p.done, total: p.total, text: `부정 이슈 수집 중 · ${p.total ? `${p.done} / ${p.total}곳` : "준비 중"} · 지금까지 ${state.rows.length}건` };
   }
-  try {
-    const w = pptFrameWin();
-    if (w && w.pptBusy && w.pptBusy()) {
-      const t = (w.document.querySelector("#summary") || {}).textContent || "";
-      const m = t.match(/(\d+)\s*\/\s*(\d+)/);
-      return { kind: "ppt", done: m ? +m[1] : 0, total: m ? +m[2] : 0, text: `PPT·RAW 작성 중 · ${t.trim().slice(0, 80) || "준비 중"}` };
-    }
-  } catch {}
+  for (const [frame, label] of [[pptFrameWin(), "PPT·RAW 작성 중"], [weeklyFrameWin(), "주간 보고서 작성 중"]]) {
+    try {
+      if (frame && frame.pptBusy && frame.pptBusy()) {
+        const t = (frame.document.querySelector("#summary") || {}).textContent || "";
+        const m = t.match(/(\d+)\s*\/\s*(\d+)/);
+        return { kind: "ppt", done: m ? +m[1] : 0, total: m ? +m[2] : 0, text: `${label} · ${t.trim().slice(0, 80) || "준비 중"}` };
+      }
+    } catch {}
+  }
   return null;
+}
+function weeklyFrameWin() {
+  try {
+    const f = $("#weeklyFrame");
+    return f && f.getAttribute("src") ? f.contentWindow : null;
+  } catch {
+    return null;
+  }
 }
 let workBarNote = "";
 let workBarNoteTimer = null;
@@ -175,10 +186,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   chrome.tabs.getCurrent((tab) => {
     if (!tab || tab.id !== msg.tabId) return; // 다른 수집 화면에 묻는 것
     let pptBusy = false;
-    try {
-      const w = $("#pptFrame") && $("#pptFrame").contentWindow;
-      pptBusy = !!(w && w.pptBusy && w.pptBusy());
-    } catch {}
+    for (const w of [pptFrameWin(), weeklyFrameWin()]) {
+      try {
+        pptBusy = pptBusy || !!(w && w.pptBusy && w.pptBusy());
+      } catch {}
+    }
     reply({ idle: !state.running && !pptBusy });
   });
   return true;
@@ -771,8 +783,93 @@ async function renderRawHistory() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 일일 보고서 PPT 최종본 (데일리 DB) — 주간 보고서 바탕
+// ---------------------------------------------------------------------------
+const PPT_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+
+async function addDailyPptFile(file, { date, kind } = {}) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const details = await PptRead.read(bytes);
+  if (!details.length) throw new Error(`${file.name}: 상세 슬라이드를 찾지 못했습니다 (일일 보고서 PPT 가 맞는지 확인해 주세요)`);
+  let d = date || DailyPpt.dateFromName(file.name);
+  if (!d) {
+    d = prompt(`「${file.name}」 의 보고 날짜를 적어 주세요 (예: 2026-10-16)`, DailyPpt.dateKey(new Date())) || "";
+    d = d.trim().replace(/[./]/g, "-");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error(`${file.name}: 날짜를 알 수 없어 건너뜁니다`);
+  }
+  const e = await DailyPpt.add({ date: d, kind: kind || "full", partial: !!details.partial, name: file.name, bytes, count: details.length });
+  return `${d} ${file.name} (${details.length}건${details.partial ? " · 일부만 있는 PPT" : ""})`;
+}
+
+let dailyPptTarget = null; // 표에서 [수정본 올리기]/[전체 PPT 올리기]를 누른 날짜·종류
+async function renderDailyPpts() {
+  const days = await DailyPpt.byDate().catch(() => []);
+  const tbody = $("#pptTable tbody");
+  tbody.textContent = "";
+  $("#pptEmpty").hidden = days.length > 0;
+  $("#pptTable").hidden = !days.length;
+  const dow = (k) => "일월화수목금토"[new Date(`${k}T00:00`).getDay()];
+  for (const day of days) {
+    const f = day.final;
+    tbody.append(
+      el("tr", {},
+        el("td", { text: `${day.date} (${dow(day.date)})` }),
+        el("td", {}, el("b", { text: DailyPpt.KIND_LABEL[f.kind] || f.kind }), f.partial ? el("span", { class: "count-red", text: " · 일부(나눠 쓴 PPT)" }) : null),
+        el("td", { text: f.name }),
+        el("td", {}, el("b", { class: "count-red", text: `${f.count || 0}건` })),
+        el("td", { class: "hint", text: day.entries.map((e) => `${DailyPpt.KIND_LABEL[e.kind]}${e.partial ? "(일부)" : ""} ${fmtDateTime(new Date(e.at))}`).join(" / ") }),
+        el("td", { class: "actions" },
+          el("button", { text: "받기", onclick: async () => {
+            const where = await saveBytesFile(f.name, f.bytes, PPT_MIME);
+            alert(`✅ PPT 저장 완료\n\n저장 위치: ${where}`);
+          } }),
+          el("button", { text: "수정본 올리기", title: "고친 PPT 를 이 날짜의 최종본으로", onclick: () => {
+            dailyPptTarget = { date: day.date, kind: "edited" };
+            $("#dailyPptOne").click();
+          } }),
+          el("button", { text: "전체 PPT 올리기", title: "나눠 쓴 날: 합친 전체 PPT 를 이 날짜의 최종본으로", disabled: !f.partial, onclick: () => {
+            dailyPptTarget = { date: day.date, kind: "full" };
+            $("#dailyPptOne").click();
+          } })
+        )
+      )
+    );
+  }
+}
+
+$("#dailyPptUpload").addEventListener("change", async (ev) => {
+  const files = [...ev.target.files];
+  ev.target.value = "";
+  const ok = [];
+  const bad = [];
+  for (const f of files) {
+    try {
+      ok.push(await addDailyPptFile(f, { kind: "full" }));
+    } catch (e) {
+      bad.push(e.message || String(e));
+    }
+  }
+  renderDailyPpts();
+  alert(`${ok.length ? `✅ 데일리 DB 에 저장했습니다 (${ok.length}개)\n${ok.join("\n")}` : ""}${bad.length ? `\n\n⚠ 저장하지 못한 파일\n${bad.join("\n")}` : ""}`);
+});
+$("#dailyPptOne").addEventListener("change", async (ev) => {
+  const f = ev.target.files[0];
+  ev.target.value = "";
+  if (!f || !dailyPptTarget) return;
+  try {
+    const msg = await addDailyPptFile(f, dailyPptTarget);
+    alert(`✅ ${DailyPpt.KIND_LABEL[dailyPptTarget.kind]}으로 저장했습니다\n${msg}`);
+  } catch (e) {
+    alert(`⚠ ${e.message || e}`);
+  }
+  dailyPptTarget = null;
+  renderDailyPpts();
+});
+
 async function renderDb() {
   renderRawHistory();
+  renderDailyPpts();
   const list = await dbList();
   const tbody = $("#dbTable tbody");
   tbody.textContent = "";
@@ -2376,6 +2473,7 @@ async function cleanStrayWorker() {
   } else {
     await loadLastResult();
     await renderResumeBox();
+    if (WEEKLY_AUTO) showTab("weekly");
     cleanStrayWorker().catch(() => {});
   }
 })();

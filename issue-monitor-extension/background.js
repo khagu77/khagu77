@@ -165,3 +165,48 @@ chrome.runtime.onMessage.addListener((msg) => {
     });
   }
 });
+
+// ---------------------------------------------------------------------------
+// 주간 보고서 자동 작성 (설정에서 켰을 때만, 처음엔 꺼짐): 그 주 마지막 근무일 정해진 시각에
+// 수집 화면을 ?weekly=1 로 열어 주간 보고서 탭이 추천 10건으로 만들고 저장한다
+// ---------------------------------------------------------------------------
+const WEEKLY_ALARM = "weekly-report";
+
+async function scheduleWeekly() {
+  await chrome.alarms.clear(WEEKLY_ALARM);
+  const { weeklyAuto } = await chrome.storage.local.get("weeklyAuto");
+  if (weeklyAuto && weeklyAuto.on) chrome.alarms.create(WEEKLY_ALARM, { when: nextRunTime(weeklyAuto.time || "16:00") });
+}
+
+function isLastWorkdayOfWeek(d, s) {
+  if (!isWorkday(d, s)) return false;
+  for (let i = 1; i <= 7 - ((d.getDay() + 6) % 7) - 1; i++) {
+    if (isWorkday(new Date(d.getFullYear(), d.getMonth(), d.getDate() + i), s)) return false;
+  }
+  return true;
+}
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== WEEKLY_ALARM) return;
+  await scheduleWeekly(); // 다음 날 예약
+  const s = await loadSettings();
+  if (!isLastWorkdayOfWeek(new Date(), s)) return;
+  if (await runInProgress()) {
+    chrome.alarms.create(WEEKLY_ALARM, { delayInMinutes: 15 }); // 수집 중이면 끝난 뒤 다시
+    return;
+  }
+  const url = `${APP_URL}?weekly=1&t=${Date.now()}`;
+  for (const t of await appTabs()) {
+    if (await appTabIdle(t.id)) {
+      await chrome.tabs.update(t.id, { url });
+      return;
+    }
+  }
+  await chrome.tabs.create({ url, active: false });
+});
+
+chrome.runtime.onInstalled.addListener(scheduleWeekly);
+chrome.runtime.onStartup.addListener(scheduleWeekly);
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.weeklyAuto) scheduleWeekly();
+});

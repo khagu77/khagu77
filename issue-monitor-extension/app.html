@@ -17,6 +17,7 @@
       <nav>
         <button class="tab active" data-tab="collect">수집</button>
         <button class="tab" data-tab="ppt">PPT·RAW 작성</button>
+        <button class="tab" data-tab="weekly">주간 보고서</button>
         <button class="tab" data-tab="db">데일리 DB</button>
         <button class="tab" data-tab="prompt">명령 프롬프트</button>
         <button class="tab" data-tab="settings">설정</button>
@@ -147,6 +148,18 @@
       </table>
       <p id="dbEmpty" class="hint">아직 저장된 수집 이력이 없습니다.</p>
 
+      <h2>일일 보고서 PPT 최종본 <span class="hint">날짜별로 그날의 최종 PPT 를 보관합니다 (주간 보고서의 바탕). 최종본 = 전체 PPT 첨부 &gt; 담당자 수정본 &gt; 시스템 작성본.</span></h2>
+      <div class="buttons">
+        <label class="filebtn">지난 전체 PPT 올리기 (여러 개 가능)<input type="file" id="dailyPptUpload" accept=".pptx" multiple hidden></label>
+        <span class="hint">파일 이름의 날짜(예: 261016, 2026-10-16)로 보고 날짜를 정합니다. 날짜가 없으면 물어봅니다.</span>
+      </div>
+      <table id="pptTable">
+        <thead><tr><th>보고 날짜</th><th>최종본</th><th>파일 이름</th><th>건수</th><th>보관된 파일</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p id="pptEmpty" class="hint">아직 보관된 PPT 가 없습니다. PPT·RAW 작성 탭에서 PPT 를 받거나, 위 버튼으로 지난 전체 PPT 를 올려 주세요.</p>
+      <input type="file" id="dailyPptOne" accept=".pptx" hidden>
+
       <h2>RAW data 파일 <span class="hint">PPT·RAW 작성 탭에서 만든 'YYMMDD_차종별 온라인 동향 raw data.xlsx' (최근 15개). 다시 받거나, 다음 RAW 를 이어 쓸 기준으로 바꿀 수 있습니다.</span></h2>
       <table id="rawTable">
         <thead><tr><th>만든 일시</th><th>파일 이름</th><th>이번에 붙인 행</th><th>시트별</th><th></th></tr></thead>
@@ -170,6 +183,10 @@
     <!-- ===================== PPT·RAW 작성 (온라인 오전동향 PPT 보고서 작성기) ===================== -->
     <section id="tab-ppt" hidden>
       <iframe id="pptFrame" src="ppt/app.html" title="PPT·RAW 작성"></iframe>
+    </section>
+
+    <section id="tab-weekly" hidden>
+      <iframe id="weeklyFrame" title="주간 보고서 작성"></iframe>
     </section>
 
     <!-- ===================== 명령 프롬프트 ===================== -->
@@ -313,6 +330,9 @@
   <script src="ai.js"></script>
   <script src="report-template.js"></script>
   <script src="report-xlsx.js"></script>
+  <script src="ppt/zip.js"></script>
+  <script src="ppt/pptread.js"></script>
+  <script src="ppt/dailyppt.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
