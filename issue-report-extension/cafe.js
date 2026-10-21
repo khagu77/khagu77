@@ -2,6 +2,14 @@
 // 네이버 API 를 직접 반복 호출하면 계정 보호조치가 걸릴 수 있어, 사람이 보듯 화면을 열어서만 읽는다.
 // (LX3 팰리세이드 수집기와 같은 방식: 수집 화면 안의 보이지 않는 틀 → 못 읽으면 뒤쪽 탭)
 
+// 카페 수집 기본 규칙 ('명령 프롬프트' 화면에 표시, 온라인 오전 일일동향과 같은 규칙)
+const COLLECT_RULES = [
+  "네이버 카페 글을 바로 열었을 때 본문·댓글이 보이지 않으면(권한 제한·등급 제한 등), 네이버 검색(카페 탭)에서 제목으로 같은 글을 찾아 그 검색 결과 링크를 눌러 들어가 본문·댓글을 확인하는 것을 기본으로 한다. (넥쏘 카페·영운모는 처음부터 검색 경유)",
+  "네이버 검색을 거쳐서도 본문·댓글을 확인하지 못한 글은 과감하게 넘긴다(pass). 검색 결과의 요약 문장만으로 댓글을 대신하지 않는다.",
+  "넘긴 글은 3단계 표의 상태와 수집 기록에 '패스' 사유로 남기고, '못 읽은 글만 다시'로 다시 시도할 수 있다.",
+  "네이버 보호조치·자동입력 방지 화면이 보이거나 로그인이 풀리면 카페 수집을 바로 멈춘다.",
+];
+
 // 이 확장이 연 카페 화면 표시(#imrbg): bg-render.js 가 이 화면만 '보이는 탭'처럼 그리게 한다
 function markUrl(url) {
   return /^https?:\/\/(?:[\w-]+\.)?(?:cafe\.naver\.com|naver\.me)\//.test(url) && !url.includes("#") ? `${url}#imrbg` : url;
@@ -215,6 +223,8 @@ function scanSearchInFrame() {
 
 // 게시글 화면: 제목·작성 시각·본문 앞부분·댓글 전체 (댓글 페이지 버튼을 사람처럼 천천히 눌러 가며)
 async function readArticleInFrame(pageDelay) {
+  const pageText = (document.body ? document.body.innerText : "").slice(0, 4000);
+  if (/보호조치|비정상적인 (접근|활동)|자동입력 방지|자동 입력 방지|로봇이 아닙니다/.test(pageText)) return { found: false, blocked: true, href: location.href };
   if (!document.querySelector(".ArticleContentBox, .article_container, li.CommentItem, .CommentBox, .title_text")) return { found: false, href: location.href };
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const pick = (sels) => {
@@ -275,6 +285,56 @@ async function readArticleInFrame(pageDelay) {
     body: pick([".se-main-container", ".ContentRenderer", ".article_viewer", ".article_container .content"]).slice(0, 3000),
     comments,
   };
+}
+
+// 네이버 검색 결과에서 이 카페의 이 글 링크 찾기 → { index, href } 또는 null (화면 안에서 실행)
+function findCafeLinkInSearch(slug, articleId, title) {
+  const anchors = [...document.querySelectorAll("a[href]")];
+  const norm = (x) => String(x || "").replace(/\s+/g, "").toLowerCase();
+  const want = norm(title).slice(0, 15);
+  let best = null;
+  anchors.forEach((a, index) => {
+    const href = a.href || "";
+    if (!/cafe\.naver\.com/.test(href)) return;
+    const sameArticle = (slug && new RegExp(`cafe\\.naver\\.com/${slug}/${articleId}(?!\\d)`, "i").test(href)) || new RegExp(`(articles/|articleid=)${articleId}(?!\\d)`, "i").test(href);
+    const sameCafe = slug && new RegExp(`cafe\\.naver\\.com/${slug}(/|\\?|$)`, "i").test(href);
+    const titleHit = want && norm(a.innerText).includes(want);
+    const score = (sameArticle ? 10 : 0) + (sameCafe && titleHit ? 5 : 0);
+    if (score >= 5 && (!best || score > best.score)) best = { index, href, score };
+  });
+  return best;
+}
+
+// 검색 결과 링크를 같은 탭에서 열리게 해서 누른다 (이 확장이 연 카페 화면 표시 #imrbg 를 붙여서)
+function clickSearchResult(index) {
+  const a = [...document.querySelectorAll("a[href]")][index];
+  if (!a) return false;
+  a.setAttribute("target", "_self");
+  if (/cafe\.naver\.com/.test(a.href) && !a.href.includes("#")) a.href = `${a.href}#imrbg`;
+  a.click();
+  return true;
+}
+
+// 탭을 주소로 옮기거나(go 가 있으면 그 동작 뒤) 다 열릴 때까지 기다린다
+async function navigateTab(tabId, url, go = null) {
+  await new Promise((resolve) => {
+    const timer = setTimeout(done, 30000);
+    let started = false;
+    function done() {
+      clearTimeout(timer);
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }
+    function listener(id, info) {
+      if (id !== tabId) return;
+      if (info.status === "loading") started = true;
+      if (info.status === "complete" && started) done();
+    }
+    chrome.tabs.onUpdated.addListener(listener);
+    if (url) chrome.tabs.update(tabId, { url }).catch(done);
+    else Promise.resolve(go && go()).catch(done);
+  });
+  await sleep(1500);
 }
 
 // 카페 화면 제목 → 동호회 이름 ('… : 네이버 카페', 앞에 붙은 메뉴 이름 떼기)
@@ -414,26 +474,76 @@ class CafeCollector {
   }
 
   // 글 열어서 읽기 (작성 시각 확인·본문·댓글)
-  async readArticle(post) {
-    const url = post.clubId ? `https://cafe.naver.com/f-e/cafes/${post.clubId}/articles/${post.articleId}` : post.url;
-    const res = await readPage(
-      url,
-      async (where) => {
-        for (let i = 0; i < 8; i++) {
-          const answers = await runInFrames(where, readArticleInFrame, [[2000, 4000]]);
-          const hit = answers.find((r) => r.found && (r.title || r.comments.length));
-          if (hit) return hit;
-          if (answers.some((r) => /nid\.naver\.com/.test(r.href || ""))) return { found: false, login: true };
-          await sleep(1500);
+  // 열린 게시글 화면(틀·탭)에서 글 읽기 → visible: 본문이나 댓글이 실제로 보이는지
+  async readOpened(where) {
+    for (let i = 0; i < 8; i++) {
+      const answers = await runInFrames(where, readArticleInFrame, [[2000, 4000]]);
+      const hit = answers.find((r) => r.found && (r.body || r.comments.length)) || answers.find((r) => r.found && r.title);
+      if (hit && (hit.body || hit.comments.length)) return { ...hit, visible: true };
+      if (answers.some((r) => /nid\.naver\.com/.test(r.href || ""))) return { found: false, login: true };
+      if (answers.some((r) => r.blocked)) throw new Error("네이버 보호조치·자동입력 방지 화면이 보여 카페 수집을 멈췄습니다");
+      if (hit && i >= 3) return { ...hit, visible: false }; // 제목만 보이고 본문은 안 보임 (권한 제한 등)
+      await sleep(1500);
+    }
+    return { found: false, visible: false };
+  }
+
+  // 네이버 검색(카페 탭)에서 제목으로 같은 글을 찾아, 사람처럼 검색 결과 링크를 눌러 들어가 읽는다
+  async readViaSearch(post) {
+    const query = String(post.title || "").replace(/\s+/g, " ").trim().slice(0, 80);
+    if (!query) return null;
+    await this.wait(this.delays.article);
+    const urls = [
+      `https://search.naver.com/search.naver?ssc=tab.cafe.all&query=${encodeURIComponent(query)}`,
+      `https://search.naver.com/search.naver?where=article&query=${encodeURIComponent(query)}`,
+    ];
+    const tab = await chrome.tabs.create({ url: "about:blank", active: false });
+    try {
+      for (const u of urls) {
+        if (this.isStopped()) throw new StopError("중지됨");
+        await navigateTab(tab.id, u);
+        let found = null;
+        for (let attempt = 0; attempt < 4 && !found; attempt++) {
+          found = (await runInFrames({ tabId: tab.id, rootId: 0 }, findCafeLinkInSearch, [post.cafeSlug || "", post.articleId, query]))[0] || null;
+          if (!found) await sleep(1200);
         }
-        return { found: false };
-      },
-      (r) => r && (r.found || r.login),
-    );
-    if (res?.login) throw new Error("네이버 로그인이 필요합니다");
-    if (!res?.found) throw new Error("글을 읽지 못함 (카페 가입이 필요하거나, 삭제됐거나, 댓글을 막은 글일 수 있음)");
+        if (!found) continue;
+        await navigateTab(tab.id, null, () => runInFrames({ tabId: tab.id, rootId: 0 }, clickSearchResult, [found.index]));
+        await sleep(3000);
+        const res = await this.readOpened({ tabId: tab.id });
+        if (res?.login) throw new Error("네이버 로그인이 필요합니다");
+        return res;
+      }
+      return null;
+    } finally {
+      chrome.tabs.remove(tab.id).catch(() => {});
+    }
+  }
+
+  // 게시글 읽기. 기본 규칙(온라인 오전 일일동향과 같음):
+  //  카페에서 바로 열어 본문·댓글이 보이지 않는 글은 네이버 검색(카페 탭)에서 제목으로 같은 글을 찾아
+  //  그 링크로 들어가 읽는다(넥쏘 카페·영운모는 처음부터 검색 경유). 그래도 확인이 안 되면 넘긴다(pass).
+  async readArticle(post, cafe = {}) {
+    const url = post.clubId ? `https://cafe.naver.com/f-e/cafes/${post.clubId}/articles/${post.articleId}` : post.url;
+    let res = null;
+    if (!cafe.viaSearch) {
+      res = await readPage(url, (where) => this.readOpened(where), (r) => r && (r.visible || r.login));
+      if (res?.login) throw new Error("네이버 로그인이 필요합니다");
+    }
+    if (!res?.visible) {
+      const via = await this.readViaSearch(post).catch((e) => {
+        if (e instanceof StopError || /로그인|보호조치/.test(e.message)) throw e;
+        return null;
+      });
+      if (via?.visible) res = { ...via, via: "검색" };
+      else {
+        const why = !post.title ? "제목을 몰라 검색 경유 불가" : "네이버 검색으로도 확인 불가";
+        throw new Error(`본문·댓글이 안 보임 → ${why} (패스 — 카페 가입이 필요하거나, 삭제됐거나, 댓글을 막은 글일 수 있음)`);
+      }
+    }
     const parsed = parseKoreanDate(res.date);
     return {
+      via: res.via || "",
       title: res.title,
       source: cafeTitle(res.pageTitle),
       date: parsed ? parsed.date.getTime() : null,

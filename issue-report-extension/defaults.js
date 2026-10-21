@@ -1,5 +1,8 @@
 // 처음 설치했을 때의 기본 설정. 화면의 '채널 설정'·'설정'에서 모두 바꿀 수 있다.
 
+// 카페에서 바로 열면 안 보이는 글이 많아, 처음부터 네이버 검색(카페 탭)을 거쳐 들어가 읽는 카페 (온라인 오전 일일동향과 같음)
+const VIA_SEARCH_CAFES = ["nexocafe", "truckerking"];
+
 // 모니터링 동호회 (온라인 오전 일일동향에서 쓰는 동호회 목록) [이름, 카페 주소, 차종]
 const DEFAULT_CAFES = [
   ["그랜저 리더스 클럽", "suddenattackskincafe", "GN7 PE / GN7"],
@@ -51,7 +54,7 @@ const DEFAULT_CAFES = [
   ["현대모터클럽", "hmckorea", ""],
   ["영운모", "truckerking", "QZ / QV / QT"],
   ["자동차 정비 공유 카페", "autowave21", ""],
-].map(([name, slug, car]) => ({ name, slug, car, on: false }));
+].map(([name, slug, car]) => ({ name, slug, car, on: false, viaSearch: VIA_SEARCH_CAFES.includes(slug) }));
 
 // 모니터링 유튜브 채널 (담당자가 준 목록) [채널 이름, 채널 ID]
 const DEFAULT_YOUTUBE_CHANNELS = [
@@ -142,6 +145,7 @@ const DELAYS = {
 async function loadSettings() {
   const { imrSettings } = await chrome.storage.local.get("imrSettings").catch(() => ({}));
   const s = { ...DEFAULT_SETTINGS, ...(imrSettings || {}) };
+  for (const c of s.cafes) if (c.viaSearch === undefined) c.viaSearch = VIA_SEARCH_CAFES.includes(c.slug);
   if (!s.youtubeChannels?.length) s.youtubeChannels = DEFAULT_YOUTUBE_CHANNELS.map((c) => ({ ...c }));
   return s;
 }

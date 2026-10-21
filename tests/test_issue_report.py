@@ -330,3 +330,139 @@ def test_issue_report(tmp_path: Path):
     assert len(meta["jobs"]) == 1 and meta["jobs"][0]["final"]
     assert sorted(f["kind"] for f in meta["files"]) == ["comments", "posts", "pptx", "sentiment"]
     assert all(f["path"] in names for f in meta["files"])
+
+
+# ---------------------------------------------------------------- 카페: 바로 열면 안 보이는 글 → 네이버 검색 경유
+def cafe_full_article():
+    return (
+        '<html><head><title>아반떼 클럽 : 네이버 카페</title></head><body>'
+        '<h3 class="title_text">아반떼 가격 너무 비싸요</h3><div class="article_info"><span class="date">2026.08.06. 09:00</span></div>'
+        '<div class="se-main-container">가격이 너무 올랐네요</div>'
+        '<div class="CommentBox"><ul>'
+        '<li id="c1" class="CommentItem"><a class="comment_nickname">철수</a><span class="text_comment">진짜 비싸요 심했다</span><span class="comment_info_date">2026.08.06. 09:10</span></li>'
+        '<li id="c2" class="CommentItem CommentItem--reply"><a class="comment_nickname">영희</a><span class="text_comment">현기 배짱장사</span><span class="comment_info_date">2026.08.06. 09:20</span></li>'
+        "</ul></div></body></html>"
+    )
+
+
+def start_fake_naver(tmp_path: Path):
+    import ssl
+    import subprocess
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    cert, key = tmp_path / "cert.pem", tmp_path / "key.pem"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=cafe.naver.com",
+                    "-keyout", str(key), "-out", str(cert)], check=True, capture_output=True)
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            host = self.headers.get("Host", "")
+            requests.append(host + self.path)
+            if host.startswith("search.naver.com"):
+                body = '<html><body><ul><li><a href="https://cafe.naver.com/avantemd/555?art=SEARCHKEY">아반떼 가격 너무 비싸요</a></li></ul></body></html>'
+            elif self.path.startswith("/avantemd/555?art=SEARCHKEY"):
+                body = cafe_full_article()
+            elif self.path.startswith("/f-e/cafes/123/menus/0"):
+                page = parse_qs(urlparse(self.path).query).get("page", ["1"])[0]
+                body = (
+                    '<html><head><title>아반떼 클럽 : 네이버 카페</title></head><body><table>'
+                    '<tr><td><a class="article" href="https://cafe.naver.com/avantemd/555">아반떼 가격 너무 비싸요</a></td><td class="td_date">2026.08.06. 09:00</td></tr>'
+                    "</table></body></html>"
+                ) if page == "1" else "<html><body>검색 결과가 없습니다</body></html>"
+            elif self.path.startswith("/f-e/cafes/123/articles/555") or self.path.startswith("/avantemd/555"):
+                # 바로 열면 제목만 보이고 본문·댓글은 안 보임 (등급 제한)
+                body = '<html><body><h3 class="title_text">아반떼 가격 너무 비싸요</h3><p>등급이 되어야 읽을 수 있습니다</p></body></html>'
+            elif self.path.startswith("/avantemd"):
+                body = '<html><script>var g_sClubId = "123";</script><body>카페 홈</body></html>'
+            else:
+                body = "<html><body></body></html>"
+            data = body.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(cert, key)
+    server.socket = tls.wrap_socket(server.socket, server_side=True)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    server.requests = requests
+    return server
+
+
+def test_cafe_via_search(tmp_path: Path):
+    server = start_fake_naver(tmp_path)
+    port = server.server_address[1]
+    claude_calls = []
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile"),
+            executable_path=CHROMIUM,
+            headless=True,
+            timezone_id="Asia/Seoul",
+            args=[
+                f"--disable-extensions-except={EXT_DIR}",
+                f"--load-extension={EXT_DIR}",
+                f"--host-resolver-rules=MAP cafe.naver.com 127.0.0.1:{port}, MAP search.naver.com 127.0.0.1:{port}",
+                "--no-proxy-server",
+                "--ignore-certificate-errors",
+            ],
+            accept_downloads=True,
+        )
+
+        def anthropic(route):
+            body = json.loads(route.request.post_data)
+            out = json.dumps(claude(body, claude_calls), ensure_ascii=False)
+            route.fulfill(status=200, headers={"content-type": "text/event-stream", "access-control-allow-origin": "*"}, body=sse(out))
+
+        ctx.route("https://api.anthropic.com/**", anthropic)
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        ext_id = sw.url.split("/")[2]
+        page = ctx.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("dialog", lambda d: d.accept())
+        page.goto(f"chrome-extension://{ext_id}/app.html")
+        page.click('nav .tab[data-tab="settings"]')
+        page.fill("#apiKey", "sk-ant-test")
+        page.click("#saveSettings")
+        page.locator("#settingsMsg", has_text="저장").wait_for()
+        page.click('nav .tab[data-tab="setup"]')
+        page.fill("#purpose", "CN8 가격 공개 이후 가격·옵션 여론 파악")
+        page.fill("#issueName", "CN8 가격 공개")
+        page.fill("#rangeFrom", "2026-08-05T07:00")
+        page.fill("#rangeTo", "2026-08-06T10:00")
+        page.fill("#keywords", "아반떼 가격")
+        for cb in ["#chNews", "#chYoutube", "#chCommunity"]:
+            page.uncheck(cb)
+        # 찾기 칸이 비어 있어도 동호회 목록이 보이고 '전체 선택'이 된다
+        page.click("#cafeAll")
+        assert page.locator("#cafeList input:checked").count() == page.locator("#cafeList input").count() > 40
+        page.click("#cafeNone")
+        page.fill("#cafeFilter", "아반떼 클럽")
+        page.click("#cafeAll")
+        page.fill("#cafeFilter", "")
+        page.dispatch_event("#cafeFilter", "input")
+        assert page.locator("#cafeList input:checked").count() == 1
+        assert page.is_checked('#cafeList input[value="avantemd"]')
+        page.click("#goCollect")
+        page.click("#collectPosts")
+        page.locator("#postsSummary", has_text="관련 게시글 1건").wait_for(timeout=180000)
+        page.click("#goComments")
+        page.click("#collectComments")
+        page.locator("#commentsSummary", has_text="댓글을 모은 글 1/1").wait_for(timeout=180000)
+        assert "댓글 2개" in page.inner_text("#commentsSummary")
+        log = page.text_content("#commentsLog")
+        ctx.close()
+    server.shutdown()
+    assert errors == [], errors
+    assert "네이버 검색을 거쳐 읽음" in log, log
+    assert any(r.startswith("search.naver.com") for r in server.requests), server.requests
+    assert any("art=SEARCHKEY" in r for r in server.requests)

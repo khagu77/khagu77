@@ -6,7 +6,7 @@ const SENTIMENT_BATCH = 60; // 성향 분석 한 번에 보낼 댓글 수
 const SENTIMENTS = ["긍정", "중립", "부정", "단순비난"];
 
 // 기본 규칙을 마지막으로 고친 때 ('명령 프롬프트' 화면에 표시)
-const PROMPT_BUILT_AT = "2026-10-21 (v1.0.0)";
+const PROMPT_BUILT_AT = "2026-10-21 (v1.0.1)";
 
 function issueContext(job) {
   const kw = parseKeywords(job.keywords);

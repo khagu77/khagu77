@@ -38,6 +38,7 @@ function el(tag, props = {}, ...children) {
     else if (k === "html") e.innerHTML = v;
     else if (k === "class") e.className = v;
     else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (k === "hidden") e.hidden = !!v;
     else if (v === true) e.setAttribute(k, "");
     else e.setAttribute(k, v);
   }

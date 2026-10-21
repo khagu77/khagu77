@@ -192,7 +192,7 @@ function renderCafeList() {
     const hay = compactLower(`${c.name} ${c.slug} ${c.car}`);
     const lab = el(
       "label",
-      { title: `cafe.naver.com/${c.slug}`, hidden: filter && !hay.includes(filter) },
+      { title: `cafe.naver.com/${c.slug}`, hidden: !!filter && !hay.includes(filter) },
       el("input", { type: "checkbox", value: c.slug, checked: selected.has(c.slug), onchange: updateCafeCount }),
       el("span", { text: c.name }),
       c.car ? el("span", { class: "car", text: c.car }) : null,
@@ -688,7 +688,8 @@ async function collectComments(onlyFailed = false) {
       let list = [];
       if (p.channel === "news") list = await nc.readComments(p);
       else if (p.channel === "cafe") {
-        const a = await cc.readArticle(p);
+        const a = await cc.readArticle(p, settings.cafes.find((c) => c.slug === p.cafeSlug) || {});
+        if (a.via) log(`  · 바로 열면 안 보여 네이버 검색을 거쳐 읽음: ${p.title.slice(0, 40)}`);
         if (a.title && !p.title) p.title = a.title;
         if (a.source && (p.direct || !p.source)) p.source = a.source;
         if (a.date) {
@@ -725,7 +726,10 @@ async function collectComments(onlyFailed = false) {
       if (e instanceof StopError) break;
       job.commentStatus[p.key] = { ok: false, error: korMsg(e.message) };
       log(`  · ${chName(p)} ${p.title.slice(0, 40)}: ${korMsg(e.message)}`, "err");
-      if (/로그인/.test(e.message) && p.channel === "cafe") log("네이버 로그인이 풀렸습니다. 로그인 후 '못 읽은 글만 다시'를 누르세요.", "err");
+      if (/로그인|보호조치/.test(e.message) && p.channel === "cafe") {
+        log("네이버 로그인이 풀렸거나 보호조치 화면이 보여 수집을 멈춥니다. 확인 후 '못 읽은 글만 다시'를 누르세요.", "err");
+        break;
+      }
     }
     if (i % 3 === 2) await saveJob();
     renderCommentPosts();
@@ -1229,6 +1233,7 @@ function renderPrompt() {
   readSetup();
   const box = $("#promptView");
   box.innerHTML = "";
+  box.appendChild(el("div", { class: "promptblock" }, el("h3", { text: "수집 기본 규칙 (동호회)" }), el("pre", { class: "prompt", text: COLLECT_RULES.map((r, i) => `${i + 1}. ${r}`).join("\n") })));
   for (const [title, text] of promptPreview(job, settings)) {
     box.appendChild(el("div", { class: "promptblock" }, el("h3", { text: title }), el("pre", { class: "prompt", text })));
   }
