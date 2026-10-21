@@ -287,3 +287,38 @@ body.working { padding-top: 46px; }
 .resumebox { margin: 12px 0; padding: 12px 14px; border: 2px solid #f59e0b; border-radius: 10px; background: #fff7e6; color: #7a4b00; font-weight: 600; }
 .resumebox .buttons { margin-top: 8px; }
 @media (prefers-color-scheme: dark) { .resumebox { background: #3a2a0a; color: #fcd58a; } }
+
+/* ---- 메뉴: 업무(크게) / 관리(작게) 구분 (2026-10-21) ---- */
+header { flex-direction: column; align-items: stretch; }
+nav.mainnav { display: flex; justify-content: space-between; align-items: stretch; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
+.nav-work { display: flex; gap: 10px; flex-wrap: wrap; }
+nav .tab.work {
+  display: flex; align-items: center; gap: 10px; min-width: 200px; padding: 12px 18px 12px 12px;
+  border: 2px solid var(--border); border-radius: 14px; background: var(--card); color: var(--text);
+  font-size: 17px; font-weight: 800; text-align: left; cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06); transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+nav .tab.work:hover { border-color: var(--blue); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 44, 95, 0.15); }
+nav .tab.work .step {
+  display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--bg); color: var(--muted); font-size: 13px; font-weight: 800; border: 1px solid var(--border);
+}
+nav .tab.work .ico { font-size: 22px; line-height: 1; }
+nav .tab.work .lbl { display: flex; flex-direction: column; line-height: 1.2; }
+nav .tab.work .lbl small { font-size: 11.5px; font-weight: 500; color: var(--muted); margin-top: 2px; }
+nav .tab.work.active { background: var(--blue); border-color: var(--blue); color: #fff; box-shadow: 0 6px 16px rgba(0, 44, 95, 0.3); }
+nav .tab.work.active .lbl small { color: #cfe0f5; }
+nav .tab.work.active .step { background: #fff; color: var(--blue); border-color: #fff; }
+
+.nav-admin {
+  display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 12px; border-radius: 12px;
+  background: var(--bg); border: 1px dashed var(--border); align-self: center;
+}
+.nav-admin-title { font-size: 11.5px; font-weight: 700; color: var(--muted); margin-right: 2px; letter-spacing: 0.04em; }
+nav .tab.admin { padding: 6px 10px; font-size: 13px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--muted); font-weight: 600; cursor: pointer; }
+nav .tab.admin:hover { background: var(--card); border-color: var(--border); color: var(--text); }
+nav .tab.admin.active { background: #3c4a5c; border-color: #3c4a5c; color: #fff; }
+@media (prefers-color-scheme: dark) {
+  nav .tab.work.active { background: #1f5fae; border-color: #1f5fae; }
+  nav .tab.admin.active { background: #4b5a6e; border-color: #4b5a6e; }
+}
