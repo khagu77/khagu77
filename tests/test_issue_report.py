@@ -466,7 +466,13 @@ def test_issue_report(tmp_path: Path):
         neg_short = q("부정", "short").splitlines()
         page.fill('.qcol[data-s="부정"] [data-k="long"]', "\n".join(neg_short + ["2페이지 전용 부정 댓글😂👍🏻"]))
         # 중립은 밋밋한 댓글로: AI 규칙·메모리 + AI 없이 다시 고르는 버튼
-        assert "최대한 중립스러운 댓글" in sys_rep and "정말 별 의미 없는 최대한 중립스러운 댓글" in sys_rep
+        assert "최대한 중립스러운 댓글" in sys_rep and "1페이지는 이번 이슈와 관계있는 성의 있는 내용" in sys_rep  # 기본 규칙 + 메모리
+        assert "정말 별 의미 없는" not in sys_rep  # 예전 메모리 문장은 지워짐
+        assert "깡통 → 기본 모델" in sys_rep and "'깡통' 대신 '기본 모델'" in sys_rep
+        assert "summary 에는 중립 여론·중립 비율을 쓰지 않는다" in sys_rep and "요약에는 중립 여론·중립 비율을 언급하지 않는다" in sys_rep
+        # 밋밋하되 이슈와 관계있고 성의 있는 댓글 > 한두 마디 > 자극적인 댓글
+        scores = page.evaluate("(() => { const t = issueTerms(); return ['CN8 가격 4천 초반이면 투싼이랑 비슷한 수준이네요', '그렇군요', '현기 배짱장사 답이 없네 ㅋㅋ'].map((x) => neutralScore(x, t)); })()")
+        assert scores[0] > scores[1] and scores[0] > scores[2], scores
         assert page.evaluate("[calmQuote('현기 배짱장사 답이 없네 ㅋㅋ'), calmQuote('다음 달 출고 예정이라고 하네요')]") == [False, True]
         n_calls = len(claude_calls)
         page.click("#refillNeutral")

@@ -1331,8 +1331,32 @@ function calmQuote(text) {
   return !STRONG_RE.test(t) && !/ㅋ{2,}|ㅎ{3,}|[!?]{2,}|ㅡㅡ|;;/.test(t);
 }
 
+// 중립 샘플 점수: 밋밋하되(자극 적음) 이슈와 관계있고 성의 있는(구체적인) 댓글일수록 높게
+function neutralScore(text, terms) {
+  const t = String(text || "");
+  const len = t.replace(/\s+/g, "").length;
+  let sc = calmQuote(t) ? 40 : 0;
+  sc -= intensity(t);
+  const hit = terms.filter((w) => t.includes(w)).length;
+  sc += Math.min(30, hit * 15); // 이슈 키워드가 들어 있음
+  if (len >= 15 && len <= 140) sc += 15; // 한두 마디가 아닌 성의 있는 길이
+  else if (len < 10) sc -= 20;
+  else if (len > 220) sc -= 5;
+  if (/\d/.test(t)) sc += 4; // 금액·사양 같은 구체적인 내용
+  if ((t.match(/[가-힣]{2,}/g) || []).length >= 5) sc += 5;
+  return sc;
+}
+
+// 이슈와 관계있는지 볼 말: 수집 키워드(| 조합 풀어서)·이슈명의 두 글자 이상 낱말
+function issueTerms() {
+  const kw = parseKeywords(job.keywords || "");
+  const words = kw.groups.flat(2).concat(String(job.issueName || "").split(/\s+/));
+  return [...new Set(words.map((w) => w.trim()).filter((w) => w.length >= 2))];
+}
+
 function quotePool(per = 110) {
   const pool = {};
+  const terms = issueTerms();
   const list = activeComments().filter((c) => c.sentiment && meaningfulQuote(c.text));
   for (const s of SENTIMENTS) {
     const mine = list.filter((c) => c.sentiment === s);
@@ -1341,7 +1365,7 @@ function quotePool(per = 110) {
     const byCh = CH_ORDER.map((ch) =>
       mine
         .filter((c) => c.channel === ch)
-        .map((c) => ({ c, k: (s === "중립" ? (calmQuote(c.text) ? 1000 : 0) - intensity(c.text) : intensity(c.text)) + Math.random() }))
+        .map((c) => ({ c, k: (s === "중립" ? neutralScore(c.text, terms) : intensity(c.text)) + Math.random() }))
         .sort((a, b) => b.k - a.k)
         .map((x) => x.c),
     );
@@ -1422,7 +1446,7 @@ async function writeReport() {
   $("#writeReport").disabled = false;
 }
 
-// 중립 댓글만 다시 고르기 (AI 없이 · 비용 없음): 가장 밋밋한 중립 댓글로 1·2페이지 칸을 채움
+// 중립 댓글만 다시 고르기 (AI 없이 · 비용 없음): 밋밋하되 이슈와 관계있는 성의 있는 중립 댓글부터 1·2페이지 칸을 채움
 function refillNeutral() {
   const r = readReport();
   const pool = quotePool().중립.map((c) => c.text);
@@ -1431,7 +1455,7 @@ function refillNeutral() {
   r.long.중립 = pool.slice(5, 25);
   saveJobSoon();
   renderReport();
-  setMsg("#reportMsg", `✔ 중립 댓글을 가장 밋밋한 댓글로 다시 골랐습니다 (AI 안 씀 · 비용 없음). 1페이지 ${r.short.중립.length}개 · 2페이지 ${r.long.중립.length}개`, "ok");
+  setMsg("#reportMsg", `✔ 중립 댓글을 다시 골랐습니다 — 밋밋하되 이슈와 관계있는 성의 있는 댓글부터 (AI 안 씀 · 비용 없음). 1페이지 ${r.short.중립.length}개 · 2페이지 ${r.long.중립.length}개`, "ok");
 }
 
 // 제목·요약만 다시 (주요 댓글 칸은 손대지 않음) — 후보 댓글을 적게 보내 비용이 훨씬 적다
