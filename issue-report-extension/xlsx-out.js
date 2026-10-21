@@ -113,13 +113,16 @@ function finishSheet(tpl, rowsXml, links, lastRow, lastCol, index, extra = (x) =
 
 // 게시글 목록 엑셀: 시트마다 No / 출처 / 제목 / 작성시간 / Link (샘플: 20260806_CN8_가격 공개_동호회 게시물)
 // sheets: [{ name, rows: [{ source, title, date, url }] }]
-async function buildPostsXlsx(sheets) {
+// withSentiment: 오른쪽에 '성향'(게시글 자체 성향) 열을 더한다 (머리글·칸 서식은 양식의 출처 열과 같게)
+async function buildPostsXlsx(sheets, withSentiment = false) {
   const files = await loadTemplate("templates/posts-template.xlsx");
   const tpl = splitSheet(Zip.text(files.get("xl/worksheets/sheet1.xml")));
   const header = tpl.rows[0];
   const pattern = tpl.rows[1];
   const built = sheets.map((sh, index) => {
-    const rows = [header.xml.replace(/<row r="\d+"/, '<row r="1"')];
+    let head = header.xml.replace(/<row r="\d+"/, '<row r="1"');
+    if (withSentiment) head = head.replace("</row>", `${cellXml("F1", header.styles.A, "성향")}</row>`).replace(/spans="1:5"/, 'spans="1:6"');
+    const rows = [head];
     const links = [];
     sh.rows.forEach((p, i) => {
       const n = i + 2;
@@ -131,11 +134,12 @@ async function buildPostsXlsx(sheets) {
           cellXml(`C${n}`, st.C, p.title || ""),
           cellXml(`D${n}`, st.D, p.date ? excelSerial(p.date) : ""),
           cellXml(`E${n}`, st.E, p.url || ""),
+          ...(withSentiment ? [cellXml(`F${n}`, st.A, p.sentiment || "")] : []),
         ]),
       );
       if (p.url) links.push({ ref: `E${n}`, url: p.url });
     });
-    return { name: sh.name, links, filter: null, xml: finishSheet(tpl, rows, links, sh.rows.length + 1, "E", index) };
+    return { name: sh.name, links, filter: null, xml: finishSheet(tpl, rows, links, sh.rows.length + 1, withSentiment ? "F" : "E", index) };
   });
   return assembleWorkbook(files, built);
 }

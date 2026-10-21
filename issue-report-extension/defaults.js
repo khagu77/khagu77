@@ -144,7 +144,11 @@ const DELAYS = {
 
 // 명령 규칙 메모리 (Markdown): 담당자가 쌓아 가는 판정·작성 규칙. 모든 AI 단계에 붙는다
 const MEMORY_INTRO = "담당자가 쌓아 가는 판정·작성 규칙입니다. 모든 AI 단계에 붙고, 기본 규칙과 다르면 이것을 따릅니다.";
-const DEFAULT_MEMORY = `# 명령 규칙 메모리\n\n${MEMORY_INTRO}\n\n## 공통 규칙\n\n## 게시물 관련성 규칙\n\n## 성향 분석 규칙\n\n## 보고서 작성 규칙\n`;
+// 담당자가 정한 기본 메모리 규칙 (처음부터 들어 있고, 예전 메모리에도 한 번 보태 준다)
+const MEMORY_SEED = [
+  ["보고서 작성 규칙", "- 성향별 주요 댓글(샘플)은 이번 보고서와 맞는 **가장 자극적인 댓글 위주**로, 원문 그대로(맞춤법·욕설·ㅋㅋ 그대로) 고른다. 센 댓글부터 앞에 둔다. _(2026-10-21, 담당자 요청)_"],
+];
+const DEFAULT_MEMORY = `# 명령 규칙 메모리\n\n${MEMORY_INTRO}\n\n## 공통 규칙\n\n## 게시물 관련성 규칙\n\n## 성향 분석 규칙\n\n## 보고서 작성 규칙\n${MEMORY_SEED.filter(([sec]) => sec === "보고서 작성 규칙").map(([, l]) => l).join("\n")}\n`;
 
 // 메모리에 실제 규칙(제목·안내 문장 말고)이 있는지
 function memoryHasRules(md) {
@@ -180,6 +184,11 @@ async function loadSettings() {
     s.customPrompt = "";
   }
   if (!Array.isArray(s.corrections)) s.corrections = [];
+  // 기본 메모리 규칙이 없으면 보태 준다 (같은 규칙이 이미 있으면 그대로)
+  for (const [sec, line] of MEMORY_SEED) {
+    const key = line.replace(/_\(.*\)_$/, "").trim().slice(0, 40);
+    if (!String(s.memoryMd).includes(key)) s.memoryMd = appendMemory(s.memoryMd, sec, line);
+  }
   for (const c of s.cafes) if (c.viaSearch === undefined) c.viaSearch = VIA_SEARCH_CAFES.includes(c.slug);
   if (!s.youtubeChannels?.length) s.youtubeChannels = DEFAULT_YOUTUBE_CHANNELS.map((c) => ({ ...c }));
   return s;

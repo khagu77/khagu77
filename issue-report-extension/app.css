@@ -249,3 +249,11 @@ select option[value="긍정"] { color: var(--pos); }
 select option[value="중립"] { color: var(--neu); }
 select option[value="부정"] { color: var(--neg); }
 select option[value="단순비난"] { color: var(--hate); }
+
+/* 성향 포함 엑셀 받기: 다른 받기 버튼과 구분되는 청록색 */
+button.primary.senti { background: #0f766e; border-color: #0f766e; }
+button.primary.senti:hover { background: #115e59; }
+.rsum-hit { color: #6a52b8; }
+@media (prefers-color-scheme: dark) { .rsum-hit { color: #c6b6f5; } }
+.qcol[data-s="중립"] b { color: var(--neu); }
+.qcol b { font-size: 14px; }

@@ -762,13 +762,24 @@ async function storeAndDownload(kind, name, bytes) {
   await downloadBytes(bytes, name, settings.saveFolder);
 }
 
-async function makePostsFile() {
+// withSentiment: 게시글 자체 성향 열 포함 (파일명 끝 '_성향분석 포함')
+async function makePostsFile(withSentiment = false) {
   const posts = job.posts.filter((p) => p.checked);
   const sheets = byChannel(posts, (p) => p.channel).map((g) => ({
     name: g.name,
-    rows: g.items.slice().sort((a, b) => (b.date || 0) - (a.date || 0)).map((p) => ({ source: p.source, title: p.title, date: p.date, url: p.url })),
+    rows: g.items.slice().sort((a, b) => (b.date || 0) - (a.date || 0)).map((p) => ({ source: p.source, title: p.title, date: p.date, url: p.url, sentiment: p.postSentiment || "" })),
   }));
-  return { name: `${fileBase()}_게시물 리스트.xlsx`, bytes: await buildPostsXlsx(sheets) };
+  return { name: `${fileBase()}_게시물 리스트${withSentiment ? "_성향분석 포함" : ""}.xlsx`, bytes: await buildPostsXlsx(sheets, withSentiment) };
+}
+
+async function downloadPostsSentiment() {
+  const checked = job.posts.filter((p) => p.checked);
+  if (!checked.length) return setMsg("#postsMsg", "체크한 게시글이 없습니다.", "err");
+  const blank = checked.filter((p) => !p.postSentiment).length;
+  if (blank && !confirm(`체크한 글 중 성향이 비어 있는 글이 ${blank}건 있습니다(성향 칸이 빈 채로 들어갑니다). 그래도 받을까요?\n(먼저 채우려면 [취소] 후 '채우기' 버튼)`)) return;
+  const f = await makePostsFile(true);
+  await storeAndDownload("postsSentiment", f.name, f.bytes);
+  setMsg("#postsMsg", `✔ ${f.name} 저장 (보고서 DB 에도 보관)`, "ok");
 }
 
 async function downloadPosts() {
@@ -1213,12 +1224,33 @@ function statsText(stats) {
 }
 
 // 성향마다 후보 댓글 (채널 골고루, 너무 짧은 것 제외)
-function quotePool(per = 90) {
+// 댓글이 얼마나 자극적인지 대강 점수 (AI 에 보낼 후보를 고를 때 센 댓글이 빠지지 않게)
+const STRONG_RE = /시발|씨발|ㅅㅂ|ㅆㅂ|개같|개빡|개념|미친|ㅁㅊ|호구|사기|쓰레기|양아치|도둑|강도|날강도|현기|흉기|노조|불매|망해|망했|역겹|실화|미쳤|어이없|빡치|열받|최악|양심|배짱|바가지|폭리|장난|꼼수|기만|헛소리|답이 없|그돈씨|탈출|다신|절대/g;
+function intensity(text) {
+  const t = String(text || "");
+  let sc = (t.match(STRONG_RE) || []).length * 3;
+  sc += Math.min(4, (t.match(/[!?]{1,}/g) || []).length);
+  sc += Math.min(3, (t.match(/ㅋ{2,}|ㅎ{2,}|ㅠ{2,}|ㅡㅡ|;;/g) || []).length);
+  sc += Math.min(4, (t.match(/\d[\d,.]*\s*(?:만원|만|원|%)/g) || []).length * 2);
+  const len = t.replace(/\s+/g, "").length;
+  if (len >= 15 && len <= 160) sc += 2;
+  if (len < 8) sc -= 3;
+  return sc;
+}
+
+function quotePool(per = 110) {
   const pool = {};
   const list = activeComments().filter((c) => c.sentiment && c.text.replace(/\s+/g, "").length >= 6);
   for (const s of SENTIMENTS) {
     const mine = list.filter((c) => c.sentiment === s);
-    const byCh = CH_ORDER.map((ch) => mine.filter((c) => c.channel === ch).sort(() => Math.random() - 0.5));
+    // 채널마다 센 댓글부터 (같은 점수면 무작위) → 채널을 돌아가며 담아 채널이 고루 섞이게
+    const byCh = CH_ORDER.map((ch) =>
+      mine
+        .filter((c) => c.channel === ch)
+        .map((c) => ({ c, k: intensity(c.text) + Math.random() }))
+        .sort((a, b) => b.k - a.k)
+        .map((x) => x.c),
+    );
     const out = [];
     for (let i = 0; out.length < per && byCh.some((a) => a.length > i); i++) for (const a of byCh) if (a[i] && out.length < per) out.push(a[i]);
     pool[s] = out.map((c) => ({ id: c.id.replace(/[^\w#:/.-]/g, ""), realId: c.id, text: c.text, channelName: CH_NAME[c.channel] }));
@@ -1303,6 +1335,26 @@ function renderReportSummary() {
         el("span", { class: "hint", text: `  (펼친 검색어 ${nQueries}개${kw.exclude.length ? ` · 제외: ${kw.exclude.join(", ")}` : ""})` }),
       ),
     ),
+    el(
+      "div",
+      { class: "rsum-row" },
+      el("span", { class: "rsum-label", text: "수집 결과" }),
+      el(
+        "span",
+        {},
+        "후보 ",
+        el("b", { text: `${numFmt(job.posts.length)}건` }),
+        " 중 관련 게시글 ",
+        el("b", { class: "rsum-hit", text: `${numFmt(job.posts.filter((p) => p.checked).length)}건` }),
+        " 확인",
+        el("span", {
+          class: "hint",
+          text: `  (${CH_ORDER.filter((c) => job.posts.some((p) => p.channel === c))
+            .map((c) => `${CH_NAME[c]} ${job.posts.filter((p) => p.channel === c && p.checked).length}/${job.posts.filter((p) => p.channel === c).length}`)
+            .join(" · ")})`,
+        }),
+      ),
+    ),
     job.purpose ? el("div", { class: "rsum-row" }, el("span", { class: "rsum-label", text: "작성 목적" }), el("span", { class: "rsum-purpose", text: job.purpose })) : null,
   );
   const head = el("tr", {}, ...["채널", "수집 게시글", "댓글", "긍정", "중립", "부정", "단순비난", "부정+단순비난", "게시글 성향 (긍/중/부/단)"].map((t) => el("th", { text: t })));
@@ -1313,7 +1365,8 @@ function renderReportSummary() {
     const ch = CH_ORDER.find((c) => CH_NAME[c] === k);
     const posts = checked.filter((p) => !ch || p.channel === ch);
     const pct1 = (n) => (st.comments ? `${((n / st.comments) * 100).toFixed(1)}%` : "-");
-    const ps = SENTIMENTS.map((s) => posts.filter((p) => p.postSentiment === s).length).join(" / ");
+    // 게시글 성향 건수: 성향별 색으로 굵게 (긍/중/부/단)
+    const ps = SENTIMENTS.flatMap((s, i) => [i ? " / " : "", el("b", { class: `s-${s}`, text: String(posts.filter((p) => p.postSentiment === s).length) })]);
     tbody.append(
       el(
         "tr",
@@ -1323,7 +1376,7 @@ function renderReportSummary() {
         el("td", { text: `${numFmt(st.comments)}${st.미분석 ? ` (+미분석 ${numFmt(st.미분석)})` : ""}` }),
         ...SENTIMENTS.map((s) => el("td", { class: `s-${s}`, text: pct1(st[s]) })),
         el("td", { class: "s-부정", text: pct1(st.부정 + st.단순비난) }),
-        el("td", { text: posts.some((p) => p.postSentiment) ? ps : "-" }),
+        posts.some((p) => p.postSentiment) ? el("td", {}, ...ps) : el("td", { text: "-" }),
       ),
     );
   }
@@ -1414,6 +1467,7 @@ async function saveFinal() {
       made.push(f.name);
     };
     await put("posts", await makePostsFile());
+    await put("postsSentiment", await makePostsFile(true));
     if (activeComments().length) {
       await put("comments", await makeCommentsFile(false));
       await put("sentiment", await makeCommentsFile(true));
@@ -1433,7 +1487,7 @@ async function saveFinal() {
 // 보고서 DB
 // ---------------------------------------------------------------------------
 
-const FILE_LABEL = { posts: "게시글", comments: "댓글", sentiment: "성향", pptx: "PPT" };
+const FILE_LABEL = { posts: "게시글", postsSentiment: "게시글+성향", comments: "댓글", sentiment: "성향", pptx: "PPT" };
 
 async function renderDb() {
   const tbody = $("#dbTable tbody");
@@ -1444,7 +1498,7 @@ async function renderDb() {
     const st = j.final?.stats?.["전체"];
     const negRate = st && st.comments ? `${(((st.부정 + st.단순비난) / st.comments) * 100).toFixed(1)}%` : "";
     const filesTd = el("td", { class: "files" });
-    for (const k of ["posts", "comments", "sentiment", "pptx"]) {
+    for (const k of ["posts", "postsSentiment", "comments", "sentiment", "pptx"]) {
       const f = files.find((x) => x.kind === k);
       if (f) filesTd.append(el("button", { text: `⬇ ${FILE_LABEL[k]}`, title: f.name, onclick: async () => downloadBytes(new Uint8Array(await f.bytes.arrayBuffer()), f.name, settings.saveFolder) }));
     }
@@ -1691,6 +1745,7 @@ async function init() {
     renderPosts();
   });
   $("#dlPosts").addEventListener("click", downloadPosts);
+  $("#dlPostsSenti").addEventListener("click", downloadPostsSentiment);
   $("#goComments").addEventListener("click", () => showTab("comments"));
 
   // 3단계

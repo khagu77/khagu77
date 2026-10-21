@@ -151,7 +151,7 @@ def claude(body, calls):
     if "댓글 성향 분석" in system:
         rows = re.findall(r"^(\d+)\t(?:└답글 )?(.*)$", user, re.M)
         return {"results": [{"id": i, "s": senti_of(t)} for i, t in rows]}
-    if "보고서 작성 규칙" in system:
+    if "★ 보고서 작성 규칙 ★" in system:
         ids = {}
         for sec in re.split(r"\n## ", user)[1:]:
             name = sec.split(" ")[0]
@@ -163,6 +163,18 @@ def claude(body, calls):
             "quotes_long": {k: ids.get(k, []) for k in ["긍정", "중립", "부정", "단순비난"]},
         }
     return {}
+
+
+def wait_js(page, expr, timeout=30000):
+    """확장 화면은 eval 이 막혀 있어 wait_for_function 대신 evaluate 를 되풀이한다."""
+    import time
+
+    end = time.time() + timeout / 1000
+    while time.time() < end:
+        if page.evaluate(expr):
+            return
+        page.wait_for_timeout(200)
+    raise AssertionError(f"시간 안에 참이 되지 않음: {expr}")
 
 
 def test_issue_report(tmp_path: Path):
@@ -288,14 +300,19 @@ def test_issue_report(tmp_path: Path):
         page.locator("#postsTable tbody tr", has_text="아반떼 가격 공개 외부 언론사 기사").locator("input[type=checkbox]").uncheck()
         dismiss_next.append(True)
         page.click("#rejudge")
-        page.wait_for_function("document.querySelector('#postsLog').textContent.split('AI 판독 완료').length > 2", timeout=30000)
-        page.wait_for_function("!document.body.classList.contains('working')", timeout=30000)
+        wait_js(page, "document.querySelector('#postsLog').textContent.split('AI 판독 완료').length > 2", timeout=30000)
+        wait_js(page, "!document.body.classList.contains('working')", timeout=30000)
         assert not page.locator("#postsTable tbody tr", has_text="아반떼 가격 공개 외부 언론사 기사").locator("input[type=checkbox]").is_checked()
         assert clien_row.locator("select").input_value() == "단순비난"
         page.locator("#postsTable tbody tr", has_text="아반떼 가격 공개 외부 언론사 기사").locator("input[type=checkbox]").check()
         sys_rel0 = next(c["system"] for c in claude_calls if "게시물 관련성 판독" in c["system"])
         assert "게시글 자체(제목·내용)가 이번 이슈 대상에 대해 보이는 성향" in sys_rel0
         posts_xlsx = save_download("#dlPosts")
+        senti_posts = save_download("#dlPostsSenti")
+        assert senti_posts.name.endswith("_게시물 리스트_성향분석 포함.xlsx")
+        wbs = load_workbook(senti_posts)
+        assert [c.value for c in wbs["커뮤니티"][1]] == ["No", "출처", "제목", "작성시간", "Link", "성향"]
+        assert wbs["커뮤니티"]["F2"].value == "단순비난" and wbs["커뮤니티"]["F1"].font.name == "현대산스 Text Medium"
         wb = load_workbook(posts_xlsx)
         assert wb.sheetnames == ["언론", "유튜브", "커뮤니티"]
         assert [c.value for c in wb["언론"][1]] == ["No", "출처", "제목", "작성시간", "Link"]
@@ -368,6 +385,7 @@ def test_issue_report(tmp_path: Path):
         assert row.locator("select").input_value() == "중립"
         page.click('nav .tab[data-tab="prompt"]')
         assert "가격 때문에 다른 차를 사겠다는 댓글은 부정으로 본다" in page.input_value("#memoryMd")
+        assert "가장 자극적인 댓글 위주" in page.input_value("#memoryMd")  # 댓글 샘플 규칙이 메모리에 기본으로
         assert "디자인 좋네요 기대됩니다" in page.inner_text("#corrList")
         md = save_download("#dlMemory")
         assert "## 성향 교정 사례 (자동 기록)" in md.read_text(encoding="utf-8")
@@ -380,11 +398,14 @@ def test_issue_report(tmp_path: Path):
         summary_box = page.inner_text("#reportSummary")
         assert "2026-08-05 07:00 ~ 2026-08-06 10:00" in summary_box
         assert "CN8|아반떼 가격" in summary_box and "펼친 검색어 2개" in summary_box
+        assert re.search(r"후보 \d+건 중 관련 게시글 5건 확인", summary_box) and "커뮤니티 1/2" in summary_box, [l for l in summary_box.splitlines() if "후보" in l or "수집 결과" in l]
         assert page.locator("#reportSummary .rsum-kw b").count() == 1
         assert "커뮤니티" in summary_box and "부정+단순비난" in summary_box
         page.click("#writeReport")
         page.locator("#reportMsg", has_text="초안").wait_for(timeout=60000)
         assert page.input_value("#rTitle") == "CN8 가격 공개 관련 여론 동향"
+        sys_rep = next(c["system"] for c in claude_calls if "★ 보고서 작성 규칙 ★" in c["system"])
+        assert "가장 자극적이고 반응이 센 댓글" in sys_rep and "원문 그대로" in sys_rep
         pptx = save_download("#dlPptx")
         page.click("#saveFinal")
         page.locator("#finalMsg", has_text="최종 DB 저장 완료").wait_for(timeout=60000)
@@ -408,7 +429,7 @@ def test_issue_report(tmp_path: Path):
         assert "체크한 글 중 성향이 비어 있는 1건" in page.inner_text("#fillPostSenti")
         assert "판정된" in page.inner_text("#postsSentiment")
         page.click("#fillPostSenti")
-        page.wait_for_function("job.posts.filter(p => p.channel === 'youtube').every(p => p.postSentiment)", timeout=30000)
+        wait_js(page, "job.posts.filter(p => p.channel === 'youtube').every(p => p.postSentiment)", timeout=30000)
         assert page.evaluate("job.posts.filter(p => p.channel === 'youtube').every(p => p.checked)")
         page.evaluate(blank_yt)
 
@@ -446,7 +467,8 @@ def test_issue_report(tmp_path: Path):
         names = z.namelist()
         meta = json.loads(z.read("backup.json"))
     assert len(meta["jobs"]) == 1 and meta["jobs"][0]["final"]
-    assert sorted(f["kind"] for f in meta["files"]) == ["comments", "posts", "pptx", "sentiment"]
+    assert sorted(f["kind"] for f in meta["files"]) == ["comments", "posts", "postsSentiment", "pptx", "sentiment"]
+    assert any(f["name"].endswith("_게시물 리스트_성향분석 포함.xlsx") for f in meta["files"])
     assert all(f["path"] in names for f in meta["files"])
 
 
