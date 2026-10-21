@@ -401,8 +401,12 @@ def test_issue_report(tmp_path: Path):
         # 예전 버전으로 판독해 게시글 성향이 빈 글 → '채우기' 버튼 (체크는 그대로)
         page.click('nav .tab[data-tab="posts"]')
         blank_yt = "job.posts.filter(p => p.channel === 'youtube').forEach(p => { p.postSentiment = ''; p.postSentimentManual = false; }); renderPosts();"
+        # 체크하지 않은(무관) 글은 성향이 비어도 채울 대상이 아님
+        page.evaluate("job.posts.filter(p => !p.checked).forEach(p => { p.postSentiment = ''; }); renderPosts();")
+        assert page.is_hidden("#fillPostSenti")
         page.evaluate(blank_yt)
-        assert "1건" in page.inner_text("#fillPostSenti")
+        assert "체크한 글 중 성향이 비어 있는 1건" in page.inner_text("#fillPostSenti")
+        assert "판정된" in page.inner_text("#postsSentiment")
         page.click("#fillPostSenti")
         page.wait_for_function("job.posts.filter(p => p.channel === 'youtube').every(p => p.postSentiment)", timeout=30000)
         assert page.evaluate("job.posts.filter(p => p.channel === 'youtube').every(p => p.checked)")

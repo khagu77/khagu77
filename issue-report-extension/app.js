@@ -558,7 +558,7 @@ async function collectPosts() {
   if (!stopRequested) {
     await judgePosts(log, fresh);
     // 다시 수집하지 않은 채널의 글 중 게시글 성향이 빈 글(예전 버전으로 판독)은 체크는 그대로 두고 성향만 채운다
-    const blank = kept.filter((p) => !p.postSentiment);
+    const blank = kept.filter((p) => p.checked && !p.postSentiment);
     if (!stopRequested && blank.length && aiReady()) {
       log(`다른 채널 글 중 게시글 성향이 빈 ${blank.length}건의 성향을 채웁니다 (체크는 그대로)`);
       await judgePosts(log, blank, true);
@@ -704,7 +704,7 @@ function postSentimentSelect(p) {
 async function fillPostSentiments() {
   if (running) return;
   if (!aiReady()) return setMsg("#postsMsg", "설정에서 Anthropic API 키를 넣어 주세요.", "err");
-  const blank = job.posts.filter((p) => !p.postSentiment);
+  const blank = job.posts.filter((p) => p.checked && !p.postSentiment);
   if (!blank.length) return;
   running = true;
   const log = logTo("#postsLog");
@@ -719,10 +719,10 @@ async function fillPostSentiments() {
 function renderPostSentimentSummary() {
   const checked = job.posts.filter((p) => p.checked);
   const rated = checked.filter((p) => p.postSentiment);
-  const blank = job.posts.filter((p) => !p.postSentiment);
+  const blank = checked.filter((p) => !p.postSentiment);
   const fill = $("#fillPostSenti");
   fill.hidden = !blank.length || running;
-  fill.textContent = `게시글 성향이 비어 있는 글 ${blank.length}건 — 채우기`;
+  fill.textContent = `체크한 글 중 성향이 비어 있는 ${blank.length}건 — 채우기`;
   if (!rated.length) return ($("#postsSentiment").textContent = "");
   // 성향별 건수는 굵게, 성향 색으로
   const parts = SENTIMENTS.flatMap((s, i) => {
@@ -734,7 +734,7 @@ function renderPostSentimentSummary() {
     `${CH_NAME[c]}: `,
     ...SENTIMENTS.flatMap((s, k) => [k ? "/" : "", el("b", { class: `s-${s}`, text: String(rated.filter((p) => p.channel === c && p.postSentiment === s).length) })]),
   ]);
-  $("#postsSentiment").replaceChildren(`게시글 자체 성향 (체크한 글 ${rated.length}건): `, ...parts, "  —  채널별 긍/중/부/단: ", ...by);
+  $("#postsSentiment").replaceChildren(`게시글 자체 성향 (체크한 글 ${checked.length}건${rated.length < checked.length ? ` 중 판정된 ${rated.length}건` : ""}): `, ...parts, "  —  채널별 긍/중/부/단: ", ...by);
 }
 
 function togglePost(p, on, tr) {
