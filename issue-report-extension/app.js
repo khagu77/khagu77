@@ -360,7 +360,18 @@ async function collectPosts() {
     showTab("setup");
     return setMsg("#setupMsg", err, "err");
   }
-  if (job.posts.length && !confirm(`이미 찾은 게시글 ${job.posts.length}건이 있습니다. 처음부터 다시 수집할까요?\n(지금까지 모은 댓글·성향 분석도 지워집니다)`)) return;
+  // 이번에 수집할 채널 (2단계 화면에서 고름). 고르지 않은 채널의 게시글·댓글·성향 분석은 그대로 둔다
+  const run = CH_ORDER.filter((c) => job.channels[c] && $(`#runChannels input[value="${c}"]`)?.checked !== false);
+  if (!run.length) return setMsg("#postsMsg", "이번에 수집할 채널을 하나 이상 체크하세요.", "err");
+  const all = run.length === CH_ORDER.filter((c) => job.channels[c]).length;
+  const had = job.posts.filter((p) => run.includes(p.channel)).length;
+  if (job.posts.length) {
+    const names = run.map((c) => CH_NAME[c]).join("·");
+    const msg = all
+      ? `이미 찾은 게시글 ${job.posts.length}건이 있습니다. 모든 채널을 처음부터 다시 수집할까요?\n(지금까지 모은 댓글·성향 분석도 지워집니다)`
+      : `${names}만 다시 수집합니다. (${names}의 기존 게시글 ${had}건과 그 댓글·성향 분석은 새로 모은 것으로 바뀌고, 다른 채널은 그대로 둡니다)`;
+    if (!confirm(msg)) return;
+  }
   running = true;
   stopRequested = false;
   $("#collectPosts").disabled = true;
@@ -372,20 +383,24 @@ async function collectPosts() {
   const range = jobRange();
   const kw = parseKeywords(job.keywords);
   const queries = searchQueries(kw);
-  job.posts = [];
-  job.comments = [];
-  job.commentStatus = {};
-  job.report = null;
+  const kept = job.posts.filter((p) => !run.includes(p.channel));
+  const keptKeys = new Set(kept.map((p) => p.key));
+  job.posts = kept;
+  job.comments = job.comments.filter((c) => keptKeys.has(c.postKey));
+  for (const k of Object.keys(job.commentStatus)) if (!keptKeys.has(k)) delete job.commentStatus[k];
+  if (all) job.report = null;
   job.files = {};
+  job.final = null;
   const found = new Map();
   const add = (p) => {
     if (!found.has(p.key)) found.set(p.key, { checked: false, ai: null, ...p });
   };
   const errors = [];
-  const tasks = CH_ORDER.filter((c) => job.channels[c]);
+  const tasks = run;
+  if (!all) log(`이번 수집 채널: ${run.map((c) => CH_NAME[c]).join("·")} (다른 채널 게시글 ${kept.length}건은 그대로)`);
   try {
     // 언론
-    if (job.channels.news && !stopRequested) {
+    if (run.includes("news") && !stopRequested) {
       const nc = new NewsCollector({ delays, log, isStopped, replies: settings.newsReplies });
       let cands = [];
       if (job.newsAuto) {
@@ -396,41 +411,53 @@ async function collectPosts() {
       for (const u of directUrls(job.urls.news)) {
         const ids = newsIds(u);
         if (!ids) {
-          log(`  · 네이버 뉴스 기사 주소가 아니라 건너뜀: ${u}`, "err");
+          // 언론사 자체 사이트 기사: 게시글 목록에는 넣고(네이버 댓글은 없음) 제목은 모르면 주소로
+          const key = `newsx:${u.replace(/[#?].*$/, "").replace(/\/$/, "").toLowerCase()}`;
+          if (!cands.some((c) => c.key === key)) cands.push({ key, channel: "news", external: true, url: u, title: "", press: new URL(u).hostname.replace(/^www\./, ""), direct: true });
           continue;
         }
         const key = `news:${ids.oid}/${ids.aid}`;
         if (!cands.some((c) => c.key === key)) cands.push({ key, channel: "news", ...ids, url: newsUrl(ids), title: "", direct: true });
       }
-      log(`언론: 후보 기사 ${cands.length}건 → 댓글 수·기사 정보 확인`);
+      log(`언론: 후보 기사 ${cands.length}건 → 기사 정보·댓글 수 확인`);
       let noComment = 0;
       let outRange = 0;
+      let external = 0;
       for (let i = 0; i < cands.length && !stopRequested; i++) {
         const c = cands[i];
         showWork(`언론: 기사 확인 ${i + 1}/${cands.length}`, i, cands.length);
-        try {
-          const n = await nc.commentCount(c);
-          if (!n) {
-            noComment++;
+        if (c.external) {
+          // 언론사 자체 사이트 기사: 검색 결과의 제목·언론사·날짜로 넣는다 (네이버 댓글 없음 → 댓글 수집 건너뜀)
+          const parsed = parseKoreanDate(c.dateText);
+          const place = placeInRange(parsed, range);
+          if (!c.direct && (place === "older" || place === "newer")) {
+            outRange++;
             continue;
           }
+          external++;
+          add({ ...c, source: c.press || new URL(c.url).hostname.replace(/^www\./, ""), date: parsed ? parsed.date.getTime() : null, exact: !!parsed?.exact, ccount: 0, snippet: "" });
+          continue;
+        }
+        try {
+          const n = await nc.commentCount(c);
+          if (!n) noComment++;
           const a = await nc.readArticle(c);
           if (!c.direct && a.date && (a.date < job.from || a.date >= job.to)) {
             outRange++;
             continue;
           }
-          add({ ...c, title: a.title || c.title, source: a.press || "네이버 뉴스", date: a.date, exact: a.exact, body: a.body, ccount: n });
+          add({ ...c, title: a.title || c.title, source: a.press || c.press || "네이버 뉴스", date: a.date, exact: a.exact, body: a.body, ccount: n });
         } catch (e) {
           if (e instanceof StopError) throw e;
           log(`  · 기사 확인 실패 ${c.url}: ${korMsg(e.message)}`, "err");
         }
         await sleep(randomBetween(delays.news));
       }
-      log(`언론: 댓글 있는 기사 ${[...found.values()].filter((p) => p.channel === "news").length}건 (댓글 없음 ${noComment}건·기간 밖 ${outRange}건 제외)`);
+      log(`언론: 기사 ${[...found.values()].filter((p) => p.channel === "news").length}건 (네이버 뉴스 중 댓글 없는 기사 ${noComment}건 · 언론사 자체 사이트 기사 ${external}건 — 게시글 목록에는 넣고 댓글 수집은 건너뜀 · 기간 밖 ${outRange}건 제외)`);
     }
 
     // 동호회
-    if (job.channels.cafe && !stopRequested) {
+    if (run.includes("cafe") && !stopRequested) {
       const cc = new CafeCollector({ delays, log, isStopped });
       const cafes = settings.cafes.filter((c) => job.cafes.includes(c.slug));
       const cq = cafeQueries(kw);
@@ -463,7 +490,7 @@ async function collectPosts() {
     }
 
     // 유튜브
-    if (job.channels.youtube && !stopRequested) {
+    if (run.includes("youtube") && !stopRequested) {
       const yc = new YoutubeCollector({ log, isStopped });
       const chs = settings.youtubeChannels.filter((c) => job.youtube.includes(c.id));
       for (let i = 0; i < chs.length && !stopRequested; i++) {
@@ -492,7 +519,7 @@ async function collectPosts() {
     }
 
     // 자동차 커뮤니티
-    if (job.channels.community && !stopRequested) {
+    if (run.includes("community") && !stopRequested) {
       const mc = new CommunityCollector({ delays, log, isStopped });
       const sites = settings.communities.filter((c) => job.communities.includes(c.url));
       for (let i = 0; i < sites.length && !stopRequested; i++) {
@@ -516,13 +543,14 @@ async function collectPosts() {
     if (!(e instanceof StopError)) log(`수집 중 오류: ${korMsg(e.message)}`, "err");
   }
 
-  job.posts = sortPosts([...found.values()]);
+  const fresh = [...found.values()];
+  job.posts = sortPosts([...kept, ...fresh]);
   log(`찾은 후보 게시글 ${job.posts.length}건 (${tasks.map((c) => `${CH_NAME[c]} ${job.posts.filter((p) => p.channel === c).length}`).join(" · ")})`);
   await saveJob();
 
   // AI 관련성 판독
-  if (!stopRequested) await judgePosts(log);
-  else for (const p of job.posts) p.checked = p.direct || matchesKeywords(`${p.title} ${postText(p)}`, kw);
+  if (!stopRequested) await judgePosts(log, fresh);
+  else for (const p of fresh) p.checked = p.direct || matchesKeywords(`${p.title} ${postText(p)}`, kw);
 
   hideWork();
   running = false;
@@ -531,38 +559,38 @@ async function collectPosts() {
   await saveJob();
   renderPosts();
   const checked = job.posts.filter((p) => p.checked).length;
-  $("#postsSummary").textContent = `${stopRequested ? "중지됨 — " : ""}후보 ${job.posts.length}건 중 관련 게시글 ${checked}건을 체크했습니다.${errors.length ? ` (못 읽은 곳 ${errors.length}곳 — 수집 기록 참고)` : ""} 필요 없는 글은 체크를 풀고 '다음'을 누르세요.`;
+  $("#postsSummary").textContent = `${stopRequested ? "중지됨 — " : ""}${all ? "" : `${run.map((c) => CH_NAME[c]).join("·")} 새로 수집 · `}후보 ${job.posts.length}건 중 관련 게시글 ${checked}건을 체크했습니다.${errors.length ? ` (못 읽은 곳 ${errors.length}곳 — 수집 기록 참고)` : ""} 필요 없는 글은 체크를 풀고 '다음'을 누르세요.`;
 }
 
 function sortPosts(list) {
   return list.sort((a, b) => CH_ORDER.indexOf(a.channel) - CH_ORDER.indexOf(b.channel) || (b.date || 0) - (a.date || 0));
 }
 
-async function judgePosts(log) {
+async function judgePosts(log, list = job.posts) {
   const kw = parseKeywords(job.keywords);
-  if (!job.posts.length) return;
+  if (!list.length) return;
   if (!aiReady()) {
     log("API 키가 없어 AI 판독 없이 키워드로만 고릅니다 (설정에서 API 키를 넣으면 AI 가 관련성을 판독합니다)", "err");
-    for (const p of job.posts) {
+    for (const p of list) {
       p.checked = p.direct || matchesKeywords(`${p.title} ${postText(p)}`, kw);
       p.ai = null;
     }
     return;
   }
   const ai = new AiClient(settings, log);
-  log(`AI 관련성 판독: ${job.posts.length}건 (${ai.model.label})`);
+  log(`AI 관련성 판독: ${list.length}건 (${ai.model.label})`);
   try {
-    const items = job.posts.map((p) => ({ key: p.key, channelName: chName(p), source: p.source, title: p.title || "(제목 모름 — 주소로 직접 넣은 글)", text: postText(p), date: p.date }));
+    const items = list.map((p) => ({ key: p.key, channelName: chName(p), source: p.source, title: p.title || "(제목 모름 — 주소로 직접 넣은 글)", text: postText(p), date: p.date }));
     const res = await ai.judgeRelevance(job, items, (done, total) => showWork(`AI 관련성 판독 ${done}/${total}`, done, total));
-    for (const p of job.posts) {
+    for (const p of list) {
       const r = res.get(p.key);
       p.ai = r || null;
       p.checked = r ? r.relevant || (p.direct && !p.title) : p.direct || matchesKeywords(`${p.title} ${postText(p)}`, kw);
     }
-    log(`AI 판독 완료: 관련 ${job.posts.filter((p) => p.ai?.relevant).length}건 · 무관 ${job.posts.filter((p) => p.ai && !p.ai.relevant).length}건 · 비용 ${usdText(ai.costUsd())}`);
+    log(`AI 판독 완료: 관련 ${list.filter((p) => p.ai?.relevant).length}건 · 무관 ${list.filter((p) => p.ai && !p.ai.relevant).length}건 · 비용 ${usdText(ai.costUsd())}`);
   } catch (e) {
     log(`AI 판독 실패(${korMsg(e.message)}) → 키워드로 대신 고릅니다`, "err");
-    for (const p of job.posts) if (!p.ai) p.checked = p.direct || matchesKeywords(`${p.title} ${postText(p)}`, kw);
+    for (const p of list) if (!p.ai) p.checked = p.direct || matchesKeywords(`${p.title} ${postText(p)}`, kw);
   }
   addUsage(ai);
 }
@@ -578,7 +606,20 @@ async function rejudge() {
   renderPosts();
 }
 
+function renderRunChannels() {
+  const box = $("#runChannels");
+  const prev = new Map($$("#runChannels input").map((x) => [x.value, x.checked]));
+  box.innerHTML = "";
+  box.append(el("span", { class: "modelabel", text: "이번에 수집할 채널" }));
+  for (const c of CH_ORDER.filter((x) => job.channels[x])) {
+    const n = job.posts.filter((p) => p.channel === c).length;
+    box.append(el("label", { class: "radio" }, el("input", { type: "checkbox", value: c, checked: prev.has(c) ? prev.get(c) : true }), ` ${CH_NAME[c]}`, n ? el("span", { class: "hint", text: ` (지금 ${n}건)` }) : null));
+  }
+  box.append(el("span", { class: "hint", text: "— 일부만 체크하면 그 채널만 새로 모으고, 다른 채널의 게시글·댓글·성향 분석은 그대로 둡니다" }));
+}
+
 function renderPosts() {
+  renderRunChannels();
   const info = [];
   info.push(`기간 ${fmtDateTime(job.from)} ~ ${fmtDateTime(job.to)}`);
   info.push(`채널 ${CH_ORDER.filter((c) => job.channels[c]).map((c) => CH_NAME[c]).join("·")}`);
@@ -669,6 +710,17 @@ async function collectComments(onlyFailed = false) {
     return onlyFailed ? st && !st.ok : !st || !st.ok;
   });
   if (!todo.length) return setMsg("#commentsMsg", onlyFailed ? "다시 읽을 글이 없습니다." : "모든 글의 댓글을 이미 모았습니다. 다시 모으려면 2단계부터 다시 하세요.", "ok");
+  // 댓글 수가 0 으로 확인된 언론 기사는 열지 않고 건너뜀
+  for (const p of todo.filter((x) => x.channel === "news" && x.ccount === 0)) {
+    job.commentStatus[p.key] = { ok: true, count: 0, note: p.external ? "언론사 자체 사이트 — 네이버 댓글 없음" : "댓글 없음 — 건너뜀" };
+    job.comments = job.comments.filter((c) => c.postKey !== p.key);
+  }
+  todo.splice(0, todo.length, ...todo.filter((x) => !(x.channel === "news" && x.ccount === 0)));
+  if (!todo.length) {
+    await saveJob();
+    renderCommentPosts();
+    return setMsg("#commentsMsg", "댓글이 있는 글이 없습니다.", "ok");
+  }
   const cafeCount = todo.filter((p) => p.channel === "cafe").length;
   if (cafeCount > 40 && !confirm(`네이버 카페 글 ${cafeCount}건의 댓글을 읽습니다. 글마다 10~20초씩 천천히 읽어 시간이 걸립니다. 계속할까요?`)) return;
   running = true;

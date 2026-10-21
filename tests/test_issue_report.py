@@ -27,6 +27,9 @@ NEWS_SEARCH = (
     "<html><body><ul>"
     '<li><a href="https://n.news.naver.com/mnews/article/001/0000000001">아반떼 가격 공개 기사</a> <a href="https://n.news.naver.com/mnews/article/001/0000000001">네이버뉴스</a></li>'
     '<li><a href="https://n.news.naver.com/mnews/article/002/0000000002">댓글 없는 아반떼 기사</a></li>'
+    # 언론사 자체 사이트 기사 (「네이버뉴스」 링크 없음)
+    '<li class="bx"><div class="news_info"><a class="info press" href="https://www.hankyung.com/">한국경제</a><span class="info">2026.08.06.</span></div>'
+    '<a class="news_tit" href="https://www.hankyung.com/article/2026080612345">아반떼 가격 공개 외부 언론사 기사</a><div class="dsc">아반떼 가격 이야기</div></li>'
     "</ul></body></html>"
 )
 NEWS_COMMENTS = {
@@ -260,12 +263,16 @@ def test_issue_report(tmp_path: Path):
         page.click("#collectPosts")
         page.locator("#postsSummary", has_text="관련 게시글").wait_for(timeout=120000)
         summary = page.inner_text("#postsSummary")
-        # 언론 1(댓글 없는 기사 제외) + 유튜브 1(기간 밖 영상 제외) + 클리앙 1(무관 1·키워드 없음 1·기간 밖 1 제외)
-        assert "관련 게시글 3건" in summary, summary
+        # 언론 3(댓글 있는 기사·댓글 없는 기사·언론사 자체 사이트 기사 모두) + 유튜브 1(기간 밖 영상 제외) + 클리앙 1(무관 1·키워드 없음 1·기간 밖 1 제외)
+        assert "관련 게시글 5건" in summary, summary
         posts_xlsx = save_download("#dlPosts")
         wb = load_workbook(posts_xlsx)
         assert wb.sheetnames == ["언론", "유튜브", "커뮤니티"]
         assert [c.value for c in wb["언론"][1]] == ["No", "출처", "제목", "작성시간", "Link"]
+        news_rows = {r[4]: r[1] for r in wb["언론"].iter_rows(min_row=2, values_only=True)}
+        assert news_rows["https://www.hankyung.com/article/2026080612345"] == "한국경제"
+        assert "https://n.news.naver.com/mnews/article/002/0000000002" in news_rows  # 댓글 없는 기사도 목록에
+        assert len(news_rows) == 3
         assert wb["언론"]["B2"].value == "연합뉴스"
         assert wb["언론"]["E2"].hyperlink.target == "https://n.news.naver.com/mnews/article/001/0000000001"
         assert wb["커뮤니티"]["C2"].value == "아반떼 가격 진짜 비싸네요"
@@ -281,7 +288,9 @@ def test_issue_report(tmp_path: Path):
         page.wait_for_timeout(500)
         assert page.url.endswith("/app.html")
         assert "뒤로·앞으로 가기를 막았습니다" in page.inner_text("#workBarText")
-        page.locator("#commentsSummary", has_text="댓글을 모은 글 3/3").wait_for(timeout=120000)
+        page.locator("#commentsSummary", has_text="댓글을 모은 글 5/5").wait_for(timeout=120000)
+        assert "언론사 자체 사이트 — 네이버 댓글 없음" in page.inner_text("#commentsTable")
+        assert "댓글 없음 — 건너뜀" in page.inner_text("#commentsTable")
         page.locator("#workBar").wait_for(state="hidden")
         assert "댓글 7개" in page.inner_text("#commentsSummary")
         raw_xlsx = save_download("#dlComments")
@@ -319,6 +328,19 @@ def test_issue_report(tmp_path: Path):
         page.click('nav .tab[data-tab="db"]')
         page.locator("#dbTable .badge.final").wait_for()
         backup = save_download("#dbExport")
+
+        # 언론만 다시 수집: 다른 채널의 게시글·댓글·성향 분석은 그대로
+        page.click('nav .tab[data-tab="posts"]')
+        for c in ["cafe", "youtube", "community"]:
+            box = page.locator(f'#runChannels input[value="{c}"]')
+            if box.count():
+                box.uncheck()
+        page.click("#collectPosts")
+        page.locator("#postsSummary", has_text="언론 새로 수집").wait_for(timeout=120000)
+        page.click('nav .tab[data-tab="comments"]')
+        assert "댓글 4개" in page.inner_text("#commentsSummary"), page.inner_text("#commentsSummary")
+        page.click('nav .tab[data-tab="sentiment"]')
+        assert "분석한 댓글 4개" in page.inner_text("#sentimentSummary")
         ctx.close()
 
     assert errors == [], errors

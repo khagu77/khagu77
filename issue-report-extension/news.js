@@ -43,26 +43,69 @@ class NewsCollector {
     return `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(q)}&sort=1&pd=3&ds=${dotDate(from)}&de=${dotDate(to)}&nso=so:dd,p:${p},a:all&start=${(page - 1) * 10 + 1}`;
   }
 
-  // 검색 결과 화면에서 네이버 뉴스 기사(oid/aid)와 그 줄의 제목 글자를 뽑는다
+  // 검색 결과 화면 → 기사 목록. 네이버 뉴스 기사(oid/aid)뿐 아니라 언론사 자체 사이트 기사(「네이버뉴스」 링크 없음)도 모두.
+  // → [{ oid, aid, title, press, dateText, extUrl }]  (oid 가 없으면 언론사 자체 사이트 기사)
   parseSearch(html) {
-    const out = new Map();
     const doc = new DOMParser().parseFromString(html, "text/html");
+    const isNaverHost = (h) => /(^|\.)(naver\.com|naver\.net|pstatic\.net|naver\.me)$/i.test(h);
+    const titleOk = (t) => t.length >= 10 && !/^(\d|언론사|네이버뉴스|관련뉴스|더보기|이전|다음|Keep)/.test(t);
+    const titleAnchors = [];
     for (const a of doc.querySelectorAll("a[href]")) {
-      const ids = newsIds(a.getAttribute("href"));
-      if (!ids) continue;
-      const key = `${ids.oid}/${ids.aid}`;
-      if (!out.has(key)) out.set(key, { ...ids, title: "" });
-      // 같은 기사 줄 안에서 가장 긴 링크 글자를 제목 후보로
-      let box = a;
-      for (let i = 0; i < 6 && box.parentElement; i++) box = box.parentElement;
-      const cand = [...box.querySelectorAll("a[href]")].map((x) => textOf(x)).filter((t) => t.length > 8 && !/네이버뉴스|언론사 선정|^\d/.test(t));
-      const best = cand.sort((x, y) => y.length - x.length)[0] || "";
-      if (best.length > out.get(key).title.length) out.get(key).title = best.slice(0, 200);
+      const href = a.getAttribute("href") || "";
+      if (!/^https?:\/\//i.test(href)) continue;
+      const text = textOf(a).replace(/\s+/g, " ");
+      if (!titleOk(text)) continue;
+      let host = "";
+      try {
+        host = new URL(href).hostname;
+      } catch {
+        continue;
+      }
+      const ids = newsIds(href);
+      if (ids || !isNaverHost(host)) titleAnchors.push({ a, href, text, ids });
     }
-    // 링크 모양이 바뀌어도 주소 글자에서 기사 번호를 찾는다
+    const norm = (t) => t.replace(/\s+/g, "");
+    const titlesIn = (e) => new Set(titleAnchors.filter((x) => e.contains(x.a)).map((x) => norm(x.text)));
+    const out = new Map();
+    for (const t of titleAnchors) {
+      // 이 기사 제목 하나만 담은 가장 큰 덩어리 + 다른 기사 제목이 없는 형제 덩어리(언론사·날짜 줄)
+      let box = t.a;
+      while (box.parentElement && box.parentElement !== doc.body && titlesIn(box.parentElement).size <= 1) box = box.parentElement;
+      const parts = [box];
+      if (box.parentElement) for (const sib of box.parentElement.children) if (sib !== box && titlesIn(sib).size === 0) parts.push(sib);
+      const ctxText = parts.map((e) => spacedText(e)).join(" ");
+      let ids = t.ids;
+      for (const e of parts) for (const x of e.querySelectorAll("a[href]")) ids = ids || newsIds(x.getAttribute("href"));
+      let press = "";
+      for (const e of parts) {
+        const pe = e.querySelector("[class*='press'], [class*='Press'], [class*='source']");
+        if (pe && textOf(pe)) {
+          press = textOf(pe);
+          break;
+        }
+      }
+      if (!press) {
+        for (const e of parts) for (const x of e.querySelectorAll("a, span")) {
+          const tx = textOf(x);
+          if (!press && tx.length >= 2 && tx.length <= 20 && !/네이버뉴스|전$|\d{4}\.|^\d/.test(tx) && norm(tx) !== norm(t.text)) press = tx;
+        }
+      }
+      press = press.replace(/\s*언론사\s*선정.*$/, "").replace(/\s+/g, " ").trim();
+      const dm = ctxText.match(/\d+\s*(?:분|시간|일|주)\s*전|20\d{2}\.\s*\d{1,2}\.\s*\d{1,2}\.?(?:\s*\d{1,2}:\d{2})?/);
+      const extUrl = t.ids ? "" : t.href;
+      const key = ids ? `${ids.oid}/${ids.aid}` : `x:${extUrl.replace(/[#?].*$/, "").replace(/\/$/, "").toLowerCase()}`;
+      const prev = out.get(key);
+      if (prev) {
+        if (!prev.extUrl && extUrl) prev.extUrl = extUrl;
+        if (t.text.length > prev.title.length) prev.title = t.text.slice(0, 200);
+        continue;
+      }
+      out.set(key, { oid: ids?.oid || "", aid: ids?.aid || "", title: t.text.slice(0, 200), press, dateText: dm ? dm[0] : "", extUrl });
+    }
+    // 링크 모양이 바뀌어도 주소 글자에서 네이버 뉴스 기사 번호를 찾는다
     for (const m of html.matchAll(/n\.news\.naver\.com\\?\/mnews\\?\/article\\?\/(\d{3})\\?\/(\d{6,})/g)) {
       const key = `${m[1]}/${m[2]}`;
-      if (!out.has(key)) out.set(key, { oid: m[1], aid: m[2], title: "" });
+      if (!out.has(key)) out.set(key, { oid: m[1], aid: m[2], title: "", press: "", dateText: "", extUrl: "" });
     }
     return [...out.values()];
   }
@@ -81,17 +124,19 @@ class NewsCollector {
           break;
         }
         const items = this.parseSearch(html);
-        const keys = items.map((x) => `${x.oid}/${x.aid}`).join(",");
+        const keys = items.map((x) => x.aid || x.extUrl).join(",");
         if (!items.length || keys === prev) break;
         prev = keys;
         let added = 0;
         for (const it of items) {
-          const key = `news:${it.oid}/${it.aid}`;
+          const key = it.aid ? `news:${it.oid}/${it.aid}` : `newsx:${it.extUrl.replace(/[#?].*$/, "").replace(/\/$/, "").toLowerCase()}`;
           if (found.has(key)) continue;
-          found.set(key, { key, channel: "news", oid: it.oid, aid: it.aid, url: newsUrl(it), title: it.title, query: q });
+          found.set(key, it.aid
+            ? { key, channel: "news", oid: it.oid, aid: it.aid, url: newsUrl(it), title: it.title, press: it.press, extUrl: it.extUrl, query: q }
+            : { key, channel: "news", external: true, url: it.extUrl, title: it.title, press: it.press, dateText: it.dateText, query: q });
           added++;
         }
-        this.log(`  · 뉴스 "${q}" ${page}페이지: 기사 ${items.length}건 (새 ${added}건)`);
+        this.log(`  · 뉴스 "${q}" ${page}페이지: 기사 ${items.length}건 (새 ${added}건, 언론사 자체 사이트 ${items.filter((x) => !x.aid).length}건)`);
         if (items.length < 5) break;
         await this.wait(this.delays.news);
       }
