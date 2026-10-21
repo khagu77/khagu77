@@ -407,3 +407,11 @@ window.addEventListener("beforeunload", (e) => {
   e.preventDefault();
   e.returnValue = "";
 });
+
+// 보고서 인용용: 대댓글 앞의 '@닉네임'(유튜브 @핸들 포함)을 지운다 (메일 주소처럼 글자에 붙은 @ 는 그대로)
+function stripMentions(text) {
+  return String(text || "")
+    .replace(/(^|[\s(\[])@@?[^\s@,.:;!?)\]]{1,40}[,:]?/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}

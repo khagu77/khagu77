@@ -464,9 +464,11 @@ def test_issue_report(tmp_path: Path):
         assert page.evaluate("[meaningfulQuote('ㅣㄱㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅋㅅㅂ'), meaningfulQuote('ㅋㅋㅋ 현기 배짱장사 답이 없네')]") == [False, True]
         assert "내용이 없는 댓글은 고르지 않는다" in sys_rep and "내용이 없는 댓글은 주요 댓글에서 뺀다" in sys_rep
         neg_short = q("부정", "short").splitlines()
-        page.fill('.qcol[data-s="부정"] [data-k="long"]', "\n".join(neg_short + ["2페이지 전용 부정 댓글😂👍🏻"]))
+        page.fill('.qcol[data-s="부정"] [data-k="long"]', "\n".join(neg_short + ["@홍길동 2페이지 전용 부정 댓글😂👍🏻"]))
         # 중립은 밋밋한 댓글로: AI 규칙·메모리 + AI 없이 다시 고르는 버튼
         assert "최대한 중립스러운 댓글" in sys_rep and "1페이지는 이번 이슈와 관계있는 성의 있는 내용" in sys_rep  # 기본 규칙 + 메모리
+        assert page.evaluate("stripMentions('@user-abc12 @김철수 가격이 문제 a@b.com')") == "가격이 문제 a@b.com"
+        assert "'@닉네임' 부분은 지운다" in sys_rep
         assert "정말 별 의미 없는" not in sys_rep  # 예전 메모리 문장은 지워짐
         assert "깡통 → 기본 모델" in sys_rep and "'깡통' 대신 '기본 모델'" in sys_rep
         assert "summary 에는 중립 여론·중립 비율을 쓰지 않는다" in sys_rep and "요약에는 중립 여론·중립 비율을 언급하지 않는다" in sys_rep
@@ -540,7 +542,7 @@ def test_issue_report(tmp_path: Path):
     assert "CN8 가격 공개 관련 여론 동향" in slide1 and "테스트 요약 첫째 문장 확인 中" in slide1
     assert "현대하모니 L" in slide1  # 양식 서체 유지
     assert "현기 배짱장사 답이 없네" in slide1 and "현기 배짱장사 답이 없네" not in slide2  # 1페이지에만
-    assert "‘2페이지 전용 부정 댓글’" in slide2 and "직접 고친 중립 댓글’" in slide1  # 이모지는 빼고 (까만 네모 방지)
+    assert "‘2페이지 전용 부정 댓글’" in slide2 and "홍길동" not in slide2  # @닉네임·이모지는 빼고 and "직접 고친 중립 댓글’" in slide1  # 이모지는 빼고 (까만 네모 방지)
     assert not re.search(r"[\U0001F000-\U0001FAFF\uFE0F]", slide1 + slide2)
     sum_shape = slide1[slide1.index('name="직사각형 31"'):]
     sum_shape = sum_shape[: sum_shape.index("</p:sp>")]

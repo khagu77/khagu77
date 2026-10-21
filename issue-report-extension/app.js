@@ -1357,7 +1357,11 @@ function issueTerms() {
 function quotePool(per = 110) {
   const pool = {};
   const terms = issueTerms();
-  const list = activeComments().filter((c) => c.sentiment && meaningfulQuote(c.text));
+  // 인용에는 대댓글 앞 '@닉네임'을 뺀 글을 쓴다
+  const list = activeComments()
+    .filter((c) => c.sentiment)
+    .map((c) => ({ ...c, text: stripMentions(c.text) }))
+    .filter((c) => meaningfulQuote(c.text));
   for (const s of SENTIMENTS) {
     const mine = list.filter((c) => c.sentiment === s);
     // 채널마다 센 댓글부터 (같은 점수면 무작위) → 채널을 돌아가며 담아 채널이 고루 섞이게

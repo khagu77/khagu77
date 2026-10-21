@@ -100,7 +100,7 @@ function fitQuotes(list, budget, maxEach = 150) {
   const used = [];
   let len = 0;
   for (const raw of list) {
-    let t = pptSafe(raw).replace(/[‘’]/g, "'");
+    let t = pptSafe(stripMentions(raw)).replace(/[‘’]/g, "'");
     if (!t) continue;
     const chars = Array.from(t);
     if (chars.length > maxEach) t = `${chars.slice(0, maxEach - 1).join("")}…`;
