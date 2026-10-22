@@ -881,35 +881,39 @@ function applyShortMap() {
   return changed;
 }
 
-// 짧은 주소 하나 → 넘어가는 주소. 확장의 webRequest 로 첫 응답의 Location 머리글만 보고 따라가지 않는다.
-const shortLocations = new Map();
+// 짧은 주소 하나 → 넘어가는 주소. 확장의 webRequest 로 첫 응답의 상태·Location 머리글만 보고 따라가지 않는다.
+const shortResponses = new Map(); // 요청 주소 → { status, loc }
 if (chrome.webRequest?.onHeadersReceived) {
   chrome.webRequest.onHeadersReceived.addListener(
     (d) => {
       const loc = (d.responseHeaders || []).find((h) => h.name.toLowerCase() === "location")?.value;
-      if (loc) shortLocations.set(d.url, new URL(loc, d.url).href);
+      shortResponses.set(d.url, { status: d.statusCode, loc: loc ? new URL(loc, d.url).href : "" });
     },
     { urls: ["https://naver.me/*"] },
     ["responseHeaders"],
   );
 }
 
+// → "카페주소/글번호" · ""(카페 글이 아님, 또는 만료·삭제되어 넘어가지 않는 주소) · null(응답 없음 - 다음에 다시)
 async function resolveShort(code) {
   let url = `https://naver.me/${code}`;
   for (let hop = 0; hop < 3; hop++) {
-    shortLocations.delete(url);
+    shortResponses.delete(url);
     try {
       await fetch(url, { redirect: "manual", credentials: "omit", cache: "no-store" });
     } catch {
       /* 아래에서 판단 */
     }
-    const loc = shortLocations.get(url);
-    shortLocations.delete(url);
-    if (!loc) return null; // 응답이 없거나 넘어가지 않음 (다음에 다시 시도)
-    const key = /cafe\.naver\.com/.test(loc) ? postKey(loc) : null;
+    // 응답 머리글 알림(webRequest)이 fetch 보다 조금 늦게 올 수 있어 잠깐 기다린다
+    for (let i = 0; i < 20 && !shortResponses.has(url); i++) await sleep(50);
+    const res = shortResponses.get(url);
+    shortResponses.delete(url);
+    if (!res || res.status >= 500 || res.status === 429) return null; // 응답 없음·서버 오류·요청 많음 → 다시 시도할 것
+    if (!res.loc) return ""; // 응답은 왔는데 넘어가지 않음: 만료·삭제된 짧은 주소
+    const key = /cafe\.naver\.com/.test(res.loc) ? postKey(res.loc) : null;
     if (key) return key;
-    if (!/^https:\/\/naver\.me\//.test(loc)) return ""; // 카페 글이 아닌 곳으로 넘어감
-    url = loc;
+    if (!/^https:\/\/naver\.me\//.test(res.loc)) return ""; // 카페 글이 아닌 곳으로 넘어감
+    url = res.loc;
   }
   return "";
 }
@@ -937,6 +941,7 @@ async function resolveShorts() {
       await sleep(randomBetween(SHORT_DELAY));
     }
   };
+  const before = new Map(items.map((x) => [x.key, inclusion(x)]));
   showBusy(`짧은 주소 푸는 중 0/${todo.length.toLocaleString()}`, 0, todo.length, "짧은 주소 푸는 중");
   await Promise.all(Array.from({ length: SHORT_PARALLEL }, worker));
   await saveShortMap();
@@ -944,12 +949,25 @@ async function resolveShorts() {
   endBusy();
   renderCompare();
   renderResults();
+  // 포함 여부(Y/N)가 바뀐 글 (체크 수는 바뀌지 않음 - 체크는 관련 글 판단, Y/N 은 동향·로데이터에 있었는지)
+  const changed = items.filter((x) => {
+    const a = before.get(x.key);
+    const b = inclusion(x);
+    return a && (a.trend !== b.trend || a.raw !== b.raw);
+  });
+  const changedChecked = changed.filter((x) => x.checked).length;
   setSummary(
-    `${stopRequested ? "중지됨 - " : "✔ "}짧은 주소 ${done.toLocaleString()}개를 확인했습니다 (${formatDuration((Date.now() - t0) / 1000)} 걸림)` +
+    `${stopRequested ? "중지됨 - " : "✔ "}짧은 주소 ${done.toLocaleString()}개를 확인했습니다 (${formatDuration((Date.now() - t0) / 1000)} 걸림) · ` +
+      `포함 여부(Y/N)가 바뀐 글 ${changed.length.toLocaleString()}개 (그중 체크한 글 ${changedChecked.toLocaleString()}개)` +
       (failed ? ` · 응답이 없어 못 푼 ${failed.toLocaleString()}개는 다시 누르면 다시 시도합니다` : ""),
     failed ? "err" : "ok",
   );
   stopRequested = false;
+}
+
+function deadShorts() {
+  const codes = new Set(compare.flatMap((f) => f.shorts || []));
+  return [...codes].filter((c) => shortMap[c] === "").length;
 }
 
 function renderShortInfo() {
@@ -960,7 +978,8 @@ function renderShortInfo() {
   box.hidden = !total;
   $("#shortText").textContent = pending
     ? `비교 파일에 naver.me 짧은 주소 ${total.toLocaleString()}개(우리 동호회·차종)가 있고, 그중 ${pending.toLocaleString()}개를 아직 풀지 않았습니다. 풀어야 그 글들도 포함 여부(Y)에 잡힙니다. (예상 소요 시간 약 ${formatDuration((pending / SHORT_PARALLEL) * 0.6)})`
-    : `✔ 짧은 주소 ${total.toLocaleString()}개를 모두 풀었습니다 (카페 글 ${Object.values(shortMap).filter(Boolean).length.toLocaleString()}개).`;
+    : `✔ 짧은 주소 ${total.toLocaleString()}개를 모두 확인했습니다 (카페 글 ${Object.values(shortMap).filter(Boolean).length.toLocaleString()}개` +
+      `${deadShorts() ? ` · 카페 글이 아니거나 만료·삭제되어 열리지 않는 주소 ${deadShorts().toLocaleString()}개` : ""}).`;
   $("#shortText").className = pending ? "hint err" : "hint ok";
   $("#resolveShorts").hidden = !pending;
 }
@@ -1050,10 +1069,22 @@ const yn = (b) => (b ? "Y" : "N");
 // 3. 본문 읽기 · 요약 · 누락 사유
 // ---------------------------------------------------------------------------
 
+const aiOn = () => $("#aiOn").checked && !!$("#aiKey").value.trim();
+const readAllOn = () => !!$("#readAll")?.checked;
+
 async function readBodies() {
   if (running) return;
-  const todo = sortedItems().filter((x) => x.checked && !x.bodyRead);
   await saveSettings();
+  // ① AI 1차 검토: 체크 안 된 글을 제목·미리보기 내용으로 다시 보고, 관련 가능성이 있으면 체크
+  if (aiOn() && $("#screenOn").checked && !readAllOn()) {
+    const ok = await aiScreen();
+    if (ok === false || stopRequested) {
+      stopRequested = false;
+      return;
+    }
+  }
+  // ② 본문 읽기: 체크한 글 (전체 정독이면 체크 안 된 글도)
+  const todo = sortedItems().filter((x) => (x.checked || (readAllOn() && !x.touched)) && !x.bodyRead);
   if (todo.length) {
     if (
       todo.length > 40 &&
@@ -1097,8 +1128,9 @@ async function readBodies() {
           const j = judge(item, `${item.title}\n${item.body}`);
           item.related = j.related;
           item.note = judgeNote(j);
-          if (!j.related && !item.touched) item.checked = false;
-          item.bodyNote = j.related ? "" : `본문 확인: ${item.note}`;
+          // AI 를 쓰면 체크 여부는 AI 가 본문 내용을 보고 정한다. AI 를 안 쓰면 본문의 단어로 정한다.
+          if (!aiOn() && !item.touched) item.checked = j.related;
+          item.bodyNote = j.related ? "" : `본문 단어 확인: ${item.note}`;
         }
       }
       renderRow(item);
@@ -1114,7 +1146,9 @@ async function readBodies() {
 
 // 요약·누락 사유 쓰기 (force: 이미 쓴 글도 다시)
 async function writeSummaries(force) {
-  const targets = sortedItems().filter((x) => x.checked && (force || !x.summary || x.by !== ($("#aiOn").checked ? "ai" : "rule")));
+  // AI 로 쓸 때: 체크한 글 + (전체 정독이면) 본문을 읽은 체크 안 된 글도 AI 가 관련 여부를 판단
+  const wanted = (x) => x.checked || (aiOn() && readAllOn() && x.bodyRead && !x.touched && x.by !== "ai");
+  const targets = sortedItems().filter((x) => wanted(x) && (force || !x.summary || x.by !== ($("#aiOn").checked ? "ai" : "rule")));
   if (!targets.length) {
     renderResults();
     setSummary("요약할 글이 없습니다 (체크한 글은 모두 요약했습니다).", "ok");
@@ -1261,6 +1295,130 @@ const AI_SCHEMA = {
   additionalProperties: false,
 };
 
+// ---------------------------------------------------------------------------
+// AI 1차 검토: 체크 안 된 글(직접 해제하지 않은 것)을 제목·미리보기로 다시 보고, 본문을 읽어 볼 만한지 고른다.
+// 놓치지 않는 것이 목적이라 애매하면 '관련 가능'으로 본다 (최종 판단은 본문을 읽은 뒤 다시 AI 가 함).
+// ---------------------------------------------------------------------------
+
+const SCREEN_BATCH = 40;
+
+const SCREEN_SYSTEM = `당신은 현대자동차 품질 부문 온라인 동향 모니터링의 1차 검토자입니다.
+조사 주제: 아이오닉9(ME1)·팰리세이드(LX3)·싼타페(MX5)의 2열·3열 시트를 조작할 때(전동 폴딩·원터치 워크인·슬라이딩·리클라이닝·
+복귀 등) 안전 사고가 발생했거나, 발생할 뻔했거나, 발생할 우려·가능성을 언급한 네이버 동호회 게시물.
+
+네이버 카페 검색 결과의 제목과 미리보기(본문 일부·목록 글자)만 보고, 본문을 읽어 볼 가치가 있는지 고릅니다.
+- maybe=true: 2·3열(뒷좌석) 시트의 조작·작동과 함께 사람(특히 아이)·반려동물·물건의 끼임·눌림·부딪힘·부상, 위험·불안·무서움,
+  주의 당부, 안전장치·센서·멈춤, 리콜·업데이트 이야기가 나오거나 그럴 가능성이 조금이라도 보이는 글.
+  제목이 짧거나 모호해도(예: "큰일날 뻔했어요", "애들 있는 집 조심하세요", "3열 탈 때 이거 아셨나요") 주제와 이어질 수 있으면 true.
+- maybe=false: 명백히 무관한 글만. 예) 판매·구매·공동구매, 카시트 제품 추천·장착 방법, 시트 가죽·색상·통풍·열선·소음·편의성만의 이야기,
+  1열(운전석·조수석)만의 이야기, 조사 차종과 무관한 글, 출고·계약·정비 일반 이야기.
+- 놓치는 것이 더 큰 손해이므로 애매하면 true 입니다.
+why: 판단 근거를 15~40자로 (예: "3열 하차 중 2열 복귀 시 아이 위험 언급 가능").
+받은 글마다 하나씩, 받은 순서대로, id 를 그대로 돌려줍니다.`;
+
+const SCREEN_SCHEMA = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { id: { type: "string" }, maybe: { type: "boolean" }, why: { type: "string" } },
+        required: ["id", "maybe", "why"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["items"],
+  additionalProperties: false,
+};
+
+async function aiScreenBatch(client, model, batch, usage) {
+  const input = batch.map((x) => ({ id: x.key, 차종: x.car, 동호회: x.cafeName, 제목: x.title, 미리보기: (x.text || "").slice(0, 400) }));
+  const params = {
+    model,
+    max_tokens: 16000,
+    system: SCREEN_SYSTEM,
+    output_config: { effort: "low", format: { type: "json_schema", schema: SCREEN_SCHEMA } },
+    messages: [{ role: "user", content: `아래 글 ${batch.length}개를 1차 검토해 items ${batch.length}개로 돌려주세요.\n\n${JSON.stringify(input)}` }],
+  };
+  const stream = model === "claude-haiku-5-5"
+    ? client.messages.stream(params)
+    : client.beta.messages.stream({ ...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" });
+  const msg = await stream.finalMessage();
+  usage.input += msg.usage?.input_tokens || 0;
+  usage.output += msg.usage?.output_tokens || 0;
+  if (msg.stop_reason === "refusal") throw new Error("Claude 가 검토를 거절했습니다");
+  if (msg.stop_reason === "max_tokens") throw new Error("결과가 너무 길어 잘렸습니다");
+  const parsed = JSON.parse(msg.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
+  const byId = new Map((parsed.items || []).map((r) => [r.id, r]));
+  const bad = batch.filter((x) => typeof byId.get(x.key)?.maybe !== "boolean").length;
+  if (bad) throw new Error(`결과 ${bad}건이 빠졌습니다`);
+  for (const x of batch) {
+    const r = byId.get(x.key);
+    x.aiScreen = { maybe: r.maybe, why: String(r.why || "").replace(/\s+/g, " ").trim().slice(0, 80) };
+    if (r.maybe && !x.touched) x.checked = true;
+  }
+}
+
+// → false: 취소 · true: 끝남(또는 할 것 없음)
+async function aiScreen() {
+  const targets = sortedItems().filter((x) => !x.checked && !x.touched && !x.aiScreen);
+  if (!targets.length) return true;
+  const model = $("#aiModel").value;
+  const chars = targets.reduce((n, x) => n + x.title.length + Math.min(400, (x.text || "").length) + 60, 0);
+  const batches = Math.ceil(targets.length / SCREEN_BATCH);
+  const cost = aiCostWon(chars * 1.1 + 900 * batches, targets.length * 30, model);
+  if (!confirm(
+    `체크 안 된 글 ${targets.length.toLocaleString()}개를 AI 가 제목·미리보기로 한 번 더 검토합니다 (관련 가능성이 있으면 체크).\n` +
+      `예상 비용 약 ${cost.toLocaleString()}원 · 예상 소요 시간 약 ${formatDuration(Math.ceil(batches / AI_PARALLEL) * 30)} (네이버 접속 없음)\n\n` +
+      "· [확인]: 검토하고 본문 읽기로\n· [취소]: 멈추기 (아래 'AI 1차 검토' 체크를 풀면 건너뜀)",
+  )) return false;
+  const client = new Anthropic({ apiKey: $("#aiKey").value.trim(), dangerouslyAllowBrowser: true, maxRetries: 4 });
+  const list = [];
+  for (let i = 0; i < targets.length; i += SCREEN_BATCH) list.push(targets.slice(i, i + SCREEN_BATCH));
+  const usage = { input: 0, output: 0 };
+  const t0 = Date.now();
+  let done = 0;
+  let failed = 0;
+  let fatal = null;
+  let next = 0;
+  startBusy();
+  const progress = () => showBusy(`AI 1차 검토 중 ${done}/${list.length}묶음${estimateRemaining(t0, done, list.length, (list.length - done) * 30)}`, done, list.length, "AI 1차 검토 중");
+  progress();
+  const worker = async () => {
+    while (next < list.length && !fatal && !stopRequested) {
+      const batch = list[next++];
+      let ok = false;
+      for (let attempt = 1; attempt <= 3 && !ok && !fatal; attempt++) {
+        try {
+          await aiScreenBatch(client, model, batch, usage);
+          ok = true;
+        } catch (e) {
+          if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) fatal = e;
+        }
+      }
+      if (!ok) failed += batch.length;
+      done++;
+      progress();
+      for (const x of batch) renderRow(x);
+    }
+  };
+  await Promise.all(Array.from({ length: AI_PARALLEL }, worker));
+  endBusy();
+  await saveItems();
+  renderResults();
+  const added = targets.filter((x) => x.aiScreen?.maybe).length;
+  const spent = aiCostWon(usage.input, usage.output, model);
+  const line = fatal
+    ? `AI 1차 검토를 하지 못했습니다: ${aiErrorMessage(fatal)}`
+    : `✔ AI 1차 검토: 체크 안 된 글 ${targets.length.toLocaleString()}개 중 ${added.toLocaleString()}개를 관련 가능으로 보고 체크했습니다 · ` +
+      `${formatDuration((Date.now() - t0) / 1000)} · 비용 약 ${spent.toLocaleString()}원${failed ? ` · ${failed}개는 실패(다시 누르면 다시 검토)` : ""}`;
+  log(`· ${line}`);
+  setSummary(line, fatal || failed ? "err" : "ok");
+  return !fatal;
+}
+
 // API 키 저장: 키를 넣으면 'Claude AI 로 쓰기'를 자동으로 켠다
 async function saveAiKey() {
   const key = $("#aiKey").value.trim();
@@ -1325,7 +1483,7 @@ function checkAiResult(r, inc, must = false) {
   if (!r || typeof r.summary !== "string" || typeof r.reason !== "string" || !AI_SITUATIONS.includes(r.situation)) return null;
   const summary = r.summary.replace(/\s+/g, " ").replace(/[.。]\s*$/, "").trim();
   let reason = r.reason.replace(/\s+/g, " ").replace(/[.。]\s*$/, "").trim();
-  if (summary.length < 10) return null;
+  if (summary.length < 4) return null;
   const relevant = !!r.relevant || must; // 꼭 넣을 글은 늘 주제에 맞는 글로 본다
   if (inc.trend || !relevant) reason = "";
   else if (!inc.trendRange) reason = OUT_OF_RANGE; // 비교 파일 기간 밖은 추정하지 않고 확인 필요로
@@ -1378,8 +1536,8 @@ async function aiBatch(client, model, batch, usage) {
     x.situation = r.situation;
     x.aiRelevant = r.relevant;
     x.by = "ai";
-    // AI 가 주제와 무관하다고 본 글은 체크를 풀어 둔다 (직접 다시 체크하면 엑셀에 들어감)
-    if (!r.relevant && !x.touched) x.checked = false;
+    // AI 가 본문을 보고 정한 대로 체크 (직접 체크·해제한 글은 그대로) - 무관한 글은 다시 체크하면 엑셀에 들어감
+    if (!x.touched) x.checked = r.relevant;
   });
 }
 
@@ -1410,6 +1568,19 @@ async function aiWrite(targets, apiKey, model) {
           lastError = e;
           if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) fatal = e;
         }
+      }
+      // 묶음이 끝내 실패하면 글 하나씩 다시 (한 글의 결과 때문에 묶음 전체가 규칙 문장이 되지 않게)
+      if (!ok && !fatal && batch.length > 1) {
+        for (const x of batch) {
+          try {
+            await aiBatch(client, model, [x], usage);
+          } catch (e) {
+            lastError = e;
+            failed++;
+            writeByRule(x);
+          }
+        }
+        ok = true;
       }
       if (!ok) {
         failed += batch.length;
@@ -1517,6 +1688,7 @@ function fillRow(tr, item) {
   tr.children[7].textContent = item.reason || "";
   const notes = [];
   if (item.must) notes.push(`★ 꼭 넣을 글: ${item.mustNote || ""}`);
+  if (item.aiScreen) notes.push(`AI 1차(제목·미리보기): ${item.aiScreen.maybe ? "관련 가능" : "무관"} - ${item.aiScreen.why}`);
   if (item.bodyNote) notes.push(item.bodyNote);
   else if (item.note) notes.push(item.note);
   if (item.bodyRead && !item.bodyNote) notes.push("본문 읽음");
@@ -1538,11 +1710,13 @@ function updateCounts() {
   const byCar = CARS.map((c) => `${c.code} ${items.filter((x) => x.checked && x.car === c.code).length}`).join(" · ");
   $("#resultCount").textContent = items.length ? `전체 ${items.length}개 중 ${n}개 체크 (${byCar}) · 본문 읽음 ${read}/${n}` : "";
   $("#saveList").disabled = !n || running;
-  $("#readBodies").disabled = !n || running;
+  $("#readBodies").disabled = (!n && !items.length) || running;
   $("#rewrite").disabled = !n || running;
   $("#selDelete").disabled = !n || running;
   $("#selDelete").textContent = n ? `선택 삭제 (${n}개)` : "선택 삭제";
   $("#readBodies").textContent = n - read > 0 ? `본문 읽고 요약하기 (${n - read}개 · 약 ${formatDuration((n - read) * SEC_PER_ARTICLE)})` : "요약하기";
+  const unread = items.filter((x) => !x.bodyRead && !x.touched).length;
+  if ($("#readAllInfo")) $("#readAllInfo").textContent = `지금 읽을 글 ${unread.toLocaleString()}개 · 약 ${formatDuration(unread * SEC_PER_ARTICLE)}`;
   const vis = visibleItems();
   $("#checkAll").checked = !!vis.length && vis.every((x) => x.checked);
 }
@@ -1764,6 +1938,7 @@ async function init() {
     await saveItems();
   });
   $("#readBodies").addEventListener("click", readBodies);
+  $("#readAll").addEventListener("change", updateCounts);
   $("#rewrite").addEventListener("click", () => !running && writeSummaries(true));
   $("#saveList").addEventListener("click", saveList);
   $("#diag").addEventListener("click", () => {

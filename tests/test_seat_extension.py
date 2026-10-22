@@ -151,6 +151,7 @@ def make_compare_files(tmp_path: Path):
     ws.append([1, "팰리 카페", "LX3", "2025-03-10", "품질", "https://cafe.naver.com/palicafe/1001?art=abc", "끼임"])
     ws.append([2, "전기차", "ME1", "2025-02-02", "품질", "https://naver.me/abc123", "3열"])  # 짧은 주소로만 있는 글
     ws.append([3, "전기차", "ME1", "2025-02-03", "품질", "https://naver.me/notcafe", "블로그"])
+    ws.append([5, "전기차", "ME1", "2025-02-04", "품질", "https://naver.me/expired", "만료된 짧은 주소"])  # 넘어가지 않음(404)
     ws.append([4, "다른 동호회", "NE", "2025-02-03", "품질", "https://naver.me/othercar", "다른 차종"])  # 우리 동호회·차종 아님 → 풀지 않음
     raw.save(tmp_path / "251231_raw_data.xlsx")
     return [tmp_path / "251231_일일동향.xlsx", tmp_path / "251231_raw_data.xlsx"]
@@ -280,11 +281,17 @@ def test_seat(tmp_path: Path):
         kinds = page.locator("#compareTable tbody select")
         assert sorted(kinds.nth(i).input_value() for i in range(4)) == ["raw", "raw", "trend", "trend"]
         # naver.me 짧은 주소: 풀기 전에는 N, 풀면 같은 글로 잡힘 (우리 동호회·차종 행만 · 로그인 정보 없이 · 따라가지 않음)
-        page.locator("#shortText", has_text="2개를 아직 풀지 않았습니다").wait_for()
+        page.locator("#shortText", has_text="3개를 아직 풀지 않았습니다").wait_for()
         assert rows.filter(has_text="아이오닉9 3열 위험하네요").locator("td.yn").inner_text() == "N / N"
         page.click("#resolveShorts")
-        page.locator("#shortText", has_text="모두 풀었습니다").wait_for(timeout=60000)
-        assert sorted(p for p, _ in server.short_hits) == ["/abc123", "/notcafe"], server.short_hits
+        try:
+            page.locator("#shortText", has_text="모두 확인했습니다").wait_for(timeout=30000)
+        except Exception:
+            raise AssertionError(f"{page.inner_text('#shortText')} / {page.inner_text('#summary')} / {server.short_hits} / {page.evaluate('shortMap')}")
+        assert "열리지 않는 주소 2개" in page.inner_text("#shortText")
+        assert "포함 여부(Y/N)가 바뀐 글 1개 (그중 체크한 글 1개)" in page.inner_text("#summary"), page.inner_text("#summary")  # 블로그로 넘어감 1 + 만료 1 → 다시 묻지 않음
+        assert page.is_hidden("#resolveShorts")
+        assert sorted(p for p, _ in server.short_hits) == ["/abc123", "/expired", "/notcafe"], server.short_hits
         assert all(c is None for _, c in server.short_hits)
         assert not any("/evcafe/2001" in r for r in server.requests)  # 짧은 주소가 넘어가는 카페 글은 열지 않음
         yn = {rows.nth(i).locator("a").inner_text(): rows.nth(i).locator("td.yn").inner_text() for i in range(rows.count())}
@@ -373,3 +380,89 @@ def test_seat(tmp_path: Path):
     assert all(b.font.rFont == "맑은 고딕" for b in cell if hasattr(b, "font"))
     assert str(ws["I4"].value) == "Y / Y"
     assert ws.max_row == 5
+
+
+def fake_claude(route, calls):
+    """Claude API 흉내: 1차 검토(제목·미리보기)와 최종 판단(본문)을 구분해 정해진 규칙대로 답한다 (스트리밍 형식)."""
+    body = json.loads(route.request.post_data)
+    items = json.loads(body["messages"][0]["content"].split("\n\n", 1)[1])
+    screen = "1차 검토자" in body["system"]
+    calls.append("screen" if screen else "final")
+    if screen:
+        out = {"items": [{"id": x["id"], "maybe": "아이" in x["제목"] + x["미리보기"], "why": "아이 위험 언급"} for x in items]}
+    else:
+        out = {"items": [{
+            "id": x["id"], "relevant": "끼" in x["본문"], "situation": "아차 사고" if "끼" in x["본문"] else "관련 없음",
+            # 여러 글을 한 번에 보낼 때 '시트커버' 글만 형식이 틀린 답(빈 요약)을 준다 → 하나씩 다시 보내면 제대로
+            "summary": "" if x["제목"] == "시트커버 팝니다" and len(items) > 1 else f"{x['제목']} 관련 내용", "reason": "" if x["온라인동향포함"] else "아차 상황으로 보고 기준에 미달한 것으로 추정",
+        } for x in items]}
+    ev = lambda t, d: f"event: {t}\ndata: {json.dumps(d, ensure_ascii=False)}\n\n"
+    sse = (ev("message_start", {"type": "message_start", "message": {"id": "m", "type": "message", "role": "assistant", "model": body["model"],
+                                                                     "content": [], "stop_reason": None, "usage": {"input_tokens": 1000, "output_tokens": 0}}})
+           + ev("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})
+           + ev("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": json.dumps(out, ensure_ascii=False)}})
+           + ev("content_block_stop", {"type": "content_block_stop", "index": 0})
+           + ev("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 200}})
+           + ev("message_stop", {"type": "message_stop"}))
+    route.fulfill(status=200, headers={"content-type": "text/event-stream", "access-control-allow-origin": "*"}, body=sse)
+
+
+@needs_chromium
+def test_ai_review_unchecked(tmp_path: Path):
+    """체크 안 된 글도 AI 가 본다: ① 제목·미리보기 1차 검토로 관련 가능한 글을 체크 ② 본문을 읽은 뒤 AI 가 체크를 정함."""
+    ext_dir = tmp_path / "ext"
+    shutil.copytree(EXT_DIR, ext_dir, ignore=shutil.ignore_patterns("compare-data.json"))
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True,
+            args=[f"--disable-extensions-except={ext_dir}", f"--load-extension={ext_dir}", "--no-proxy-server"])
+        calls = []
+        ctx.route("https://api.anthropic.com/v1/messages**", lambda route: fake_claude(route, calls))
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        page = ctx.new_page()
+        errors, dialogs = [], []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("dialog", lambda d: (dialogs.append(d.message), d.accept()))
+        page.goto(f"chrome-extension://{sw.url.split('/')[2]}/seat.html")
+        page.locator("#login", has_text="네이버").wait_for()  # 화면 준비(저장된 결과 불러오기)가 끝난 뒤
+        base = "car:'LX3',cafeIndex:0,cafeName:'팰리 카페',slug:'palicafe',date:Date.UTC(2025,2,1),queries:['q'],touched:false,summary:'',reason:'',by:'',bodyNote:''"
+        page.evaluate(f"""items = [
+          {{key:'palicafe/1',articleId:'1',title:'큰일날 뻔했어요',text:'3열 내리다 아이가',checked:false,bodyRead:true,body:'3열에서 내리다 아이 손이 2열에 끼일 뻔',{base}}},
+          {{key:'palicafe/2',articleId:'2',title:'시트커버 팝니다',text:'새 제품',checked:false,bodyRead:true,body:'시트커버 판매',{base}}},
+          {{key:'palicafe/3',articleId:'3',title:'2열 끼임 사고',text:'2열 끼임',checked:true,bodyRead:true,body:'2열 폴딩 중 끼임',{base}}},
+          {{key:'palicafe/4',articleId:'4',title:'아이랑 3열 사진',text:'아이 사진',checked:false,bodyRead:true,body:'3열에 앉은 아이 사진입니다',{base}}},
+        ]; renderResults();""")
+        page.fill("#aiKey", "sk-ant-test")
+        page.click("#aiSave")
+        assert page.is_checked("#aiOn") and page.is_checked("#screenOn")
+
+        # ① 1차 검토 → ② (본문은 이미 읽음) 최종 판단
+        page.click("#readBodies")
+        page.locator("#summary", has_text="Claude AI 로 요약했습니다").wait_for(timeout=60000)
+        assert any("체크 안 된 글 3개를 AI 가 제목·미리보기로" in m for m in dialogs), dialogs
+        assert calls[0] == "screen" and "final" in calls
+        got = page.evaluate("Object.fromEntries(items.map(x => [x.key, [x.checked, x.aiScreen ? x.aiScreen.maybe : null, x.by]]))")
+        assert got == {
+            "palicafe/1": [True, True, "ai"],  # 제목엔 단어가 없지만 1차 검토로 체크 → 본문 보고 AI 가 관련 있다고 판단
+            "palicafe/2": [False, False, ""],  # 1차 검토에서 무관
+            "palicafe/3": [True, None, "ai"],  # 원래 체크
+            "palicafe/4": [False, True, "ai"],  # 1차 검토로 체크됐지만 본문을 보고 AI 가 무관하다고 판단 → 해제
+        }, got
+        assert "AI 1차(제목·미리보기): 관련 가능" in page.locator("#results tbody tr", has_text="큰일날 뻔했어요").inner_text()
+
+        # 전체 정독: 체크 안 된 글도 본문을 읽은 것은 AI 가 판단 (1차 검토 없이)
+        page.evaluate("""items.push({key:'palicafe/5',articleId:'5',title:'강아지',text:'강아지',checked:false,bodyRead:true,
+          body:'2열 폴딩에 강아지 발이 끼임',car:'LX3',cafeIndex:0,cafeName:'팰리 카페',slug:'palicafe',date:Date.UTC(2025,2,2),
+          queries:['q'],touched:false,summary:'',reason:'',by:'',bodyNote:''}); renderResults();""")
+        page.check("#readAll")
+        n_screen = calls.count("screen")
+        page.click("#readBodies")
+        try:
+            page.wait_for_function("() => items.find(x => x.key === 'palicafe/5').by === 'ai'", timeout=20000)
+        except Exception:
+            raise AssertionError(f"{page.inner_text('#summary')} | {dialogs[-2:]} | {calls} | {errors} | {page.evaluate('items.map(x => [x.key, x.checked, x.by, x.touched])')}")
+        assert calls.count("screen") == n_screen  # 전체 정독이면 1차 검토는 건너뜀
+        assert page.evaluate("items.find(x => x.key === 'palicafe/2').by") == "ai"
+        assert page.evaluate("items.find(x => x.key === 'palicafe/5').checked") is True
+        assert not errors, errors
+        ctx.close()

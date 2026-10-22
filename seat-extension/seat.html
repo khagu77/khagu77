@@ -132,7 +132,9 @@
 
       <h3>본문 읽기 · 요약</h3>
       <div class="hint">체크한 글을 하나씩 열어 본문을 읽고(글 하나에 10초 안팎), 주요내용 요약과 온라인 동향 미포함(N) 글의 누락 사유를 씁니다.
-        본문에 관련 단어가 없으면 체크를 풀어 둡니다. 이미 읽은 글은 다시 열지 않습니다. AI 사용 여부·키는 위 3번에서 정합니다.</div>
+        AI 를 쓰면 본문 내용을 보고 AI 가 체크 여부를 최종 판단하고(직접 체크·해제한 글은 그대로), 쓰지 않으면 본문의 단어로 정합니다. 이미 읽은 글은 다시 열지 않습니다. AI 사용 여부·키는 위 3번에서 정합니다.</div>
+      <label class="inline"><input type="checkbox" id="screenOn" checked> 체크 안 된 글도 AI 가 제목·미리보기 내용으로 한 번 더 검토 <span class="hint">(관련 가능성이 있으면 체크해서 본문까지 읽음 · 네이버 접속 없음 · 수백 원 · AI 를 켰을 때만)</span></label>
+      <label class="inline"><input type="checkbox" id="readAll"> 체크 안 된 글도 모두 본문을 읽고 AI 가 판단 <span class="hint">(가장 정확하지만 글 1개에 약 12초 · 찾은 글 전체를 엶 · <span id="readAllInfo"></span>)</span></label>
       <div class="buttons">
         <button id="readBodies" class="primary">본문 읽고 요약하기</button>
         <button id="rewrite" title="본문은 다시 읽지 않고 요약·누락 사유만 다시 씁니다">요약·사유만 다시 쓰기</button>
