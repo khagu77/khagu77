@@ -183,7 +183,7 @@ def test_seat(tmp_path: Path):
         page = ctx.new_page()
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.on("dialog", lambda d: d.accept())
+        ctx.add_init_script("window.__seatAutoConfirm = true;")  # 화면 안 확인 상자는 자동으로 '확인'
         page.goto(f"{ext}/seat.html")
         page.evaluate("CAFE_ARTICLE_DELAY[0] = CAFE_ARTICLE_DELAY[1] = CAFE_PAGE_DELAY[0] = CAFE_PAGE_DELAY[1] = 10")
 
@@ -328,13 +328,30 @@ def test_seat(tmp_path: Path):
         path = tmp_path / dl.value.suggested_filename
         dl.value.save_as(path)
         assert re.match(r"^\d{8}_LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물\.xlsx$", path.name), path.name
-        page.locator("#saveInfo", has_text="데이터 DB에 오늘 파일로 저장").wait_for()
+        page.locator("#saveInfo", has_text="데이터 DB(최종 데이터)에 오늘 파일로 저장").wait_for()
         assert "엑셀에 넣은 글 2건" in page.inner_text("#diffs")
+
+        # 전체 raw 데이터: 찾은 글 전체(체크 안 된 글 포함) · 판단 근거·본문 · DB 에 따로 보관
+        with page.expect_download() as dl:
+            page.click("#saveRaw")
+        raw_path = tmp_path / dl.value.suggested_filename
+        dl.value.save_as(raw_path)
+        assert raw_path.name.endswith("_전체 raw data.xlsx"), raw_path.name
+        page.locator("#saveInfo", has_text="데이터 DB(전체 raw 데이터)에 오늘 파일로 저장").wait_for()
+        rws = load_workbook(raw_path).active
+        head = [c.value for c in rws[1]]
+        assert head[:8] == ["순번", "차종", "동호회명", "게시일", "제목", "URL", "최종 포함(체크)", "온라인동향/로데이터 포함 여부"] and head[-1] == "본문"
+        body_rows = [[c.value for c in r] for r in rws.iter_rows(min_row=2)]
+        assert len(body_rows) == 3 and sum(1 for r in body_rows if r[6] == "O") == 2  # 찾은 글 3개(체크 안 된 글 포함) 중 체크 2개
+        by_title = {r[4]: r for r in body_rows}
+        assert by_title["아이오닉5 2열 끼임"][6] is None and by_title["아이오닉9 3열 위험하네요"][7] == "N / Y"
+        assert "끼였어요" in by_title["3열 탈 때 2열 시트에 아이 발 끼임"][-1]
 
         # 데이터 DB: 받은 엑셀이 오늘 날짜로 보관됨 · 받기 · 수정본 올리기 · 작업 데이터 백업/불러오기
         page.click("a.tool[href='seat-db.html']")
         page.wait_for_url("**/seat-db.html")
-        db_rows = page.locator("section[data-kind] tbody tr")
+        assert page.locator("section[data-kind=seatRaw] tbody tr").first.inner_text().count("찾은 글 3개 · 체크 2개") == 1
+        db_rows = page.locator("section[data-kind=seat] tbody tr")
         db_rows.first.locator(".counts").wait_for()
         assert db_rows.count() == 1 and "최종" in db_rows.first.inner_text()
         assert "글 2개 · LX3 1 · ME1 1 · MX5 0 · 동향 미포함 1" in db_rows.first.inner_text()
@@ -422,9 +439,10 @@ def test_ai_review_unchecked(tmp_path: Path):
         ctx.route("https://api.anthropic.com/v1/messages**", lambda route: fake_claude(route, calls))
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         page = ctx.new_page()
-        errors, dialogs = [], []
+        errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
-        page.on("dialog", lambda d: (dialogs.append(d.message), d.accept()))
+        ctx.add_init_script("window.__seatAutoConfirm = true;")
+        asked = lambda: page.evaluate("globalThis.__seatAsked || []")
         page.goto(f"chrome-extension://{sw.url.split('/')[2]}/seat.html")
         page.locator("#login", has_text="네이버").wait_for()  # 화면 준비(저장된 결과 불러오기)가 끝난 뒤
         base = "car:'LX3',cafeIndex:0,cafeName:'팰리 카페',slug:'palicafe',date:Date.UTC(2025,2,1),queries:['q'],touched:false,summary:'',reason:'',by:'',bodyNote:''"
@@ -441,7 +459,7 @@ def test_ai_review_unchecked(tmp_path: Path):
         # ① 1차 검토 → ② (본문은 이미 읽음) 최종 판단
         page.click("#readBodies")
         page.locator("#summary", has_text="Claude AI 로 요약했습니다").wait_for(timeout=60000)
-        assert any("체크 안 된 글 3개를 AI 가 제목·미리보기로" in m for m in dialogs), dialogs
+        assert any("체크 안 된 글 3개를 AI 가 제목·미리보기로" in m for m in asked()), asked()
         assert calls[0] == "screen" and "final" in calls
         got = page.evaluate("Object.fromEntries(items.map(x => [x.key, [x.checked, x.aiScreen ? x.aiScreen.maybe : null, x.by]]))")
         assert got == {
@@ -462,7 +480,7 @@ def test_ai_review_unchecked(tmp_path: Path):
         try:
             page.wait_for_function("() => items.find(x => x.key === 'palicafe/5').by === 'ai'", timeout=20000)
         except Exception:
-            raise AssertionError(f"{page.inner_text('#summary')} | {dialogs[-2:]} | {calls} | {errors} | {page.evaluate('items.map(x => [x.key, x.checked, x.by, x.touched])')}")
+            raise AssertionError(f"{page.inner_text('#summary')} | {asked()[-2:]} | {calls} | {errors} | {page.evaluate('items.map(x => [x.key, x.checked, x.by, x.touched])')}")
         assert calls.count("screen") == n_screen  # 전체 정독이면 1차 검토는 건너뜀
         assert page.evaluate("items.find(x => x.key === 'palicafe/2').by") == "ai"
         assert page.evaluate("items.find(x => x.key === 'palicafe/5').checked") is True
@@ -471,16 +489,17 @@ def test_ai_review_unchecked(tmp_path: Path):
         page.uncheck("#readAll")
         page.evaluate("CAFE_ARTICLE_DELAY[0] = CAFE_ARTICLE_DELAY[1] = 10")
         page.evaluate(f"""items.push({{key:'palicafe/1001',articleId:'1001',title:'목록 제목',text:'3열',checked:true,bodyRead:false,body:'',{base}}}); renderResults();""")
-        dialogs.clear()
+        page.evaluate("globalThis.__seatAsked = []")
         page.click("#readBodies")
         page.wait_for_function("() => items.find(x => x.key === 'palicafe/1001').by === 'ai'", timeout=60000)
-        assert any("읽는 대로 Claude AI 가 판단·요약합니다" in m for m in dialogs), dialogs
+        assert any("읽는 대로 Claude AI 가 판단·요약합니다" in m for m in asked()), asked()
         assert page.evaluate("items.find(x => x.key === 'palicafe/1001').summary") == "3열 탈 때 2열 시트에 아이 발 끼임 관련 내용"
         page.locator("#summary", has_text="AI 로 판단·요약했습니다").wait_for()
 
         # 포함 여부로 골라 보기·정렬 (N / N · N / Y · Y / N · Y / Y)
         page.evaluate("compare = [{id:'t', name:'동향', kind:'trend', keys:['palicafe/3'], keySet:new Set(['palicafe/3']), slugs:{palicafe:1}, minDate:null, maxDate:null},"
                       "{id:'r', name:'로데이터', kind:'raw', keys:['palicafe/3','palicafe/1'], keySet:new Set(['palicafe/3','palicafe/1']), slugs:{palicafe:2}, minDate:null, maxDate:null}]; renderResults();")
+        assert page.locator("#viewFilter option[value='yn:YN']").count() == 0  # Y / N 은 나올 수 없는 조합이라 없음
         page.select_option("#viewFilter", "yn:YY")
         assert [r for r in page.locator("#results tbody tr td.yn").all_inner_texts()] == ["Y / Y"]
         page.select_option("#viewFilter", "yn:NY")
@@ -494,6 +513,17 @@ def test_ai_review_unchecked(tmp_path: Path):
         lines = page.locator("#results th.nowrap").evaluate(
             "e => { const r = document.createRange(); r.selectNodeContents(e); return new Set([...r.getClientRects()].map(c => Math.round(c.top))).size; }")
         assert lines == 1, lines
+
+        # 확인 상자는 화면 안에 떠서, 다른 탭을 보고 있어도 막히지 않고 답할 때까지 기다린다 (크롬 confirm() 은 뒤쪽 탭에서 막힘)
+        other = ctx.new_page()
+        other.goto("about:blank")
+        other.bring_to_front()
+        page.evaluate("() => { globalThis.__seatAutoConfirm = false; globalThis.__answer = null; askConfirm('계속할까요?').then(v => (globalThis.__answer = v)); }")
+        assert page.is_visible(".ask-back") and page.title().startswith("❓ 확인 필요")
+        assert page.evaluate("globalThis.__answer") is None  # 답하기 전에는 기다림
+        page.bring_to_front()
+        page.click(".ask-ok")
+        assert page.evaluate("globalThis.__answer") is True and not page.title().startswith("❓")
         assert not errors, errors
         ctx.close()
     server.shutdown()

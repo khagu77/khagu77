@@ -172,3 +172,9 @@ input.key { width: 300px; }
 #work th { width: 180px; }
 #results th.nowrap, #results td.yn { white-space: nowrap; min-width: 92px; }
 #results button.del { white-space: nowrap; }
+/* 화면 안 확인 상자 (뒤쪽 탭에서도 막히지 않음) */
+.ask-back { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); display: grid; place-items: center; z-index: 10000; padding: 16px; }
+.ask-box { background: var(--card); color: var(--text); border-radius: 12px; padding: 20px 22px; max-width: 560px; width: 100%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35); }
+.ask-text { white-space: pre-wrap; line-height: 1.6; font-size: 14.5px; }
+.hint-in { font-weight: 400; opacity: 0.8; font-size: 12.5px; }

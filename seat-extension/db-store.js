@@ -1,10 +1,11 @@
 // 데이터 DB: 받은 엑셀 파일을 이 PC 크롬(확장프로그램 저장소, IndexedDB)에 날짜별로 보관한다.
 // (댓글 수집기의 db-store.js 를 이 확장에 맞게 고친 것)
-// 종류(kind): seat = 전동 시트 작동 위험 상황 관련 게시물 엑셀
+// 종류(kind): seat = 최종 데이터(체크한 글 · 보고 양식) · seatRaw = 전체 raw 데이터(찾은 글 전체)
 // 하루에 한 파일(같은 날 다시 받으면 그날 파일을 바꿈). 가장 최근 날짜의 파일이 '최종'.
 
 const DB_KINDS = {
-  seat: { label: "전동 시트 작동 위험 상황 관련 게시물", short: "게시물 엑셀" },
+  seat: { label: "최종 데이터 (체크한 글 · 보고 양식)", short: "최종 데이터" },
+  seatRaw: { label: "전체 raw 데이터 (찾은 글 전체)", short: "전체 raw 데이터" },
 };
 
 function finalDb() {

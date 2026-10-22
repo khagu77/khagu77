@@ -39,6 +39,7 @@ const DEFAULT_MAX_PAGES = 10;
 const HEADER_ROW = 3; // 양식: 3행 머리글(B 순번 · C 차종 · D 동호회명 · E 게시일 · F 제목 · G URL · H 요약 · I 포함 여부 · J 누락 사유)
 const STYLE_ROW = 4;
 const OUT_NAME = "LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물.xlsx";
+const RAW_NAME = "LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물_전체 raw data.xlsx";
 const BLUE = "FF0070C0"; // 포함 여부 Y
 const RED = "FFE00000"; // 포함 여부 N
 // 걸리는 시간 어림 (초): 검색 화면 한 페이지 · 글 하나
@@ -213,7 +214,7 @@ function renderCafeInfo() {
       const v = raw ? clubIdFromInput(raw) : "";
       if (raw && !v) {
         input.value = clubIds[c.slug.toLowerCase()] || "";
-        alert("카페 번호를 찾지 못했습니다. 숫자(예: 16624720)나 카페 '전체글보기' 화면의 주소를 붙여 넣어 주세요.");
+        askAlert("카페 번호를 찾지 못했습니다. 숫자(예: 16624720)나 카페 '전체글보기' 화면의 주소를 붙여 넣어 주세요.");
         return;
       }
       input.value = v;
@@ -1034,7 +1035,7 @@ function renderCompare() {
     tr.children[2].textContent = `${f.keys.length.toLocaleString()}개`;
     tr.children[3].textContent = `${day(f.minDate)} ~ ${day(f.maxDate)}`;
     tr.querySelector("button").addEventListener("click", async () => {
-      if (!confirm(`${f.name} 을(를) 비교 파일에서 뺄까요?`)) return;
+      if (!(await askConfirm(`${f.name} 을(를) 비교 파일에서 뺄까요?`))) return;
       compare = compare.filter((x) => x !== f);
       await saveCompare();
       renderCompare();
@@ -1108,9 +1109,9 @@ async function readBodies() {
       : 0;
     if (
       (todo.length > 40 || useAi) &&
-      !confirm(`본문을 읽을 글이 ${todo.length.toLocaleString()}개입니다 (예상 소요 시간 약 ${minutes}).\n` +
+      !(await askConfirm(`본문을 읽을 글이 ${todo.length.toLocaleString()}개입니다 (예상 소요 시간 약 ${minutes}).\n` +
         (useAi ? `읽는 대로 Claude AI 가 판단·요약합니다 (예상 비용 약 ${aiCost.toLocaleString()}원 · ${AI_MODELS.find(([id]) => id === model)[1].split(" (")[0]}).\n` : "") +
-        "많은 글을 한 번에 열면 네이버 보호조치가 걸릴 수 있습니다. 중간에 '중지'로 멈춰도 그때까지 읽은 글의 요약은 남고, 나중에 이어서 읽을 수 있습니다.\n\n계속할까요?")
+        "많은 글을 한 번에 열면 네이버 보호조치가 걸릴 수 있습니다. 중간에 '중지'로 멈춰도 그때까지 읽은 글의 요약은 남고, 나중에 이어서 읽을 수 있습니다.\n\n계속할까요?"))
     ) return;
     await checkLogin();
     startBusy();
@@ -1213,7 +1214,7 @@ async function writeSummaries(force) {
     const model = $("#aiModel").value;
     const chars = targets.reduce((n, x) => n + Math.min(AI_BODY_CHARS, (x.body || x.text || "").length) + x.title.length + 200, 0);
     const est = AI_MODELS.map(([id, label]) => `· ${label.split(" (")[0]}: 약 ${aiCostWon(chars * 1.1 + 1500 * Math.ceil(targets.length / AI_BATCH), targets.length * 160, id).toLocaleString()}원`).join("\n");
-    if (!confirm(`글 ${targets.length}개의 요약·누락 사유를 Claude AI 로 씁니다.\n\n예상 비용 (대략):\n${est}\n\n지금 고른 모델: ${AI_MODELS.find(([id]) => id === model)[1]}\n예상 소요 시간 약 ${formatDuration(Math.ceil(targets.length / AI_BATCH / AI_PARALLEL) * 25)}\n\n계속할까요?`)) return;
+    if (!(await askConfirm(`글 ${targets.length}개의 요약·누락 사유를 Claude AI 로 씁니다.\n\n예상 비용 (대략):\n${est}\n\n지금 고른 모델: ${AI_MODELS.find(([id]) => id === model)[1]}\n예상 소요 시간 약 ${formatDuration(Math.ceil(targets.length / AI_BATCH / AI_PARALLEL) * 25)}\n\n계속할까요?`))) return;
     await aiWrite(targets, key, model);
   } else {
     for (const x of targets) writeByRule(x);
@@ -1420,11 +1421,11 @@ async function aiScreen() {
   const chars = targets.reduce((n, x) => n + x.title.length + Math.min(400, (x.text || "").length) + 60, 0);
   const batches = Math.ceil(targets.length / SCREEN_BATCH);
   const cost = aiCostWon(chars * 1.1 + 900 * batches, targets.length * 30, model);
-  if (!confirm(
+  if (!(await askConfirm(
     `체크 안 된 글 ${targets.length.toLocaleString()}개를 AI 가 제목·미리보기로 한 번 더 검토합니다 (관련 가능성이 있으면 체크).\n` +
       `예상 비용 약 ${cost.toLocaleString()}원 · 예상 소요 시간 약 ${formatDuration(Math.ceil(batches / AI_PARALLEL) * 30)} (네이버 접속 없음)\n\n` +
       "· [확인]: 검토하고 본문 읽기로\n· [취소]: 멈추기 (아래 'AI 1차 검토' 체크를 풀면 건너뜀)",
-  )) return false;
+  ))) return false;
   const client = new Anthropic({ apiKey: $("#aiKey").value.trim(), dangerouslyAllowBrowser: true, maxRetries: 4 });
   const list = [];
   for (let i = 0; i < targets.length; i += SCREEN_BATCH) list.push(targets.slice(i, i + SCREEN_BATCH));
@@ -1675,7 +1676,8 @@ function ynCode(x) {
   return yn(inc.trend) + yn(inc.raw);
 }
 
-const YN_ORDER = ["NN", "NY", "YN", "YY"];
+// Y / N(동향엔 있는데 로데이터엔 없음)은 나올 수 없는 조합이라 보기·정렬에서 빼고, 생기면 건수에만 '확인 필요'로
+const YN_ORDER = ["NN", "NY", "YY", "YN"];
 
 function visibleItems() {
   const car = $("#carFilter").value;
@@ -1704,7 +1706,8 @@ function renderYnCounts() {
   const n = Object.fromEntries(YN_ORDER.map((c) => [c, 0]));
   for (const x of list) n[ynCode(x)]++;
   box.textContent = list.length
-    ? `체크한 글의 포함 여부 (온라인동향 / 로데이터): ${YN_ORDER.map((c) => `${c[0]} / ${c[1]} ${n[c].toLocaleString()}`).join(" · ")}`
+    ? `체크한 글의 포함 여부 (온라인동향 / 로데이터): ${["NN", "NY", "YY"].map((c) => `${c[0]} / ${c[1]} ${n[c].toLocaleString()}`).join(" · ")}` +
+      (n.YN ? ` · Y / N ${n.YN.toLocaleString()} (동향엔 있는데 로데이터엔 없음 - 로데이터 파일 확인 필요)` : "")
     : "";
 }
 
@@ -1789,6 +1792,7 @@ function updateCounts() {
   const byCar = CARS.map((c) => `${c.code} ${items.filter((x) => x.checked && x.car === c.code).length}`).join(" · ");
   $("#resultCount").textContent = items.length ? `전체 ${items.length}개 중 ${n}개 체크 (${byCar}) · 본문 읽음 ${read}/${n}` : "";
   $("#saveList").disabled = !n || running;
+  $("#saveRaw").disabled = !items.length || running;
   $("#readBodies").disabled = (!n && !items.length) || running;
   $("#rewrite").disabled = !n || running;
   $("#selDelete").disabled = !n || running;
@@ -1856,10 +1860,10 @@ async function saveList() {
   const selected = sortedItems().filter((x) => x.checked);
   if (!selected.length) return;
   const noSummary = selected.filter((x) => !x.summary).length;
-  if (noSummary && !confirm(`요약을 아직 쓰지 않은 글이 ${noSummary}개 있습니다. 이 글들은 규칙으로 요약해 넣을까요?\n(취소하면 받지 않습니다 - '본문 읽고 요약하기'를 먼저 눌러 주세요)`)) return;
-  if (!compare.length && !confirm("비교 파일(온라인 동향·로데이터)이 등록되지 않아 포함 여부가 모두 N / N 으로 들어갑니다. 계속할까요?")) return;
+  if (noSummary && !(await askConfirm(`요약을 아직 쓰지 않은 글이 ${noSummary}개 있습니다. 이 글들은 규칙으로 요약해 넣을까요?\n(취소하면 받지 않습니다 - '본문 읽고 요약하기'를 먼저 눌러 주세요)`))) return;
+  if (!compare.length && !(await askConfirm("비교 파일(온라인 동향·로데이터)이 등록되지 않아 포함 여부가 모두 N / N 으로 들어갑니다. 계속할까요?"))) return;
   const pend = pendingShorts().length;
-  if (pend && !confirm(`비교 파일의 naver.me 짧은 주소 ${pend.toLocaleString()}개를 아직 풀지 않았습니다. 그 글들은 포함 여부가 N 으로 잘못 나올 수 있습니다.\n\n· [확인]: 그래도 받기\n· [취소]: 먼저 '짧은 주소 풀기' 하기`)) {
+  if (pend && !(await askConfirm(`비교 파일의 naver.me 짧은 주소 ${pend.toLocaleString()}개를 아직 풀지 않았습니다. 그 글들은 포함 여부가 N 으로 잘못 나올 수 있습니다.\n\n· [확인]: 그래도 받기\n· [취소]: 먼저 '짧은 주소 풀기' 하기`))) {
     $("#shortInfo").scrollIntoView({ block: "center" });
     return;
   }
@@ -1876,13 +1880,63 @@ async function saveList() {
     let dbNote = "";
     try {
       await dbSaveDay("seat", today(), name, bytes, "auto", fileSummary(stats), stats);
-      dbNote = " · 데이터 DB에 오늘 파일로 저장했습니다";
+      dbNote = " · 데이터 DB(최종 데이터)에 오늘 파일로 저장했습니다";
       await showDiffs();
     } catch {
       dbNote = " · (데이터 DB 저장은 하지 못했습니다)";
     }
     $("#saveInfo").className = "hint ok";
     $("#saveInfo").textContent = `✔ ${saveWhereText(await saveOptions())}에 ${name} - 글 ${selected.length}개 (온라인 동향 미포함 ${miss}개)${dbNote}`;
+  } catch (e) {
+    $("#saveInfo").className = "hint err";
+    $("#saveInfo").textContent = `엑셀을 만들지 못했습니다: ${e.message}`;
+  }
+}
+
+// 전체 raw 데이터: 찾은 글 전체(체크 안 된 글 포함)와 판단 근거·요약·본문 - 검토·보관용
+const RAW_HEADERS = [
+  "순번", "차종", "동호회명", "게시일", "제목", "URL", "최종 포함(체크)", "온라인동향/로데이터 포함 여부", "주요내용 요약", "미포함시 누락 사유",
+  "AI 판단(상황)", "AI 1차 검토(제목·미리보기)", "꼭 넣을 글", "본문 읽음", "비고(판단 근거)", "검색어", "본문",
+];
+
+function rawRows() {
+  return sortedItems().map((x, i) => {
+    const inc = inclusion(x);
+    const ai = x.by === "ai" ? `${x.aiRelevant === false ? "무관" : "관련"} · ${x.situation || ""}` : x.by === "rule" ? "규칙 요약" : "";
+    const screen = x.aiScreen ? `${x.aiScreen.maybe ? "관련 가능" : "무관"} - ${x.aiScreen.why}` : "";
+    const notes = [x.mustNote, x.bodyNote || x.note].filter(Boolean).join(" · ");
+    return [
+      i + 1, x.car, x.cafeName, x.date ? formatDateTime(new Date(x.date), false) : "", x.title, articleUrl(x), x.checked ? "O" : "",
+      `${yn(inc.trend)} / ${yn(inc.raw)}`, x.summary || "", inc.trend ? "" : x.reason || "", ai, screen, x.must ? "O" : "",
+      x.bodyRead ? "O" : "", notes, (x.queries || []).join(", "), (x.body || "").slice(0, 32000),
+    ];
+  });
+}
+
+async function saveRaw() {
+  if (!items.length) return;
+  $("#saveInfo").className = "hint";
+  $("#saveInfo").textContent = "전체 raw 데이터 엑셀 만드는 중…";
+  try {
+    const rows = rawRows();
+    const bytes = XlsxWriter.build([{
+      name: "전체 raw data", rows: [RAW_HEADERS, ...rows],
+      widths: { 1: 6, 2: 6, 3: 16, 4: 11, 5: 40, 6: 38, 7: 8, 8: 10, 9: 50, 10: 40, 11: 16, 12: 36, 13: 7, 14: 7, 15: 40, 16: 24, 17: 80 },
+      wrapCols: [5, 9, 10, 12, 15],
+    }]);
+    const name = datedFileName(RAW_NAME);
+    await downloadBytes(bytes, name);
+    const checked = items.filter((x) => x.checked).length;
+    const stats = { posts: items.length, checked };
+    let dbNote = "";
+    try {
+      await dbSaveDay("seatRaw", today(), name, bytes, "auto", `찾은 글 ${items.length.toLocaleString()}개 · 체크 ${checked.toLocaleString()}개`, stats);
+      dbNote = " · 데이터 DB(전체 raw 데이터)에 오늘 파일로 저장했습니다";
+    } catch {
+      dbNote = " · (데이터 DB 저장은 하지 못했습니다)";
+    }
+    $("#saveInfo").className = "hint ok";
+    $("#saveInfo").textContent = `✔ ${saveWhereText(await saveOptions())}에 ${name} - 찾은 글 ${items.length.toLocaleString()}개 (체크 ${checked.toLocaleString()}개)${dbNote}`;
   } catch (e) {
     $("#saveInfo").className = "hint err";
     $("#saveInfo").textContent = `엑셀을 만들지 못했습니다: ${e.message}`;
@@ -1965,14 +2019,14 @@ async function init() {
   $("#aiTest").addEventListener("click", testAiKey);
   for (const id of ["aiModel", "aiOn"]) $(`#${id}`).addEventListener("change", () => (saveSettings(), showAiStatus()));
   $("#resetSettings").addEventListener("click", async () => {
-    if (!confirm("동호회·검색어·관련 단어 설정을 처음 값으로 되돌릴까요?")) return;
+    if (!(await askConfirm("동호회·검색어·관련 단어 설정을 처음 값으로 되돌릴까요?"))) return;
     for (const id of SETTING_IDS) $(`#${id}`).value = SETTING_DEFAULTS[id];
     renderCars({});
     await saveSettings();
   });
   $("#search").addEventListener("click", async () => {
     const r = await loadResume("seat");
-    search(r && confirm(`중단된 게시물 찾기가 있습니다 (${r.jobs.length}개 중 ${r.next}개 완료).\n\n· [확인]: 이어서 찾기\n· [취소]: 처음부터 다시 찾기`) ? r : null);
+    search(r && (await askConfirm(`중단된 게시물 찾기가 있습니다 (${r.jobs.length}개 중 ${r.next}개 완료).\n\n· [확인]: 이어서 찾기\n· [취소]: 처음부터 다시 찾기`)) ? r : null);
   });
   $("#mustOnly").addEventListener("click", async () => {
     if (running) return;
@@ -2006,13 +2060,13 @@ async function init() {
   $("#checkAll").addEventListener("change", (e) => setVisible(() => e.target.checked));
   $("#selDelete").addEventListener("click", async () => {
     const n = items.filter((x) => x.checked).length;
-    if (!n || !confirm(`체크한 게시물 ${n}개를 목록에서 삭제할까요?`)) return;
+    if (!n || !(await askConfirm(`체크한 게시물 ${n}개를 목록에서 삭제할까요?`))) return;
     items = items.filter((x) => !x.checked);
     renderResults();
     await saveItems();
   });
   $("#clearAll").addEventListener("click", async () => {
-    if (!items.length || !confirm(`찾은 글 ${items.length}개(읽은 본문·요약 포함)를 모두 지울까요?`)) return;
+    if (!items.length || !(await askConfirm(`찾은 글 ${items.length}개(읽은 본문·요약 포함)를 모두 지울까요?`))) return;
     items = [];
     await clearResume("seat");
     renderResults();
@@ -2022,6 +2076,7 @@ async function init() {
   $("#readAll").addEventListener("change", updateCounts);
   $("#rewrite").addEventListener("click", () => !running && writeSummaries(true));
   $("#saveList").addEventListener("click", saveList);
+  $("#saveRaw").addEventListener("click", saveRaw);
   $("#diag").addEventListener("click", () => {
     const blob = new Blob([JSON.stringify({ version: chrome.runtime.getManifest().version, at: new Date().toString(), diagnostics }, null, 1)], { type: "application/json" });
     clickDownload(blob, `${today()}_시트위험_진단.json`);
@@ -2030,7 +2085,7 @@ async function init() {
   checkLogin();
   // 중단된 찾기가 있으면 이어서 할지 묻는다
   const r = await loadResume("seat");
-  if (r && confirm(`중단된 게시물 찾기가 있습니다 (동호회·검색어 ${r.jobs.length}개 중 ${r.next}개 완료 · ${new Date(r.at).toLocaleString()}).\n\n· [확인]: 이어서 찾기\n· [취소]: 나중에 ('게시물 찾기'를 누르면 다시 물어봄)`)) search(r);
+  if (r && (await askConfirm(`중단된 게시물 찾기가 있습니다 (동호회·검색어 ${r.jobs.length}개 중 ${r.next}개 완료 · ${new Date(r.at).toLocaleString()}).\n\n· [확인]: 이어서 찾기\n· [취소]: 나중에 ('게시물 찾기'를 누르면 다시 물어봄)`))) search(r);
 }
 
 // 위쪽 '⚙ 설정' 버튼(seat.html#settings): 설정을 펼치고 그 위치로
