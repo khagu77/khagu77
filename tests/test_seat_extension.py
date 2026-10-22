@@ -136,6 +136,8 @@ def test_seat(tmp_path: Path):
         page.evaluate("CAFE_ARTICLE_DELAY[0] = CAFE_ARTICLE_DELAY[1] = CAFE_PAGE_DELAY[0] = CAFE_PAGE_DELAY[1] = 10")
 
         assert page.inner_text("h1") == "LX3 / ME1 / MX5 전동 시트 작동 위험 상황 관련 게시물 수집"
+        assert page.get_attribute(".brand .logo", "src") == "icons/logo-seat.png"
+        assert page.evaluate("document.querySelector('.brand .logo').naturalWidth") > 0
         # 위쪽 띠: 에르메스 오렌지
         assert page.evaluate("getComputedStyle(document.querySelector('.topbar')).backgroundColor") == "rgb(243, 112, 33)"
         # 기본 동호회 12곳, 차종 3개(시작일: 양산 시점)
