@@ -38,8 +38,18 @@
       for (let x = 0; x < w; x++) if (isInk((y * w + x) * 4)) n++;
       rowInk[y] = n;
     }
-    // 폭 대부분을 덮는 가로선(칸 구분선·테두리)은 줄 단위로 지운다
-    for (let y = 0; y < h; y++) if (rowInk[y] > w * 0.8) rowInk[y] = 0;
+    // 폭 대부분을 덮는 가로선(칸 구분선·테두리)은 줄 단위로 지운다 — 단, 얇은 선(3px×배율 이하)만.
+    // 배경색(형광펜)이 칠해진 긴 글줄도 폭 대부분이 '잉크'라서 예전엔 줄째 지워졌다 (담당자 지적 2026-10-22: GV80 멤버스 gruu/1756933 본문 두 줄 빠짐)
+    for (let y = 0; y < h; ) {
+      if (rowInk[y] <= w * 0.8) {
+        y++;
+        continue;
+      }
+      let e = y;
+      while (e < h && rowInk[e] > w * 0.8) e++;
+      if (e - y <= 3 * dpr) for (let k = y; k < e; k++) rowInk[k] = 0;
+      y = e;
+    }
     // 잉크 줄 묶음(band) 찾기
     let bands = [];
     let start = -1;

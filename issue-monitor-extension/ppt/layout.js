@@ -33,15 +33,17 @@
 
   // 오른쪽 이미지 영역: 가로로 긴 그림은 모두 같은 폭(영역 전체 폭)으로 한 줄씩,
   // 세로로 긴 그림은 같은 폭으로 두 개씩 나란히. 넘치면 전체를 같은 비율로 줄인다 (폭이 그림마다 들쭉날쭉하지 않게).
-  function layoutImagesUniform(images, top) {
+  // 세로로 길거나 정사각형에 가까운 그림(가로:세로 1.25 이하)은 두 개씩 나란히 (담당자 수정 2026-10-22: 정사각형 캡처 4장은 2×2)
+  const pairable = (im) => im.cssWidth <= im.cssHeight * 1.25;
+  function layoutImagesUniform(images, top, bottom = G.yBottom) {
     const areaW = G.xImgR - G.xImg;
-    const areaH = G.yBottom - top;
+    const areaH = bottom - top;
     const rows = [];
     for (let i = 0; i < images.length; i++) {
       const im = images[i];
-      const portrait = im.cssHeight > im.cssWidth;
+      const portrait = pairable(im);
       const nxt = images[i + 1];
-      if (portrait && nxt && nxt.cssHeight > nxt.cssWidth) {
+      if (portrait && nxt && pairable(nxt)) {
         rows.push([i, i + 1]);
         i++;
       } else rows.push([i]);
@@ -50,7 +52,7 @@
       const out = [];
       let y = top;
       for (const row of rows) {
-        const w = row.length === 2 || images[row[0]].cssHeight > images[row[0]].cssWidth ? ((areaW - IMG_GAP) / 2) * s : areaW * s;
+        const w = row.length === 2 || pairable(images[row[0]]) ? ((areaW - IMG_GAP) / 2) * s : areaW * s;
         const hs = row.map((i) => (w * images[i].cssHeight) / images[i].cssWidth);
         const rowW = row.length * w + (row.length - 1) * IMG_GAP;
         let x = G.xImg + (areaW - rowW) / 2;
@@ -75,7 +77,7 @@
     if (lastRow.length === 1 && s >= 0.999) {
       const p = res.placed.find((q) => q.i === lastRow[0]);
       const im = images[lastRow[0]];
-      const roomH = G.yBottom - p.y;
+      const roomH = bottom - p.y;
       let w = areaW;
       let h = (w * im.cssHeight) / im.cssWidth;
       if (h > roomH) {
@@ -196,12 +198,36 @@
     const n = comments.length;
     let chosen = plan(n, SCALES[0]);
     if (!chosen.fits) chosen = plan(n, SCALES[1]);
+    // 본문이 애매하게 길어 댓글을 위아래로 쌓으면 본문이 안 들어갈 때: 댓글 2개를 맨 아래 한 줄에 나란히 놓아 본문 자리를 넓힌다
+    // (담당자 수정 2026-10-22 gruu/1756933: 첫 댓글은 왼쪽(3.66cm), 둘째 댓글은 그 오른쪽(오른쪽 사진 영역 아래까지), 댓글 오른쪽 빈 여백은 잘라냄)
+    let rowMode = null;
+    if (!chosen.fits && visuals.body && n >= 2) {
+      const pxW = (c) => (c.canvas && c.canvas.width ? c.canvas.width : c.cssWidth * (c.dpr || 1));
+      const pxH = (c) => (c.canvas && c.canvas.height ? c.canvas.height : c.cssHeight * (c.dpr || 1));
+      const ink = (c) => Math.min(pxW(c), (c.inkWidth || pxW(c)) + Math.round(6 * (c.dpr || 1)));
+      for (const sc of [SCALES[1], 0.42, 0.38]) {
+        const two = comments.slice(0, 2).map((c) => {
+          const ePx = CSS_PX_EMU / (c.dpr || 1);
+          const iw = ink(c);
+          const w = iw * ePx * sc;
+          return { w, h: (w * pxH(c)) / iw, iw };
+        });
+        const totalW = two[0].w + GAP + two[1].w;
+        if (totalW > G.xImgR - G.xText) continue;
+        const rowH = Math.max(two[0].h, two[1].h);
+        const avail = G.yBottom - rowH - GAP - y;
+        const body = sizeAt(visuals.body, SCALES[1], G.xRight - G.xBody);
+        rowMode = { two, rowH, plan: { scale: SCALES[1], cs: [], body, avail, fits: body.h <= avail } };
+        break;
+      }
+      if (rowMode) chosen = rowMode.plan;
+    }
     let split = null;
     if (!chosen.fits && visuals.body) split = splitBody(visuals.body, chosen, y);
     if (split) {
       chosen = split.plan;
       placements.push(...split.placements);
-    } else if (!chosen.fits) {
+    } else if (!chosen.fits && !rowMode) {
       for (let k = n; k >= Math.min(1, n); k--) {
         chosen = plan(k, SCALES[1]);
         if (chosen.avail >= 2 * CM) break;
@@ -211,6 +237,17 @@
       const b = chosen.body;
       const crop = b.h > chosen.avail ? chosen.avail / b.h : 1;
       placements.push({ kind: "body", item: visuals.body, x: G.xBody, y, w: b.w, h: b.h * crop, crop });
+    }
+    let imagesBottom = G.yBottom;
+    if (rowMode) {
+      let x = G.xText;
+      rowMode.two.forEach((c, k) => {
+        const it = comments[k];
+        placements.push({ kind: "comment", item: it, region: { y0: 0, y1: it.canvas && it.canvas.height ? it.canvas.height : Math.round(it.cssHeight * (it.dpr || 1)), w: c.iw }, x, y: G.yBottom - c.h, w: c.w, h: c.h });
+        x += c.w + GAP;
+      });
+      // 둘째 댓글이 오른쪽 사진 영역 아래까지 오면 사진은 그 위까지만
+      if (G.xText + rowMode.two[0].w + GAP + rowMode.two[1].w > G.xImg) imagesBottom = G.yBottom - rowMode.rowH - GAP;
     }
     let cy = G.yBottom;
     for (let k = chosen.cs.length - 1; k >= 0; k--) {
@@ -255,12 +292,12 @@
       images = images.filter((im) => !wide.includes(im));
     }
     if (images.length) {
-      const normal = layoutImagesUniform(images, G.yImg);
-      const tall = layoutImagesUniform(images, G.yTop);
+      const normal = layoutImagesUniform(images, G.yImg, imagesBottom);
+      const tall = layoutImagesUniform(images, G.yTop, imagesBottom);
       const use = normal.scale >= 0.999 ? normal : tall.scale > normal.scale * 1.1 ? tall : normal; // 크거나 많으면 위로 확장
       for (const p of use.placed) placements.push({ kind: "image", item: images[p.i], x: p.x, y: p.y, w: p.w, h: p.h });
     }
-    return { placements, scale: chosen.scale, dropped: comments.length - chosen.cs.length };
+    return { placements, scale: chosen.scale, dropped: rowMode ? 0 : comments.length - chosen.cs.length };
   }
 
   global.Layout = { layout, G, CM };

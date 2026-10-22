@@ -602,7 +602,19 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     img.setAttribute("data-rpt", `image${images.length}`);
     // 원본 주소: 늦게 불러오기 전 흐린 미리보기(type=w80_blur 등) 대신 큰 이미지로
     let src = img.getAttribute("data-lazy-src") || img.getAttribute("data-src") || img.currentSrc || img.src || "";
-    if (/pstatic\.net/.test(src)) src = src.replace(/([?&])type=[^&]*/, "$1type=w966");
+    // 스마트에디터 사진은 링크 정보(data-linkdata)에 원본 주소가 있다 — 묶음 사진·작은 미리보기 대신 원본으로
+    // (담당자 지적 2026-10-22: gruu/1756933 첨부 사진이 106~219px 작은 그림으로 들어가 화질이 낮았음)
+    try {
+      const holder = img.closest("[data-linkdata]") || (img.closest(".se-component, .se-module") || img).querySelector("[data-linkdata]");
+      const ld = holder ? JSON.parse(holder.getAttribute("data-linkdata") || "{}") : null;
+      if (ld && ld.src && /^https?:/.test(ld.src)) src = ld.src;
+    } catch {}
+    // dthumb 같은 썸네일 중계 주소면 원래 그림 주소(src=)로
+    try {
+      const u = new URL(src, location.href);
+      if (/dthumb|thumb-phinf\.pstatic\.net\/\?/.test(u.href) && u.searchParams.get("src")) src = u.searchParams.get("src").replace(/^"|"$/g, "");
+    } catch {}
+    if (/pstatic\.net/.test(src)) src = /[?&]type=/.test(src) ? src.replace(/([?&])type=[^&]*/, "$1type=w966") : `${src}${src.includes("?") ? "&" : "?"}type=w966`;
     images.push({ index: images.length, width: r.width, height: r.height, src });
   }
 
@@ -1135,19 +1147,24 @@ async function shot(tabId, rect) {
   return new Blob([u8], { type: "image/png" });
 }
 
-async function fetchImage(src) {
+// 원본 사진 받기: w966 → 주소 그대로(type 없이) 순서로. 받은 그림이 화면에 보이던 크기보다 작으면(썸네일) 화면 캡처가 더 낫다
+async function fetchImage(src, shownCss = null) {
   if (!src || !/^(https:|data:image\/(png|jpe?g|gif|webp))/i.test(src)) return null;
-  try {
-    const res = await fetch(src, { credentials: "omit" });
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    const bmp = await createImageBitmap(blob); // 그림으로 열리는지 확인
-    if (bmp.width < 80 || bmp.height < 60) return null;
-    blob.isOriginal = true;
-    return blob;
-  } catch {
-    return null;
+  const tries = [src];
+  if (/pstatic\.net/.test(src)) tries.push(src.replace(/([?&])type=[^&]*&?/, "$1").replace(/[?&]$/, ""));
+  for (const u of tries) {
+    try {
+      const res = await fetch(u, { credentials: "omit" });
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      const bmp = await createImageBitmap(blob); // 그림으로 열리는지 확인
+      if (bmp.width < 80 || bmp.height < 60) continue;
+      if (shownCss && bmp.width < shownCss.width * CAPTURE_DPR * 0.9) continue; // 화면 캡처(2배)보다 작은 썸네일이면 쓰지 않음
+      blob.isOriginal = true;
+      return blob;
+    } catch {}
   }
+  return null;
 }
 
 // → { info, header, body, comments: [Blob|null], images: [Blob|null], dpr }
@@ -1262,7 +1279,7 @@ async function captureCafePostOnce(url, onStep = () => {}, known = {}) {
     const out = { info, dpr: CAPTURE_DPR, comments: [], images: [] };
     out.header = await take("header");
     // 본문 사진은 원본 파일을 직접 받는다 (선명하고 여백·비율 왜곡 없음). 못 받으면 화면 캡처로 대신.
-    for (const im of info.images) out.images.push((await fetchImage(im.src)) || (await take(`image${im.index}`)));
+    for (const im of info.images) out.images.push((await fetchImage(im.src, { width: im.width })) || (await take(`image${im.index}`)));
     for (const c of info.comments) out.comments.push(await take(`comment${c.index}`));
     // 마지막: 본문 이미지를 없앤 상태로 찍음. 길면 여러 장으로 나눠 찍어 [Blob, Blob, …] (앱에서 이어 붙임)
     {
