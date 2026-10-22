@@ -48,7 +48,7 @@ function setInfo(text, cls = "") {
   $("#dbInfo").className = `summary ${cls}`;
 }
 
-// 그 파일의 글 수와 바로 전 기록 대비 증감 (rows: 최신순)
+// 그 파일의 글 수와 바로 전 기록 대비 증감 (rows: 최신순) - 항목마다 한 줄: 이름 · 숫자 · 증감
 function fillCounts(td, kind, rows, i) {
   for (const [field, label] of COUNT_FIELDS[kind]) {
     const v = rows[i].stats?.[field];
@@ -56,10 +56,41 @@ function fillCounts(td, kind, rows, i) {
     const prev = rows.slice(i + 1).find((r) => r.stats?.[field] !== undefined && r.stats?.[field] !== null);
     const d = { today: v, prev: prev ? prev.stats[field] : null, prevDate: prev?.date || null, diff: prev ? v - prev.stats[field] : null };
     const line = document.createElement("div");
-    line.append(`${label} ${v.toLocaleString()}건 `, diffBadge(d));
+    line.className = "cnt";
+    const k = document.createElement("span");
+    k.className = "k";
+    k.textContent = label;
+    const n = document.createElement("b");
+    n.textContent = `${v.toLocaleString()}건`;
+    line.append(k, n, diffBadge(d));
     td.append(line);
   }
   if (!td.childNodes.length) td.textContent = "-";
+}
+
+// 내용: 건수를 작은 상자(칩)로
+function fillChips(td, kind, rec) {
+  const st = rec.stats;
+  const chips = !st
+    ? [[rec.summary || "-", ""]]
+    : kind === "seatRaw"
+      ? [[`찾은 글 ${(st.posts ?? 0).toLocaleString()}`, "main"], [`체크 ${(st.checked ?? 0).toLocaleString()}`, ""]]
+      : [[`글 ${(st.posts ?? 0).toLocaleString()}`, "main"], ...CAR_CODES.map((c) => [`${c} ${(st[c] ?? 0).toLocaleString()}`, (st[c] ?? 0) ? "" : "zero"]),
+        [`동향 미포함 ${(st.missing ?? 0).toLocaleString()}`, "warn"]];
+  // 이 파일에 든 글들에 쓴 AI 비용 (글마다 실제 사용량으로 나눠 붙인 것의 합)
+  if (st && st.aiCost > 0) {
+    const per = st.posts ? Math.round(st.aiCost / st.posts) : 0;
+    chips.push([`AI 비용 약 ${st.aiCost.toLocaleString()}원${st.posts ? ` · 글당 약 ${per.toLocaleString()}원` : ""}`, "cost"]);
+  }
+  const box = document.createElement("div");
+  box.className = "chips";
+  for (const [text, cls] of chips) {
+    const c = document.createElement("span");
+    c.className = `chip ${cls}`;
+    c.textContent = text;
+    box.append(c);
+  }
+  td.append(box);
 }
 
 async function renderFiles(kind) {
@@ -67,20 +98,27 @@ async function renderFiles(kind) {
   tbody.innerHTML = "";
   const rows = await dbList(kind);
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="hint">아직 저장된 파일이 없습니다. 게시물 수집 화면에서 엑셀을 받으면 자동으로 저장됩니다.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty"><td colspan="5" class="hint">아직 저장된 파일이 없습니다. 게시물 수집 화면에서 엑셀을 받으면 자동으로 저장됩니다.</td></tr>`;
     return;
   }
   rows.forEach((rec, i) => {
     const tr = document.createElement("tr");
     tr.innerHTML =
-      `<td class="nowrap"></td><td></td><td></td><td class="counts"></td><td class="nowrap"></td>` +
-      `<td class="nowrap"><button class="small get">받기</button> <button class="small up">수정본 올리기</button> <button class="small danger del">삭제</button></td>`;
-    tr.children[0].textContent = prettyDate(rec.date) + (i === 0 ? " · 최종" : "");
-    if (i === 0) tr.className = "final";
-    tr.children[1].textContent = rec.name;
-    tr.children[2].textContent = rec.summary || "";
+      `<td class="c-date"><div class="d"></div></td><td class="c-file"><div class="fname"></div><div class="meta"></div></td>` +
+      `<td class="c-sum"></td><td class="counts"></td>` +
+      `<td class="c-act"><button class="small get">받기</button><button class="small up">수정본 올리기</button><button class="small danger del">삭제</button></td>`;
+    tr.querySelector(".d").textContent = prettyDate(rec.date);
+    if (i === 0) {
+      tr.className = "final";
+      const pill = document.createElement("span");
+      pill.className = "pill";
+      pill.textContent = "최종";
+      tr.children[0].append(pill);
+    }
+    tr.querySelector(".fname").textContent = rec.name;
+    tr.querySelector(".meta").textContent = `${new Date(rec.savedAt).toLocaleString()} · ${rec.source === "upload" ? "직접 올림" : "자동 저장"}`;
+    fillChips(tr.children[2], kind, rec);
     fillCounts(tr.children[3], kind, rows, i);
-    tr.children[4].textContent = `${new Date(rec.savedAt).toLocaleString()} · ${rec.source === "upload" ? "직접 올림" : "자동 저장"}`;
     tr.querySelector(".get").addEventListener("click", () => downloadBytes(rec.bytes, rec.name));
     tr.querySelector(".up").addEventListener("click", () => {
       pickFor = { kind, date: rec.date };
@@ -98,7 +136,7 @@ async function renderFiles(kind) {
 }
 
 async function renderWork() {
-  const s = await chrome.storage.local.get(["seatItems", "seatClubIds", "seatCompare"]).catch(() => ({}));
+  const s = await chrome.storage.local.get(["seatItems", "seatClubIds", "seatCompare", "seatAiSpend"]).catch(() => ({}));
   const items = s.seatItems || [];
   const checked = items.filter((x) => x.checked);
   const userFiles = (s.seatCompare || []).filter((f) => !f.builtin);
@@ -107,6 +145,7 @@ async function renderWork() {
     ["체크한 글", `${checked.length.toLocaleString()}개`],
     ["본문 읽음", `${checked.filter((x) => x.bodyRead).length.toLocaleString()}개`],
     ["요약 씀", `${checked.filter((x) => x.summary).length.toLocaleString()}개 (AI ${checked.filter((x) => x.by === "ai").length} · 규칙 ${checked.filter((x) => x.by === "rule").length})`],
+    ["AI 누적 비용", s.seatAiSpend ? `약 ${Math.round(s.seatAiSpend.won).toLocaleString()}원 (입력 ${s.seatAiSpend.input.toLocaleString()} · 출력 ${s.seatAiSpend.output.toLocaleString()} 토큰 · 1차 검토·요약 모두, 지운 글 포함)` : "0원"],
     ["알아낸 카페 번호", `${Object.keys(s.seatClubIds || {}).length}곳`],
     ["비교 파일", (s.seatCompare || []).length ? `${s.seatCompare.length}개 (직접 등록 ${userFiles.length}개)` : "0개 (게시물 수집 화면을 처음 열면 미리 받은 비교 파일이 등록됩니다)"],
   ];

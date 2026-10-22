@@ -75,7 +75,7 @@ function diffBadge(d) {
   const span = document.createElement("span");
   if (!d || d.diff === null) {
     span.className = "diff none";
-    span.textContent = "전일 기록 없음";
+    span.textContent = "첫 기록";
   } else if (d.diff > 0) {
     span.className = "diff up";
     span.textContent = `▲ ${d.diff.toLocaleString()} 건`;

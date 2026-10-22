@@ -157,6 +157,12 @@ def make_compare_files(tmp_path: Path):
     return [tmp_path / "251231_일일동향.xlsx", tmp_path / "251231_raw_data.xlsx"]
 
 
+def open_panels(page):
+    """화면 준비가 끝난 뒤 접혀 있는 2·3번 칸(비교 파일 · Claude AI 설정)을 펼친다."""
+    page.locator("#login", has_text="네이버").wait_for()
+    page.evaluate("document.querySelectorAll('details.panel').forEach(d => d.open = true)")
+
+
 @needs_chromium
 def test_seat(tmp_path: Path):
     # 실제 전달용 비교 자료(compare-data.json, 저장소에 없음) 대신 작은 가짜 자료를 넣은 복사본으로 시험
@@ -186,6 +192,12 @@ def test_seat(tmp_path: Path):
         ctx.add_init_script("window.__seatAutoConfirm = true;")  # 화면 안 확인 상자는 자동으로 '확인'
         page.goto(f"{ext}/seat.html")
         page.evaluate("CAFE_ARTICLE_DELAY[0] = CAFE_ARTICLE_DELAY[1] = CAFE_PAGE_DELAY[0] = CAFE_PAGE_DELAY[1] = 10")
+        # 2·3번 칸: 준비된 칸(비교 파일 등록됨)은 접고, 준비가 덜 된 칸(API 키 없음)은 펼친 채 · 접혀도 제목 옆에 상태
+        page.locator("#login", has_text="네이버").wait_for()
+        assert not page.evaluate("document.getElementById('panelCompare').open") and page.evaluate("document.getElementById('panelAi').open")
+        assert "파일 2개 (동향 1 · 로데이터 1) · 짧은 주소 모두 확인" in page.inner_text("#compareState")
+        assert "API 키 없음" in page.inner_text("#aiState")
+        open_panels(page)
 
         assert page.inner_text("h1") == "LX3 / ME1 / MX5 전동 시트 작동 위험 상황 관련 게시물 수집"
         assert page.evaluate("getComputedStyle(document.querySelector('h1')).color") == "rgb(0, 0, 0)"  # 제목 글자 검정
@@ -212,6 +224,8 @@ def test_seat(tmp_path: Path):
         assert page.is_checked("#aiOn")
         page.reload()
         page.evaluate("CAFE_ARTICLE_DELAY[0] = CAFE_ARTICLE_DELAY[1] = CAFE_PAGE_DELAY[0] = CAFE_PAGE_DELAY[1] = 10")
+        open_panels(page)
+        assert "✔ 키 저장됨 · Claude Opus 5.5 사용" in page.inner_text("#aiState")
         page.locator("#aiStatus", has_text="저장된 키로").wait_for()
         assert page.input_value("#aiKey") == "sk-ant-good" and page.is_checked("#aiOn") and "저장된 키로" in page.inner_text("#aiStatus")
         page.uncheck("#aiOn")  # 아래는 규칙 요약으로 시험
@@ -310,6 +324,7 @@ def test_seat(tmp_path: Path):
         # 다시 열어도 결과·비교 파일 유지
         page.reload()
         page.evaluate("CAFE_ARTICLE_DELAY[0] = CAFE_ARTICLE_DELAY[1] = 10")
+        open_panels(page)
         page.locator("#results tbody tr").nth(2).wait_for()
         page.locator("#compareTable tbody tr").nth(3).wait_for()
         assert page.locator("#results tbody tr").count() == 3 and page.locator("#compareTable tbody tr").count() == 4
@@ -339,6 +354,7 @@ def test_seat(tmp_path: Path):
         assert raw_path.name.endswith("_전체 raw data.xlsx"), raw_path.name
         page.locator("#saveInfo", has_text="데이터 DB(전체 raw 데이터)에 오늘 파일로 저장").wait_for()
         rws = load_workbook(raw_path).active
+        assert rws["A1"].font.name == "현대산스 Text" and rws["E2"].font.name == "현대산스 Text"
         head = [c.value for c in rws[1]]
         assert head[:8] == ["순번", "차종", "동호회명", "게시일", "제목", "URL", "최종 포함(체크)", "온라인동향/로데이터 포함 여부"] and head[-1] == "본문"
         body_rows = [[c.value for c in r] for r in rws.iter_rows(min_row=2)]
@@ -350,11 +366,13 @@ def test_seat(tmp_path: Path):
         # 데이터 DB: 받은 엑셀이 오늘 날짜로 보관됨 · 받기 · 수정본 올리기 · 작업 데이터 백업/불러오기
         page.click("a.tool[href='seat-db.html']")
         page.wait_for_url("**/seat-db.html")
-        assert page.locator("section[data-kind=seatRaw] tbody tr").first.inner_text().count("찾은 글 3개 · 체크 2개") == 1
+        raw_chips = page.locator("section[data-kind=seatRaw] tbody tr").first.locator(".chip").all_inner_texts()
+        assert raw_chips == ["찾은 글 3", "체크 2"], raw_chips
         db_rows = page.locator("section[data-kind=seat] tbody tr")
         db_rows.first.locator(".counts").wait_for()
         assert db_rows.count() == 1 and "최종" in db_rows.first.inner_text()
-        assert "글 2개 · LX3 1 · ME1 1 · MX5 0 · 동향 미포함 1" in db_rows.first.inner_text()
+        assert db_rows.first.locator(".chip").all_inner_texts() == ["글 2", "LX3 1", "ME1 1", "MX5 0", "동향 미포함 1"]
+        assert db_rows.first.locator(".pill").inner_text() == "최종" and "첫 기록" in db_rows.first.locator(".counts").inner_text()
         assert "찾은 글" in page.inner_text("#work") and "3개" in page.inner_text("#work")
         with page.expect_file_chooser() as fc:
             db_rows.first.locator(".up").click()
@@ -390,13 +408,17 @@ def test_seat(tmp_path: Path):
     assert r5[1:4] == [2, "ME1", "전기차"] and r5[6] == "https://cafe.naver.com/evcafe/2001"
     assert r5[9].startswith("로데이터에는 수집되었으나")
     # 포함 여부: 한 칸 안에서 Y 파랑 · N 빨강
+    assert ws["F4"].font.name == "현대산스 Text" and ws["B3"].font.name == "현대산스 Text"  # 엑셀 글꼴
     cell = ws["I5"].value
     assert str(cell) == "N / Y"
     colors = [(b.text, b.font.color.rgb if b.font and b.font.color else None) for b in cell if hasattr(b, "font")]
     assert colors == [("N", "FFE00000"), (" / ", None), ("Y", "FF0070C0")], colors
-    assert all(b.font.rFont == "맑은 고딕" for b in cell if hasattr(b, "font"))
+    assert all(b.font.rFont == "현대산스 Text" for b in cell if hasattr(b, "font"))
     assert str(ws["I4"].value) == "Y / Y"
     assert ws.max_row == 5
+
+
+systems = []  # 최종 판단 요청의 지시문 (담당자 추가 규칙이 붙는지 확인)
 
 
 def fake_claude(route, calls):
@@ -405,6 +427,8 @@ def fake_claude(route, calls):
     items = json.loads(body["messages"][0]["content"].split("\n\n", 1)[1])
     screen = "1차 검토자" in body["system"]
     calls.append("screen" if screen else "final")
+    if not screen:
+        systems.append(body["system"])
     if screen:
         out = {"items": [{"id": x["id"], "maybe": "아이" in x["제목"] + x["미리보기"], "why": "아이 위험 언급"} for x in items]}
     else:
@@ -444,7 +468,7 @@ def test_ai_review_unchecked(tmp_path: Path):
         ctx.add_init_script("window.__seatAutoConfirm = true;")
         asked = lambda: page.evaluate("globalThis.__seatAsked || []")
         page.goto(f"chrome-extension://{sw.url.split('/')[2]}/seat.html")
-        page.locator("#login", has_text="네이버").wait_for()  # 화면 준비(저장된 결과 불러오기)가 끝난 뒤
+        open_panels(page)  # 화면 준비(저장된 결과 불러오기)가 끝난 뒤
         base = "car:'LX3',cafeIndex:0,cafeName:'팰리 카페',slug:'palicafe',date:Date.UTC(2025,2,1),queries:['q'],touched:false,summary:'',reason:'',by:'',bodyNote:''"
         page.evaluate(f"""items = [
           {{key:'palicafe/1',articleId:'1',title:'큰일날 뻔했어요',text:'3열 내리다 아이가',checked:false,bodyRead:true,body:'3열에서 내리다 아이 손이 2열에 끼일 뻔',{base}}},
@@ -483,6 +507,25 @@ def test_ai_review_unchecked(tmp_path: Path):
             raise AssertionError(f"{page.inner_text('#summary')} | {asked()[-2:]} | {calls} | {errors} | {page.evaluate('items.map(x => [x.key, x.checked, x.by, x.touched])')}")
         assert calls.count("screen") == n_screen  # 전체 정독이면 1차 검토는 건너뜀
         assert page.evaluate("items.find(x => x.key === 'palicafe/2').by") == "ai"
+        # 담당자 추가 규칙(메모)이 지시문에 붙고, 모니터링 시작 전 글(팰리세이드 오너스 클럽 '26.3.11 이전)은 정해진 누락 사유
+        assert "[담당자 추가 규칙 - 위 규칙보다 우선]" in systems[-1] and "tobloomer" in systems[-1]
+        page.evaluate("""items.push(
+          {key:'tobloomer/1',articleId:'1',car:'LX3',cafeIndex:3,cafeName:'팰리세이드 오너스 클럽',slug:'tobloomer',date:new Date(2026,1,20).getTime(),
+           title:'2열 끼임',text:'2열 끼임',checked:true,bodyRead:true,body:'2열 폴딩에 끼임',queries:['q'],touched:false,summary:'',reason:'',by:'',bodyNote:''},
+          {key:'tobloomer/2',articleId:'2',car:'LX3',cafeIndex:3,cafeName:'팰리세이드 오너스 클럽',slug:'tobloomer',date:new Date(2026,2,11).getTime(),
+           title:'3열 끼임',text:'3열 끼임',checked:true,bodyRead:true,body:'3열 복귀에 끼임',queries:['q'],touched:false,summary:'',reason:'',by:'',bodyNote:''}); renderResults();""")
+        page.click("#rewrite")
+        page.wait_for_function("() => items.find(x => x.key === 'tobloomer/2').by === 'ai'", timeout=60000)
+        reasons = page.evaluate("[items.find(x => x.key === 'tobloomer/1').reason, items.find(x => x.key === 'tobloomer/2').reason]")
+        assert reasons[0] == "해당 동호회(팰리세이드 오너스 클럽)는 당시 모니터링 대상 동호회가 아니었음 ('26년 3월 12일부터 모니터링 대상 동호회로 지정)", reasons
+        assert reasons[1] == "아차 상황으로 보고 기준에 미달한 것으로 추정", reasons  # '26.3.11 게시글부터는 모니터링 대상
+        assert page.evaluate("ruleReason(items.find(x => x.key === 'tobloomer/1'), inclusion(items.find(x => x.key === 'tobloomer/1')))") == reasons[0]
+
+        # 실제 쓴 AI 비용: 요청마다 사용량으로 계산해 글마다 나눠 붙이고 전체 누적도 남김
+        costs = page.evaluate("items.map(x => x.aiCost || 0)")
+        assert all(c > 0 for c in costs[:2]), costs
+        total = page.evaluate("aiSpend.won")
+        assert abs(sum(costs) - total) < 0.01 and total > 0, (costs, total)
         assert page.evaluate("items.find(x => x.key === 'palicafe/5').checked") is True
 
         # 아직 본문을 안 읽은 체크한 글: 읽는 대로 AI 가 판단·요약 (다 읽을 때까지 기다리지 않음)

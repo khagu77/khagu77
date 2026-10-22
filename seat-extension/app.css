@@ -178,3 +178,77 @@ input.key { width: 300px; }
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35); }
 .ask-text { white-space: pre-wrap; line-height: 1.6; font-size: 14.5px; }
 .hint-in { font-weight: 400; opacity: 0.8; font-size: 12.5px; }
+
+/* 데이터 DB 화면 */
+.db-section { margin-top: 26px; }
+.db-section h2 { border-left: 4px solid #f37021; padding-left: 10px; margin-bottom: 10px; }
+.db-section .row { margin-bottom: 10px; }
+.dbtable { table-layout: fixed; border-collapse: separate; border-spacing: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.dbtable col.w-date { width: 132px; }
+.dbtable col.w-sum { width: 250px; }
+.dbtable col.w-cnt { width: 200px; }
+.dbtable col.w-act { width: 252px; }
+.dbtable th { background: var(--bg); color: var(--muted); font-size: 12.5px; font-weight: 700; white-space: nowrap; padding: 9px 12px; }
+.dbtable th .th-sub { font-weight: 400; }
+.dbtable td { padding: 12px; vertical-align: middle; border-bottom: 1px solid var(--border); }
+.dbtable tbody tr:last-child td { border-bottom: none; }
+.dbtable tr.final td { font-weight: 400; background: rgba(243, 112, 33, 0.06); }
+.dbtable tr.empty td { text-align: center; padding: 18px; }
+.dbtable .c-date .d { font-weight: 700; white-space: nowrap; }
+.dbtable .pill { display: inline-block; margin-top: 4px; padding: 1px 9px; border-radius: 999px; background: #f37021; color: #fff; font-size: 11.5px; font-weight: 700; }
+.dbtable .fname { font-weight: 600; word-break: break-all; line-height: 1.4; }
+.dbtable .meta { margin-top: 3px; color: var(--muted); font-size: 12px; }
+.dbtable .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.dbtable .chip { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg); font-size: 12px; white-space: nowrap; }
+.dbtable .chip.main { border-color: #f37021; color: #c4520c; font-weight: 700; background: transparent; }
+.dbtable .chip.zero { opacity: 0.5; }
+.dbtable .chip.warn { border-color: var(--red); color: var(--red); background: transparent; }
+.dbtable .cnt { display: grid; grid-template-columns: 74px 64px 1fr; align-items: baseline; gap: 4px; font-size: 13px; line-height: 1.7; }
+.dbtable .cnt .k { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dbtable .cnt b { text-align: right; white-space: nowrap; }
+.dbtable .cnt .diff { font-size: 12px; white-space: nowrap; }
+.dbtable .c-act { text-align: right; white-space: nowrap; }
+.dbtable .c-act button { margin-left: 4px; }
+@media (prefers-color-scheme: dark) { .dbtable .chip.main { color: #ff9a5c; } }
+#work { max-width: 640px; border: 1px solid var(--border); border-radius: 10px; border-collapse: separate; border-spacing: 0; overflow: hidden; }
+#work th { background: var(--bg); color: var(--muted); font-weight: 700; }
+#work tr:last-child th, #work tr:last-child td { border-bottom: none; }
+.dbtable .chip.cost { border-color: #0070c0; color: #0070c0; background: transparent; }
+/* 접고 펼치는 칸 (2. 비교 파일 · 3. Claude AI 설정) */
+details.panel { margin: 22px 0 8px; padding: 0; border: 1px solid var(--border); border-radius: 10px; }
+details.panel > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; }
+details.panel > summary::-webkit-details-marker { display: none; }
+details.panel > summary::before { content: "▸"; color: #f37021; font-size: 14px; transition: transform 0.15s; }
+details.panel[open] > summary::before { transform: rotate(90deg); }
+details.panel > summary h2 { margin: 0; }
+details.panel > summary .panel-state { font-size: 13px; font-weight: 600; color: var(--muted); }
+details.panel > summary .panel-state.ok { color: var(--blue-text); }
+details.panel > summary .panel-state.err { color: var(--red); }
+details.panel[open] > summary { border-bottom: 1px solid var(--border); }
+details.panel > :not(summary) { margin-left: 16px; margin-right: 16px; }
+details.panel > :last-child { margin-bottom: 14px; }
+
+/* 결과 표: 열 너비 고정 · 한글은 낱말 단위로 줄바꿈 · 비고는 작게 */
+#results { table-layout: fixed; width: 100%; min-width: 1100px; }
+#results col.w-cb { width: 3%; }
+#results col.w-car { width: 4.5%; }
+#results col.w-day { width: 8%; }
+#results col.w-cafe { width: 9%; }
+#results col.w-title { width: 16%; }
+#results col.w-yn { width: 8.5%; }
+#results col.w-reason { width: 16%; }
+#results col.w-note { width: 13%; }
+#results col.w-del { width: 5%; }
+#results th { background: var(--bg); color: var(--muted); font-size: 12.5px; font-weight: 700; white-space: nowrap; padding: 9px 8px; border-bottom: 1px solid var(--border); }
+#results td { padding: 10px 8px; vertical-align: top; word-break: keep-all; overflow-wrap: anywhere; line-height: 1.45; }
+#results tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--bg) 55%, transparent); }
+#results tbody tr:hover td { background: rgba(243, 112, 33, 0.07); }
+#results td:nth-child(2), #results td:nth-child(3) { white-space: nowrap; }
+#results td:nth-child(4) { font-size: 12.5px; }
+#results td:nth-child(5) a { font-weight: 600; text-decoration: none; color: var(--blue-text); }
+#results td:nth-child(5) a:hover { text-decoration: underline; }
+#results td.sum { font-size: 12.5px; min-width: 0; }
+#results td.yn { text-align: center; min-width: 0; }
+#results td.note { font-size: 11.5px; color: var(--muted); }
+#results td.note div { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 3px; }
+#results td:last-child { text-align: center; }

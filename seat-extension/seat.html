@@ -57,6 +57,10 @@
         <textarea id="riskWords" rows="3" spellcheck="false"></textarea>
         <label for="exclude">관련 없는 글 단어 <span class="hint">(있으면 체크 해제)</span></label>
         <textarea id="exclude" rows="1" spellcheck="false"></textarea>
+        <label for="monitorStart">동호회별 모니터링 시작일 <span class="hint">(한 줄에 하나: <b>영문 카페 주소 | 이 날짜 이전 글은 모니터링 대상 아님 | 누락 사유에 덧붙일 말</b> · 그 이전 글이 온라인 동향에 없으면 누락 사유를 이 내용으로 씀)</span></label>
+        <textarea id="monitorStart" rows="2" spellcheck="false"></textarea>
+        <label for="aiRules">AI 추가 규칙 (메모) <span class="hint">(마크다운 · 요약·누락 사유를 쓸 때마다 AI 에게 함께 전달 · 담당자 기준이 생기면 여기에 적어 두세요)</span></label>
+        <textarea id="aiRules" rows="6" spellcheck="false"></textarea>
         <label for="searchUrl">카페 검색 주소 형식 <span class="hint">(검색이 안 되면 카페에서 직접 검색한 주소창 주소를 그대로 붙여 넣으세요)</span></label>
         <input type="text" id="searchUrl" class="full" spellcheck="false">
         <label class="inline">검색어마다 최대 <input type="number" id="maxPages" min="1" max="100" class="tiny"> 페이지까지 봅니다 <span class="hint">(시작일보다 오래된 글만 나오면 그 전에 멈춤)</span></label>
@@ -77,8 +81,8 @@
       <div class="buttons"><button id="diag" class="small" hidden>진단 파일 받기 (개발자에게 보내기)</button></div>
     </section>
 
-    <section>
-      <h2>2. 비교 파일 (온라인 동향 · 로데이터)</h2>
+    <details class="panel" id="panelCompare">
+      <summary><h2>2. 비교 파일 (온라인 동향 · 로데이터)</h2><span class="panel-state" id="compareState"></span></summary>
       <div class="hint">일일 온라인 동향 리스트와 로데이터 엑셀을 여러 개 한꺼번에 등록하세요(이 PC 크롬에 보관, 다시 넣지 않아도 됨).
         파일 안의 카페 글 주소(카페 영문 주소 + 글번호로 비교 · 주소 뒤 꼬리·새 카페 주소 모양이 달라도 같은 글로 봄 · naver.me 짧은 주소는 풀어서 비교)로 각 게시물이 들어 있었는지 확인해 엑셀 '포함 여부' 칸에 <b>온라인동향 / 로데이터</b> 순서로 <b class="yn-y">Y</b> / <b class="yn-n">N</b> 을 씁니다.
         종류는 머리글(불만구분·중복 → 온라인 동향, 주요 내용 → 로데이터)로 자동으로 정하며 바꿀 수 있습니다.</div>
@@ -89,10 +93,10 @@
         <thead><tr><th>파일</th><th>종류</th><th>카페 글</th><th>게시일 기간</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
-    </section>
+    </details>
 
-    <section>
-      <h2>3. Claude AI 설정 (요약 · 누락 사유)</h2>
+    <details class="panel" id="panelAi">
+      <summary><h2>3. Claude AI 설정 (요약 · 누락 사유)</h2><span class="panel-state" id="aiState"></span></summary>
       <div class="hint">본문을 읽은 뒤 AI 가 주제에 맞는 글인지 다시 판단하고, 주요내용 요약과 누락 사유를 씁니다. 끄면 정해진 규칙 문장으로 씁니다.</div>
       <fieldset class="ai">
         <div class="row">
@@ -106,7 +110,7 @@
         <div class="hint">API 키는 이 PC 크롬에만 저장되고, 요약을 위해 체크한 글의 제목·본문이 Anthropic(Claude)으로 보내집니다.
           API 키는 <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> 에서 만들 수 있습니다.</div>
       </fieldset>
-    </section>
+    </details>
 
     <section id="resultBox" hidden>
       <h2>4. 결과 확인 · 본문 요약 · 엑셀 받기</h2>
@@ -127,6 +131,7 @@
       </div>
       <div class="tablewrap">
         <table id="results">
+          <colgroup><col class="w-cb"><col class="w-car"><col class="w-day"><col class="w-cafe"><col class="w-title"><col><col class="w-yn"><col class="w-reason"><col class="w-note"><col class="w-del"></colgroup>
           <thead><tr><th><input type="checkbox" id="checkAll" title="보이는 글 모두 체크/해제"></th><th>차종</th><th>게시일</th><th>동호회</th><th>제목</th><th>주요내용 요약</th><th class="nowrap">동향 / 로데이터</th><th>누락 사유</th><th>비고</th><th></th></tr></thead>
           <tbody></tbody>
         </table>

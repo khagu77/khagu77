@@ -1,5 +1,5 @@
 // 외부 라이브러리 없이 .xlsx 파일을 만드는 최소 구현.
-// XlsxWriter.build([{ name, rows: [[...], ...], widths: {열번호(1부터): 너비}, wrapCols: [열번호] }])
+// XlsxWriter.build([{ name, rows: [[...], ...], widths: {열번호(1부터): 너비}, wrapCols: [열번호] }], { font: "글꼴 이름" })
 //   → Uint8Array (엑셀 파일 바이트). 첫 행은 머리글로 꾸며지고 틀 고정/필터가 걸린다.
 (function (global) {
   const enc = new TextEncoder();
@@ -132,13 +132,14 @@
     );
   }
 
-  const STYLES =
+  // font: 글꼴 이름 · headFill: 머리글 바탕색(ARGB)
+  const styles = (font, headFill) =>
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
     '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-    '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font>' +
-    '<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts>' +
+    `<fonts count="2"><font><sz val="11"/><name val="${esc(font)}"/><charset val="129"/></font>` +
+    `<font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="${esc(font)}"/><charset val="129"/></font></fonts>` +
     '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' +
-    '<fill><patternFill patternType="solid"><fgColor rgb="FF03C75A"/><bgColor indexed="64"/></patternFill></fill></fills>' +
+    `<fill><patternFill patternType="solid"><fgColor rgb="${headFill}"/><bgColor indexed="64"/></patternFill></fill></fills>` +
     '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
     '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
     '<cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
@@ -147,7 +148,7 @@
     '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
     "</styleSheet>";
 
-  function build(sheets) {
+  function build(sheets, { font = "Calibri", headFill = "FF03C75A" } = {}) {
     const files = [];
     const overrides = sheets
       .map(
@@ -209,7 +210,7 @@
         `<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>` +
         "</Relationships>",
     });
-    files.push({ name: "xl/styles.xml", data: STYLES });
+    files.push({ name: "xl/styles.xml", data: styles(font, headFill) });
     sheets.forEach((s, i) => files.push({ name: `xl/worksheets/sheet${i + 1}.xml`, data: sheetXml(s) }));
     return zip(files);
   }

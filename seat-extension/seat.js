@@ -34,12 +34,19 @@ const DEFAULT_RISK_WORDS =
 const DEFAULT_EXCLUDE = "시트커버, 시트지, 열선, 통풍, 썬팅, 틴팅, 팝니다, 삽니다, 판매합니다, 공동구매";
 // 꼭 넣을 글: 요청서의 예시 게시물 (검색으로 찾았는지 점검하는 기준으로도 씀)
 const DEFAULT_MUST = ["https://cafe.naver.com/gamewinds/4299497", "https://cafe.naver.com/tobloomer/133964"].join("\n");
+// 동호회별 모니터링 시작일: 이 날짜 이전 글은 그 동호회가 모니터링 대상이 아니었으므로 누락 사유를 정해진 문장으로
+// (팰리세이드 오너스 클럽: 동향·로데이터에 '26.3.11 게시글부터 나옴 - 3.12 보고부터 모니터링)
+const DEFAULT_MONITOR_START = "tobloomer | 2026-03-11 | '26년 3월 12일부터 모니터링 대상 동호회로 지정";
+const DEFAULT_AI_RULES = `## 담당자 추가 규칙
+- 팰리세이드 오너스 클럽(cafe.naver.com/tobloomer)은 '26년 3월 12일부터 모니터링 대상 동호회가 되었다.
+  그 이전(게시일 '26.3.11 이전) 글이 온라인 동향에 없으면, 누락 사유는 "해당 동호회는 당시 모니터링 대상 동호회가 아니었음('26년 3월 12일부터 모니터링 대상 동호회로 지정)" 으로 쓴다.`;
 const DEFAULT_SEARCH_URL = "https://cafe.naver.com/f-e/cafes/{cafeId}/menus/0?viewType=L&ta=ARTICLE_COMMENT&page={page}&q={q}";
 const DEFAULT_MAX_PAGES = 10;
 const HEADER_ROW = 3; // 양식: 3행 머리글(B 순번 · C 차종 · D 동호회명 · E 게시일 · F 제목 · G URL · H 요약 · I 포함 여부 · J 누락 사유)
 const STYLE_ROW = 4;
 const OUT_NAME = "LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물.xlsx";
 const RAW_NAME = "LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물_전체 raw data.xlsx";
+const EXCEL_FONT = "현대산스 Text"; // 받는 엑셀 글꼴 (양식 seat-template.xlsx 도 이 글꼴)
 const BLUE = "FF0070C0"; // 포함 여부 Y
 const RED = "FFE00000"; // 포함 여부 N
 // 걸리는 시간 어림 (초): 검색 화면 한 페이지 · 글 하나
@@ -68,9 +75,11 @@ let diagnostics = [];
 // 설정
 // ---------------------------------------------------------------------------
 
-const SETTING_IDS = ["mustList", "cafeList", "queries", "mixedQueries", "carWords", "rowWords", "riskWords", "exclude", "searchUrl", "maxPages"];
+const SETTING_IDS = ["mustList", "monitorStart", "aiRules", "cafeList", "queries", "mixedQueries", "carWords", "rowWords", "riskWords", "exclude", "searchUrl", "maxPages"];
 const SETTING_DEFAULTS = {
   mustList: DEFAULT_MUST,
+  monitorStart: DEFAULT_MONITOR_START,
+  aiRules: DEFAULT_AI_RULES,
   cafeList: DEFAULT_CAFES, queries: DEFAULT_QUERIES, mixedQueries: DEFAULT_MIXED_QUERIES, carWords: DEFAULT_CAR_WORDS,
   rowWords: DEFAULT_ROW_WORDS, riskWords: DEFAULT_RISK_WORDS, exclude: DEFAULT_EXCLUDE, searchUrl: DEFAULT_SEARCH_URL, maxPages: DEFAULT_MAX_PAGES,
 };
@@ -971,7 +980,51 @@ function deadShorts() {
   return [...codes].filter((c) => shortMap[c] === "").length;
 }
 
+// 2·3번 접기·펼치기: 접혀 있어도 제목 옆에 상태를 보여주고, 사용자가 접거나 펼친 상태는 기억한다
+// (기억한 상태가 없으면 준비가 덜 된 칸만 펼침)
+function panelRemembered(id) {
+  try {
+    return localStorage.getItem(`seatPanel_${id}`);
+  } catch {
+    return null;
+  }
+}
+
+function setupPanel(id, needsAttention) {
+  const el = $(`#${id}`);
+  const saved = panelRemembered(id);
+  el.open = saved ? saved === "open" : needsAttention;
+  el.addEventListener("toggle", () => {
+    try {
+      localStorage.setItem(`seatPanel_${id}`, el.open ? "open" : "closed");
+    } catch {
+      /* 무시 */
+    }
+  });
+}
+
+function renderPanelStates() {
+  const cs = $("#compareState");
+  if (cs) {
+    const pend = pendingShorts().length;
+    const kinds = { trend: 0, raw: 0 };
+    for (const f of compare) kinds[f.kind]++;
+    cs.textContent = !compare.length
+      ? "비교 파일 없음 - 포함 여부가 모두 N / N"
+      : `파일 ${compare.length}개 (동향 ${kinds.trend} · 로데이터 ${kinds.raw}) · ${pend ? `짧은 주소 ${pend.toLocaleString()}개 안 풀림` : "짧은 주소 모두 확인"}`;
+    cs.className = `panel-state ${!compare.length || pend ? "err" : "ok"}`;
+  }
+  const as = $("#aiState");
+  if (as) {
+    const key = $("#aiKey").value.trim();
+    const model = AI_MODELS.find(([id]) => id === $("#aiModel").value)?.[1].split(" (")[0] || "";
+    as.textContent = !key ? "API 키 없음 - 규칙으로 작성" : $("#aiOn").checked ? `✔ 키 저장됨 · ${model} 사용` : `키 저장됨 · AI 꺼짐(규칙으로 작성)`;
+    as.className = `panel-state ${key && $("#aiOn").checked ? "ok" : "err"}`;
+  }
+}
+
 function renderShortInfo() {
+  renderPanelStates();
   const box = $("#shortInfo");
   if (!box) return;
   const total = new Set(compare.flatMap((f) => f.shorts || [])).size;
@@ -1246,8 +1299,28 @@ function ruleSummary(item) {
 const OUT_OF_RANGE = "비교한 온라인 동향 파일의 기간 밖에 게시된 글로, 해당 기간 동향 파일 확인 필요";
 
 // 규칙으로 누락 사유 (온라인 동향에 없을 때만)
+// 동호회별 모니터링 시작일 → { slug: { from: Date(그날 0시), note } }
+function monitorStarts() {
+  const out = {};
+  for (const line of String($("#monitorStart")?.value || "").split(/\r?\n/)) {
+    const [slug, day, note] = line.split("|").map((x) => (x || "").trim());
+    const m = (day || "").match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (slug && m) out[slug.toLowerCase()] = { from: new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])), note };
+  }
+  return out;
+}
+
+// 이 글이 그 동호회 모니터링 시작 전 글이면 정해진 누락 사유, 아니면 ""
+function notMonitoredReason(item) {
+  const ms = monitorStarts()[String(item.slug || "").toLowerCase()];
+  if (!ms || !item.date || new Date(item.date) >= ms.from) return "";
+  return `해당 동호회(${item.cafeName})는 당시 모니터링 대상 동호회가 아니었음${ms.note ? ` (${ms.note})` : ""}`;
+}
+
 function ruleReason(item, inc) {
   if (inc.trend) return "";
+  const nm = notMonitoredReason(item);
+  if (nm) return nm;
   const t = compactText(`${item.title} ${item.body || item.text}`);
   const any = (list) => list.some((w) => t.includes(w));
   if (!inc.trendRange) return OUT_OF_RANGE;
@@ -1321,6 +1394,12 @@ const AI_SYSTEM = `당신은 현대자동차 품질 부문의 온라인 동향 �
 - 댓글 반응, 글쓴이 닉네임, 개인정보는 쓰지 않습니다. 욕설·과장은 중립적인 말로 바꿉니다.
 - 2열·3열을 구분해 글에 쓰인 대로 씁니다(글에 없으면 "뒷좌석 시트" 처럼 글의 표현을 따릅니다).
 - 모든 글을 같은 기준·같은 문체로 씁니다. 존댓말 어미나 마침표 없이 "내용" / "추정" 으로 끝냅니다.`;
+
+// 담당자 추가 규칙(설정의 'AI 추가 규칙' 메모)을 붙인 지시문
+function aiSystem() {
+  const extra = String($("#aiRules")?.value || "").trim();
+  return extra ? `${AI_SYSTEM}\n\n[담당자 추가 규칙 - 위 규칙보다 우선]\n${extra}` : AI_SYSTEM;
+}
 
 const AI_SCHEMA = {
   type: "object",
@@ -1400,6 +1479,7 @@ async function aiScreenBatch(client, model, batch, usage) {
   const msg = await stream.finalMessage();
   usage.input += msg.usage?.input_tokens || 0;
   usage.output += msg.usage?.output_tokens || 0;
+  chargeAi(batch, msg, model);
   if (msg.stop_reason === "refusal") throw new Error("Claude 가 검토를 거절했습니다");
   if (msg.stop_reason === "max_tokens") throw new Error("결과가 너무 길어 잘렸습니다");
   const parsed = JSON.parse(msg.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
@@ -1500,6 +1580,7 @@ async function testAiKey() {
 }
 
 function showAiStatus(text, cls = "") {
+  renderPanelStates();
   const box = $("#aiStatus");
   if (!box) return;
   if (text === undefined) {
@@ -1513,6 +1594,25 @@ function showAiStatus(text, cls = "") {
   }
   box.textContent = text;
   box.className = `hint ${cls}`;
+}
+
+// 실제로 쓴 AI 비용: 요청마다 사용량으로 계산해 그 묶음의 글들에 똑같이 나눠 붙이고(x.aiCost, 원), 전체 누적도 남긴다
+let aiSpend = { won: 0, input: 0, output: 0 };
+
+function aiWonExact(input, output, model) {
+  const [inP, outP] = AI_PRICE[model] || AI_PRICE["claude-opus-5-5"];
+  return ((input * inP + output * outP) / 1e6) * WON_PER_USD;
+}
+
+let aiSpendTimer = null;
+function chargeAi(batch, msg, model) {
+  const input = msg.usage?.input_tokens || 0;
+  const output = msg.usage?.output_tokens || 0;
+  const won = aiWonExact(input, output, model);
+  for (const x of batch) x.aiCost = (x.aiCost || 0) + won / batch.length;
+  aiSpend = { won: aiSpend.won + won, input: aiSpend.input + input, output: aiSpend.output + output };
+  clearTimeout(aiSpendTimer);
+  aiSpendTimer = setTimeout(() => chrome.storage.local.set({ seatAiSpend: aiSpend }).catch(() => {}), 300);
 }
 
 function aiCostWon(inTokens, outTokens, model) {
@@ -1531,13 +1631,14 @@ function aiErrorMessage(e) {
 }
 
 // 결과 한 건 검사: 형식이 어긋나면 null (그 묶음을 다시 요청)
-function checkAiResult(r, inc, must = false) {
+function checkAiResult(r, inc, must = false, fixedReason = "") {
   if (!r || typeof r.summary !== "string" || typeof r.reason !== "string" || !AI_SITUATIONS.includes(r.situation)) return null;
   const summary = r.summary.replace(/\s+/g, " ").replace(/[.。]\s*$/, "").trim();
   let reason = r.reason.replace(/\s+/g, " ").replace(/[.。]\s*$/, "").trim();
   if (summary.length < 4) return null;
   const relevant = !!r.relevant || must; // 꼭 넣을 글은 늘 주제에 맞는 글로 본다
   if (inc.trend || !relevant) reason = "";
+  else if (fixedReason) reason = fixedReason; // 모니터링 시작 전 글: 정해진 문장
   else if (!inc.trendRange) reason = OUT_OF_RANGE; // 비교 파일 기간 밖은 추정하지 않고 확인 필요로
   else if (!reason || !/추정$/.test(reason)) return null;
   return { relevant, situation: relevant && r.situation === "관련 없음" ? "위험 우려" : r.situation, summary, reason };
@@ -1563,7 +1664,7 @@ async function aiBatch(client, model, batch, usage) {
   const params = {
     model,
     max_tokens: 16000,
-    system: AI_SYSTEM,
+    system: aiSystem(),
     output_config: { effort: "medium", format: { type: "json_schema", schema: AI_SCHEMA } },
     messages: [{ role: "user", content: `아래 글 ${batch.length}개를 규칙대로 판단해 items ${batch.length}개로 돌려주세요.\n\n${JSON.stringify(input)}` }],
   };
@@ -1573,12 +1674,13 @@ async function aiBatch(client, model, batch, usage) {
   const msg = await stream.finalMessage();
   usage.input += msg.usage?.input_tokens || 0;
   usage.output += msg.usage?.output_tokens || 0;
+  chargeAi(batch, msg, model);
   if (msg.stop_reason === "refusal") throw new Error("Claude 가 이 글들의 요약을 거절했습니다");
   if (msg.stop_reason === "max_tokens") throw new Error("결과가 너무 길어 잘렸습니다");
   const parsed = JSON.parse(msg.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
   const byId = new Map((parsed.items || []).map((r) => [r.id, r]));
   // 한 건이라도 빠지거나 형식이 어긋나면 묶음 전체를 다시 요청 (반쯤 맞은 결과를 섞지 않음)
-  const results = batch.map((x) => checkAiResult(byId.get(x.key), inclusion(x), !!x.must));
+  const results = batch.map((x) => checkAiResult(byId.get(x.key), inclusion(x), !!x.must, notMonitoredReason(x)));
   const bad = results.filter((r) => !r).length;
   if (bad) throw new Error(`결과 ${bad}건의 형식이 맞지 않습니다`);
   batch.forEach((x, i) => {
@@ -1767,7 +1869,7 @@ function fillRow(tr, item) {
   tr.children[5].textContent = item.summary || "";
   const inc = inclusion(item);
   tr.children[6].innerHTML = `<b class="yn-${inc.trend ? "y" : "n"}">${yn(inc.trend)}</b> / <b class="yn-${inc.raw ? "y" : "n"}">${yn(inc.raw)}</b>`;
-  tr.children[7].textContent = item.reason || "";
+  tr.children[7].textContent = inc.trend ? "" : notMonitoredReason(item) || item.reason || "";
   const notes = [];
   if (item.must) notes.push(`★ 꼭 넣을 글: ${item.mustNote || ""}`);
   if (item.aiScreen) notes.push(`AI 1차(제목·미리보기): ${item.aiScreen.maybe ? "관련 가능" : "무관"} - ${item.aiScreen.why}`);
@@ -1777,7 +1879,9 @@ function fillRow(tr, item) {
   if (item.by === "ai") notes.push(`AI: ${item.situation || "요약"}${item.aiRelevant === false ? " (주제와 무관하다고 판단 - 체크 해제)" : ""}`);
   else if (item.by) notes.push("규칙 요약");
   notes.push(`검색어: ${item.queries.join(", ")}`);
-  tr.children[8].textContent = notes.join(" · ");
+  // 비고: 항목마다 한 줄, 길면 4줄까지만 보이고 마우스를 올리면 전체
+  tr.children[8].replaceChildren(...notes.map((t) => Object.assign(document.createElement("div"), { textContent: t })));
+  tr.children[8].title = notes.join("\n");
 }
 
 function renderRow(item) {
@@ -1831,8 +1935,14 @@ async function buildExcel(selected) {
       null, i + 1, x.car, x.cafeName,
       d ? excelSerial(new Date(d.getFullYear(), d.getMonth(), d.getDate())) : "",
       x.title, articleUrl(x), x.summary || ruleSummary(x),
-      { runs: [{ text: yn(inc.trend), color: inc.trend ? BLUE : RED, bold: true }, { text: " / " }, { text: yn(inc.raw), color: inc.raw ? BLUE : RED, bold: true }] },
-      inc.trend ? "" : x.reason || ruleReason(x, inc),
+      {
+        runs: [
+          { text: yn(inc.trend), color: inc.trend ? BLUE : RED, bold: true, font: EXCEL_FONT },
+          { text: " / ", font: EXCEL_FONT },
+          { text: yn(inc.raw), color: inc.raw ? BLUE : RED, bold: true, font: EXCEL_FONT },
+        ],
+      },
+      inc.trend ? "" : notMonitoredReason(x) || x.reason || ruleReason(x, inc),
     ];
   });
   await wb.replaceRowsAfter(sheet, HEADER_ROW, values, STYLE_ROW, { focusFirstNew: true });
@@ -1875,7 +1985,7 @@ async function saveList() {
     await downloadBytes(bytes, name);
     const miss = selected.filter((x) => !inclusion(x).trend).length;
     // 데이터 DB 에 오늘 파일로 보관 (같은 날 다시 받으면 바꿈)
-    const stats = { posts: selected.length, missing: miss };
+    const stats = { posts: selected.length, missing: miss, aiCost: Math.round(selected.reduce((n, x) => n + (x.aiCost || 0), 0)), aiTotal: Math.round(aiSpend.won) };
     for (const c of CARS) stats[c.code] = selected.filter((x) => x.car === c.code).length;
     let dbNote = "";
     try {
@@ -1896,7 +2006,7 @@ async function saveList() {
 // 전체 raw 데이터: 찾은 글 전체(체크 안 된 글 포함)와 판단 근거·요약·본문 - 검토·보관용
 const RAW_HEADERS = [
   "순번", "차종", "동호회명", "게시일", "제목", "URL", "최종 포함(체크)", "온라인동향/로데이터 포함 여부", "주요내용 요약", "미포함시 누락 사유",
-  "AI 판단(상황)", "AI 1차 검토(제목·미리보기)", "꼭 넣을 글", "본문 읽음", "비고(판단 근거)", "검색어", "본문",
+  "AI 판단(상황)", "AI 1차 검토(제목·미리보기)", "꼭 넣을 글", "본문 읽음", "비고(판단 근거)", "검색어", "AI 비용(원)", "본문",
 ];
 
 function rawRows() {
@@ -1907,8 +2017,8 @@ function rawRows() {
     const notes = [x.mustNote, x.bodyNote || x.note].filter(Boolean).join(" · ");
     return [
       i + 1, x.car, x.cafeName, x.date ? formatDateTime(new Date(x.date), false) : "", x.title, articleUrl(x), x.checked ? "O" : "",
-      `${yn(inc.trend)} / ${yn(inc.raw)}`, x.summary || "", inc.trend ? "" : x.reason || "", ai, screen, x.must ? "O" : "",
-      x.bodyRead ? "O" : "", notes, (x.queries || []).join(", "), (x.body || "").slice(0, 32000),
+      `${yn(inc.trend)} / ${yn(inc.raw)}`, x.summary || "", inc.trend ? "" : notMonitoredReason(x) || x.reason || "", ai, screen, x.must ? "O" : "",
+      x.bodyRead ? "O" : "", notes, (x.queries || []).join(", "), x.aiCost ? Math.round(x.aiCost * 10) / 10 : "", (x.body || "").slice(0, 32000),
     ];
   });
 }
@@ -1921,13 +2031,13 @@ async function saveRaw() {
     const rows = rawRows();
     const bytes = XlsxWriter.build([{
       name: "전체 raw data", rows: [RAW_HEADERS, ...rows],
-      widths: { 1: 6, 2: 6, 3: 16, 4: 11, 5: 40, 6: 38, 7: 8, 8: 10, 9: 50, 10: 40, 11: 16, 12: 36, 13: 7, 14: 7, 15: 40, 16: 24, 17: 80 },
+      widths: { 1: 6, 2: 6, 3: 16, 4: 11, 5: 40, 6: 38, 7: 8, 8: 10, 9: 50, 10: 40, 11: 16, 12: 36, 13: 7, 14: 7, 15: 40, 16: 24, 17: 9, 18: 80 },
       wrapCols: [5, 9, 10, 12, 15],
-    }]);
+    }], { font: EXCEL_FONT, headFill: "FFF37021" });
     const name = datedFileName(RAW_NAME);
     await downloadBytes(bytes, name);
     const checked = items.filter((x) => x.checked).length;
-    const stats = { posts: items.length, checked };
+    const stats = { posts: items.length, checked, aiCost: Math.round(items.reduce((n, x) => n + (x.aiCost || 0), 0)), aiTotal: Math.round(aiSpend.won) };
     let dbNote = "";
     try {
       await dbSaveDay("seatRaw", today(), name, bytes, "auto", `찾은 글 ${items.length.toLocaleString()}개 · 체크 ${checked.toLocaleString()}개`, stats);
@@ -1985,9 +2095,12 @@ async function checkLogin() {
 
 async function init() {
   await loadSettings();
+  aiSpend = (await chrome.storage.local.get("seatAiSpend").catch(() => ({}))).seatAiSpend || aiSpend;
   $("#endDate").value = ymd(new Date());
   await loadCompare();
   renderCompare();
+  setupPanel("panelCompare", !compare.length || pendingShorts().length > 0);
+  setupPanel("panelAi", !$("#aiKey").value.trim());
   for (const c of CARS) $("#carFilter").add(new Option(c.label, c.code));
   const saved = (await chrome.storage.local.get("seatItems").catch(() => ({}))).seatItems || [];
   items = saved;
