@@ -520,6 +520,16 @@ def test_issue_report(tmp_path: Path):
         # 보고서 DB · 백업
         page.click('nav .tab[data-tab="db"]')
         page.locator("#dbTable .badge.final").wait_for()
+        # AI 비용: 원·달러, 단계별 내역(마우스 올리면), 이전 보고서 대비 증감 색
+        cost = page.locator("#dbTable td.cost").first
+        assert re.search(r"[\d,]+원", cost.inner_text()) and "첫 보고서" in cost.inner_text(), cost.inner_text()
+        assert "관련성 판독" in cost.get_attribute("title") and "성향 분석" in cost.get_attribute("title")
+        # 더 싸게 든 예전 보고서가 있으면 → 빨강 ▲ 증가
+        page.evaluate("""async () => { await DB.putJob({ ...newJob(), id: 'job_old', createdAt: 1, updatedAt: 1, issueName: '예전 보고서', usd: job.usd / 2 }); await renderDb(); }""")
+        up = page.locator("#dbTable tr", has_text="CN8 가격 공개").locator("td.cost .cost-up")
+        assert up.inner_text().startswith("▲") and "(+100%)" in up.inner_text(), up.inner_text()
+        assert page.evaluate("getComputedStyle(document.querySelector('#dbTable .cost-up')).color") == "rgb(217, 48, 37)"
+        page.evaluate("async () => { await DB.deleteJob('job_old'); await renderDb(); }")
         backup = save_download("#dbExport")
 
         # 예전 버전으로 읽은 언론 글이 있으면 '언론만 다시 수집' 안내

@@ -301,3 +301,9 @@ button.refill:hover { filter: brightness(0.9); }
 .qhead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 18px 0 6px; }
 .qhead h2 { margin: 0; }
 .qhead .refills { margin-left: auto; }
+
+/* 보고서 DB: AI 비용 증감 */
+td.cost { white-space: nowrap; }
+.cost-up { color: var(--neg); font-weight: 700; font-size: 12px; }
+.cost-down { color: var(--pos); font-weight: 700; font-size: 12px; }
+.cost-same { color: var(--muted); font-size: 12px; }

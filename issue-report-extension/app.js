@@ -85,8 +85,15 @@ function usdText(usd) {
   return `약 $${usd.toFixed(2)} (${numFmt(Math.round(usd * (Number(settings.usdKrw) || 1400)))}원)`;
 }
 
-function addUsage(ai) {
-  job.usd = (job.usd || 0) + ai.costUsd();
+// AI 비용을 보고서에 누적 (단계별로도). 같은 AiClient 를 여러 번 넣어도 새로 쓴 만큼만 더한다
+const USAGE_STAGES = { keywords: "키워드 추천", relevance: "관련성 판독", comments: "댓글 AI 판독", sentiment: "성향 분석", report: "보고서 작성" };
+function addUsage(ai, stage) {
+  const d = ai.costUsd() - (ai.counted || 0);
+  if (d <= 0) return;
+  ai.counted = ai.costUsd();
+  job.usd = (job.usd || 0) + d;
+  job.usdBy = job.usdBy || {};
+  job.usdBy[stage] = (job.usdBy[stage] || 0) + d;
 }
 
 // ---------------------------------------------------------------------------
@@ -334,12 +341,14 @@ async function suggestKeywords() {
     $("#keywords").value = r.text;
     readSetup();
     renderQueryPreview();
-    addUsage(ai);
+    addUsage(ai, "keywords");
     await saveJob();
     setMsg("#suggestMsg", `✔ 추천 완료 — 검색어 ${searchQueries(parseKeywords(r.text)).length}개. ${r.note} 필요하면 고쳐 쓰세요.`, "ok");
   } catch (e) {
     setMsg("#suggestMsg", `추천 실패: ${korMsg(e.message)}`, "err");
   }
+  addUsage(ai, "keywords"); // 실패한 호출도 비용은 듦
+  await saveJob();
   running = false;
   $("#suggestKeywords").disabled = false;
 }
@@ -611,7 +620,7 @@ async function judgePosts(log, list = job.posts, keepChecks = false) {
     log(`AI 판독 실패(${korMsg(e.message)}) → 키워드로 대신 고릅니다`, "err");
     if (!keepChecks) for (const p of list) if (!p.ai) p.checked = p.direct || matchesKeywords(`${p.title} ${postText(p)}`, kw);
   }
-  addUsage(ai);
+  addUsage(ai, "relevance");
 }
 
 async function rejudge() {
@@ -844,7 +853,8 @@ async function collectComments(mode = "new") {
   const nc = new NewsCollector({ delays, log, isStopped, replies: settings.newsReplies });
   const cc = new CafeCollector({ delays, log, isStopped });
   const yc = new YoutubeCollector({ log, isStopped });
-  const mc = new CommunityCollector({ delays, log, isStopped, ai: aiReady() ? new AiClient(settings, log) : null });
+  const commentAi = aiReady() ? new AiClient(settings, log) : null;
+  const mc = new CommunityCollector({ delays, log, isStopped, ai: commentAi });
   log(`댓글 수집: ${todo.length}건`);
   for (let i = 0; i < todo.length && !stopRequested; i++) {
     const p = todo[i];
@@ -929,6 +939,7 @@ async function collectComments(mode = "new") {
       else await sleep(randomBetween(delays.news));
     }
   }
+  if (commentAi) addUsage(commentAi, "comments");
   hideWork();
   running = false;
   $("#collectComments").disabled = false;
@@ -1099,7 +1110,7 @@ async function runSentiment(all = false, re = null) {
   } catch (e) {
     log(`성향 분석 오류: ${korMsg(e.message)} — 다시 누르면 남은 댓글부터 이어서 분석합니다`, "err");
   }
-  addUsage(ai);
+  addUsage(ai, "sentiment");
   log(`이번 분석 비용 ${usdText(ai.costUsd())} · 이 보고서 누적 ${usdText(job.usd)}`);
   hideWork();
   running = false;
@@ -1444,7 +1455,7 @@ async function writeReport() {
       short,
       long: quotes("quotes_long", 20, short),
     };
-    addUsage(ai);
+    addUsage(ai, "report");
     await saveJob();
     renderReport();
     const fillNote = filled.length ? ` · AI 가 고른 댓글을 찾지 못한 ${[...new Set(filled)].join("·")} 칸은 센 댓글 순으로 채웠습니다` : "";
@@ -1452,6 +1463,8 @@ async function writeReport() {
   } catch (e) {
     setMsg("#reportMsg", `초안 작성 실패: ${korMsg(e.message)}`, "err");
   }
+  addUsage(ai, "report"); // 실패한 호출도 비용은 듦
+  saveJobSoon();
   hideWork();
   running = false;
   $("#writeReport").disabled = false;
@@ -1488,13 +1501,15 @@ async function writeSummaryOnly() {
     const r = ensureReport();
     r.title = res.title || r.title;
     r.summary = (res.summary || []).slice(0, 3);
-    addUsage(ai);
+    addUsage(ai, "report");
     await saveJob();
     renderReport();
     setMsg("#reportMsg", `✔ 요약만 다시 썼습니다 — 주요 댓글은 그대로 (비용 ${usdText(ai.costUsd())}).`, "ok");
   } catch (e) {
     setMsg("#reportMsg", `요약 다시 쓰기 실패: ${korMsg(e.message)}`, "err");
   }
+  addUsage(ai, "report"); // 실패한 호출도 비용은 듦
+  saveJobSoon();
   hideWork();
   running = false;
   $("#writeReport").disabled = $("#writeSummary").disabled = false;
@@ -1745,10 +1760,37 @@ async function saveFinal() {
 
 const FILE_LABEL = { posts: "게시글", postsSentiment: "게시글+성향", comments: "댓글", sentiment: "성향", pptx: "PPT" };
 
+// 보고서 DB: AI 비용(원·달러)과 이전 보고서 대비 증감 (늘면 빨강 ▲, 줄면 파랑 ▼)
+const krw = (usd) => Math.round(usd * (Number(settings.usdKrw) || 1400));
+function costCell(j, prev) {
+  const td = el("td", { class: "cost" });
+  if (!(j.usd > 0)) return (td.append(el("span", { class: "hint", text: "-" })), td);
+  const by = Object.entries(j.usdBy || {})
+    .filter(([, v]) => v > 0)
+    .map(([k, v]) => `${USAGE_STAGES[k] || k}: ${numFmt(krw(v))}원 ($${v.toFixed(2)})`);
+  td.title = by.length ? `단계별 AI 비용\n${by.join("\n")}` : "단계별 기록 없음 (예전 버전에서 쓴 비용)";
+  td.append(el("b", { text: `${numFmt(krw(j.usd))}원` }), el("span", { class: "hint", text: ` $${j.usd.toFixed(2)}` }));
+  if (prev) {
+    const d = krw(j.usd) - krw(prev.usd);
+    const rate = prev.usd > 0 ? Math.round(((j.usd - prev.usd) / prev.usd) * 100) : 0;
+    const cls = d > 0 ? "cost-up" : d < 0 ? "cost-down" : "cost-same";
+    const text = d > 0 ? `▲ ${numFmt(d)}원 (+${rate}%)` : d < 0 ? `▼ ${numFmt(-d)}원 (${rate}%)` : "― 같음";
+    td.append(el("div", { class: cls, title: `이전 보고서 '${prev.issueName || prev.id}' ${numFmt(krw(prev.usd))}원 대비`, text }));
+  } else td.append(el("div", { class: "hint", text: "첫 보고서" }));
+  return td;
+}
+
 async function renderDb() {
   const tbody = $("#dbTable tbody");
   tbody.innerHTML = "";
   const jobs = await DB.listJobs();
+  // 이전 보고서 = 이 보고서보다 먼저 만든 보고서 중 가장 가까운 것 (비용 기록이 있는 것)
+  const byTime = jobs.slice().sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const prevOf = (j) => {
+    const i = byTime.indexOf(j);
+    for (let k = i - 1; k >= 0; k--) if (byTime[k].usd > 0) return byTime[k];
+    return null;
+  };
   for (const j of jobs) {
     const files = await DB.listFiles(j.id);
     const st = j.final?.stats?.["전체"];
@@ -1768,6 +1810,7 @@ async function renderDb() {
         el("td", { text: numFmt((j.posts || []).filter((p) => p.checked).length) }),
         el("td", { text: numFmt((j.comments || []).length) }),
         el("td", { text: negRate }),
+        costCell(j, prevOf(j)),
         filesTd,
         el("td", { text: fmtDateTime(j.final?.savedAt || j.updatedAt) }),
         el(
@@ -1799,7 +1842,7 @@ async function renderDb() {
       ),
     );
   }
-  if (!jobs.length) tbody.appendChild(el("tr", {}, el("td", { colspan: 9, class: "hint", text: "보관한 보고서가 없습니다." })));
+  if (!jobs.length) tbody.appendChild(el("tr", {}, el("td", { colspan: 10, class: "hint", text: "보관한 보고서가 없습니다." })));
 }
 
 async function openJob(id) {
