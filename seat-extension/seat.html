@@ -13,7 +13,7 @@
         <img src="icons/logo-seat.png" alt="2열 시트" class="logo">
         <h1>LX3 / ME1 / MX5 전동 시트 작동 위험 상황 관련 게시물 수집</h1>
         <span class="ver" id="ver"></span>
-        <div class="tools"><a class="tool" href="seat.html#settings">⚙ 설정</a></div>
+        <div class="tools"><a class="tool" href="seat-db.html">🗄 데이터 DB</a><a class="tool" href="seat.html#settings">⚙ 설정</a></div>
       </div>
     </div>
   </header>
@@ -138,6 +138,7 @@
         <button id="saveList" class="primary" disabled>엑셀 받기</button>
       </div>
       <div id="saveInfo" class="hint"></div>
+      <div id="diffs" class="diffs" hidden></div>
     </section>
 
     <p class="note">
@@ -148,6 +149,7 @@
   <script src="lib/anthropic-sdk.min.js"></script>
   <script src="template.js"></script>
   <script src="cafe-common.js"></script>
+  <script src="db-store.js"></script>
   <script src="seat.js"></script>
 </body>
 </html>

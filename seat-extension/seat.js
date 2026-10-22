@@ -199,18 +199,21 @@ function renderCafeInfo() {
   tbody.innerHTML = "";
   for (const c of list) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td></td><td></td><td></td><td><input type="text" class="slug" spellcheck="false" placeholder="자동"></td>`;
+    tr.innerHTML = `<td></td><td></td><td></td><td><input type="text" class="slug" spellcheck="false" placeholder="자동 (숫자나 카페 주소 붙여넣기)"></td>`;
     tr.children[0].textContent = c.car;
     tr.children[1].textContent = c.name + (c.mixed ? " (혼합)" : "");
     tr.children[2].textContent = c.slug;
     const input = tr.querySelector("input");
     input.value = clubIds[c.slug.toLowerCase()] || "";
     input.addEventListener("change", async () => {
-      const v = input.value.trim();
-      if (v && !/^\d{4,}$/.test(v)) {
+      const raw = input.value.trim();
+      const v = raw ? clubIdFromInput(raw) : "";
+      if (raw && !v) {
         input.value = clubIds[c.slug.toLowerCase()] || "";
+        alert("카페 번호를 찾지 못했습니다. 숫자(예: 16624720)나 카페 '전체글보기' 화면의 주소를 붙여 넣어 주세요.");
         return;
       }
+      input.value = v;
       if (v) clubIds[c.slug.toLowerCase()] = v;
       else delete clubIds[c.slug.toLowerCase()];
       await saveClubIds();
@@ -307,43 +310,99 @@ function judgeNote(j) {
 // ---------------------------------------------------------------------------
 
 function clubIdHintsInFrame() {
-  const ids = [];
-  const add = (s) => {
-    for (const m of String(s || "").matchAll(/\/cafes\/(\d{4,})\b|[?&](?:search\.)?clubid=(\d{4,})|[?&]cafeId=(\d{4,})/gi)) ids.push(m[1] || m[2] || m[3]);
+  const strong = []; // 이 화면 자체의 주소·틀 주소 (가장 믿을 만함)
+  const weak = []; // 링크·스크립트·불러온 자료 주소 (다른 카페 링크가 섞일 수 있음)
+  const RE = /\/cafes\/(\d{4,})\b|[?&](?:search\.)?club_?id=(\d{4,})|[?&]cafe_?id=(\d{4,})/gi;
+  const add = (s, list) => {
+    for (const m of String(s || "").matchAll(RE)) list.push(m[1] || m[2] || m[3]);
   };
-  add(location.href);
-  for (const a of document.querySelectorAll("a[href]")) add(a.getAttribute("href"));
+  add(location.href, strong);
+  for (const f of document.querySelectorAll("iframe[src]")) add(f.getAttribute("src"), strong);
+  for (const sel of ['meta[property="og:url"]', 'link[rel="canonical"]', 'meta[property="al:android:url"]', 'meta[property="al:ios:url"]']) {
+    const el = document.querySelector(sel);
+    if (el) add(el.getAttribute("content") || el.getAttribute("href"), strong);
+  }
+  for (const a of document.querySelectorAll("a[href]")) add(a.getAttribute("href"), weak);
   for (const s of document.querySelectorAll("script:not([src])")) {
-    for (const m of (s.textContent || "").matchAll(/["']?(?:clubId|cafeId|g_sClubId|clubid)["']?\s*[:=]\s*["']?(\d{4,})/g)) ids.push(m[1]);
+    const text = s.textContent || "";
+    for (const m of text.matchAll(/["']?(?:clubId|cafeId|g_sClubId|clubid|cafeid)["']?\s*[:=]\s*["']?(\d{4,})/g)) strong.push(m[1]);
+    add(text, weak);
   }
   try {
-    for (const e of performance.getEntriesByType("resource")) add(e.name);
+    for (const e of performance.getEntriesByType("resource")) add(e.name, weak);
   } catch {
     /* 무시 */
   }
-  return { ids, href: location.href };
+  return { strong, weak, href: location.href };
 }
 
+// 여러 프레임의 단서 → 카페 번호 (화면 주소·틀 주소·스크립트 값 우선, 링크는 압도적으로 많을 때만)
+function pickClubId(frames) {
+  const score = new Map();
+  for (const f of frames) {
+    for (const id of f.strong || []) score.set(id, (score.get(id) || 0) + 10);
+    for (const id of f.weak || []) score.set(id, (score.get(id) || 0) + 1);
+  }
+  const ranked = [...score.entries()].sort((a, b) => b[1] - a[1]);
+  if (!ranked.length) return null;
+  const [best, second] = ranked;
+  if (best[1] >= 10) return best[0];
+  return !second || best[1] >= second[1] * 3 ? best[0] : null;
+}
+
+// 비교 파일에 있는 이 카페의 글 하나 (글 화면은 주소가 /cafes/카페번호/articles/글번호 로 바뀌는 경우가 많다)
+function sampleArticle(slug) {
+  const prefix = `${slug.toLowerCase()}/`;
+  for (const f of compare) {
+    const k = f.keys.find((x) => x.startsWith(prefix));
+    if (k) return k.slice(prefix.length);
+  }
+  const it = items.find((x) => x.slug.toLowerCase() === slug.toLowerCase());
+  return it ? it.articleId : null;
+}
+
+async function clubIdFrom(url, mode) {
+  return withTab(url, async (where) => {
+    let frames = [];
+    for (let i = 0; i < 6; i++) {
+      frames = await runInFrames(where, clubIdHintsInFrame);
+      const id = pickClubId(frames);
+      if (id) return { id };
+      await sleep(1500);
+    }
+    return { id: null, snapshot: await runInFrames(where, snapshotInFrame), hints: frames };
+  }, { mode }).catch((e) => ({ id: null, error: String(e?.message || e) }));
+}
+
+// 카페 번호 알아내기: 카페 첫 화면 → 그 카페 글 하나 (숨긴 화면에서 못 읽으면 뒤쪽 탭으로)
 async function resolveClubId(slug) {
   const known = clubIds[slug.toLowerCase()];
   if (known) return known;
-  const res = await withTab(`https://cafe.naver.com/${slug}`, async (where) => {
-    for (let i = 0; i < 6; i++) {
-      const frames = await runInFrames(where, clubIdHintsInFrame);
-      const count = new Map();
-      for (const f of frames) for (const id of f.ids) count.set(id, (count.get(id) || 0) + 1);
-      const best = [...count.entries()].sort((a, b) => b[1] - a[1])[0];
-      if (best) return best[0];
-      await sleep(1500);
+  const art = sampleArticle(slug);
+  const urls = [`https://cafe.naver.com/${slug}`, ...(art ? [`https://cafe.naver.com/${slug}/${art}`] : [])];
+  const tries = urls.map((u) => [u, "frame"]);
+  if ($("#tabFallback").checked) tries.push(...urls.map((u) => [u, "tab"]));
+  for (const [url, mode] of tries) {
+    log(`  ↳ ${slug} 카페 번호 확인 중: ${url} (${mode === "tab" ? "뒤쪽 탭" : "숨긴 화면"})`);
+    const res = await clubIdFrom(url, mode);
+    if (res.id) {
+      clubIds[slug.toLowerCase()] = res.id;
+      await saveClubIds();
+      await saveCafeSlug(res.id, slug);
+      log(`  ↳ ${slug} 카페 번호: ${res.id}`);
+      return res.id;
     }
-    return null;
-  }).catch(() => null);
-  if (res) {
-    clubIds[slug.toLowerCase()] = res;
-    await saveClubIds();
-    await saveCafeSlug(res, slug);
+    diagnostics.push({ clubId: slug, url, mode, error: res.error, hints: res.hints, frames: res.snapshot });
+    await sleep(randomBetween(CAFE_PAGE_DELAY));
   }
-  return res;
+  return null;
+}
+
+// 카페 번호 칸: 숫자 또는 카페 주소(…/cafes/12345/… · clubid=12345)를 붙여 넣으면 번호만 뽑는다
+function clubIdFromInput(v) {
+  const s = String(v || "").trim();
+  const m = s.match(/\/cafes\/(\d{4,})/) || s.match(/club_?id=(\d{4,})/i) || s.match(/^(\d{4,})$/);
+  return m ? m[1] : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -465,6 +524,7 @@ async function search(resume = null) {
   let found = 0;
   let loginNeeded = false;
   const failed = [];
+  const noClubId = new Set();
   const startAt = resume ? resume.next : 0;
   if (resume) log(`· 중단된 곳부터 이어서 찾습니다 (${startAt + 1}/${list.length}번째 동호회·검색어부터)`);
 
@@ -474,10 +534,16 @@ async function search(resume = null) {
     const remain = estimateRemaining(t0, ji - startAt, list.length - startAt, (list.length - ji) * 3 * SEC_PER_PAGE);
     showBusy(`게시물 찾는 중 ${ji + 1}/${list.length} · ${label}${remain} — 끝날 때까지 이 탭을 닫지 마세요`, ji, list.length, "게시물 찾는 중");
     setSummary(`찾는 중… ${ji + 1}/${list.length} · ${label}`);
+    if (noClubId.has(job.slug)) continue; // 번호를 못 알아낸 카페의 나머지 검색어는 건너뜀
     const cafeId = await resolveClubId(job.slug);
     if (!cafeId) {
-      log(`✖ ${job.name}(${job.slug}): 카페 번호를 알아내지 못했습니다 - 설정의 '카페 번호'에 직접 넣어 주세요`);
-      failed.push(label);
+      noClubId.add(job.slug);
+      log(
+        `✖ ${job.name}(${job.slug}): 카페 번호를 알아내지 못해 이 동호회는 건너뜁니다. ` +
+          `크롬에서 이 카페의 '전체글보기'를 열고 주소창 주소(…/cafes/숫자/…)를 복사해 설정의 '카페 번호' 칸에 붙여 넣은 뒤 다시 찾아 주세요.`,
+      );
+      failed.push(`${job.name} (카페 번호)`);
+      $("#diag").hidden = false;
       continue;
     }
     renderCafeInfoIds();
@@ -1277,6 +1343,20 @@ async function buildExcel(selected) {
   return wb.save();
 }
 
+// "글 120개 · LX3 50 · ME1 40 · MX5 30 · 동향 미포함 95"
+function fileSummary(stats) {
+  return `글 ${stats.posts.toLocaleString()}개 · ${CARS.map((c) => `${c.code} ${(stats[c.code] || 0).toLocaleString()}`).join(" · ")} · 동향 미포함 ${(stats.missing || 0).toLocaleString()}`;
+}
+
+// 받은 글 수 · 전 기록 대비 증감
+async function showDiffs() {
+  const box = $("#diffs");
+  const d = await dbStatDiff("seat", today(), "posts").catch(() => null);
+  box.hidden = !d;
+  box.replaceChildren();
+  if (d) box.append(diffLine("엑셀에 넣은 글", d));
+}
+
 async function saveList() {
   const selected = sortedItems().filter((x) => x.checked);
   if (!selected.length) return;
@@ -1290,8 +1370,19 @@ async function saveList() {
     const name = datedFileName(OUT_NAME);
     await downloadBytes(bytes, name);
     const miss = selected.filter((x) => !inclusion(x).trend).length;
+    // 데이터 DB 에 오늘 파일로 보관 (같은 날 다시 받으면 바꿈)
+    const stats = { posts: selected.length, missing: miss };
+    for (const c of CARS) stats[c.code] = selected.filter((x) => x.car === c.code).length;
+    let dbNote = "";
+    try {
+      await dbSaveDay("seat", today(), name, bytes, "auto", fileSummary(stats), stats);
+      dbNote = " · 데이터 DB에 오늘 파일로 저장했습니다";
+      await showDiffs();
+    } catch {
+      dbNote = " · (데이터 DB 저장은 하지 못했습니다)";
+    }
     $("#saveInfo").className = "hint ok";
-    $("#saveInfo").textContent = `✔ ${saveWhereText(await saveOptions())}에 ${name} - 글 ${selected.length}개 (온라인 동향 미포함 ${miss}개)`;
+    $("#saveInfo").textContent = `✔ ${saveWhereText(await saveOptions())}에 ${name} - 글 ${selected.length}개 (온라인 동향 미포함 ${miss}개)${dbNote}`;
   } catch (e) {
     $("#saveInfo").className = "hint err";
     $("#saveInfo").textContent = `엑셀을 만들지 못했습니다: ${e.message}`;

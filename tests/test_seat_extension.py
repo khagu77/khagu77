@@ -39,7 +39,9 @@ def test_manifest():
     for f in [*m["icons"].values(), m["background"]["service_worker"], *m["content_scripts"][0]["js"]]:
         assert (EXT_DIR / f).exists(), f
 
-CAFES = {"palicafe": "50001", "evcafe": "50002"}  # 영문 주소 → 카페 번호
+CAFES = {"palicafe": "50001", "evcafe": "50002", "hardcafe": "50003"}  # 영문 주소 → 카페 번호
+# 첫 화면에 카페 번호 단서가 없는 카페 (hardcafe 는 글 화면 주소로 알아내고, nocafe 는 끝내 못 알아냄)
+NO_HINT_HOME = {"hardcafe", "nocafe"}
 # (카페 번호, 글번호) → (제목, 목록 날짜, 본문)
 POSTS = {
     ("50001", "1001"): ("3열 탈 때 2열 시트에 아이 발 끼임", "2025.03.10.",
@@ -85,7 +87,15 @@ def start_server(tmp_path: Path):
                 body = search_html(m.group(1), qs["q"][0], int(qs.get("page", ["1"])[0]))
             elif re.match(r"^/([a-z]+)/?$", u.path):  # 카페 첫 화면: 화면 속 링크에 카페 번호
                 slug = u.path.strip("/")
-                body = f'<html><body><a href="/f-e/cafes/{CAFES[slug]}/menus/0">전체글보기</a></body></html>'
+                body = ("<html><body>카페 소개</body></html>" if slug in NO_HINT_HOME
+                        else f'<html><body><a href="/f-e/cafes/{CAFES[slug]}/menus/0">전체글보기</a></body></html>')
+            elif (m := re.match(r"^/([a-z]+)/(\d+)$", u.path)) and m.group(1) == "hardcafe":  # 짧은 글 주소 → 새 카페 글 주소로
+                self.send_response(302)
+                self.send_header("Location", f"/f-e/cafes/50003/articles/{m.group(2)}")
+                self.end_headers()
+                return
+            elif re.match(r"^/f-e/cafes/50003/articles/\d+$", u.path):
+                body = '<html><body><h3 class="title_text">하드 카페 글</h3><div class="se-main-container"><p>본문</p></div></body></html>'
             elif m := re.match(r"^/([a-z]+)/(\d+)$", u.path):
                 cafe = CAFES[m.group(1)]
                 title, date, text = POSTS[(cafe, m.group(2))]
@@ -138,6 +148,8 @@ def test_seat(tmp_path: Path):
     shutil.copytree(EXT_DIR, ext_dir, ignore=shutil.ignore_patterns("compare-data.json"))
     (ext_dir / "compare-data.json").write_text(json.dumps({"version": "t1", "files": [
         {"id": "b1", "name": "미리 받은 동향.xlsx", "kind": "trend", "keys": ["evcafe/1999"], "slugs": {"evcafe": 1},
+         "minDate": None, "maxDate": None, "rows": 1},
+        {"id": "b2", "name": "미리 받은 로데이터.xlsx", "kind": "raw", "keys": ["hardcafe/3001"], "slugs": {"hardcafe": 1},
          "minDate": None, "maxDate": None, "rows": 1}]}, ensure_ascii=False))
     server = start_server(tmp_path)
     port = server.server_address[1]
@@ -163,7 +175,7 @@ def test_seat(tmp_path: Path):
         assert page.evaluate("getComputedStyle(document.querySelector('h1')).color") == "rgb(0, 0, 0)"  # 제목 글자 검정
         assert page.locator("nav.menu").count() == 0  # 별도 프로그램: 다른 화면 메뉴 없음
         # 함께 받은 비교 자료는 처음 열 때 자동 등록
-        assert page.locator("#compareTable tbody tr").count() == 1 and "미리 등록" in page.inner_text("#compareTable")
+        assert page.locator("#compareTable tbody tr").count() == 2 and "미리 등록" in page.inner_text("#compareTable")
         assert page.get_attribute(".brand .logo", "src") == "icons/logo-seat.png"
         assert page.evaluate("document.querySelector('.brand .logo').naturalWidth") > 0
         # 위쪽 띠: 에르메스 오렌지
@@ -194,14 +206,19 @@ def test_seat(tmp_path: Path):
 
         # 테스트용 동호회 두 곳 · 검색어 2개 · MX5 는 찾지 않음
         page.locator("#settings summary").click()
-        page.fill("#cafeList", "LX3 | 팰리 카페 | palicafe\nME1 | 전기차 | evcafe | 혼합")
+        page.fill("#cafeList", "LX3 | 팰리 카페 | palicafe\nME1 | 전기차 | evcafe | 혼합\nLX3 | 하드 카페 | hardcafe\nLX3 | 없는 카페 | nocafe")
         page.locator("#cafeList").dispatch_event("change")
         page.fill("#queries", "3열 시트, 시트 끼임")
         page.locator("#queries").dispatch_event("change")
         page.fill("#mixedQueries", "{차종} 3열")
         page.locator("#mixedQueries").dispatch_event("change")
         page.locator("#carRows tr[data-car=MX5] .carOn").uncheck()
-        assert "동호회·검색어 3개" in page.inner_text("#jobInfo")
+        assert "동호회·검색어 7개" in page.inner_text("#jobInfo")
+        # 카페 번호 칸: 카페 주소를 붙여 넣으면 번호만 남는다
+        slug_inputs = page.locator("#cafeInfo tbody input")
+        slug_inputs.nth(0).fill("https://cafe.naver.com/f-e/cafes/50001/menus/0?viewType=L")
+        slug_inputs.nth(0).dispatch_event("change")
+        assert slug_inputs.nth(0).input_value() == "50001"
 
         page.click("#search")
         try:
@@ -218,15 +235,19 @@ def test_seat(tmp_path: Path):
             "아이오닉5 2열 끼임": False,  # 혼합 동호회인데 차종 이름 없음
         }, (got, page.inner_text("#log"))  # 1003 은 양산 시점(2024-12-20) 이전이라 빠짐
         assert "새로 찾은 글 4개" in page.inner_text("#summary")
-        # 카페 번호는 카페 첫 화면에서 알아냄
-        assert page.evaluate("clubIds.palicafe") == "50001" and page.evaluate("clubIds.evcafe") == "50002"
+        # 카페 번호: 첫 화면에서, 첫 화면에 없으면 비교 파일에 있는 그 카페 글 화면에서 알아냄
+        assert page.evaluate("[clubIds.palicafe, clubIds.evcafe, clubIds.hardcafe]") == ["50001", "50002", "50003"]
+        # 끝내 못 알아낸 카페는 한 번만 알리고 나머지 검색어는 건너뜀 · 진단 파일 받기 가능
+        log = page.inner_text("#log")
+        assert log.count("✖ 없는 카페(nocafe)") == 1 and "'카페 번호' 칸에 붙여 넣은" in log, log
+        assert page.is_visible("#diag")
         assert not naver_api
 
         # 비교 파일: 머리글로 종류 자동 판단, f-e 주소·?art= 붙은 주소도 같은 글로
         page.set_input_files("#compareFiles", [str(f) for f in make_compare_files(tmp_path)])
         page.locator("#compareInfo", has_text="2개 파일을 등록").wait_for()
         kinds = page.locator("#compareTable tbody select")
-        assert sorted(kinds.nth(i).input_value() for i in range(3)) == ["raw", "trend", "trend"]
+        assert sorted(kinds.nth(i).input_value() for i in range(4)) == ["raw", "raw", "trend", "trend"]
         yn = {rows.nth(i).locator("a").inner_text(): rows.nth(i).locator("td.yn").inner_text() for i in range(rows.count())}
         assert yn["3열 탈 때 2열 시트에 아이 발 끼임"] == "Y / Y" and yn["아이오닉9 3열 위험하네요"] == "N / Y", yn
 
@@ -243,7 +264,7 @@ def test_seat(tmp_path: Path):
         # 다시 열어도 결과·비교 파일 유지
         page.reload()
         page.evaluate("CAFE_ARTICLE_DELAY[0] = CAFE_ARTICLE_DELAY[1] = 10")
-        assert page.locator("#results tbody tr").count() == 4 and page.locator("#compareTable tbody tr").count() == 3
+        assert page.locator("#results tbody tr").count() == 4 and page.locator("#compareTable tbody tr").count() == 4
 
         # 작업 중에는 뒤로가기·백스페이스 막기
         page.evaluate("showBusy('테스트', 0, 1)")
@@ -259,6 +280,36 @@ def test_seat(tmp_path: Path):
         path = tmp_path / dl.value.suggested_filename
         dl.value.save_as(path)
         assert re.match(r"^\d{8}_LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물\.xlsx$", path.name), path.name
+        page.locator("#saveInfo", has_text="데이터 DB에 오늘 파일로 저장").wait_for()
+        assert "엑셀에 넣은 글 2건" in page.inner_text("#diffs")
+
+        # 데이터 DB: 받은 엑셀이 오늘 날짜로 보관됨 · 받기 · 수정본 올리기 · 작업 데이터 백업/불러오기
+        page.click("a.tool[href='seat-db.html']")
+        page.wait_for_url("**/seat-db.html")
+        db_rows = page.locator("section[data-kind] tbody tr")
+        db_rows.first.locator(".counts").wait_for()
+        assert db_rows.count() == 1 and "최종" in db_rows.first.inner_text()
+        assert "글 2개 · LX3 1 · ME1 1 · MX5 0 · 동향 미포함 1" in db_rows.first.inner_text()
+        assert "찾은 글" in page.inner_text("#work") and "4개" in page.inner_text("#work")
+        with page.expect_file_chooser() as fc:
+            db_rows.first.locator(".up").click()
+        fc.value.set_files(str(path))
+        page.locator("#dbInfo", has_text="바꿨습니다").wait_for()
+        assert "직접 올림" in db_rows.first.inner_text()
+        with page.expect_download() as dl:
+            page.click("#backup")
+        backup = tmp_path / dl.value.suggested_filename
+        dl.value.save_as(backup)
+        data = json.loads(backup.read_text())
+        assert data["app"] == "seat-risk" and len(data["data"]["seatItems"]) == 4
+        assert "aiKey" not in json.dumps(data) and "sk-ant-good" not in backup.read_text()  # API 키는 백업에 넣지 않음
+        assert all(not f.get("builtin") for f in data["data"]["seatCompare"]) and len(data["data"]["seatCompare"]) == 2
+        page.evaluate("chrome.storage.local.set({ seatItems: [] })")
+        page.set_input_files("#restoreFile", str(backup))
+        page.locator("#dbInfo", has_text="백업을 불러왔습니다").wait_for()
+        assert page.evaluate("chrome.storage.local.get('seatItems').then(s => s.seatItems.length)") == 4
+        assert page.evaluate("chrome.storage.local.get('seatCompare').then(s => s.seatCompare.length)") == 4
+        assert not errors, errors
         ctx.close()
     server.shutdown()
 

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>데이터 DB - LX3 / ME1 / MX5 전동 시트 작동 위험 상황 관련 게시물 수집</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body class="theme-hermes">
+  <header class="topbar">
+    <div class="topbar-in">
+      <div class="brand">
+        <img src="icons/logo-seat.png" alt="2열 시트" class="logo">
+        <h1>LX3 / ME1 / MX5 전동 시트 작동 위험 상황 관련 게시물 수집</h1>
+        <span class="ver" id="ver"></span>
+        <div class="tools"><a class="tool" href="seat.html">🔍 게시물 수집</a><a class="tool on" href="seat-db.html">🗄 데이터 DB</a></div>
+      </div>
+    </div>
+  </header>
+  <main>
+
+    <p class="hint">
+      엑셀을 받을 때마다 그 파일을 이 PC 크롬에 날짜별로 보관합니다(같은 날 다시 받으면 그날 파일을 바꿈). <b>가장 위(최근 날짜) 파일이 '최종'</b>입니다.
+      엑셀에서 직접 고친 파일은 그 날짜의 <b>수정본 올리기</b>로 바꿔 두세요.
+    </p>
+
+    <section data-kind="seat">
+      <h2>1. 받은 엑셀 파일</h2>
+      <div class="row"><button class="small register">파일 등록</button><span class="hint">따로 갖고 있는 결과 파일을 넣을 때 · 파일명 앞 날짜(예: 20261022_…)의 날짜로 등록</span></div>
+      <table class="dbtable"><thead><tr><th>날짜</th><th>파일</th><th>내용</th><th>건수 (전 기록 대비)</th><th>저장</th><th></th></tr></thead><tbody></tbody></table>
+    </section>
+
+    <section>
+      <h2>2. 작업 데이터 (찾은 글 · 본문 · 요약)</h2>
+      <div class="hint">게시물 수집 화면에서 찾은 글, 읽은 본문, 요약·누락 사유, 카페 번호, 설정, 직접 등록한 비교 파일입니다. 이 PC 크롬에만 있으니,
+        다른 PC로 옮기거나 확장프로그램을 지우기 전에는 <b>백업 받기</b>로 파일을 받아 두세요.</div>
+      <table class="compact" id="work"><tbody></tbody></table>
+      <div class="buttons">
+        <button id="backup" class="primary">백업 받기</button>
+        <button id="restore">백업 불러오기</button>
+      </div>
+      <input type="file" id="restoreFile" accept=".json" hidden>
+    </section>
+
+    <input type="file" id="picker" accept=".xlsx" hidden>
+    <div id="dbInfo" class="summary"></div>
+    <p class="note" id="usage"></p>
+  </main>
+  <script src="template.js"></script>
+  <script src="cafe-common.js"></script>
+  <script src="db-store.js"></script>
+  <script src="seat-db.js"></script>
+</body>
+</html>

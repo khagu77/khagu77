@@ -168,3 +168,5 @@ input[type="date"], input[type="password"], select { padding: 6px 8px; border: 1
 fieldset.ai { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
 h3 { font-size: 15px; margin: 22px 0 6px; }
 input.key { width: 300px; }
+#cafeInfo input.slug { width: 260px; }
+#work th { width: 180px; }
