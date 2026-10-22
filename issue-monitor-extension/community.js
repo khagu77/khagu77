@@ -180,7 +180,23 @@ function rowInfo(a, title, ad) {
   }
   const r = rowEl || a.parentElement;
   const notice = r ? /공지|notice/i.test(`${r.className || ""} ${r.querySelector("img[alt]")?.getAttribute("alt") || ""}`) : false;
-  return { parsed: found, notice };
+  return { parsed: found, notice, ccount: listCommentCount(r, a, title) };
+}
+
+// 목록 줄에서 댓글 수: 제목 옆 [12]·(12) 또는 이름에 comment·cmt·reply 가 들어간 칸의 숫자 (뽐뿌 list_comment2 등)
+// (담당자 지적 2026-10-23: 뽐뿌 글은 본문 화면에서 댓글 수를 못 찾음 → 목록에서 읽어 둔 값을 씀)
+function listCommentCount(row, a, title) {
+  if (!row) return null;
+  for (const el of row.querySelectorAll("[class*='comment' i], [class*='cmt' i], [class*='reply' i], .baseList-c, .list_comment2, [class$='-c']")) {
+    if (el.querySelector("a[href*='view'], a[href*='No=']") && el.contains(a)) continue;
+    const m = (el.textContent || "").replace(/\s+/g, "").match(/^[\[(]?(\d{1,5})[\])]?$/);
+    if (m) return +m[1];
+  }
+  const t = spacedText(row);
+  const i = title ? t.indexOf(title) : -1;
+  const after = i >= 0 ? t.slice(i + title.length, i + title.length + 12) : "";
+  const m = after.match(/^\s*[\[(](\d{1,5})[\])]/);
+  return m ? +m[1] : null;
 }
 
 class CommunityCollector {
@@ -229,8 +245,8 @@ class CommunityCollector {
           if (title.length > prev.title.length && !/^\[?\d+\]?$/.test(title)) prev.title = title;
           continue;
         }
-        const { parsed, notice } = rowInfo(a, title, ad);
-        items.set(id, { title, parsed, notice });
+        const { parsed, notice, ccount } = rowInfo(a, title, ad);
+        items.set(id, { title, parsed, notice, ccount });
       }
       const rows = [...items.entries()].filter(([, it]) => it.title.length >= 2 && !/^\[?\d+\]?$/.test(it.title));
       if (!rows.length) {
@@ -245,10 +261,12 @@ class CommunityCollector {
         if (page === 1) throw new Error("목록에서 글 날짜를 읽지 못했습니다 (화면 구조 확인 필요)");
         break;
       }
+      // 이 목록이 댓글 수를 보여 주는 사이트면(한 줄이라도 숫자가 있으면) 숫자가 없는 줄은 댓글 0
+      const listShowsCounts = rows.some(([, it]) => it.ccount != null);
       for (const [id, it] of dated) {
         if (!mayBeInRange(it.parsed, range)) continue;
         if (it.notice && !inRange(it.parsed.date, range)) continue;
-        if (!all.has(id)) all.set(id, { articleId: id, title: it.title, ts: it.parsed.date.getTime(), exact: it.parsed.exact, url: ad.articleUrl(id) });
+        if (!all.has(id)) all.set(id, { articleId: id, title: it.title, ts: it.parsed.date.getTime(), exact: it.parsed.exact, url: ad.articleUrl(id), ccount: it.ccount ?? (listShowsCounts ? 0 : null) });
       }
       const forStop = dated.map(([, it]) => ({ ts: it.parsed.date.getTime(), exact: it.parsed.exact, notice: it.notice }));
       if (pageIsPastRange(forStop, range) || ad.generic) break;
@@ -331,6 +349,11 @@ class CommunityCollector {
       const m = cMatch(near);
       ccount = m ? +m[1].replace(/,/g, "") : null;
     }
+    if (ccount == null) {
+      const byId = [...doc.querySelectorAll("[id^='comment_'], [id^='cmt_']")].filter((e) => /^(comment|cmt)_\d+$/.test(e.id)).length;
+      if (byId) ccount = byId;
+    }
+    if (ccount == null && post.ccount != null) ccount = post.ccount; // 목록에서 읽어 둔 댓글 수
     if (ccount == null) {
       for (const sel of ad.commentItemSelectors || []) {
         const n = doc.querySelectorAll(sel).length;
