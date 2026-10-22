@@ -920,11 +920,16 @@ async function renderDb() {
   const costCell = (e) => {
     if (!e.costUsd) return el("td", { text: "-" });
     const prev = prevOf.get(e.id);
-    const d = prev && prev.costUsd ? e.costUsd - prev.costUsd : null;
+    // 화면에 보이는 금액(센트 단위)끼리 비교 — $1.21 → $1.20 처럼 1센트 차이도 표시, 같으면 '–'
+    const cents = (v) => Math.round(v * 100);
+    const d = prev && prev.costUsd ? cents(e.costUsd) - cents(prev.costUsd) : null;
+    const tip = prev ? `전일(${fmtDateTime(new Date(prev.finishedAt))}) $${(prev.costUsd || 0).toFixed(2)} 대비` : "";
     const mark =
-      d == null || Math.abs(d) < 0.005
+      d == null
         ? null
-        : el("span", { class: d > 0 ? "cost-up" : "cost-down", title: `전일(${fmtDateTime(new Date(prev.finishedAt))}) $${prev.costUsd.toFixed(2)} 대비`, text: ` ${d > 0 ? "▲" : "▼"} $${Math.abs(d).toFixed(2)}` });
+        : d === 0
+          ? el("span", { class: "cost-same", title: tip, text: " – $0.00" })
+          : el("span", { class: d > 0 ? "cost-up" : "cost-down", title: tip, text: ` ${d > 0 ? "▲" : "▼"} $${(Math.abs(d) / 100).toFixed(2)}` });
     return el("td", {}, `$${e.costUsd.toFixed(2)}`, mark);
   };
 

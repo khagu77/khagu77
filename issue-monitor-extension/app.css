@@ -325,4 +325,5 @@ nav .tab.work.active .step { background: var(--blue); border-color: var(--blue);
 #dbTable tr.db-total td { background: #eef3fa; border-bottom: 2px solid var(--blue); font-weight: 700; }
 .cost-up { color: #d93025; font-weight: 700; font-size: 12px; }
 .cost-down { color: #1a5fd0; font-weight: 700; font-size: 12px; }
+.cost-same { color: var(--muted); font-weight: 700; font-size: 12px; }
 @media (prefers-color-scheme: dark) { #dbTable tr.db-total td { background: #1c2b40; } .cost-down { color: #6ea3ff; } }
