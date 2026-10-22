@@ -71,9 +71,10 @@
         <input type="text" id="searchUrl" class="full" spellcheck="false">
         <label class="inline">검색어마다 최대 <input type="number" id="maxPages" min="1" max="100" class="tiny"> 페이지까지 봅니다 <span class="hint">(시작일보다 오래된 글만 나오면 그 전에 멈춤)</span></label>
         <label class="inline"><input type="checkbox" id="tabFallback"> 숨긴 화면에서 못 읽으면 뒤쪽 탭으로 다시 읽기</label>
-        <label for="saveFolder">엑셀 저장 위치</label>
-        <div class="row"><span class="hint">크롬 다운로드 폴더 /</span><input type="text" id="saveFolder" class="full" spellcheck="false" placeholder="비우면 다운로드 폴더에 바로 저장"></div>
-        <label class="inline"><input type="checkbox" id="saveAsk"> 받을 때마다 저장 위치 묻기</label>
+        <label>엑셀 저장 위치 <span class="hint">(최종·전체 raw 엑셀과 백업 파일을 저장할 폴더)</span></label>
+        <div class="row"><span id="folderName" class="folder-name"></span><button id="pickFolder" class="small">폴더 선택</button><button id="clearFolder" class="small" hidden>다운로드 폴더로</button></div>
+        <div class="hint">크롬 보안상 폴더 이름만 보이고, 크롬을 새로 켠 뒤 처음 저장할 때 '파일 수정 허용'을 한 번 물을 수 있습니다(허용을 누르세요).</div>
+        <label class="inline"><input type="checkbox" id="saveAsk"> 폴더를 고르지 않았을 때: 받을 때마다 저장 위치 묻기</label>
         <div class="buttons"><button id="resetSettings" class="small">설정 처음 값으로</button></div>
       </details>
 
@@ -125,7 +126,7 @@
         <label class="inline">차종 <select id="carFilter"><option value="">전체</option></select></label>
         <label class="inline">보기 <select id="viewFilter">
           <option value="">전체</option><option value="checked">체크한 글</option><option value="unchecked">체크 안 한 글</option>
-          <option value="missing">온라인 동향 미포함(N)</option>
+          <option value="missing">온라인 동향 미보고(N)</option>
           <option value="yn:NN">체크한 글 · N / N</option><option value="yn:NY">체크한 글 · N / Y</option>
           <option value="yn:YY">체크한 글 · Y / Y</option>
         </select></label>

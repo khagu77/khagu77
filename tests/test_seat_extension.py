@@ -366,14 +366,17 @@ def test_seat(tmp_path: Path):
         # 데이터 DB: 받은 엑셀이 오늘 날짜로 보관됨 · 받기 · 수정본 올리기 · 작업 데이터 백업/불러오기
         page.click("a.tool[href='seat-db.html']")
         page.wait_for_url("**/seat-db.html")
+        page.locator("section[data-kind=seatRaw] tbody tr .chip").first.wait_for()
         raw_chips = page.locator("section[data-kind=seatRaw] tbody tr").first.locator(".chip").all_inner_texts()
         assert raw_chips == ["찾은 글 3", "체크 2"], raw_chips
         db_rows = page.locator("section[data-kind=seat] tbody tr")
         db_rows.first.locator(".counts").wait_for()
         assert db_rows.count() == 1 and "최종" in db_rows.first.inner_text()
-        assert db_rows.first.locator(".chip").all_inner_texts() == ["글 2", "LX3 1", "ME1 1", "MX5 0", "동향 미포함 1"]
+        assert db_rows.first.locator(".chip").all_inner_texts() == ["글 2", "LX3 1", "ME1 1", "MX5 0", "N/N 0", "N/Y 1", "Y/Y 1"]
+        assert "온라인 동향 N" in db_rows.first.locator(".counts").inner_text()
         assert db_rows.first.locator(".pill").inner_text() == "최종" and "첫 기록" in db_rows.first.locator(".counts").inner_text()
         assert "찾은 글" in page.inner_text("#work") and "3개" in page.inner_text("#work")
+        assert "아직 기록 없음" in page.inner_text("#work")  # 규칙 요약만 써서 AI 비용 기록 없음
         with page.expect_file_chooser() as fc:
             db_rows.first.locator(".up").click()
         fc.value.set_files(str(path))
@@ -541,6 +544,11 @@ def test_ai_review_unchecked(tmp_path: Path):
         assert all(c > 0 for c in costs[:2]), costs
         total = page.evaluate("aiSpend.won")
         assert abs(sum(costs) - total) < 0.01 and total > 0, (costs, total)
+        assert page.evaluate("fmtWon(1400)") == "약 1,400원 ($1.00)"
+        assert re.search(r"사용한 비용 약 [\d,]+원 \(\$\d+\.\d{2}\)", page.inner_text("#summary")), page.inner_text("#summary")
+        # 비용 기록 전에 AI 로 요약한 글(기록 없음)은 추정치로 따로
+        est = page.evaluate("estimateUntrackedWon([{by:'ai', body:'가'.repeat(1000), title:'t'}, {by:'ai', aiCost: 5}], 'claude-opus-5-5')")
+        assert est["posts"] == 1 and est["won"] > 0, est
         assert page.evaluate("items.find(x => x.key === 'palicafe/5').checked") is True
 
         # 아직 본문을 안 읽은 체크한 글: 읽는 대로 AI 가 판단·요약 (다 읽을 때까지 기다리지 않음)
@@ -575,19 +583,39 @@ def test_ai_review_unchecked(tmp_path: Path):
         # 예전에 저장해 둔 AI 추가 규칙 메모에도 새 기본 규칙(로데이터 작성 시작일)이 한 번 덧붙는다
         page.evaluate("""chrome.storage.local.remove('seatRuleBlocks').then(() => chrome.storage.local.get('seatSettings')).then(({ seatSettings }) =>
           chrome.storage.local.set({ seatSettings: { ...seatSettings, aiRules: '## 담당자 추가 규칙\\n- 내가 적은 규칙' } }))""")
-        page.evaluate("chrome.storage.local.set({ saveFolder: '모니터링/시트' })")
+        page.evaluate("chrome.storage.local.set({ saveAsk: true })")
         page.reload()
         open_panels(page)
         rules = page.input_value("#aiRules")
         # 규칙을 덧붙여 저장할 때 API 키·저장 위치·차종 설정이 지워지지 않음 (다시 열어도 그대로)
         page.reload()
         open_panels(page)
-        assert page.input_value("#aiKey") == "sk-ant-test" and page.input_value("#saveFolder") == "모니터링/시트"
+        assert page.input_value("#aiKey") == "sk-ant-test" and page.is_checked("#saveAsk")
+        page.evaluate("chrome.storage.local.set({ saveAsk: false })")
         assert page.evaluate("chrome.storage.local.get('seatCars').then(s => Object.keys(s.seatCars || {}).length)") == 3
         assert "내가 적은 규칙" in rules and "전차종 로데이터 엑셀은 '24년 4월 15일부터" in rules and "tobloomer" not in rules, rules
         page.reload()
         open_panels(page)
         assert page.input_value("#aiRules").count("전차종 로데이터 엑셀은") == 1  # 두 번 덧붙지 않음
+
+        # 엑셀 저장 위치: '폴더 선택'으로 고른 폴더에 바로 저장 (시험에서는 폴더 창 대신 브라우저 안 임시 폴더)
+        page.evaluate("document.getElementById('settings').open = true")
+        assert page.inner_text("#folderName") == "크롬 다운로드 폴더" and page.is_hidden("#clearFolder")
+        page.evaluate("window.showDirectoryPicker = () => navigator.storage.getDirectory()")
+        page.click("#pickFolder")
+        page.locator("#folderName.on").wait_for()
+        assert page.is_visible("#clearFolder")
+        page.click("#saveList")
+        page.locator("#saveInfo", has_text="폴더에").wait_for(timeout=30000)
+        saved = page.evaluate("""async () => { const d = await navigator.storage.getDirectory(); const out = [];
+          for await (const [name, h] of d.entries()) if (h.kind === 'file') out.push([name, (await h.getFile()).size]); return out; }""")
+        assert any(n.endswith("_LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물.xlsx") and size > 1000 for n, size in saved), saved
+        page.reload()
+        open_panels(page)
+        page.evaluate("document.getElementById('settings').open = true")
+        page.locator("#folderName.on").wait_for()  # 고른 폴더는 다시 열어도 기억
+        page.click("#clearFolder")
+        page.locator("#folderName", has_text="크롬 다운로드 폴더").wait_for()
 
         # 확인 상자는 화면 안에 떠서, 다른 탭을 보고 있어도 막히지 않고 답할 때까지 기다린다 (크롬 confirm() 은 뒤쪽 탭에서 막힘)
         other = ctx.new_page()

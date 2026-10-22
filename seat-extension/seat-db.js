@@ -6,7 +6,8 @@ const CAR_CODES = ["LX3", "ME1", "MX5"];
 const BACKUP_KEYS = ["seatItems", "seatClubIds", "seatSettings", "seatCars"];
 let pickFor = null; // { kind, date|null }
 // 종류별로 보여줄 건수
-const COUNT_FIELDS = { seat: [["posts", "글"], ["missing", "동향 미포함"]], seatRaw: [["posts", "찾은 글"], ["checked", "체크"]] };
+// (최종 데이터의 '온라인 동향 N' = 일일 온라인 동향에 보고되지 않은 글 수)
+const COUNT_FIELDS = { seat: [["posts", "글"], ["missing", "온라인 동향 N"]], seatRaw: [["posts", "찾은 글"], ["checked", "체크"]] };
 
 // 올린 파일이 그 종류의 양식인지 확인하고 건수를 센다
 async function summarize(kind, bytes) {
@@ -31,15 +32,18 @@ async function summarize(kind, bytes) {
   if (!head || String(head.cells.B || "").trim() !== "순번" || String(head.cells.C || "").trim() !== "차종") {
     throw new Error("3행 머리글(B 순번 · C 차종 …)이 없습니다. 이 프로그램에서 받은 엑셀이 맞는지 확인해 주세요.");
   }
-  const stats = { posts: 0, missing: 0, LX3: 0, ME1: 0, MX5: 0 };
+  const stats = { posts: 0, missing: 0, nn: 0, ny: 0, yy: 0, yn: 0, LX3: 0, ME1: 0, MX5: 0 };
   for (const r of rows) {
     if (r.r <= 3 || r.cells.C === undefined) continue;
     stats.posts++;
     const car = String(r.cells.C).trim().toUpperCase();
     if (car in stats) stats[car]++;
-    if (/^\s*N/i.test(String(r.cells.I || ""))) stats.missing++;
+    const yn = String(r.cells.I || "").replace(/\s+/g, "").toUpperCase(); // "N/Y"
+    if (yn.startsWith("N")) stats.missing++;
+    const code = yn.replace("/", "").toLowerCase();
+    if (code in stats) stats[code]++;
   }
-  const summary = `글 ${stats.posts.toLocaleString()}개 · ${CAR_CODES.map((c) => `${c} ${stats[c].toLocaleString()}`).join(" · ")} · 동향 미포함 ${stats.missing.toLocaleString()}`;
+  const summary = `글 ${stats.posts.toLocaleString()}개 · ${CAR_CODES.map((c) => `${c} ${stats[c].toLocaleString()}`).join(" · ")} · N/N ${stats.nn} · N/Y ${stats.ny} · Y/Y ${stats.yy}`;
   return { summary, stats };
 }
 
@@ -76,11 +80,13 @@ function fillChips(td, kind, rec) {
     : kind === "seatRaw"
       ? [[`찾은 글 ${(st.posts ?? 0).toLocaleString()}`, "main"], [`체크 ${(st.checked ?? 0).toLocaleString()}`, ""]]
       : [[`글 ${(st.posts ?? 0).toLocaleString()}`, "main"], ...CAR_CODES.map((c) => [`${c} ${(st[c] ?? 0).toLocaleString()}`, (st[c] ?? 0) ? "" : "zero"]),
-        [`동향 미포함 ${(st.missing ?? 0).toLocaleString()}`, "warn"]];
+        // 포함 여부(온라인동향 / 로데이터)별 건수 - 예전 기록은 '온라인 동향 N' 건수만
+        ...(st.nn !== undefined
+          ? [[`N/N ${st.nn.toLocaleString()}`, "warn"], [`N/Y ${(st.ny ?? 0).toLocaleString()}`, "warn"], [`Y/Y ${(st.yy ?? 0).toLocaleString()}`, "ok"]]
+          : [[`온라인 동향 N ${(st.missing ?? 0).toLocaleString()}`, "warn"]])];
   // 이 파일에 든 글들에 쓴 AI 비용 (글마다 실제 사용량으로 나눠 붙인 것의 합)
   if (st && st.aiCost > 0) {
-    const per = st.posts ? Math.round(st.aiCost / st.posts) : 0;
-    chips.push([`AI 비용 약 ${st.aiCost.toLocaleString()}원${st.posts ? ` · 글당 약 ${per.toLocaleString()}원` : ""}`, "cost"]);
+    chips.push([`AI 비용 ${fmtWon(st.aiCost)}${st.posts ? ` · 글당 ${fmtWon(st.aiCost / st.posts)}` : ""}`, "cost"]);
   }
   const box = document.createElement("div");
   box.className = "chips";
@@ -119,7 +125,10 @@ async function renderFiles(kind) {
     tr.querySelector(".meta").textContent = `${new Date(rec.savedAt).toLocaleString()} · ${rec.source === "upload" ? "직접 올림" : "자동 저장"}`;
     fillChips(tr.children[2], kind, rec);
     fillCounts(tr.children[3], kind, rows, i);
-    tr.querySelector(".get").addEventListener("click", () => downloadBytes(rec.bytes, rec.name));
+    tr.querySelector(".get").addEventListener("click", async () => {
+      prepareFolder();
+      setInfo(`✔ ${await saveBytes(rec.bytes, rec.name)}에 ${rec.name} 을(를) 저장했습니다.`, "ok");
+    });
     tr.querySelector(".up").addEventListener("click", () => {
       pickFor = { kind, date: rec.date };
       $("#picker").value = "";
@@ -136,7 +145,7 @@ async function renderFiles(kind) {
 }
 
 async function renderWork() {
-  const s = await chrome.storage.local.get(["seatItems", "seatClubIds", "seatCompare", "seatAiSpend"]).catch(() => ({}));
+  const s = await chrome.storage.local.get(["seatItems", "seatClubIds", "seatCompare", "seatAiSpend", "aiModel"]).catch(() => ({}));
   const items = s.seatItems || [];
   const checked = items.filter((x) => x.checked);
   const userFiles = (s.seatCompare || []).filter((f) => !f.builtin);
@@ -145,7 +154,13 @@ async function renderWork() {
     ["체크한 글", `${checked.length.toLocaleString()}개`],
     ["본문 읽음", `${checked.filter((x) => x.bodyRead).length.toLocaleString()}개`],
     ["요약 씀", `${checked.filter((x) => x.summary).length.toLocaleString()}개 (AI ${checked.filter((x) => x.by === "ai").length} · 규칙 ${checked.filter((x) => x.by === "rule").length})`],
-    ["AI 누적 비용", s.seatAiSpend ? `약 ${Math.round(s.seatAiSpend.won).toLocaleString()}원 (입력 ${s.seatAiSpend.input.toLocaleString()} · 출력 ${s.seatAiSpend.output.toLocaleString()} 토큰 · 1차 검토·요약 모두, 지운 글 포함)` : "0원"],
+    ["AI 누적 비용 (기록)", s.seatAiSpend
+      ? `${fmtWon(s.seatAiSpend.won)} · 입력 ${s.seatAiSpend.input.toLocaleString()} · 출력 ${s.seatAiSpend.output.toLocaleString()} 토큰 (1.0.8 부터 실제 사용량 · 1차 검토·요약 모두, 지운 글 포함)`
+      : "아직 기록 없음 (1.0.8 부터 AI 를 쓸 때마다 기록)"],
+    ["기록 전 사용분 (추정)", (() => {
+      const e = estimateUntrackedWon(items, s.aiModel || "claude-opus-5-5");
+      return e.posts ? `${fmtWon(e.won)} · 글 ${e.posts.toLocaleString()}개 (비용 기록 전에 AI 로 1차 검토·요약한 글 - 실제 청구액은 console.anthropic.com → Usage)` : "없음";
+    })()],
     ["알아낸 카페 번호", `${Object.keys(s.seatClubIds || {}).length}곳`],
     ["비교 파일", (s.seatCompare || []).length ? `${s.seatCompare.length}개 (직접 등록 ${userFiles.length}개)` : "0개 (게시물 수집 화면을 처음 열면 미리 받은 비교 파일이 등록됩니다)"],
   ];
@@ -196,8 +211,8 @@ async function backup() {
   data.seatCompare = (s.seatCompare || []).filter((f) => !f.builtin); // 미리 등록된 비교 자료는 압축 파일에 있으므로 뺌
   const out = { app: "seat-risk", version: chrome.runtime.getManifest().version, at: new Date().toISOString(), data };
   const blob = new Blob([JSON.stringify(out)], { type: "application/json" });
-  await clickDownload(blob, `${today()}_전동시트_위험상황_작업데이터_백업.json`);
-  setInfo(`✔ 작업 데이터 백업 파일을 받았습니다 (찾은 글 ${(data.seatItems || []).length.toLocaleString()}개).`, "ok");
+  const where = await saveBytes(blob, `${today()}_전동시트_위험상황_작업데이터_백업.json`);
+  setInfo(`✔ ${where}에 작업 데이터 백업 파일을 저장했습니다 (찾은 글 ${(data.seatItems || []).length.toLocaleString()}개).`, "ok");
 }
 
 async function restore(file) {
@@ -228,7 +243,7 @@ for (const sec of document.querySelectorAll("section[data-kind]")) sec.querySele
   $("#picker").click();
 });
 $("#picker").addEventListener("change", (e) => onPicked(e.target.files[0]));
-$("#backup").addEventListener("click", backup);
+$("#backup").addEventListener("click", () => (prepareFolder(), backup()));
 $("#restore").addEventListener("click", () => {
   $("#restoreFile").value = "";
   $("#restoreFile").click();
