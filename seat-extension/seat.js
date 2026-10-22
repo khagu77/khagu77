@@ -90,7 +90,7 @@ async function loadSettings() {
   if (s.aiModel && AI_MODELS.some(([id]) => id === s.aiModel)) sel.value = s.aiModel;
   $("#aiKey").value = s.aiKey || "";
   $("#aiOn").checked = !!s.seatAiOn;
-  $("#aiOpts").hidden = !$("#aiOn").checked;
+  showAiStatus();
 }
 
 function saveSettings() {
@@ -957,6 +957,50 @@ const AI_SCHEMA = {
   additionalProperties: false,
 };
 
+// API 키 저장: 키를 넣으면 'Claude AI 로 쓰기'를 자동으로 켠다
+async function saveAiKey() {
+  const key = $("#aiKey").value.trim();
+  $("#aiKey").value = key;
+  if (key && !/^sk-ant-/.test(key)) {
+    showAiStatus("API 키는 sk-ant- 로 시작합니다. 다시 확인해 주세요.", "err");
+    return;
+  }
+  $("#aiOn").checked = !!key;
+  await saveSettings();
+  showAiStatus(key ? "✔ API 키를 저장했습니다 (이 PC 크롬에만). '키 확인'으로 맞는 키인지 확인할 수 있습니다." : "API 키를 지웠습니다.", key ? "ok" : "");
+}
+
+// 키 확인: 모델 정보만 물어본다 (요금 없음)
+async function testAiKey() {
+  const key = $("#aiKey").value.trim();
+  if (!key) return showAiStatus("API 키를 먼저 넣어 주세요.", "err");
+  showAiStatus("키 확인 중…");
+  try {
+    const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true, maxRetries: 1 });
+    await client.models.retrieve($("#aiModel").value);
+    await saveAiKey();
+    showAiStatus(`✔ 키가 맞습니다. ${AI_MODELS.find(([id]) => id === $("#aiModel").value)[1].split(" (")[0]} 를 쓸 수 있습니다.`, "ok");
+  } catch (e) {
+    showAiStatus(`✖ ${aiErrorMessage(e)}`, "err");
+  }
+}
+
+function showAiStatus(text, cls = "") {
+  const box = $("#aiStatus");
+  if (!box) return;
+  if (text === undefined) {
+    const key = $("#aiKey").value.trim();
+    text = !key
+      ? "API 키가 없습니다. 키 없이도 쓸 수 있으며, 이때 요약·누락 사유는 규칙으로 씁니다."
+      : $("#aiOn").checked
+        ? `✔ 저장된 키로 Claude AI 를 씁니다 (sk-ant-…${key.slice(-4)}).`
+        : `저장된 키가 있지만 꺼져 있어 규칙으로 씁니다 (sk-ant-…${key.slice(-4)}).`;
+    cls = key && $("#aiOn").checked ? "ok" : "";
+  }
+  box.textContent = text;
+  box.className = `hint ${cls}`;
+}
+
 function aiCostWon(inTokens, outTokens, model) {
   const [inP, outP] = AI_PRICE[model] || AI_PRICE["claude-opus-5-5"];
   return Math.max(10, Math.round((((inTokens * inP + outTokens * outP) / 1e6) * WON_PER_USD) / 10) * 10);
@@ -1324,7 +1368,11 @@ async function init() {
       }
     });
   }
-  for (const id of ["aiKey", "aiModel", "aiOn"]) $(`#${id}`).addEventListener("change", () => ((($("#aiOpts").hidden = !$("#aiOn").checked)), saveSettings()));
+  $("#aiKey").addEventListener("change", saveAiKey);
+  $("#aiKey").addEventListener("keydown", (e) => e.key === "Enter" && saveAiKey());
+  $("#aiSave").addEventListener("click", saveAiKey);
+  $("#aiTest").addEventListener("click", testAiKey);
+  for (const id of ["aiModel", "aiOn"]) $(`#${id}`).addEventListener("change", () => (saveSettings(), showAiStatus()));
   $("#resetSettings").addEventListener("click", async () => {
     if (!confirm("동호회·검색어·관련 단어 설정을 처음 값으로 되돌릴까요?")) return;
     for (const id of SETTING_IDS) $(`#${id}`).value = SETTING_DEFAULTS[id];

@@ -168,6 +168,26 @@ def test_seat(tmp_path: Path):
         assert page.evaluate("document.querySelector('.brand .logo').naturalWidth") > 0
         # 위쪽 띠: 에르메스 오렌지
         assert page.evaluate("getComputedStyle(document.querySelector('.topbar')).backgroundColor") == "rgb(243, 112, 33)"
+        # AI 키: 결과가 없어도 바로 보이고, 저장하면 AI 가 켜지고, 다시 열어도 남아 있다
+        ctx.route("https://api.anthropic.com/v1/models/**", lambda route: route.fulfill(
+            status=200 if route.request.headers.get("x-api-key") == "sk-ant-good" else 401,
+            headers={"content-type": "application/json", "access-control-allow-origin": "*"},
+            body=json.dumps({"id": "claude-opus-5-5", "type": "model", "display_name": "Opus", "created_at": "2026-01-01T00:00:00Z"})
+            if route.request.headers.get("x-api-key") == "sk-ant-good" else json.dumps({"type": "error", "error": {"type": "authentication_error", "message": "invalid x-api-key"}})))
+        assert page.is_visible("#aiKey") and not page.is_checked("#aiOn")
+        page.fill("#aiKey", "sk-ant-bad")
+        page.click("#aiTest")
+        page.locator("#aiStatus", has_text="API 키가 올바르지 않습니다").wait_for()
+        page.fill("#aiKey", "sk-ant-good")
+        page.click("#aiTest")
+        page.locator("#aiStatus", has_text="키가 맞습니다").wait_for()
+        assert page.is_checked("#aiOn")
+        page.reload()
+        page.evaluate("CAFE_ARTICLE_DELAY[0] = CAFE_ARTICLE_DELAY[1] = CAFE_PAGE_DELAY[0] = CAFE_PAGE_DELAY[1] = 10")
+        assert page.input_value("#aiKey") == "sk-ant-good" and page.is_checked("#aiOn") and "저장된 키로" in page.inner_text("#aiStatus")
+        page.uncheck("#aiOn")  # 아래는 규칙 요약으로 시험
+        page.locator("#aiOn").dispatch_event("change")
+
         # 기본 동호회 12곳, 차종 3개(시작일: 양산 시점)
         assert len(page.input_value("#cafeList").split("\n")) == 12
         assert page.evaluate("CARS.map(c => carSettings()[c.code].start)") == ["2024-12-20", "2024-12-16", "2023-08-15"]

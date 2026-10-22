@@ -86,8 +86,25 @@
       </table>
     </section>
 
+    <section>
+      <h2>3. Claude AI 설정 (요약 · 누락 사유)</h2>
+      <div class="hint">본문을 읽은 뒤 AI 가 주제에 맞는 글인지 다시 판단하고, 주요내용 요약과 누락 사유를 씁니다. 끄면 정해진 규칙 문장으로 씁니다.</div>
+      <fieldset class="ai">
+        <div class="row">
+          <label class="inline">Anthropic API 키 <input type="password" id="aiKey" class="key" placeholder="sk-ant-…" autocomplete="off" spellcheck="false"></label>
+          <button id="aiSave" class="small">저장</button>
+          <button id="aiTest" class="small" title="키가 맞는지 확인합니다 (요금 없음)">키 확인</button>
+          <label class="inline">모델 <select id="aiModel"></select></label>
+        </div>
+        <label class="inline"><input type="checkbox" id="aiOn"> Claude AI 로 요약·누락 사유 쓰기 <span class="hint">(유료 · 키를 저장하면 자동으로 켜짐)</span></label>
+        <div id="aiStatus" class="hint"></div>
+        <div class="hint">API 키는 이 PC 크롬에만 저장되고, 요약을 위해 체크한 글의 제목·본문이 Anthropic(Claude)으로 보내집니다.
+          API 키는 <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> 에서 만들 수 있습니다.</div>
+      </fieldset>
+    </section>
+
     <section id="resultBox" hidden>
-      <h2>3. 결과 확인 · 본문 요약 · 엑셀 받기</h2>
+      <h2>4. 결과 확인 · 본문 요약 · 엑셀 받기</h2>
       <div class="hint">시트 단어와 위험 단어가 함께 있는 글이 체크됩니다. 필요 없는 글은 체크를 풀거나 삭제하세요. 체크된 글만 다음 단계와 엑셀에 들어갑니다.</div>
       <div class="row">
         <label class="inline">차종 <select id="carFilter"><option value="">전체</option></select></label>
@@ -110,16 +127,7 @@
 
       <h3>본문 읽기 · 요약</h3>
       <div class="hint">체크한 글을 하나씩 열어 본문을 읽고(글 하나에 10초 안팎), 주요내용 요약과 온라인 동향 미포함(N) 글의 누락 사유를 씁니다.
-        본문에 관련 단어가 없으면 체크를 풀어 둡니다. 이미 읽은 글은 다시 열지 않습니다.</div>
-      <fieldset class="ai">
-        <label class="inline"><input type="checkbox" id="aiOn"> Claude AI 로 요약·누락 사유 쓰기 <span class="hint">(더 자연스러움 · 유료 · Anthropic API 키 필요 · 끄면 규칙으로 작성)</span></label>
-        <div class="row" id="aiOpts">
-          <label class="inline">API 키 <input type="password" id="aiKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false"></label>
-          <label class="inline">모델 <select id="aiModel"></select></label>
-        </div>
-        <div class="hint">API 키는 이 PC 크롬에만 저장되고, 요약을 위해 체크한 글의 제목·본문이 Anthropic(Claude)으로 보내집니다.
-          API 키는 <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> 에서 만들 수 있습니다.</div>
-      </fieldset>
+        본문에 관련 단어가 없으면 체크를 풀어 둡니다. 이미 읽은 글은 다시 열지 않습니다. AI 사용 여부·키는 위 3번에서 정합니다.</div>
       <div class="buttons">
         <button id="readBodies" class="primary">본문 읽고 요약하기</button>
         <button id="rewrite" title="본문은 다시 읽지 않고 요약·누락 사유만 다시 씁니다">요약·사유만 다시 쓰기</button>
