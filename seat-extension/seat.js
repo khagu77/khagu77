@@ -37,9 +37,16 @@ const DEFAULT_MUST = ["https://cafe.naver.com/gamewinds/4299497", "https://cafe.
 // 동호회별 모니터링 시작일: 이 날짜 이전 글은 그 동호회가 모니터링 대상이 아니었으므로 누락 사유를 정해진 문장으로
 // (팰리세이드 오너스 클럽: 동향·로데이터에 '26.3.11 게시글부터 나옴 - 3.12 보고부터 모니터링)
 const DEFAULT_MONITOR_START = "tobloomer | 2026-03-11 | '26년 3월 12일부터 모니터링 대상 동호회로 지정";
-const DEFAULT_AI_RULES = `## 담당자 추가 규칙
-- 팰리세이드 오너스 클럽(cafe.naver.com/tobloomer)은 '26년 3월 12일부터 모니터링 대상 동호회가 되었다.
-  그 이전(게시일 '26.3.11 이전) 글이 온라인 동향에 없으면, 누락 사유는 "해당 동호회는 당시 모니터링 대상 동호회가 아니었음('26년 3월 12일부터 모니터링 대상 동호회로 지정)" 으로 쓴다.`;
+// AI 추가 규칙(메모)의 기본 항목. 새 항목은 이미 메모를 저장해 둔 PC 에도 한 번 덧붙인다(seatRuleBlocks 에 넣은 항목 기록).
+const AI_RULE_BLOCKS = [
+  ["tobloomer-start", `- 팰리세이드 오너스 클럽(cafe.naver.com/tobloomer)은 '26년 3월 12일부터 모니터링 대상 동호회가 되었다.
+  그 이전(게시일 '26.3.11 이전) 글이 온라인 동향에 없으면, 누락 사유는 "해당 동호회는 당시 모니터링 대상 동호회가 아니었음('26년 3월 12일부터 모니터링 대상 동호회로 지정)" 으로 쓴다.`],
+  ["raw-start", `- 전차종 로데이터 엑셀은 '24년 4월 15일부터 처음 작성되었다. 그 이전에는 전차종 로데이터 파일이 없었다.
+  게시일이 '24.4.15 이전인 글의 누락 사유에는 "전차종 로데이터는 '24년 4월 15일부터 작성되어 이 글의 게시 시점에는 로데이터 파일이 없었음" 을 앞에 쓰고,
+  그 뒤에 글 내용에 따른 이유를 이어 쓴다. (이 앞부분은 프로그램이 붙이므로 AI 는 글 내용에 따른 이유만 쓴다. 로데이터에 없다는 것 자체를 이유로 쓰지 않는다.)`],
+];
+const DEFAULT_AI_RULES = `## 담당자 추가 규칙\n${AI_RULE_BLOCKS.map(([, t]) => t).join("\n")}`;
+const DEFAULT_RAW_START = "2024-04-15"; // 전차종 로데이터 엑셀 작성 시작일
 const DEFAULT_SEARCH_URL = "https://cafe.naver.com/f-e/cafes/{cafeId}/menus/0?viewType=L&ta=ARTICLE_COMMENT&page={page}&q={q}";
 const DEFAULT_MAX_PAGES = 10;
 const HEADER_ROW = 3; // 양식: 3행 머리글(B 순번 · C 차종 · D 동호회명 · E 게시일 · F 제목 · G URL · H 요약 · I 포함 여부 · J 누락 사유)
@@ -75,10 +82,11 @@ let diagnostics = [];
 // 설정
 // ---------------------------------------------------------------------------
 
-const SETTING_IDS = ["mustList", "monitorStart", "aiRules", "cafeList", "queries", "mixedQueries", "carWords", "rowWords", "riskWords", "exclude", "searchUrl", "maxPages"];
+const SETTING_IDS = ["mustList", "monitorStart", "rawStart", "aiRules", "cafeList", "queries", "mixedQueries", "carWords", "rowWords", "riskWords", "exclude", "searchUrl", "maxPages"];
 const SETTING_DEFAULTS = {
   mustList: DEFAULT_MUST,
   monitorStart: DEFAULT_MONITOR_START,
+  rawStart: DEFAULT_RAW_START,
   aiRules: DEFAULT_AI_RULES,
   cafeList: DEFAULT_CAFES, queries: DEFAULT_QUERIES, mixedQueries: DEFAULT_MIXED_QUERIES, carWords: DEFAULT_CAR_WORDS,
   rowWords: DEFAULT_ROW_WORDS, riskWords: DEFAULT_RISK_WORDS, exclude: DEFAULT_EXCLUDE, searchUrl: DEFAULT_SEARCH_URL, maxPages: DEFAULT_MAX_PAGES,
@@ -86,10 +94,16 @@ const SETTING_DEFAULTS = {
 
 async function loadSettings() {
   const s = await chrome.storage.local
-    .get(["seatSettings", "seatCars", "seatClubIds", "saveFolder", "saveAsk", "seatTabFallback", "aiKey", "aiModel", "seatAiOn"])
+    .get(["seatSettings", "seatCars", "seatClubIds", "saveFolder", "saveAsk", "seatTabFallback", "aiKey", "aiModel", "seatAiOn", "seatRuleBlocks"])
     .catch(() => ({}));
   const set = s.seatSettings || {};
   for (const id of SETTING_IDS) $(`#${id}`).value = set[id] ?? SETTING_DEFAULTS[id];
+  // 새로 생긴 기본 규칙 항목을 저장된 메모에 한 번 덧붙인다 (사용자가 지운 항목은 다시 넣지 않음)
+  const known = new Set(s.seatRuleBlocks || (set.aiRules !== undefined ? ["tobloomer-start"] : AI_RULE_BLOCKS.map(([id]) => id)));
+  const add = AI_RULE_BLOCKS.filter(([id]) => !known.has(id));
+  if (add.length && set.aiRules !== undefined) $("#aiRules").value = `${$("#aiRules").value.trimEnd()}\n${add.map(([, t]) => t).join("\n")}`;
+  chrome.storage.local.set({ seatRuleBlocks: AI_RULE_BLOCKS.map(([id]) => id) }).catch(() => {});
+  if (add.length && set.aiRules !== undefined) saveSettings();
   $("#saveFolder").value = s.saveFolder || "";
   $("#saveAsk").checked = !!s.saveAsk;
   $("#tabFallback").checked = s.seatTabFallback ?? true;
@@ -1317,6 +1331,27 @@ function notMonitoredReason(item) {
   return `해당 동호회(${item.cafeName})는 당시 모니터링 대상 동호회가 아니었음${ms.note ? ` (${ms.note})` : ""}`;
 }
 
+// 전차종 로데이터 작성 시작일 이전 글인지 → 누락 사유 앞에 붙일 말 (아니면 "")
+function rawStartNote(item) {
+  const m = String($("#rawStart")?.value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m || !item.date) return "";
+  const start = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (new Date(item.date) >= start) return "";
+  return `전차종 로데이터는 '${m[1].slice(2)}년 ${Number(m[2])}월 ${Number(m[3])}일부터 작성되어 이 글의 게시 시점에는 로데이터 파일이 없었음`;
+}
+
+// 표·엑셀에 쓰는 누락 사유: 온라인 동향에 있으면 없음 → 모니터링 시작 전 동호회면 정해진 문장 →
+// (AI·규칙으로 쓴 사유) 앞에 로데이터 작성 전이면 그 내용을 붙임
+function finalReason(x, inc = inclusion(x)) {
+  if (inc.trend) return "";
+  const nm = notMonitoredReason(x);
+  if (nm) return nm;
+  const r = x.reason || ruleReason(x, inc);
+  const raw = rawStartNote(x);
+  if (!raw || r.startsWith(raw)) return r;
+  return r ? `${raw} · ${r}` : raw;
+}
+
 function ruleReason(item, inc) {
   if (inc.trend) return "";
   const nm = notMonitoredReason(item);
@@ -1658,6 +1693,7 @@ async function aiBatch(client, model, batch, usage) {
       온라인동향포함: inc.trend,
       로데이터포함: inc.raw,
       동호회모니터링: inc.trendCafe,
+      로데이터작성전: !!rawStartNote(x),
       꼭포함: !!x.must,
     };
   });
@@ -1869,7 +1905,7 @@ function fillRow(tr, item) {
   tr.children[5].textContent = item.summary || "";
   const inc = inclusion(item);
   tr.children[6].innerHTML = `<b class="yn-${inc.trend ? "y" : "n"}">${yn(inc.trend)}</b> / <b class="yn-${inc.raw ? "y" : "n"}">${yn(inc.raw)}</b>`;
-  tr.children[7].textContent = inc.trend ? "" : notMonitoredReason(item) || item.reason || "";
+  tr.children[7].textContent = item.reason || item.by ? finalReason(item, inc) : inc.trend ? "" : notMonitoredReason(item);
   const notes = [];
   if (item.must) notes.push(`★ 꼭 넣을 글: ${item.mustNote || ""}`);
   if (item.aiScreen) notes.push(`AI 1차(제목·미리보기): ${item.aiScreen.maybe ? "관련 가능" : "무관"} - ${item.aiScreen.why}`);
@@ -1942,7 +1978,7 @@ async function buildExcel(selected) {
           { text: yn(inc.raw), color: inc.raw ? BLUE : RED, bold: true, font: EXCEL_FONT },
         ],
       },
-      inc.trend ? "" : notMonitoredReason(x) || x.reason || ruleReason(x, inc),
+      finalReason(x, inc),
     ];
   });
   await wb.replaceRowsAfter(sheet, HEADER_ROW, values, STYLE_ROW, { focusFirstNew: true });
@@ -2017,7 +2053,7 @@ function rawRows() {
     const notes = [x.mustNote, x.bodyNote || x.note].filter(Boolean).join(" · ");
     return [
       i + 1, x.car, x.cafeName, x.date ? formatDateTime(new Date(x.date), false) : "", x.title, articleUrl(x), x.checked ? "O" : "",
-      `${yn(inc.trend)} / ${yn(inc.raw)}`, x.summary || "", inc.trend ? "" : notMonitoredReason(x) || x.reason || "", ai, screen, x.must ? "O" : "",
+      `${yn(inc.trend)} / ${yn(inc.raw)}`, x.summary || "", x.reason || x.by ? finalReason(x, inc) : "", ai, screen, x.must ? "O" : "",
       x.bodyRead ? "O" : "", notes, (x.queries || []).join(", "), x.aiCost ? Math.round(x.aiCost * 10) / 10 : "", (x.body || "").slice(0, 32000),
     ];
   });
