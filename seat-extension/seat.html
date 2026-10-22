@@ -34,6 +34,9 @@
         <span class="hint" id="jobInfo"></span>
       </div>
 
+      <label for="mustList">꼭 넣을 글 <span class="hint">(한 줄에 하나 · 검색 결과와 상관없이 체크해서 넣고, 찾기가 끝나면 검색으로 찾았는지 알려줌 · 동호회 목록에 없는 카페는 앞에 차종: <b>LX3 https://…</b>)</span></label>
+      <textarea id="mustList" rows="2" spellcheck="false"></textarea>
+
       <details id="settings">
         <summary>설정 (동호회 · 검색어 · 관련 단어 · 저장 위치)</summary>
         <label for="cafeList">동호회 목록 <span class="hint">(한 줄에 하나: <b>차종 | 동호회명 | 영문 카페 주소</b> · 여러 차종이 함께 있는 동호회는 끝에 <b>| 혼합</b>)</span></label>
@@ -67,6 +70,7 @@
       <div class="buttons">
         <button id="search" class="primary">게시물 찾기</button>
         <button id="stop" disabled>중지</button>
+        <button id="mustOnly" title="검색 없이 '꼭 넣을 글'만 지금 넣습니다">꼭 넣을 글만 넣기</button>
       </div>
       <div id="summary" class="summary"></div>
       <div id="log" class="log" hidden></div>
@@ -76,10 +80,11 @@
     <section>
       <h2>2. 비교 파일 (온라인 동향 · 로데이터)</h2>
       <div class="hint">일일 온라인 동향 리스트와 로데이터 엑셀을 여러 개 한꺼번에 등록하세요(이 PC 크롬에 보관, 다시 넣지 않아도 됨).
-        파일 안의 카페 글 주소로 각 게시물이 들어 있었는지 확인해 엑셀 '포함 여부' 칸에 <b>온라인동향 / 로데이터</b> 순서로 <b class="yn-y">Y</b> / <b class="yn-n">N</b> 을 씁니다.
+        파일 안의 카페 글 주소(카페 영문 주소 + 글번호로 비교 · 주소 뒤 꼬리·새 카페 주소 모양이 달라도 같은 글로 봄 · naver.me 짧은 주소는 풀어서 비교)로 각 게시물이 들어 있었는지 확인해 엑셀 '포함 여부' 칸에 <b>온라인동향 / 로데이터</b> 순서로 <b class="yn-y">Y</b> / <b class="yn-n">N</b> 을 씁니다.
         종류는 머리글(불만구분·중복 → 온라인 동향, 주요 내용 → 로데이터)로 자동으로 정하며 바꿀 수 있습니다.</div>
       <div class="row"><input type="file" id="compareFiles" accept=".xlsx" multiple></div>
       <div id="compareInfo" class="hint"></div>
+      <div id="shortInfo" class="row" hidden><span id="shortText" class="hint"></span><button id="resolveShorts" class="primary small">짧은 주소 풀기</button></div>
       <table id="compareTable" class="compact" hidden>
         <thead><tr><th>파일</th><th>종류</th><th>카페 글</th><th>게시일 기간</th><th></th></tr></thead>
         <tbody></tbody>

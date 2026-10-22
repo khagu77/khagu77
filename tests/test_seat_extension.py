@@ -52,6 +52,8 @@ POSTS = {
                         "아이오닉9 3열에서 내릴 때 2열 시트 원터치 폴딩하면 손이 낄 뻔했습니다. 다들 조심하세요."),
     ("50002", "2002"): ("아이오닉5 2열 끼임", "2025.02.03.", "아이오닉5 2열 시트 이야기"),
 }
+# naver.me 짧은 주소 → 넘어가는 주소
+SHORTS = {"abc123": "https://cafe.naver.com/evcafe/2001?art=xyz", "notcafe": "https://blog.naver.com/someone/1"}
 # 검색어 → 결과에 나오는 글번호 (카페마다)
 SEARCH = {
     ("50001", "3열 시트"): ["1002", "1001", "1003"],
@@ -75,11 +77,21 @@ def start_server(tmp_path: Path):
     subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=cafe.naver.com",
                     "-keyout", str(key), "-out", str(cert)], check=True, capture_output=True)
     requests = []
+    short_hits = []
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             requests.append(self.path)
             u = urlparse(self.path)
+            if self.headers.get("Host", "").startswith("naver.me"):  # 짧은 주소 → 카페 글 주소로 넘김
+                short_hits.append((self.path, self.headers.get("Cookie")))
+                target = SHORTS.get(u.path.strip("/"))
+                self.send_response(302 if target else 404)
+                if target:
+                    self.send_header("Location", target)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             body = "<html><body>없는 화면</body></html>"
             m = re.match(r"/f-e/cafes/(\d+)/menus/0$", u.path)
             if m:
@@ -118,6 +130,7 @@ def start_server(tmp_path: Path):
     server.socket = tls.wrap_socket(server.socket, server_side=True)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     server.requests = requests
+    server.short_hits = short_hits
     return server
 
 
@@ -136,7 +149,9 @@ def make_compare_files(tmp_path: Path):
     ws.title = "현대자동차"
     ws.append([None, "커뮤니티명", "차종", "게시일", "구분", "게시글 위치", "주요 내용"])
     ws.append([1, "팰리 카페", "LX3", "2025-03-10", "품질", "https://cafe.naver.com/palicafe/1001?art=abc", "끼임"])
-    ws.append([2, "전기차", "ME1", "2025-02-02", "품질", "https://cafe.naver.com/f-e/cafes/50002/articles/2001", "3열"])
+    ws.append([2, "전기차", "ME1", "2025-02-02", "품질", "https://naver.me/abc123", "3열"])  # 짧은 주소로만 있는 글
+    ws.append([3, "전기차", "ME1", "2025-02-03", "품질", "https://naver.me/notcafe", "블로그"])
+    ws.append([4, "다른 동호회", "NE", "2025-02-03", "품질", "https://naver.me/othercar", "다른 차종"])  # 우리 동호회·차종 아님 → 풀지 않음
     raw.save(tmp_path / "251231_raw_data.xlsx")
     return [tmp_path / "251231_일일동향.xlsx", tmp_path / "251231_raw_data.xlsx"]
 
@@ -157,7 +172,7 @@ def test_seat(tmp_path: Path):
         ctx = p.chromium.launch_persistent_context(
             str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True, timezone_id="Asia/Seoul",
             args=[f"--disable-extensions-except={ext_dir}", f"--load-extension={ext_dir}",
-                  f"--host-resolver-rules=MAP cafe.naver.com 127.0.0.1:{port}", "--no-proxy-server", "--ignore-certificate-errors"],
+                  f"--host-resolver-rules=MAP cafe.naver.com 127.0.0.1:{port}, MAP naver.me 127.0.0.1:{port}", "--no-proxy-server", "--ignore-certificate-errors"],
             accept_downloads=True,
         )
         naver_api = []
@@ -196,6 +211,7 @@ def test_seat(tmp_path: Path):
         assert page.is_checked("#aiOn")
         page.reload()
         page.evaluate("CAFE_ARTICLE_DELAY[0] = CAFE_ARTICLE_DELAY[1] = CAFE_PAGE_DELAY[0] = CAFE_PAGE_DELAY[1] = 10")
+        page.locator("#aiStatus", has_text="저장된 키로").wait_for()
         assert page.input_value("#aiKey") == "sk-ant-good" and page.is_checked("#aiOn") and "저장된 키로" in page.inner_text("#aiStatus")
         page.uncheck("#aiOn")  # 아래는 규칙 요약으로 시험
         page.locator("#aiOn").dispatch_event("change")
@@ -213,6 +229,10 @@ def test_seat(tmp_path: Path):
         page.fill("#mixedQueries", "{차종} 3열")
         page.locator("#mixedQueries").dispatch_event("change")
         page.locator("#carRows tr[data-car=MX5] .carOn").uncheck()
+        # 꼭 넣을 글: 기본은 요청서 예시 2개 · 시험에서는 단어 판단으로 빠지는 글(1002)과 양산 시점 이전 글(1003)
+        assert page.input_value("#mustList") == "https://cafe.naver.com/gamewinds/4299497\nhttps://cafe.naver.com/tobloomer/133964"
+        page.fill("#mustList", "https://cafe.naver.com/palicafe/1002\nhttps://cafe.naver.com/palicafe/1003")
+        page.locator("#mustList").dispatch_event("change")
         assert "동호회·검색어 7개" in page.inner_text("#jobInfo")
         # 카페 번호 칸: 카페 주소를 붙여 넣으면 번호만 남는다
         slug_inputs = page.locator("#cafeInfo tbody input")
@@ -230,11 +250,22 @@ def test_seat(tmp_path: Path):
         got = {rows.nth(i).locator("a").inner_text(): rows.nth(i).locator("input").is_checked() for i in range(rows.count())}
         assert got == {
             "3열 탈 때 2열 시트에 아이 발 끼임": True,
-            "3열 시트 가죽 질감 좋네요": False,  # 위험 단어 없음
+            "3열 시트 가죽 질감 좋네요": True,  # 위험 단어가 없어 자동 체크는 안 되지만 꼭 넣을 글
             "아이오닉9 3열 위험하네요": True,
             "아이오닉5 2열 끼임": False,  # 혼합 동호회인데 차종 이름 없음
-        }, (got, page.inner_text("#log"))  # 1003 은 양산 시점(2024-12-20) 이전이라 빠짐
+            "2열 시트 폴딩 조심하세요": True,  # 양산 시점 이전이라 검색에선 빠지지만 꼭 넣을 글 → 글을 열어 직접 넣음
+        }, (got, page.inner_text("#log"))
         assert "새로 찾은 글 4개" in page.inner_text("#summary")
+        assert "꼭 넣을 글 2개 중 검색으로 찾음 1개" in page.inner_text("#summary")
+        log = page.inner_text("#log")
+        assert "palicafe/1002: 검색엔 나왔지만 단어 판단으로 체크 안 됨" in log and "palicafe/1003: 검색으로 못 찾아 직접 넣음 (양산 시점 이전 글)" in log, log
+        must = page.evaluate("items.filter(x => x.must).map(x => [x.key, x.car, x.bodyRead, x.body])")
+        assert sorted(must) == [["palicafe/1002", "LX3", False, ""], ["palicafe/1003", "LX3", True, "양산 전 글"]], must
+        # 아래 엑셀 확인을 단순하게: 꼭 넣을 글 두 개는 지운다
+        for t in ["3열 시트 가죽 질감 좋네요", "2열 시트 폴딩 조심하세요"]:
+            rows.filter(has_text=t).locator(".del").click()
+        rows = page.locator("#results tbody tr")
+        assert rows.count() == 3  # 검색으로 찾은 4개 + 직접 넣은 1개 - 지운 2개
         # 카페 번호: 첫 화면에서, 첫 화면에 없으면 비교 파일에 있는 그 카페 글 화면에서 알아냄
         assert page.evaluate("[clubIds.palicafe, clubIds.evcafe, clubIds.hardcafe]") == ["50001", "50002", "50003"]
         # 끝내 못 알아낸 카페는 한 번만 알리고 나머지 검색어는 건너뜀 · 진단 파일 받기 가능
@@ -248,6 +279,14 @@ def test_seat(tmp_path: Path):
         page.locator("#compareInfo", has_text="2개 파일을 등록").wait_for()
         kinds = page.locator("#compareTable tbody select")
         assert sorted(kinds.nth(i).input_value() for i in range(4)) == ["raw", "raw", "trend", "trend"]
+        # naver.me 짧은 주소: 풀기 전에는 N, 풀면 같은 글로 잡힘 (우리 동호회·차종 행만 · 로그인 정보 없이 · 따라가지 않음)
+        page.locator("#shortText", has_text="2개를 아직 풀지 않았습니다").wait_for()
+        assert rows.filter(has_text="아이오닉9 3열 위험하네요").locator("td.yn").inner_text() == "N / N"
+        page.click("#resolveShorts")
+        page.locator("#shortText", has_text="모두 풀었습니다").wait_for(timeout=60000)
+        assert sorted(p for p, _ in server.short_hits) == ["/abc123", "/notcafe"], server.short_hits
+        assert all(c is None for _, c in server.short_hits)
+        assert not any("/evcafe/2001" in r for r in server.requests)  # 짧은 주소가 넘어가는 카페 글은 열지 않음
         yn = {rows.nth(i).locator("a").inner_text(): rows.nth(i).locator("td.yn").inner_text() for i in range(rows.count())}
         assert yn["3열 탈 때 2열 시트에 아이 발 끼임"] == "Y / Y" and yn["아이오닉9 3열 위험하네요"] == "N / Y", yn
 
@@ -264,7 +303,9 @@ def test_seat(tmp_path: Path):
         # 다시 열어도 결과·비교 파일 유지
         page.reload()
         page.evaluate("CAFE_ARTICLE_DELAY[0] = CAFE_ARTICLE_DELAY[1] = 10")
-        assert page.locator("#results tbody tr").count() == 4 and page.locator("#compareTable tbody tr").count() == 4
+        page.locator("#results tbody tr").nth(2).wait_for()
+        page.locator("#compareTable tbody tr").nth(3).wait_for()
+        assert page.locator("#results tbody tr").count() == 3 and page.locator("#compareTable tbody tr").count() == 4
 
         # 작업 중에는 뒤로가기·백스페이스 막기
         page.evaluate("showBusy('테스트', 0, 1)")
@@ -290,7 +331,7 @@ def test_seat(tmp_path: Path):
         db_rows.first.locator(".counts").wait_for()
         assert db_rows.count() == 1 and "최종" in db_rows.first.inner_text()
         assert "글 2개 · LX3 1 · ME1 1 · MX5 0 · 동향 미포함 1" in db_rows.first.inner_text()
-        assert "찾은 글" in page.inner_text("#work") and "4개" in page.inner_text("#work")
+        assert "찾은 글" in page.inner_text("#work") and "3개" in page.inner_text("#work")
         with page.expect_file_chooser() as fc:
             db_rows.first.locator(".up").click()
         fc.value.set_files(str(path))
@@ -301,13 +342,13 @@ def test_seat(tmp_path: Path):
         backup = tmp_path / dl.value.suggested_filename
         dl.value.save_as(backup)
         data = json.loads(backup.read_text())
-        assert data["app"] == "seat-risk" and len(data["data"]["seatItems"]) == 4
+        assert data["app"] == "seat-risk" and len(data["data"]["seatItems"]) == 3
         assert "aiKey" not in json.dumps(data) and "sk-ant-good" not in backup.read_text()  # API 키는 백업에 넣지 않음
         assert all(not f.get("builtin") for f in data["data"]["seatCompare"]) and len(data["data"]["seatCompare"]) == 2
         page.evaluate("chrome.storage.local.set({ seatItems: [] })")
         page.set_input_files("#restoreFile", str(backup))
         page.locator("#dbInfo", has_text="백업을 불러왔습니다").wait_for()
-        assert page.evaluate("chrome.storage.local.get('seatItems').then(s => s.seatItems.length)") == 4
+        assert page.evaluate("chrome.storage.local.get('seatItems').then(s => s.seatItems.length)") == 3
         assert page.evaluate("chrome.storage.local.get('seatCompare').then(s => s.seatCompare.length)") == 4
         assert not errors, errors
         ctx.close()

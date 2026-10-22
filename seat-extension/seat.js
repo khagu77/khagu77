@@ -32,6 +32,8 @@ const DEFAULT_RISK_WORDS =
   "끼임, 끼여, 끼었, 끼인, 끼이, 끼일, 끼어, 낄뻔, 낄 뻔, 다칠, 다쳤, 다침, 부상, 사고, 위험, 아찔, 조심, 주의, 무섭, 무서, 골절, 멍들, 멍이, 피가, 피나, 병원, " +
   "깔려, 깔릴, 압박, 눌려, 짓눌, 손가락, 발가락, 발목, 아이가, 아이들, 아이 손, 애기, 아기, 애들, 강아지, 사망, 리콜, 안전, 센서, 감지, 안 멈, 안멈, 멈추지";
 const DEFAULT_EXCLUDE = "시트커버, 시트지, 열선, 통풍, 썬팅, 틴팅, 팝니다, 삽니다, 판매합니다, 공동구매";
+// 꼭 넣을 글: 요청서의 예시 게시물 (검색으로 찾았는지 점검하는 기준으로도 씀)
+const DEFAULT_MUST = ["https://cafe.naver.com/gamewinds/4299497", "https://cafe.naver.com/tobloomer/133964"].join("\n");
 const DEFAULT_SEARCH_URL = "https://cafe.naver.com/f-e/cafes/{cafeId}/menus/0?viewType=L&ta=ARTICLE_COMMENT&page={page}&q={q}";
 const DEFAULT_MAX_PAGES = 10;
 const HEADER_ROW = 3; // 양식: 3행 머리글(B 순번 · C 차종 · D 동호회명 · E 게시일 · F 제목 · G URL · H 요약 · I 포함 여부 · J 누락 사유)
@@ -65,8 +67,9 @@ let diagnostics = [];
 // 설정
 // ---------------------------------------------------------------------------
 
-const SETTING_IDS = ["cafeList", "queries", "mixedQueries", "carWords", "rowWords", "riskWords", "exclude", "searchUrl", "maxPages"];
+const SETTING_IDS = ["mustList", "cafeList", "queries", "mixedQueries", "carWords", "rowWords", "riskWords", "exclude", "searchUrl", "maxPages"];
 const SETTING_DEFAULTS = {
+  mustList: DEFAULT_MUST,
   cafeList: DEFAULT_CAFES, queries: DEFAULT_QUERIES, mixedQueries: DEFAULT_MIXED_QUERIES, carWords: DEFAULT_CAR_WORDS,
   rowWords: DEFAULT_ROW_WORDS, riskWords: DEFAULT_RISK_WORDS, exclude: DEFAULT_EXCLUDE, searchUrl: DEFAULT_SEARCH_URL, maxPages: DEFAULT_MAX_PAGES,
 };
@@ -609,6 +612,7 @@ async function search(resume = null) {
   }
 
   if (!stopRequested) await clearResume("seat");
+  const must = stopRequested ? null : await addMustPosts();
   $("#diag").hidden = !diagnostics.length;
   renderResults();
   const checked = items.filter((x) => x.checked).length;
@@ -616,10 +620,85 @@ async function search(resume = null) {
     `${stopRequested ? "중지됨 (다시 '게시물 찾기'를 누르면 이어서) - " : ""}새로 찾은 글 ${found}개 · 전체 ${items.length}개 중 관련 글로 체크 ${checked}개 · ` +
       `${pagesDone}페이지, ${formatDuration((Date.now() - t0) / 1000)} 걸림` +
       (failed.length ? ` · 못 읽은 곳 ${failed.length}개(아래 기록 참고)` : "") +
-      (loginNeeded ? " · 로그인이 필요합니다" : ""),
+      (loginNeeded ? " · 로그인이 필요합니다" : "") +
+      (must ? ` · 꼭 넣을 글 ${must.length}개 중 검색으로 찾음 ${must.filter((m) => m.bySearch).length}개` : ""),
     loginNeeded || failed.length ? "err" : "ok",
   );
   endBusy();
+}
+
+// 꼭 넣을 글: [{ url, car }] (줄 앞 'LX3 ' 처럼 차종을 붙일 수 있음)
+function mustList() {
+  const out = [];
+  for (const line of String($("#mustList").value).split(/\r?\n/)) {
+    const m = line.trim().match(/^(?:([A-Za-z]{2}\d)\s*[|,:]?\s*)?(https?:\/\/\S+)$/);
+    if (m) out.push({ car: m[1] ? m[1].toUpperCase() : null, url: m[2] });
+  }
+  return out;
+}
+
+function slugOfClubId(id) {
+  return Object.entries(clubIds).find(([, v]) => v === id)?.[0] || null;
+}
+
+// 꼭 넣을 글을 결과에 넣는다. 검색으로 이미 찾은 글이면 체크만, 아니면 글을 열어 제목·날짜·본문을 읽어 넣는다.
+// → [{ url, key, bySearch, note }] (기록창에 하나씩 알림)
+async function addMustPosts() {
+  const list = mustList();
+  if (!list.length) return null;
+  const report = [];
+  log(`· 꼭 넣을 글 ${list.length}개를 확인합니다`);
+  for (const [i, m] of list.entries()) {
+    if (stopRequested) break;
+    showBusy(`꼭 넣을 글 확인 중 ${i + 1}/${list.length}`, i, list.length, "꼭 넣을 글 확인 중");
+    let ids = parseArticleUrl(m.url);
+    let slug = ids.cafeUrl || (ids.cafeId && slugOfClubId(ids.cafeId));
+    let res = null;
+    if (!slug || !ids.articleId) {
+      // naver.me 짧은 주소 등: 열어서 실제 주소를 본다
+      res = await readArticleBody(m.url);
+      ids = parseArticleUrl(res.href || "");
+      slug = ids.cafeUrl || (ids.cafeId && slugOfClubId(ids.cafeId));
+    }
+    if (!slug || !ids.articleId) {
+      log(`✖ 꼭 넣을 글 주소를 알아보지 못했습니다: ${m.url} (cafe.naver.com/카페주소/글번호 모양으로 넣어 주세요)`);
+      report.push({ url: m.url, bySearch: false, note: "주소 확인 못 함" });
+      continue;
+    }
+    const key = `${slug}/${ids.articleId}`.toLowerCase();
+    const cafe = cafes().find((c) => c.slug.toLowerCase() === slug.toLowerCase());
+    let item = items.find((x) => x.key === key);
+    if (item) {
+      const wasChecked = item.checked;
+      item.must = true;
+      item.checked = true;
+      item.touched = true;
+      item.mustNote = wasChecked ? "검색으로 찾음" : "검색엔 나왔지만 단어 판단으로 체크 안 됨";
+      report.push({ url: m.url, key, bySearch: true, note: item.mustNote });
+    } else {
+      if (!res) {
+        await sleep(randomBetween(CAFE_ARTICLE_DELAY));
+        res = await readArticleBody(shortArticleUrl(slug, ids.articleId));
+      }
+      const parsed = res.found ? parseCafeDate(res.dateText) : null;
+      item = {
+        key, car: m.car || cafe?.car || "?", cafeIndex: cafe ? cafes().indexOf(cafe) : 999, cafeName: cafe?.name || slug, slug, mixed: !!cafe?.mixed,
+        articleId: ids.articleId, title: res.title || `(제목 확인 못 함) ${slug}/${ids.articleId}`, text: "", date: parsed ? parsed.date.getTime() : null,
+        hasTime: !!parsed?.hasTime, queries: [], checked: true, touched: true, must: true, related: true, note: "",
+        body: res.body || "", bodyRead: !!res.found && !res.locked && !res.deleted,
+        bodyNote: res.login ? "로그인 필요 - 본문 못 읽음" : res.locked ? "멤버 공개 글 - 본문 못 봄" : res.deleted ? "삭제된 글" : res.found ? "" : "본문을 읽지 못함",
+        summary: "", reason: "", by: "",
+      };
+      const before = parsed && cafe && parsed.date < carStart(cafe.car);
+      item.mustNote = `검색으로 못 찾아 직접 넣음${before ? " (양산 시점 이전 글)" : ""}`;
+      items.push(item);
+      report.push({ url: m.url, key, bySearch: false, note: item.mustNote });
+    }
+    log(`· 꼭 넣을 글 ${key}: ${item.mustNote}${item.title ? ` - ${item.title}` : ""}`);
+  }
+  await saveItems();
+  hideBusy();
+  return report;
 }
 
 function renderCafeInfoIds() {
@@ -652,7 +731,9 @@ function postKey(url) {
 async function loadCompare() {
   compare = (await chrome.storage.local.get("seatCompare").catch(() => ({}))).seatCompare || [];
   await loadBuiltinCompare();
+  await loadShortMap();
   for (const f of compare) f.keySet = new Set(f.keys);
+  if (applyShortMap()) await saveCompare();
 }
 
 // 함께 받은 비교 자료(compare-data.json: 미리 전달받은 온라인 동향·로데이터 파일의 카페 글 주소)를 처음 한 번 등록한다.
@@ -695,21 +776,37 @@ async function readCompareFile(file) {
   let minDate = null;
   let maxDate = null;
   let rows = 0;
+  const shorts = new Set(); // naver.me 짧은 주소 (우리 동호회·차종 행만) - 나중에 '짧은 주소 풀기'로 카페 주소로 바꿔 비교
+  let shortAll = 0;
   for (const sheet of wb.sheetNames()) {
     const data = await wb.readRows(sheet);
     // 머리글: 첫 5행 안에서 '게시일'·'게시글 위치' 같은 글자가 있는 행
     let dateCol = null;
+    let nameCol = null;
+    let carCol = null;
     for (const r of data.slice(0, 5)) {
       const heads = Object.entries(r.cells).map(([c, v]) => [c, String(v).replace(/\s+/g, "")]);
       if (heads.some(([, v]) => /불만구분|^중복$|^재원$/.test(v))) trend++;
       if (heads.some(([, v]) => /^주요내용$|^커뮤니티명$/.test(v))) raw++;
       const d = heads.find(([, v]) => /^게시일/.test(v));
       if (d && !dateCol) dateCol = d[0];
+      const n = heads.find(([, v]) => /^(?:동호회명|커뮤니티명|매체명)$/.test(v));
+      if (n && !nameCol) nameCol = n[0];
+      const c = heads.find(([, v]) => v === "차종");
+      if (c && !carCol) carCol = c[0];
     }
     for (const r of data) {
       let hit = false;
       for (const v of Object.values(r.cells)) {
-        if (typeof v !== "string" || !v.includes("cafe.naver.com")) continue;
+        if (typeof v !== "string") continue;
+        const short = v.match(SHORT_LINK_RE);
+        if (short) {
+          shortAll++;
+          if (shortRowWanted(nameCol && r.cells[nameCol], carCol && r.cells[carCol])) shorts.add(short[1]);
+          hit = true;
+          continue;
+        }
+        if (!v.includes("cafe.naver.com")) continue;
         const k = postKey(v);
         if (!k) continue;
         keys.add(k);
@@ -727,7 +824,145 @@ async function readCompareFile(file) {
     }
   }
   const kind = trend > raw ? "trend" : raw > trend ? "raw" : /raw|로\s*데이터/i.test(file.name) ? "raw" : "trend";
-  return { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name: file.name, kind, keys: [...keys], slugs, minDate, maxDate, rows };
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name: file.name, kind, keys: [...keys], slugs, minDate, maxDate, rows,
+    shorts: [...shorts], shortAll,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// naver.me 짧은 주소 풀기: 짧은 주소 서비스에 '어디로 넘어가는지'만 묻는다 (카페 글은 열지 않고, 네이버 로그인 정보도 보내지 않음)
+// 풀린 결과(짧은 주소 → 카페 영문 주소/글번호)는 저장해 두어 다시 묻지 않는다.
+// ---------------------------------------------------------------------------
+
+const SHORT_LINK_RE = /naver\.me\/([A-Za-z0-9]+)/;
+const SHORT_PARALLEL = 4;
+const SHORT_DELAY = [150, 350];
+let shortMap = {}; // 짧은 주소 코드 → "카페주소/글번호" (카페 글이 아니거나 못 풀면 "")
+
+// 짧은 주소가 있는 행 중 풀 것: 우리 동호회 이름이나 우리 차종(LX3·ME1·MX5)인 행, 둘 다 모르는 행
+function shortRowWanted(name, car) {
+  const n = compactText(name);
+  const c = String(car || "").trim().toUpperCase();
+  if (!n && !c) return true;
+  if (/^(LX3|ME1?|MX5)\b/.test(c)) return true;
+  return !!n && cafes().some((x) => compactText(x.name) === n);
+}
+
+async function loadShortMap() {
+  shortMap = (await chrome.storage.local.get("seatShortMap").catch(() => ({}))).seatShortMap || {};
+}
+
+function saveShortMap() {
+  return chrome.storage.local.set({ seatShortMap: shortMap }).catch(() => {});
+}
+
+// 아직 풀지 않은 짧은 주소
+function pendingShorts() {
+  const out = new Set();
+  for (const f of compare) for (const code of f.shorts || []) if (!(code in shortMap)) out.add(code);
+  return [...out];
+}
+
+// 풀린 짧은 주소를 각 비교 파일의 글 목록에 넣는다
+function applyShortMap() {
+  let changed = false;
+  for (const f of compare) {
+    for (const code of f.shorts || []) {
+      const k = shortMap[code];
+      if (!k || f.keySet.has(k)) continue;
+      f.keySet.add(k);
+      f.keys.push(k);
+      const slug = k.split("/")[0];
+      f.slugs[slug] = (f.slugs[slug] || 0) + 1;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+// 짧은 주소 하나 → 넘어가는 주소. 확장의 webRequest 로 첫 응답의 Location 머리글만 보고 따라가지 않는다.
+const shortLocations = new Map();
+if (chrome.webRequest?.onHeadersReceived) {
+  chrome.webRequest.onHeadersReceived.addListener(
+    (d) => {
+      const loc = (d.responseHeaders || []).find((h) => h.name.toLowerCase() === "location")?.value;
+      if (loc) shortLocations.set(d.url, new URL(loc, d.url).href);
+    },
+    { urls: ["https://naver.me/*"] },
+    ["responseHeaders"],
+  );
+}
+
+async function resolveShort(code) {
+  let url = `https://naver.me/${code}`;
+  for (let hop = 0; hop < 3; hop++) {
+    shortLocations.delete(url);
+    try {
+      await fetch(url, { redirect: "manual", credentials: "omit", cache: "no-store" });
+    } catch {
+      /* 아래에서 판단 */
+    }
+    const loc = shortLocations.get(url);
+    shortLocations.delete(url);
+    if (!loc) return null; // 응답이 없거나 넘어가지 않음 (다음에 다시 시도)
+    const key = /cafe\.naver\.com/.test(loc) ? postKey(loc) : null;
+    if (key) return key;
+    if (!/^https:\/\/naver\.me\//.test(loc)) return ""; // 카페 글이 아닌 곳으로 넘어감
+    url = loc;
+  }
+  return "";
+}
+
+async function resolveShorts() {
+  if (running) return;
+  const todo = pendingShorts();
+  if (!todo.length) return renderShortInfo();
+  startBusy();
+  const t0 = Date.now();
+  let done = 0;
+  let failed = 0;
+  let next = 0;
+  const worker = async () => {
+    while (next < todo.length && !stopRequested) {
+      const code = todo[next++];
+      const key = await resolveShort(code);
+      if (key === null) failed++;
+      else shortMap[code] = key;
+      done++;
+      if (done % 50 === 0 || done === todo.length) {
+        showBusy(`짧은 주소 푸는 중 ${done.toLocaleString()}/${todo.length.toLocaleString()}${estimateRemaining(t0, done, todo.length, 0)}`, done, todo.length, "짧은 주소 푸는 중");
+        await saveShortMap();
+      }
+      await sleep(randomBetween(SHORT_DELAY));
+    }
+  };
+  showBusy(`짧은 주소 푸는 중 0/${todo.length.toLocaleString()}`, 0, todo.length, "짧은 주소 푸는 중");
+  await Promise.all(Array.from({ length: SHORT_PARALLEL }, worker));
+  await saveShortMap();
+  if (applyShortMap()) await saveCompare();
+  endBusy();
+  renderCompare();
+  renderResults();
+  setSummary(
+    `${stopRequested ? "중지됨 - " : "✔ "}짧은 주소 ${done.toLocaleString()}개를 확인했습니다 (${formatDuration((Date.now() - t0) / 1000)} 걸림)` +
+      (failed ? ` · 응답이 없어 못 푼 ${failed.toLocaleString()}개는 다시 누르면 다시 시도합니다` : ""),
+    failed ? "err" : "ok",
+  );
+  stopRequested = false;
+}
+
+function renderShortInfo() {
+  const box = $("#shortInfo");
+  if (!box) return;
+  const total = new Set(compare.flatMap((f) => f.shorts || [])).size;
+  const pending = pendingShorts().length;
+  box.hidden = !total;
+  $("#shortText").textContent = pending
+    ? `비교 파일에 naver.me 짧은 주소 ${total.toLocaleString()}개(우리 동호회·차종)가 있고, 그중 ${pending.toLocaleString()}개를 아직 풀지 않았습니다. 풀어야 그 글들도 포함 여부(Y)에 잡힙니다. (예상 소요 시간 약 ${formatDuration((pending / SHORT_PARALLEL) * 0.6)})`
+    : `✔ 짧은 주소 ${total.toLocaleString()}개를 모두 풀었습니다 (카페 글 ${Object.values(shortMap).filter(Boolean).length.toLocaleString()}개).`;
+  $("#shortText").className = pending ? "hint err" : "hint ok";
+  $("#resolveShorts").hidden = !pending;
 }
 
 async function addCompareFiles(files) {
@@ -742,6 +977,7 @@ async function addCompareFiles(files) {
       f.keySet = new Set(f.keys);
       compare = compare.filter((x) => x.name !== f.name); // 같은 이름은 바꿔 넣기
       compare.push(f);
+      applyShortMap(); // 이미 풀어 둔 짧은 주소는 바로 반영
       added++;
     } catch (e) {
       box.className = "hint err";
@@ -788,6 +1024,7 @@ function renderCompare() {
     tbody.appendChild(tr);
   }
   if (!compare.length) $("#compareInfo").textContent = "등록된 비교 파일이 없습니다. 비교 파일이 없으면 포함 여부는 N / N 으로 씁니다.";
+  renderShortInfo();
 }
 
 // → { trend: bool, raw: bool, trendCafe: 이 동호회가 온라인 동향 파일에 나온 적 있는지, trendRange: 게시일이 동향 파일 기간 안인지 }
@@ -972,6 +1209,7 @@ const AI_SYSTEM = `당신은 현대자동차 품질 부문의 온라인 동향 �
    - false: 1열(운전석·조수석) 시트만의 이야기, 카시트 제품 추천·장착 방법, 시트 소음·가죽·열선·통풍·편의성만의 이야기,
      위험과 무관한 시트 기능 질문, 판매·구매 글, 조사 차종과 무관한 글.
    - 판단이 애매하면 true 로 두고 summary 에 그 사정을 드러냅니다(사람이 최종 검토함).
+   - 꼭포함=true 인 글은 담당자가 조사 주제의 대표 사례로 지정한 글이므로 반드시 relevant=true 로 둡니다.
 2. situation: 아래 중 하나.
    "실제 사고"(실제로 끼이거나 다침·파손) / "아차 사고"(끼일 뻔·다칠 뻔) / "위험 우려"(우려·경고·주의 당부, 가능성 언급) /
    "문의"(안전장치·작동 방식 질문) / "기사·공지 공유"(언론 기사·리콜·업데이트 공지 공유) / "관련 없음"(relevant=false 일 때만)
@@ -1083,15 +1321,16 @@ function aiErrorMessage(e) {
 }
 
 // 결과 한 건 검사: 형식이 어긋나면 null (그 묶음을 다시 요청)
-function checkAiResult(r, inc) {
+function checkAiResult(r, inc, must = false) {
   if (!r || typeof r.summary !== "string" || typeof r.reason !== "string" || !AI_SITUATIONS.includes(r.situation)) return null;
   const summary = r.summary.replace(/\s+/g, " ").replace(/[.。]\s*$/, "").trim();
   let reason = r.reason.replace(/\s+/g, " ").replace(/[.。]\s*$/, "").trim();
   if (summary.length < 10) return null;
-  if (inc.trend || !r.relevant) reason = "";
+  const relevant = !!r.relevant || must; // 꼭 넣을 글은 늘 주제에 맞는 글로 본다
+  if (inc.trend || !relevant) reason = "";
   else if (!inc.trendRange) reason = OUT_OF_RANGE; // 비교 파일 기간 밖은 추정하지 않고 확인 필요로
   else if (!reason || !/추정$/.test(reason)) return null;
-  return { relevant: !!r.relevant, situation: r.situation, summary, reason };
+  return { relevant, situation: relevant && r.situation === "관련 없음" ? "위험 우려" : r.situation, summary, reason };
 }
 
 async function aiBatch(client, model, batch, usage) {
@@ -1108,6 +1347,7 @@ async function aiBatch(client, model, batch, usage) {
       온라인동향포함: inc.trend,
       로데이터포함: inc.raw,
       동호회모니터링: inc.trendCafe,
+      꼭포함: !!x.must,
     };
   });
   const params = {
@@ -1128,7 +1368,7 @@ async function aiBatch(client, model, batch, usage) {
   const parsed = JSON.parse(msg.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
   const byId = new Map((parsed.items || []).map((r) => [r.id, r]));
   // 한 건이라도 빠지거나 형식이 어긋나면 묶음 전체를 다시 요청 (반쯤 맞은 결과를 섞지 않음)
-  const results = batch.map((x) => checkAiResult(byId.get(x.key), inclusion(x)));
+  const results = batch.map((x) => checkAiResult(byId.get(x.key), inclusion(x), !!x.must));
   const bad = results.filter((r) => !r).length;
   if (bad) throw new Error(`결과 ${bad}건의 형식이 맞지 않습니다`);
   batch.forEach((x, i) => {
@@ -1276,6 +1516,7 @@ function fillRow(tr, item) {
   tr.children[6].innerHTML = `<b class="yn-${inc.trend ? "y" : "n"}">${yn(inc.trend)}</b> / <b class="yn-${inc.raw ? "y" : "n"}">${yn(inc.raw)}</b>`;
   tr.children[7].textContent = item.reason || "";
   const notes = [];
+  if (item.must) notes.push(`★ 꼭 넣을 글: ${item.mustNote || ""}`);
   if (item.bodyNote) notes.push(item.bodyNote);
   else if (item.note) notes.push(item.note);
   if (item.bodyRead && !item.bodyNote) notes.push("본문 읽음");
@@ -1363,6 +1604,11 @@ async function saveList() {
   const noSummary = selected.filter((x) => !x.summary).length;
   if (noSummary && !confirm(`요약을 아직 쓰지 않은 글이 ${noSummary}개 있습니다. 이 글들은 규칙으로 요약해 넣을까요?\n(취소하면 받지 않습니다 - '본문 읽고 요약하기'를 먼저 눌러 주세요)`)) return;
   if (!compare.length && !confirm("비교 파일(온라인 동향·로데이터)이 등록되지 않아 포함 여부가 모두 N / N 으로 들어갑니다. 계속할까요?")) return;
+  const pend = pendingShorts().length;
+  if (pend && !confirm(`비교 파일의 naver.me 짧은 주소 ${pend.toLocaleString()}개를 아직 풀지 않았습니다. 그 글들은 포함 여부가 N 으로 잘못 나올 수 있습니다.\n\n· [확인]: 그래도 받기\n· [취소]: 먼저 '짧은 주소 풀기' 하기`)) {
+    $("#shortInfo").scrollIntoView({ block: "center" });
+    return;
+  }
   $("#saveInfo").className = "hint";
   $("#saveInfo").textContent = "엑셀 만드는 중…";
   try {
@@ -1474,11 +1720,21 @@ async function init() {
     const r = await loadResume("seat");
     search(r && confirm(`중단된 게시물 찾기가 있습니다 (${r.jobs.length}개 중 ${r.next}개 완료).\n\n· [확인]: 이어서 찾기\n· [취소]: 처음부터 다시 찾기`) ? r : null);
   });
+  $("#mustOnly").addEventListener("click", async () => {
+    if (running) return;
+    await saveSettings();
+    startBusy();
+    const r = await addMustPosts();
+    endBusy();
+    renderResults();
+    setSummary(r ? `꼭 넣을 글 ${r.length}개를 넣었습니다 (검색으로 찾은 글 ${r.filter((m) => m.bySearch).length}개 · 자세한 내용은 기록창).` : "꼭 넣을 글 칸에 주소가 없습니다.", r ? "ok" : "err");
+  });
   $("#stop").addEventListener("click", () => {
     stopRequested = true;
     $("#stop").disabled = true;
     setSummary("중지하는 중… (지금 보는 화면까지 마칩니다)");
   });
+  $("#resolveShorts").addEventListener("click", resolveShorts);
   $("#compareFiles").addEventListener("change", (e) => e.target.files.length && addCompareFiles(e.target.files));
   $("#carFilter").addEventListener("change", renderResults);
   $("#viewFilter").addEventListener("change", renderResults);
