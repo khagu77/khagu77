@@ -1084,7 +1084,7 @@ async function init() {
     await saveSettings();
     renderCafeInfo();
   });
-  $("#resetRange").addEventListener("click", resetRange);
+  $("#resetRange").addEventListener("click", () => resetRange());
   $("#search").addEventListener("click", () => search());
   // 못 읽은 동호회만 다시 찾고(날짜만 보이는 글의 시간 확인도 다시), 이미 찾은 글에 더한다
   $("#retryCafes").addEventListener("click", () =>

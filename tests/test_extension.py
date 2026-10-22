@@ -462,6 +462,11 @@ def test_lx3(tmp_path: Path):
         assert page.evaluate("ymd(defaultRange(new Date('2026-10-14T09:00')).from)") == "2026-10-12"
         page.evaluate("document.getElementById('holidays').value = ''")
         assert page.input_value("#from") == page.evaluate("toLocalInput(defaultRange().from)")
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.fill("#from", "2026-01-01T09:00")
+        page.click("#resetRange")  # '기본 시간으로' 버튼 (클릭 정보가 시각 자리에 넘어가 오류 나던 문제)
+        assert page.input_value("#from") == page.evaluate("toLocalInput(defaultRange().from)") and not errors, errors
         assert "기본 시간:" in page.inner_text("#rangeInfo")
         assert len(page.input_value("#cafeList").split("\n")) == 12 and "16624720" in page.input_value("#cafeList")
 
