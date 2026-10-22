@@ -585,7 +585,29 @@ function postKey(url) {
 
 async function loadCompare() {
   compare = (await chrome.storage.local.get("seatCompare").catch(() => ({}))).seatCompare || [];
+  await loadBuiltinCompare();
   for (const f of compare) f.keySet = new Set(f.keys);
+}
+
+// 함께 받은 비교 자료(compare-data.json: 미리 전달받은 온라인 동향·로데이터 파일의 카페 글 주소)를 처음 한 번 등록한다.
+// 사내 자료라 공개 저장소에는 올리지 않고 전달용 압축 파일에만 넣는다(없으면 건너뜀).
+// 자료 버전이 바뀌면 그 파일들만 새 것으로 바꾸고, 직접 등록한 파일은 그대로 둔다.
+async function loadBuiltinCompare() {
+  let data;
+  try {
+    const resp = await fetch(chrome.runtime.getURL("compare-data.json"));
+    if (!resp.ok) return;
+    data = await resp.json();
+  } catch {
+    return;
+  }
+  const { seatBuiltinVersion } = await chrome.storage.local.get("seatBuiltinVersion").catch(() => ({}));
+  if (!data?.files?.length || seatBuiltinVersion === data.version) return;
+  const names = new Set(data.files.map((f) => f.name));
+  compare = compare.filter((f) => !f.builtin && !names.has(f.name)).concat(data.files.map((f) => ({ ...f, builtin: true })));
+  compare.sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name));
+  await saveCompare();
+  await chrome.storage.local.set({ seatBuiltinVersion: data.version }).catch(() => {});
 }
 
 function saveCompare() {
@@ -680,7 +702,7 @@ function renderCompare() {
   for (const f of compare) {
     const tr = document.createElement("tr");
     tr.innerHTML = `<td></td><td><select><option value="trend">온라인 동향</option><option value="raw">로데이터</option></select></td><td></td><td class="nowrap"></td><td><button class="small danger">삭제</button></td>`;
-    tr.children[0].textContent = f.name;
+    tr.children[0].textContent = f.name + (f.builtin ? " (미리 등록)" : "");
     const sel = tr.querySelector("select");
     sel.value = f.kind;
     sel.addEventListener("change", async () => {

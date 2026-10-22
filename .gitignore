@@ -5,3 +5,4 @@ __pycache__/
 subtitles/_audio/
 tools/
 dist/
+seat-extension/compare-data.json

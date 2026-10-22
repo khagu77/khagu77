@@ -1,4 +1,4 @@
-"""'LX3 / ME1 / MX5 전동 시트 작동 위험 상황 관련 게시물 수집' 화면(seat.html) 통합 테스트.
+"""'LX3 / ME1 / MX5 전동 시트 작동 위험 상황 관련 게시물 수집' 확장프로그램(seat-extension) 통합 테스트.
 
 cafe.naver.com 을 로컬 HTTPS 서버로 돌려 카페 첫 화면·검색 결과·게시글을 흉내 내고,
 게시물 찾기 → 비교 파일 등록 → 본문 읽기·규칙 요약 → 엑셀 받기까지 확인한다.
@@ -7,6 +7,7 @@ CHROMIUM_PATH 가 없으면 건너뛴다.
 import json
 import os
 import re
+import shutil
 import ssl
 import subprocess
 import threading
@@ -18,9 +19,25 @@ import pytest
 from openpyxl import Workbook, load_workbook
 from playwright.sync_api import sync_playwright
 
-EXT_DIR = Path(__file__).resolve().parent.parent / "chrome-extension"
+ROOT = Path(__file__).resolve().parent.parent
+EXT_DIR = ROOT / "seat-extension"
 CHROMIUM = os.environ.get("CHROMIUM_PATH")
-pytestmark = pytest.mark.skipif(not CHROMIUM, reason="CHROMIUM_PATH 미설정")
+needs_chromium = pytest.mark.skipif(not CHROMIUM, reason="CHROMIUM_PATH 미설정")
+
+
+@pytest.mark.parametrize("name", ["cafe-common.js", "template.js", "bg-render.js"])
+def test_shared_files_match(name):
+    """댓글 수집기(chrome-extension)와 함께 쓰는 파일은 두 확장에서 같아야 한다 (한쪽만 고치지 않도록)."""
+    assert (EXT_DIR / name).read_bytes() == (ROOT / "chrome-extension" / name).read_bytes(), name
+
+
+def test_manifest():
+    m = json.loads((EXT_DIR / "manifest.json").read_text())
+    assert m["name"] == "LX3 / ME1 / MX5 전동 시트 작동 위험 상황 관련 게시물 수집"
+    other = json.loads((ROOT / "chrome-extension" / "manifest.json").read_text())
+    assert m["key"] != other["key"]  # 댓글 수집기와 다른 확장 (따로 설치·따로 저장)
+    for f in [*m["icons"].values(), m["background"]["service_worker"], *m["content_scripts"][0]["js"]]:
+        assert (EXT_DIR / f).exists(), f
 
 CAFES = {"palicafe": "50001", "evcafe": "50002"}  # 영문 주소 → 카페 번호
 # (카페 번호, 글번호) → (제목, 목록 날짜, 본문)
@@ -114,13 +131,20 @@ def make_compare_files(tmp_path: Path):
     return [tmp_path / "251231_일일동향.xlsx", tmp_path / "251231_raw_data.xlsx"]
 
 
+@needs_chromium
 def test_seat(tmp_path: Path):
+    # 실제 전달용 비교 자료(compare-data.json, 저장소에 없음) 대신 작은 가짜 자료를 넣은 복사본으로 시험
+    ext_dir = tmp_path / "ext"
+    shutil.copytree(EXT_DIR, ext_dir, ignore=shutil.ignore_patterns("compare-data.json"))
+    (ext_dir / "compare-data.json").write_text(json.dumps({"version": "t1", "files": [
+        {"id": "b1", "name": "미리 받은 동향.xlsx", "kind": "trend", "keys": ["evcafe/1999"], "slugs": {"evcafe": 1},
+         "minDate": None, "maxDate": None, "rows": 1}]}, ensure_ascii=False))
     server = start_server(tmp_path)
     port = server.server_address[1]
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
             str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True, timezone_id="Asia/Seoul",
-            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}",
+            args=[f"--disable-extensions-except={ext_dir}", f"--load-extension={ext_dir}",
                   f"--host-resolver-rules=MAP cafe.naver.com 127.0.0.1:{port}", "--no-proxy-server", "--ignore-certificate-errors"],
             accept_downloads=True,
         )
@@ -136,6 +160,10 @@ def test_seat(tmp_path: Path):
         page.evaluate("CAFE_ARTICLE_DELAY[0] = CAFE_ARTICLE_DELAY[1] = CAFE_PAGE_DELAY[0] = CAFE_PAGE_DELAY[1] = 10")
 
         assert page.inner_text("h1") == "LX3 / ME1 / MX5 전동 시트 작동 위험 상황 관련 게시물 수집"
+        assert page.evaluate("getComputedStyle(document.querySelector('h1')).color") == "rgb(0, 0, 0)"  # 제목 글자 검정
+        assert page.locator("nav.menu").count() == 0  # 별도 프로그램: 다른 화면 메뉴 없음
+        # 함께 받은 비교 자료는 처음 열 때 자동 등록
+        assert page.locator("#compareTable tbody tr").count() == 1 and "미리 등록" in page.inner_text("#compareTable")
         assert page.get_attribute(".brand .logo", "src") == "icons/logo-seat.png"
         assert page.evaluate("document.querySelector('.brand .logo').naturalWidth") > 0
         # 위쪽 띠: 에르메스 오렌지
@@ -178,7 +206,7 @@ def test_seat(tmp_path: Path):
         page.set_input_files("#compareFiles", [str(f) for f in make_compare_files(tmp_path)])
         page.locator("#compareInfo", has_text="2개 파일을 등록").wait_for()
         kinds = page.locator("#compareTable tbody select")
-        assert sorted(kinds.nth(i).input_value() for i in range(2)) == ["raw", "trend"]
+        assert sorted(kinds.nth(i).input_value() for i in range(3)) == ["raw", "trend", "trend"]
         yn = {rows.nth(i).locator("a").inner_text(): rows.nth(i).locator("td.yn").inner_text() for i in range(rows.count())}
         assert yn["3열 탈 때 2열 시트에 아이 발 끼임"] == "Y / Y" and yn["아이오닉9 3열 위험하네요"] == "N / Y", yn
 
@@ -195,7 +223,7 @@ def test_seat(tmp_path: Path):
         # 다시 열어도 결과·비교 파일 유지
         page.reload()
         page.evaluate("CAFE_ARTICLE_DELAY[0] = CAFE_ARTICLE_DELAY[1] = 10")
-        assert page.locator("#results tbody tr").count() == 4 and page.locator("#compareTable tbody tr").count() == 2
+        assert page.locator("#results tbody tr").count() == 4 and page.locator("#compareTable tbody tr").count() == 3
 
         # 작업 중에는 뒤로가기·백스페이스 막기
         page.evaluate("showBusy('테스트', 0, 1)")
