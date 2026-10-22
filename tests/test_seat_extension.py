@@ -531,6 +531,10 @@ def test_ai_review_unchecked(tmp_path: Path):
         assert r == "전차종 로데이터는 '24년 4월 15일부터 작성되어 이 글의 게시 시점에는 로데이터 파일이 없었음 · 아차 상황으로 보고 기준에 미달한 것으로 추정", r
         assert page.locator("#results tbody tr", has_text="2열 끼임 주의").locator("td").nth(7).inner_text() == r
         assert page.evaluate("finalReason(items.find(x => x.key === 'palicafe/1'))").startswith("아차 상황")  # '25년 글엔 붙지 않음
+        # 로데이터에 있는 글(Y)에는 붙이지 않음 · 첫 로데이터에 담긴 4.12(금)~ 글에도 붙이지 않음
+        assert page.evaluate("rawStartNote(items.find(x => x.key === 'palicafe/240201'), {trend:false, raw:true, trendCafe:true, trendRange:true})") == ""
+        assert page.evaluate("rawStartNote({date:new Date(2024,3,12).getTime()}, {trend:false, raw:false})") == ""
+        assert page.evaluate("rawStartNote({date:new Date(2024,3,11).getTime()}, {trend:false, raw:false})").startswith("전차종 로데이터는 '24년 4월 15일부터")
 
         # 실제 쓴 AI 비용: 요청마다 사용량으로 계산해 글마다 나눠 붙이고 전체 누적도 남김
         costs = page.evaluate("items.map(x => x.aiCost || 0)")
@@ -571,9 +575,15 @@ def test_ai_review_unchecked(tmp_path: Path):
         # 예전에 저장해 둔 AI 추가 규칙 메모에도 새 기본 규칙(로데이터 작성 시작일)이 한 번 덧붙는다
         page.evaluate("""chrome.storage.local.remove('seatRuleBlocks').then(() => chrome.storage.local.get('seatSettings')).then(({ seatSettings }) =>
           chrome.storage.local.set({ seatSettings: { ...seatSettings, aiRules: '## 담당자 추가 규칙\\n- 내가 적은 규칙' } }))""")
+        page.evaluate("chrome.storage.local.set({ saveFolder: '모니터링/시트' })")
         page.reload()
         open_panels(page)
         rules = page.input_value("#aiRules")
+        # 규칙을 덧붙여 저장할 때 API 키·저장 위치·차종 설정이 지워지지 않음 (다시 열어도 그대로)
+        page.reload()
+        open_panels(page)
+        assert page.input_value("#aiKey") == "sk-ant-test" and page.input_value("#saveFolder") == "모니터링/시트"
+        assert page.evaluate("chrome.storage.local.get('seatCars').then(s => Object.keys(s.seatCars || {}).length)") == 3
         assert "내가 적은 규칙" in rules and "전차종 로데이터 엑셀은 '24년 4월 15일부터" in rules and "tobloomer" not in rules, rules
         page.reload()
         open_panels(page)

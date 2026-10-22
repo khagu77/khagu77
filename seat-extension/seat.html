@@ -59,7 +59,12 @@
         <textarea id="exclude" rows="1" spellcheck="false"></textarea>
         <label for="monitorStart">동호회별 모니터링 시작일 <span class="hint">(한 줄에 하나: <b>영문 카페 주소 | 이 날짜 이전 글은 모니터링 대상 아님 | 누락 사유에 덧붙일 말</b> · 그 이전 글이 온라인 동향에 없으면 누락 사유를 이 내용으로 씀)</span></label>
         <textarea id="monitorStart" rows="2" spellcheck="false"></textarea>
-        <label class="inline">전차종 로데이터 작성 시작일 <input type="date" id="rawStart"> <span class="hint">(이 날짜 이전 글은 로데이터 파일 자체가 없던 시기 → 누락 사유 앞에 그 내용을 붙임)</span></label>
+        <div class="row">
+          <label class="inline">전차종 로데이터 작성 시작일 <input type="date" id="rawStart"></label>
+          <label class="inline">첫 로데이터에 담긴 게시일 시작 <input type="date" id="rawCover"></label>
+        </div>
+        <div class="hint">게시일이 '첫 로데이터에 담긴 게시일 시작' 이전이고 로데이터에도 없는 글은, 누락 사유 앞에 로데이터 파일이 없던 시기라는 내용을 붙입니다
+          (첫 로데이터('24.4.15 월)는 직전 근무일 4.12(금)~주말 글부터 담음 · 로데이터에 있는 글(Y)에는 붙이지 않음).</div>
         <label for="aiRules">AI 추가 규칙 (메모) <span class="hint">(마크다운 · 요약·누락 사유를 쓸 때마다 AI 에게 함께 전달 · 담당자 기준이 생기면 여기에 적어 두세요)</span></label>
         <textarea id="aiRules" rows="6" spellcheck="false"></textarea>
         <label for="searchUrl">카페 검색 주소 형식 <span class="hint">(검색이 안 되면 카페에서 직접 검색한 주소창 주소를 그대로 붙여 넣으세요)</span></label>

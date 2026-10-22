@@ -42,11 +42,13 @@ const AI_RULE_BLOCKS = [
   ["tobloomer-start", `- 팰리세이드 오너스 클럽(cafe.naver.com/tobloomer)은 '26년 3월 12일부터 모니터링 대상 동호회가 되었다.
   그 이전(게시일 '26.3.11 이전) 글이 온라인 동향에 없으면, 누락 사유는 "해당 동호회는 당시 모니터링 대상 동호회가 아니었음('26년 3월 12일부터 모니터링 대상 동호회로 지정)" 으로 쓴다.`],
   ["raw-start", `- 전차종 로데이터 엑셀은 '24년 4월 15일부터 처음 작성되었다. 그 이전에는 전차종 로데이터 파일이 없었다.
-  게시일이 '24.4.15 이전인 글의 누락 사유에는 "전차종 로데이터는 '24년 4월 15일부터 작성되어 이 글의 게시 시점에는 로데이터 파일이 없었음" 을 앞에 쓰고,
+  첫 로데이터('24.4.15 월)는 직전 근무일 4.12(금)~주말 글부터 담았다. 게시일이 '24.4.12 이전이고 로데이터에도 없는 글의 누락 사유에는 "전차종 로데이터는 '24년 4월 15일부터 작성되어 이 글의 게시 시점에는 로데이터 파일이 없었음" 을 앞에 쓰고,
   그 뒤에 글 내용에 따른 이유를 이어 쓴다. (이 앞부분은 프로그램이 붙이므로 AI 는 글 내용에 따른 이유만 쓴다. 로데이터에 없다는 것 자체를 이유로 쓰지 않는다.)`],
 ];
 const DEFAULT_AI_RULES = `## 담당자 추가 규칙\n${AI_RULE_BLOCKS.map(([, t]) => t).join("\n")}`;
 const DEFAULT_RAW_START = "2024-04-15"; // 전차종 로데이터 엑셀 작성 시작일
+// 첫 로데이터(4.15 월)에 담긴 게시일 시작: 직전 근무일 4.12(금)~주말 글부터 들어 있음 ('24년 로데이터 맨 앞 행들 확인)
+const DEFAULT_RAW_COVER = "2024-04-12";
 const DEFAULT_SEARCH_URL = "https://cafe.naver.com/f-e/cafes/{cafeId}/menus/0?viewType=L&ta=ARTICLE_COMMENT&page={page}&q={q}";
 const DEFAULT_MAX_PAGES = 10;
 const HEADER_ROW = 3; // 양식: 3행 머리글(B 순번 · C 차종 · D 동호회명 · E 게시일 · F 제목 · G URL · H 요약 · I 포함 여부 · J 누락 사유)
@@ -82,11 +84,12 @@ let diagnostics = [];
 // 설정
 // ---------------------------------------------------------------------------
 
-const SETTING_IDS = ["mustList", "monitorStart", "rawStart", "aiRules", "cafeList", "queries", "mixedQueries", "carWords", "rowWords", "riskWords", "exclude", "searchUrl", "maxPages"];
+const SETTING_IDS = ["mustList", "monitorStart", "rawStart", "rawCover", "aiRules", "cafeList", "queries", "mixedQueries", "carWords", "rowWords", "riskWords", "exclude", "searchUrl", "maxPages"];
 const SETTING_DEFAULTS = {
   mustList: DEFAULT_MUST,
   monitorStart: DEFAULT_MONITOR_START,
   rawStart: DEFAULT_RAW_START,
+  rawCover: DEFAULT_RAW_COVER,
   aiRules: DEFAULT_AI_RULES,
   cafeList: DEFAULT_CAFES, queries: DEFAULT_QUERIES, mixedQueries: DEFAULT_MIXED_QUERIES, carWords: DEFAULT_CAR_WORDS,
   rowWords: DEFAULT_ROW_WORDS, riskWords: DEFAULT_RISK_WORDS, exclude: DEFAULT_EXCLUDE, searchUrl: DEFAULT_SEARCH_URL, maxPages: DEFAULT_MAX_PAGES,
@@ -102,8 +105,14 @@ async function loadSettings() {
   const known = new Set(s.seatRuleBlocks || (set.aiRules !== undefined ? ["tobloomer-start"] : AI_RULE_BLOCKS.map(([id]) => id)));
   const add = AI_RULE_BLOCKS.filter(([id]) => !known.has(id));
   if (add.length && set.aiRules !== undefined) $("#aiRules").value = `${$("#aiRules").value.trimEnd()}\n${add.map(([, t]) => t).join("\n")}`;
+  // 1.0.9 에서 덧붙인 로데이터 규칙 문구를 고친 문구로 (게시일 기준 '24.4.15 → 4.12, 로데이터에 있는 글 제외)
+  const OLD_RAW_LINE = "  게시일이 '24.4.15 이전인 글의 누락 사유에는";
+  if ($("#aiRules").value.includes(OLD_RAW_LINE)) {
+    $("#aiRules").value = $("#aiRules").value.replace(OLD_RAW_LINE, "  첫 로데이터('24.4.15 월)는 직전 근무일 4.12(금)~주말 글부터 담았다. 게시일이 '24.4.12 이전이고 로데이터에도 없는 글의 누락 사유에는");
+    add.push(["fix", ""]);
+  }
   chrome.storage.local.set({ seatRuleBlocks: AI_RULE_BLOCKS.map(([id]) => id) }).catch(() => {});
-  if (add.length && set.aiRules !== undefined) saveSettings();
+  const rulesChanged = add.length && set.aiRules !== undefined; // 다른 칸을 모두 채운 뒤 저장 (아래 끝에서)
   $("#saveFolder").value = s.saveFolder || "";
   $("#saveAsk").checked = !!s.saveAsk;
   $("#tabFallback").checked = s.seatTabFallback ?? true;
@@ -118,6 +127,7 @@ async function loadSettings() {
   $("#aiKey").value = s.aiKey || "";
   $("#aiOn").checked = !!s.seatAiOn;
   showAiStatus();
+  if (rulesChanged) await saveSettings();
 }
 
 function saveSettings() {
@@ -1331,13 +1341,16 @@ function notMonitoredReason(item) {
   return `해당 동호회(${item.cafeName})는 당시 모니터링 대상 동호회가 아니었음${ms.note ? ` (${ms.note})` : ""}`;
 }
 
-// 전차종 로데이터 작성 시작일 이전 글인지 → 누락 사유 앞에 붙일 말 (아니면 "")
-function rawStartNote(item) {
-  const m = String($("#rawStart")?.value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m || !item.date) return "";
-  const start = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  if (new Date(item.date) >= start) return "";
-  return `전차종 로데이터는 '${m[1].slice(2)}년 ${Number(m[2])}월 ${Number(m[3])}일부터 작성되어 이 글의 게시 시점에는 로데이터 파일이 없었음`;
+// 로데이터가 없던 시기의 글인지 → 누락 사유 앞에 붙일 말 (아니면 "")
+// 기준: 게시일이 '첫 로데이터에 담긴 게시일 시작' 이전이고, 로데이터에도 없는 글 (로데이터에 있으면(Y) 붙이지 않음)
+function rawStartNote(item, inc = inclusion(item)) {
+  if (inc.raw || !item.date) return "";
+  const day = (id) => String($(`#${id}`)?.value || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const w = day("rawStart");
+  const c = day("rawCover") || w;
+  if (!w || !c) return "";
+  if (new Date(item.date) >= new Date(Number(c[1]), Number(c[2]) - 1, Number(c[3]))) return "";
+  return `전차종 로데이터는 '${w[1].slice(2)}년 ${Number(w[2])}월 ${Number(w[3])}일부터 작성되어 이 글의 게시 시점에는 로데이터 파일이 없었음`;
 }
 
 // 표·엑셀에 쓰는 누락 사유: 온라인 동향에 있으면 없음 → 모니터링 시작 전 동호회면 정해진 문장 →
@@ -1347,7 +1360,7 @@ function finalReason(x, inc = inclusion(x)) {
   const nm = notMonitoredReason(x);
   if (nm) return nm;
   const r = x.reason || ruleReason(x, inc);
-  const raw = rawStartNote(x);
+  const raw = rawStartNote(x, inc);
   if (!raw || r.startsWith(raw)) return r;
   return r ? `${raw} · ${r}` : raw;
 }
@@ -1693,7 +1706,7 @@ async function aiBatch(client, model, batch, usage) {
       온라인동향포함: inc.trend,
       로데이터포함: inc.raw,
       동호회모니터링: inc.trendCafe,
-      로데이터작성전: !!rawStartNote(x),
+      로데이터작성전: !!rawStartNote(x, inc),
       꼭포함: !!x.must,
     };
   });
