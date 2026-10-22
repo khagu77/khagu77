@@ -32,7 +32,7 @@ body {
 .topbar { background: var(--top); color: #fff; }
 .topbar-in { max-width: 1180px; margin: 0 auto; padding: 18px 16px 0; }
 .brand { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.brand .logo { height: 42px; width: auto; border-radius: 10px; background: #fff; padding: 3px 8px; }
+.brand .logo { height: 48px; width: auto; display: block; }
 .brand h1 { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.3px; color: #fff; min-width: 0; }
 .brand .ver { color: rgba(255, 255, 255, 0.6); font-size: 13px; }
 .tools { margin-left: auto; display: flex; gap: 6px; }
