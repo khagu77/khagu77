@@ -299,7 +299,7 @@ def test_seat(tmp_path: Path):
 
         # 본문 읽기 + 규칙 요약 (AI 끔)
         page.click("#readBodies")
-        page.locator("#summary", has_text="규칙으로 썼습니다").wait_for(timeout=120000)
+        page.locator("#summary", has_text="규칙으로 요약했습니다").wait_for(timeout=120000)
         assert not errors, errors
         texts = page.evaluate("items.filter(x => x.checked).map(x => [x.title, x.bodyRead, x.summary, x.reason])")
         by = {t[0]: t for t in texts}
@@ -412,10 +412,12 @@ def test_ai_review_unchecked(tmp_path: Path):
     """체크 안 된 글도 AI 가 본다: ① 제목·미리보기 1차 검토로 관련 가능한 글을 체크 ② 본문을 읽은 뒤 AI 가 체크를 정함."""
     ext_dir = tmp_path / "ext"
     shutil.copytree(EXT_DIR, ext_dir, ignore=shutil.ignore_patterns("compare-data.json"))
+    server = start_server(tmp_path)
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
             str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True,
-            args=[f"--disable-extensions-except={ext_dir}", f"--load-extension={ext_dir}", "--no-proxy-server"])
+            args=[f"--disable-extensions-except={ext_dir}", f"--load-extension={ext_dir}", "--no-proxy-server", "--ignore-certificate-errors",
+                  f"--host-resolver-rules=MAP cafe.naver.com 127.0.0.1:{server.server_address[1]}"])
         calls = []
         ctx.route("https://api.anthropic.com/v1/messages**", lambda route: fake_claude(route, calls))
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
@@ -464,5 +466,34 @@ def test_ai_review_unchecked(tmp_path: Path):
         assert calls.count("screen") == n_screen  # 전체 정독이면 1차 검토는 건너뜀
         assert page.evaluate("items.find(x => x.key === 'palicafe/2').by") == "ai"
         assert page.evaluate("items.find(x => x.key === 'palicafe/5').checked") is True
+
+        # 아직 본문을 안 읽은 체크한 글: 읽는 대로 AI 가 판단·요약 (다 읽을 때까지 기다리지 않음)
+        page.uncheck("#readAll")
+        page.evaluate("CAFE_ARTICLE_DELAY[0] = CAFE_ARTICLE_DELAY[1] = 10")
+        page.evaluate(f"""items.push({{key:'palicafe/1001',articleId:'1001',title:'목록 제목',text:'3열',checked:true,bodyRead:false,body:'',{base}}}); renderResults();""")
+        dialogs.clear()
+        page.click("#readBodies")
+        page.wait_for_function("() => items.find(x => x.key === 'palicafe/1001').by === 'ai'", timeout=60000)
+        assert any("읽는 대로 Claude AI 가 판단·요약합니다" in m for m in dialogs), dialogs
+        assert page.evaluate("items.find(x => x.key === 'palicafe/1001').summary") == "3열 탈 때 2열 시트에 아이 발 끼임 관련 내용"
+        page.locator("#summary", has_text="AI 로 판단·요약했습니다").wait_for()
+
+        # 포함 여부로 골라 보기·정렬 (N / N · N / Y · Y / N · Y / Y)
+        page.evaluate("compare = [{id:'t', name:'동향', kind:'trend', keys:['palicafe/3'], keySet:new Set(['palicafe/3']), slugs:{palicafe:1}, minDate:null, maxDate:null},"
+                      "{id:'r', name:'로데이터', kind:'raw', keys:['palicafe/3','palicafe/1'], keySet:new Set(['palicafe/3','palicafe/1']), slugs:{palicafe:2}, minDate:null, maxDate:null}]; renderResults();")
+        page.select_option("#viewFilter", "yn:YY")
+        assert [r for r in page.locator("#results tbody tr td.yn").all_inner_texts()] == ["Y / Y"]
+        page.select_option("#viewFilter", "yn:NY")
+        assert page.locator("#results tbody tr td.yn").all_inner_texts() == ["N / Y"]
+        page.select_option("#viewFilter", "")
+        page.select_option("#sortBy", "yn")
+        yns = page.locator("#results tbody tr td.yn").all_inner_texts()
+        assert yns == sorted(yns, key=["N / N", "N / Y", "Y / N", "Y / Y"].index) and yns[0] == "N / N" and yns[-1] == "Y / Y", yns
+        assert "Y / Y 1" in page.inner_text("#ynCounts") and "N / Y 1" in page.inner_text("#ynCounts")
+        # 표 머리글 '동향 / 로데이터' 는 한 줄
+        lines = page.locator("#results th.nowrap").evaluate(
+            "e => { const r = document.createRange(); r.selectNodeContents(e); return new Set([...r.getClientRects()].map(c => Math.round(c.top))).size; }")
+        assert lines == 1, lines
         assert not errors, errors
         ctx.close()
+    server.shutdown()

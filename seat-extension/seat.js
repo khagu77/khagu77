@@ -1083,13 +1083,34 @@ async function readBodies() {
       return;
     }
   }
-  // ② 본문 읽기: 체크한 글 (전체 정독이면 체크 안 된 글도)
+  // ② 본문 읽기: 체크한 글 (전체 정독이면 체크 안 된 글도). AI 를 쓰면 읽는 대로 18개씩 바로 판단·요약한다
+  // (다 읽은 뒤 한꺼번에 하면 그동안 요약 칸이 비어 있고, 중간에 멈추면 요약이 하나도 안 남음)
   const todo = sortedItems().filter((x) => (x.checked || (readAllOn() && !x.touched)) && !x.bodyRead);
+  const useAi = aiOn();
+  const model = $("#aiModel").value;
+  const usage = { input: 0, output: 0 };
+  let aiFailed = 0;
+  let aiFatal = null;
+  const pending = [];
+  const flush = async () => {
+    if (!pending.length || aiFatal) return;
+    const batch = pending.splice(0);
+    const r = await aiWrite(batch, $("#aiKey").value.trim(), model, { nested: true, usage });
+    aiFailed += r.failed;
+    if (r.fatal) aiFatal = r.fatal;
+    for (const x of batch) renderRow(x);
+    await saveItems();
+  };
   if (todo.length) {
+    const minutes = formatDuration(todo.length * SEC_PER_ARTICLE);
+    const aiCost = useAi
+      ? aiCostWon(todo.length * (AI_BODY_CHARS * 0.6 + 300) + 1500 * Math.ceil(todo.length / AI_BATCH), todo.length * 160, model)
+      : 0;
     if (
-      todo.length > 40 &&
-      !confirm(`본문을 읽을 글이 ${todo.length}개입니다 (예상 소요 시간 약 ${formatDuration(todo.length * SEC_PER_ARTICLE)}).\n` +
-        "많은 글을 한 번에 열면 네이버 보호조치가 걸릴 수 있습니다. 중간에 '중지'로 멈췄다가 나중에 이어서 읽어도 됩니다.\n\n계속할까요?")
+      (todo.length > 40 || useAi) &&
+      !confirm(`본문을 읽을 글이 ${todo.length.toLocaleString()}개입니다 (예상 소요 시간 약 ${minutes}).\n` +
+        (useAi ? `읽는 대로 Claude AI 가 판단·요약합니다 (예상 비용 약 ${aiCost.toLocaleString()}원 · ${AI_MODELS.find(([id]) => id === model)[1].split(" (")[0]}).\n` : "") +
+        "많은 글을 한 번에 열면 네이버 보호조치가 걸릴 수 있습니다. 중간에 '중지'로 멈춰도 그때까지 읽은 글의 요약은 남고, 나중에 이어서 읽을 수 있습니다.\n\n계속할까요?")
     ) return;
     await checkLogin();
     startBusy();
@@ -1133,14 +1154,42 @@ async function readBodies() {
           item.bodyNote = j.related ? "" : `본문 단어 확인: ${item.note}`;
         }
       }
+      if (item.bodyRead && (item.checked || readAllOn())) {
+        if (useAi) pending.push(item);
+        else if (item.checked) writeByRule(item);
+      }
       renderRow(item);
-      if (i % 5 === 4) await saveItems();
+      if (pending.length >= AI_BATCH * AI_PARALLEL) {
+        showBusy(`본문 읽는 중 ${i + 1}/${todo.length} · 읽은 글 AI 요약 중…`, i, todo.length, "AI 요약 중");
+        await flush();
+      } else if (i % 5 === 4) await saveItems();
     }
+    await flush(); // 중지했어도 읽은 글은 요약
     await saveItems();
-    log(`· 본문 ${ok}개를 읽었습니다 (${formatDuration((Date.now() - t0) / 1000)} 걸림)`);
+    const spent = useAi ? ` · AI 비용 약 ${aiCostWon(usage.input, usage.output, model).toLocaleString()}원` : "";
+    log(`· 본문 ${ok}개를 읽었습니다 (${formatDuration((Date.now() - t0) / 1000)} 걸림${spent})`);
     endBusy();
+    renderResults();
+    if (aiFatal) {
+      setSummary(`AI 요약을 하지 못했습니다: ${aiErrorMessage(aiFatal)} · 본문은 읽어 두었으니 키를 확인하고 '요약·사유만 다시 쓰기'를 누르세요.`, "err");
+      stopRequested = false;
+      return;
+    }
+    setSummary(
+      `${stopRequested ? "중지됨 - " : "✔ "}본문 ${ok.toLocaleString()}개를 읽고 ${useAi ? "AI 로 판단·요약했습니다" : "규칙으로 요약했습니다"} · ` +
+        `${formatDuration((Date.now() - t0) / 1000)} 걸림${spent}` +
+        (aiFailed ? ` · ${aiFailed}개는 AI 가 실패해 규칙으로 썼습니다` : "") +
+        (stopRequested ? " · 다시 누르면 남은 글부터 이어서 읽습니다" : ""),
+      aiFailed ? "err" : "ok",
+    );
+    if (stopRequested) {
+      stopRequested = false;
+      return;
+    }
   }
-  if (!stopRequested) await writeSummaries(false);
+  // 이미 읽었는데 아직 요약이 없는 글(예: 예전 버전에서 읽은 글)
+  const left = sortedItems().filter((x) => x.checked && (!x.summary || x.by !== ($("#aiOn").checked ? "ai" : "rule")));
+  if (left.length || !todo.length) await writeSummaries(false);
   stopRequested = false;
 }
 
@@ -1310,9 +1359,11 @@ const SCREEN_SYSTEM = `당신은 현대자동차 품질 부문 온라인 동향 
 - maybe=true: 2·3열(뒷좌석) 시트의 조작·작동과 함께 사람(특히 아이)·반려동물·물건의 끼임·눌림·부딪힘·부상, 위험·불안·무서움,
   주의 당부, 안전장치·센서·멈춤, 리콜·업데이트 이야기가 나오거나 그럴 가능성이 조금이라도 보이는 글.
   제목이 짧거나 모호해도(예: "큰일날 뻔했어요", "애들 있는 집 조심하세요", "3열 탈 때 이거 아셨나요") 주제와 이어질 수 있으면 true.
-- maybe=false: 명백히 무관한 글만. 예) 판매·구매·공동구매, 카시트 제품 추천·장착 방법, 시트 가죽·색상·통풍·열선·소음·편의성만의 이야기,
+- maybe=false: 판매·구매·공동구매, 카시트 제품 추천·장착 방법, 시트 가죽·색상·통풍·열선·소음·편의성만의 이야기,
   1열(운전석·조수석)만의 이야기, 조사 차종과 무관한 글, 출고·계약·정비 일반 이야기.
-- 놓치는 것이 더 큰 손해이므로 애매하면 true 입니다.
+- 제목·미리보기에 시트·좌석·2열·3열·뒷자리·폴딩·워크인·탑승·하차 같은 시트 단서도, 사고·다침·끼임·위험·조심·아이 같은 안전 단서도
+  하나도 없는 글(예: "이거 어떻게 하는게 좋을까요?" 뿐인 글)은 false 입니다.
+- 시트 단서나 안전 단서가 있고 주제와 이어질 수 있는데 확신이 없으면 true 입니다(놓치는 것이 더 큰 손해).
 why: 판단 근거를 15~40자로 (예: "3열 하차 중 2열 복귀 시 아이 위험 언급 가능").
 받은 글마다 하나씩, 받은 순서대로, id 를 그대로 돌려줍니다.`;
 
@@ -1541,23 +1592,23 @@ async function aiBatch(client, model, batch, usage) {
   });
 }
 
-async function aiWrite(targets, apiKey, model) {
+// nested: 본문을 읽는 도중에 읽은 글만 바로 요약할 때 (진행 막대·결과 문구는 본문 읽기 쪽에서 보여줌, 중지를 눌러도 이 묶음은 마침)
+async function aiWrite(targets, apiKey, model, { nested = false, usage = { input: 0, output: 0 } } = {}) {
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 4 });
   const batches = [];
   for (let i = 0; i < targets.length; i += AI_BATCH) batches.push(targets.slice(i, i + AI_BATCH));
-  const usage = { input: 0, output: 0 };
   let done = 0;
   let failed = 0;
   let fatal = null;
   let lastError = null;
   const t0 = Date.now();
-  startBusy();
+  if (!nested) startBusy();
   const progress = () =>
-    showBusy(`Claude AI 로 요약 중 ${done}/${batches.length}묶음${estimateRemaining(t0, done, batches.length, (batches.length - done) * 25)}`, done, batches.length, "AI 요약 중");
+    nested || showBusy(`Claude AI 로 요약 중 ${done}/${batches.length}묶음${estimateRemaining(t0, done, batches.length, (batches.length - done) * 25)}`, done, batches.length, "AI 요약 중");
   progress();
   let next = 0;
   const worker = async () => {
-    while (next < batches.length && !fatal && !stopRequested) {
+    while (next < batches.length && !fatal && (nested || !stopRequested)) {
       const batch = batches[next++];
       let ok = false;
       for (let attempt = 1; attempt <= 3 && !ok && !fatal; attempt++) {
@@ -1592,6 +1643,7 @@ async function aiWrite(targets, apiKey, model) {
     }
   };
   await Promise.all(Array.from({ length: AI_PARALLEL }, worker));
+  if (nested) return { failed, fatal, lastError };
   endBusy();
   renderResults();
   const cost = aiCostWon(usage.input, usage.output, model);
@@ -1617,16 +1669,43 @@ function sortedItems() {
   return [...items].sort((a, b) => carOrder(a.car) - carOrder(b.car) || (a.date ?? Infinity) - (b.date ?? Infinity) || a.cafeIndex - b.cafeIndex);
 }
 
+// 포함 여부 → "NN" · "NY" · "YN" · "YY" (온라인동향 / 로데이터)
+function ynCode(x) {
+  const inc = inclusion(x);
+  return yn(inc.trend) + yn(inc.raw);
+}
+
+const YN_ORDER = ["NN", "NY", "YN", "YY"];
+
 function visibleItems() {
   const car = $("#carFilter").value;
   const view = $("#viewFilter").value;
-  return sortedItems().filter((x) => {
+  let list = sortedItems().filter((x) => {
     if (car && x.car !== car) return false;
     if (view === "checked") return x.checked;
     if (view === "unchecked") return !x.checked;
     if (view === "missing") return x.checked && !inclusion(x).trend;
+    if (view.startsWith("yn:")) return x.checked && ynCode(x) === view.slice(3);
     return true;
   });
+  if ($("#sortBy")?.value === "yn") {
+    const rank = new Map(list.map((x) => [x.key, YN_ORDER.indexOf(ynCode(x))]));
+    list = list.map((x, i) => [x, i]).sort((a, b) => rank.get(a[0].key) - rank.get(b[0].key) || a[1] - b[1]).map(([x]) => x);
+  }
+  return list;
+}
+
+// 체크한 글의 포함 여부별 건수 (차종 고르면 그 차종만)
+function renderYnCounts() {
+  const box = $("#ynCounts");
+  if (!box) return;
+  const car = $("#carFilter").value;
+  const list = items.filter((x) => x.checked && (!car || x.car === car));
+  const n = Object.fromEntries(YN_ORDER.map((c) => [c, 0]));
+  for (const x of list) n[ynCode(x)]++;
+  box.textContent = list.length
+    ? `체크한 글의 포함 여부 (온라인동향 / 로데이터): ${YN_ORDER.map((c) => `${c[0]} / ${c[1]} ${n[c].toLocaleString()}`).join(" · ")}`
+    : "";
 }
 
 const rowEls = new Map();
@@ -1719,6 +1798,7 @@ function updateCounts() {
   if ($("#readAllInfo")) $("#readAllInfo").textContent = `지금 읽을 글 ${unread.toLocaleString()}개 · 약 ${formatDuration(unread * SEC_PER_ARTICLE)}`;
   const vis = visibleItems();
   $("#checkAll").checked = !!vis.length && vis.every((x) => x.checked);
+  renderYnCounts();
 }
 
 // 결과는 이 PC 크롬에 저장해 두어 화면을 다시 열어도 그대로
@@ -1912,6 +1992,7 @@ async function init() {
   $("#compareFiles").addEventListener("change", (e) => e.target.files.length && addCompareFiles(e.target.files));
   $("#carFilter").addEventListener("change", renderResults);
   $("#viewFilter").addEventListener("change", renderResults);
+  $("#sortBy").addEventListener("change", renderResults);
   const setVisible = (fn) => {
     for (const x of visibleItems()) {
       x.checked = fn(x);

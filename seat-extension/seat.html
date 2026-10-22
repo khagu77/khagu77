@@ -116,7 +116,10 @@
         <label class="inline">보기 <select id="viewFilter">
           <option value="">전체</option><option value="checked">체크한 글</option><option value="unchecked">체크 안 한 글</option>
           <option value="missing">온라인 동향 미포함(N)</option>
+          <option value="yn:NN">체크한 글 · N / N</option><option value="yn:NY">체크한 글 · N / Y</option>
+          <option value="yn:YN">체크한 글 · Y / N</option><option value="yn:YY">체크한 글 · Y / Y</option>
         </select></label>
+        <label class="inline">정렬 <select id="sortBy"><option value="">차종 · 게시일</option><option value="yn">포함 여부 (N/N → N/Y → Y/N → Y/Y)</option></select></label>
         <button id="selAll" class="small">보이는 글 모두 선택</button>
         <button id="selNone" class="small">보이는 글 모두 해제</button>
         <button id="selDelete" class="small danger">선택 삭제</button>
@@ -124,11 +127,12 @@
       </div>
       <div class="tablewrap">
         <table id="results">
-          <thead><tr><th><input type="checkbox" id="checkAll" title="보이는 글 모두 체크/해제"></th><th>차종</th><th>게시일</th><th>동호회</th><th>제목</th><th>주요내용 요약</th><th>동향 / 로데이터</th><th>누락 사유</th><th>비고</th><th></th></tr></thead>
+          <thead><tr><th><input type="checkbox" id="checkAll" title="보이는 글 모두 체크/해제"></th><th>차종</th><th>게시일</th><th>동호회</th><th>제목</th><th>주요내용 요약</th><th class="nowrap">동향 / 로데이터</th><th>누락 사유</th><th>비고</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
       <div id="resultCount" class="hint"></div>
+      <div id="ynCounts" class="hint"></div>
 
       <h3>본문 읽기 · 요약</h3>
       <div class="hint">체크한 글을 하나씩 열어 본문을 읽고(글 하나에 10초 안팎), 주요내용 요약과 온라인 동향 미포함(N) 글의 누락 사유를 씁니다.

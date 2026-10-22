@@ -170,3 +170,5 @@ h3 { font-size: 15px; margin: 22px 0 6px; }
 input.key { width: 300px; }
 #cafeInfo input.slug { width: 260px; }
 #work th { width: 180px; }
+#results th.nowrap, #results td.yn { white-space: nowrap; min-width: 92px; }
+#results button.del { white-space: nowrap; }
