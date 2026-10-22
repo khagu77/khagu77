@@ -131,6 +131,23 @@
       .replace(/"/g, "&quot;");
   }
 
+  // 한 셀 안에서 글자마다 색을 달리 쓰기: runs = [{ text, color: "FF0070C0", bold }]
+  // 글꼴은 견본 셀 글자에 직접 준 서식이 있으면 그것을, 없으면 맑은 고딕 11 (rPr 순서는 엑셀 규격대로)
+  function richRuns(runs, baseProps) {
+    const font = baseProps
+      ? baseProps.replace(/<(?:b|color)\b[^>]*\/>/g, "")
+      : '<rFont val="맑은 고딕"/><charset val="129"/><family val="2"/><sz val="11"/><scheme val="minor"/>';
+    return runs
+      .filter((run) => run && run.text)
+      .map((run) => {
+        let props = font;
+        if (run.color) props = props.replace(/(<sz\b|<u\b|<vertAlign\b|<scheme\b|$)/, `<color rgb="${run.color}"/>$1`);
+        if (run.bold) props = props.replace(/(<i\b|<strike\b|<color\b|<sz\b|<u\b|<vertAlign\b|<scheme\b|$)/, "<b/>$1");
+        return `<r><rPr>${props}</rPr><t xml:space="preserve">${esc(run.text)}</t></r>`;
+      })
+      .join("");
+  }
+
   function colLetter(n) {
     let s = "";
     while (n > 0) {
@@ -310,7 +327,8 @@
             return;
           }
           maxCol = Math.max(maxCol, ci + 1);
-          if (typeof v === "number" && isFinite(v)) cells += `<c r="${col}${r}"${s}><v>${v}</v></c>`;
+          if (v && Array.isArray(v.runs)) cells += `<c r="${col}${r}"${s} t="inlineStr"><is>${richRuns(v.runs, runProps[col])}</is></c>`;
+          else if (typeof v === "number" && isFinite(v)) cells += `<c r="${col}${r}"${s}><v>${v}</v></c>`;
           else if (sameShared[col] && sameShared[col].text === String(v)) cells += `<c r="${col}${r}"${s} t="s"><v>${sameShared[col].idx}</v></c>`;
           else if (runProps[col])
             cells += `<c r="${col}${r}"${s} t="inlineStr"><is><r><rPr>${runProps[col]}</rPr><t xml:space="preserve">${esc(v)}</t></r></is></c>`;

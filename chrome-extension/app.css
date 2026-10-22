@@ -146,3 +146,20 @@ body.busy-lock nav.menu a { pointer-events: none; opacity: 0.4; }
 .diff.none { color: var(--muted); font-weight: 600; }
 @media (prefers-color-scheme: dark) { .diff.up { color: #ff6b5f; } .diff.down { color: #8ab4f8; } }
 .diffs { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; display: flex; gap: 18px; flex-wrap: wrap; }
+
+/* 시트 위험 게시물 화면: 에르메스 오렌지 위쪽 띠 */
+body.theme-hermes { --top: #f37021; }
+body.theme-hermes .busy { background: #c4520c; }
+body.theme-hermes button.primary { background: #f37021; border-color: #f37021; }
+.yn-y { color: #0070c0; }
+.yn-n { color: #e00000; }
+@media (prefers-color-scheme: dark) { .yn-y { color: #6cb6ff; } .yn-n { color: #ff6b5f; } }
+html.nav-guard, html.nav-guard body { overscroll-behavior-x: none; }
+.tablewrap { max-height: 70vh; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+.tablewrap thead th { position: sticky; top: 0; background: var(--card); z-index: 1; }
+#results td.sum { min-width: 220px; font-size: 12.5px; }
+#results td.yn { text-align: center; }
+table.cars input[type="date"] { padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+input[type="date"], input[type="password"], select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 13px; }
+fieldset.ai { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+h3 { font-size: 15px; margin: 22px 0 6px; }
