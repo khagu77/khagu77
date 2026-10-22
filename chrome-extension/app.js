@@ -617,7 +617,7 @@ async function checkLogin() {
   }
   if (ok) {
     box.className = "login ok";
-    box.textContent = "✔ 네이버에 로그인되어 있습니다. (유튜브는 로그인 없이 수집됩니다)";
+    box.textContent = "네이버 로그인됨 ✓";
   } else {
     box.className = "login bad";
     box.innerHTML =

@@ -1026,7 +1026,7 @@ async function checkLogin() {
     ok = false;
   }
   box.className = ok ? "login ok" : "login bad";
-  if (ok) box.textContent = "✔ 네이버에 로그인되어 있습니다.";
+  if (ok) box.textContent = "네이버 로그인됨 ✓";
   else
     box.innerHTML =
       '카페 글을 찾으려면 네이버 로그인이 필요합니다. <a href="https://nid.naver.com/nidlogin.login" target="_blank">여기서 로그인</a>한 뒤 이 화면으로 돌아오세요.';
@@ -1165,3 +1165,12 @@ async function showDiffs() {
   box.replaceChildren();
   if (d) box.append(diffLine("오늘 게시물", d));
 }
+
+// 위쪽 '⚙ 설정' 버튼(lx3.html#settings): 설정을 펼치고 그 위치로
+function openSettingsFromHash() {
+  if (location.hash !== "#settings") return;
+  $("#settings").open = true;
+  $("#settings").scrollIntoView({ block: "start", behavior: "smooth" });
+}
+window.addEventListener("hashchange", openSettingsFromHash);
+openSettingsFromHash();

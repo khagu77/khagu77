@@ -486,3 +486,9 @@ async function loadResume(kind) {
 async function clearResume(kind) {
   await chrome.storage.local.remove(`resume_${kind}`).catch(() => {});
 }
+
+// 위쪽 띠 제목 옆 버전 표시
+document.addEventListener("DOMContentLoaded", () => {
+  const v = document.getElementById("ver");
+  if (v) v.textContent = `v${chrome.runtime.getManifest().version}`;
+});

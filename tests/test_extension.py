@@ -571,7 +571,7 @@ def test_lx3(tmp_path: Path):
             page.click("#start")
         raw = tmp_path / dl.value.suggested_filename
         dl.value.save_as(raw)
-        assert page.locator("nav.menu a.on").inner_text() == "댓글 수집"
+        assert "댓글 수집" in page.locator("nav.menu a.on").inner_text()
         ctx.close()
     server.shutdown()
     assert naver_api == []
