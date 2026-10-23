@@ -96,17 +96,17 @@
       <div id="resumeBox" class="resumebox" hidden>
         <div id="resumeText"></div>
         <div class="buttons">
-          <button id="resumeRun" class="primary">▶ 남은 곳 이어서 수집</button>
+          <button id="resumeRun" class="primary">💰 ▶ 남은 곳 이어서 수집</button>
           <button id="resumeDrop" class="danger">이어하기 기록 지우기</button>
         </div>
       </div>
 
       <div class="buttons">
-        <button id="start" class="primary">수집 시작</button>
+        <button id="start" class="primary" title="AI 판정·요약을 켜 두면 AI 비용이 듭니다">💰 수집 시작</button>
         <button id="stop" disabled>중지</button>
         <button id="download" disabled>엑셀 받기</button>
         <button id="downloadPlain" disabled hidden title="저장 폴더 지정과 관계없이 크롬 다운로드 폴더로 받기">다운로드 폴더로 받기</button>
-        <button id="pickReports" title="지금 결과 표의 네이버 카페 글 중에서 보고 필요 4~6건을 다시 고릅니다 (불러온 엑셀에도 적용)">보고 필요 다시 고르기</button>
+        <button id="pickReports" title="지금 결과 표의 네이버 카페 글 중에서 보고 필요 4~6건을 다시 고릅니다 (불러온 엑셀에도 적용)">💰 보고 필요 다시 고르기</button>
         <label class="filebtn">엑셀 불러와서 보기<input type="file" id="viewFile" accept=".xlsx" hidden></label>
         <button id="loadHistory" title="데일리 DB 에 저장된 수집 기록(오늘·어제 등)을 골라 합쳐서 결과 표에 다시 보여 줍니다">이전 기록 불러오기</button>
       </div>
@@ -240,7 +240,7 @@
           <select id="model"></select>
         </div>
       </div>
-      <div class="buttons small"><button id="testKey">키 확인</button> <span id="keyResult" class="hint"></span></div>
+      <div class="buttons small"><button id="testKey" title="AI 에 짧게 한 번 물어봐 비용이 아주 조금 듭니다">💰 키 확인</button> <span id="keyResult" class="hint"></span></div>
 
       <h2>자동 수집</h2>
       <label class="check"><input type="checkbox" id="autoRun"> 매일 자동으로 수집하고 엑셀을 다운로드 폴더에 저장</label>

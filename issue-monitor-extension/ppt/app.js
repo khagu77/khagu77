@@ -795,7 +795,7 @@ function renderItem(it) {
   </div>`;
 
   it.el.innerHTML = head + `<div class="item-body"><div class="fields">${fields}</div>
-    <div class="preview"><canvas width="600" height="415"></canvas><div class="buttons"><button data-act="retry">다시 캡처·요약</button></div></div></div>` + shots;
+    <div class="preview"><canvas width="600" height="415"></canvas><div class="buttons"><button data-act="retry" title="AI 요약에 비용이 듭니다">💰 다시 캡처·요약</button></div></div></div>` + shots;
 
   // 내용 요약은 2줄 엄수: 본문 요약·댓글 반응 글자 수를 보여 주고 넘으면 빨갛게
   const updateCount = (k) => {
