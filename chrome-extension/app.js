@@ -449,10 +449,26 @@ function cafeKey(url, date, content) {
   return `${articleId || compact(url)}|${compact(date)}|${compact(content)}`;
 }
 
-// 언론·커뮤니티 댓글: 글(기사) 열쇠 + 작성일 + 내용
+// 작성일 칸 값(엑셀 날짜 값·날짜 글자) → "2026.10.23" (같은 날인지만 비교: 기존 커뮤니티 시트는 날짜만 있음)
+function dayOf(v) {
+  let d = null;
+  if (v instanceof Date) d = v;
+  else if (typeof v === "number" || /^\d+(\.\d+)?$/.test(String(v ?? "").trim())) {
+    const t = new Date(Date.UTC(1899, 11, 30) + Number(v) * 86400000);
+    d = new Date(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate());
+  } else d = parseKoreanDate(v)?.date || null;
+  return d ? `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}` : compact(v);
+}
+
+// 언론·커뮤니티 댓글: 글(기사) 열쇠 + 작성일(날짜) + 내용
 function channelCommentKey(url, date, content) {
-  const d = date instanceof Date ? sheetDateTime(date) : date;
-  return `${channelKey(url)}|${compact(d)}|${compact(content)}`;
+  return `${channelKey(url)}|${dayOf(date)}|${compact(content)}`;
+}
+
+// 기존 '자동차 커뮤니티' 시트처럼 작성일을 엑셀 날짜 값(날짜만)으로
+function sheetDay(writtenAt) {
+  const p = parseKoreanDate(writtenAt);
+  return p ? excelSerial(new Date(p.date.getFullYear(), p.date.getMonth(), p.date.getDate())) : writtenAt;
 }
 
 // 언론·자동차 커뮤니티 시트: 이어 쓸 줄·마지막 연번·이미 있는 댓글 (시트가 없으면 null)
@@ -528,7 +544,7 @@ function buildRows(results, info) {
   }
 
   // 언론(네이버 뉴스)·자동차 커뮤니티: 이어 쓰기 (이미 있는 댓글은 뺌)
-  const extra = (platform, sheetInfo, channelOf) => {
+  const extra = (platform, sheetInfo, channelOf, dateOf = (w) => w) => {
     const keys2 = new Set(sheetInfo ? sheetInfo.keys : []);
     let n = sheetInfo ? sheetInfo.lastSerial : 0;
     const out = [];
@@ -541,13 +557,14 @@ function buildRows(results, info) {
           continue;
         }
         keys2.add(key);
-        out.push([++n, channelOf(r), c.writtenAt, c.content, r.sheetUrl]);
+        out.push([++n, channelOf(r), dateOf(c.writtenAt), c.content, r.sheetUrl]);
       }
     }
     return out;
   };
   const news = extra("news", info?.news, () => "언론");
-  const comm = extra("community", info?.comm, (r) => r.site || "자동차 커뮤니티");
+  // 커뮤니티: 기존 파일에 이어 쓸 때는 작성일을 기존처럼 날짜 값으로 (새 파일은 글자 그대로)
+  const comm = extra("community", info?.comm, (r) => r.site || "자동차 커뮤니티", info ? sheetDay : undefined);
 
   // 유튜브: 오늘 입력한 영상들의 댓글로 시트 전체를 교체한다(입력 순서대로).
   // 수집에 실패한 영상이 파일에 있던 영상이면 그 영상의 기존 행만 남긴다.
