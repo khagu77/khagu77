@@ -1060,7 +1060,14 @@ function aiSettings() {
   return { on: $("#aiOn").checked, key: $("#aiKey").value.trim(), model: $("#aiModel").value };
 }
 
+// AI 교정을 켜면 수집을 시작하는 버튼(스크립트 만들기 · 다시 수집 · 줄의 재시도 등)은 요금이 드는 버튼 → 앞에 💰
+function markCostButtons() {
+  document.body.classList.toggle("ai-on", $("#aiOn").checked);
+  for (const b of [$("#start"), $("#retryFailed")]) b.title = $("#aiOn").checked ? "AI 교정이 켜져 있어 Anthropic(Claude) 요금이 발생합니다" : "";
+}
+
 function saveAiSettings() {
+  markCostButtons();
   const s = aiSettings();
   $("#aiOpts").hidden = !s.on;
   chrome.storage.local.set({ aiOn: s.on, aiKey: s.key, aiModel: s.model }).catch(() => {});
@@ -1074,6 +1081,7 @@ async function loadAiSettings() {
   $("#aiKey").value = saved.aiKey || "";
   if (saved.aiModel && AI_MODELS.some(([id]) => id === saved.aiModel)) sel.value = saved.aiModel;
   $("#aiOpts").hidden = !$("#aiOn").checked;
+  markCostButtons();
   for (const el of ["#aiOn", "#aiKey", "#aiModel"]) $(el).addEventListener("change", saveAiSettings);
   $("#aiKey").addEventListener("input", saveAiSettings);
 }
