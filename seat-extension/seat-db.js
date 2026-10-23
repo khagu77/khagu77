@@ -102,7 +102,9 @@ function fillChips(td, kind, rec) {
   if (st && kind === "seatFinal" && st.from) chips.push([`체크한 글 ${st.from.toLocaleString()}개 중`, ""]);
   // 이 파일에 든 글들에 쓴 AI 비용 (글마다 실제 사용량으로 나눠 붙인 것의 합)
   if (st && st.aiCost > 0) {
-    chips.push([`AI 비용 ${fmtWon(st.aiCost)}${st.posts ? ` · 글당 ${fmtWon(st.aiCost / st.posts)}` : ""}`, "cost"]);
+    // 총액·글당을 따로 (한 칩에 넣으면 길어져 옆 칸을 덮음)
+    chips.push([`AI 비용 ${fmtWon(st.aiCost)}`, "cost"]);
+    if (st.posts) chips.push([`글당 ${fmtWon(st.aiCost / st.posts)}`, "cost"]);
   }
   const box = document.createElement("div");
   box.className = "chips";

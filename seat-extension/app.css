@@ -198,7 +198,9 @@ input.key { width: 300px; }
 .dbtable .pill { display: inline-block; margin-top: 4px; padding: 1px 9px; border-radius: 999px; background: #f37021; color: #fff; font-size: 11.5px; font-weight: 700; }
 .dbtable .fname { font-weight: 600; word-break: break-all; line-height: 1.4; }
 .dbtable .meta { margin-top: 3px; color: var(--muted); font-size: 12px; }
-.dbtable .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.dbtable .chips { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+/* 칸보다 긴 칩은 칸 안에서 줄바꿈 (옆 칸 글자와 겹치지 않게) */
+.dbtable .chips .chip { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 .dbtable .chip { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--bg); font-size: 12px; white-space: nowrap; }
 .dbtable .chip.main { border-color: #f37021; color: #c4520c; font-weight: 700; background: transparent; }
 .dbtable .chip.zero { opacity: 0.5; }
