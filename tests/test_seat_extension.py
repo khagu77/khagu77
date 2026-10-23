@@ -496,7 +496,8 @@ def test_ai_review_unchecked(tmp_path: Path):
         page.uncheck("#aiOn")
         page.locator("#aiOn").dispatch_event("change")
         assert not page.inner_text("#readBodies").startswith("💰") and not page.inner_text("#rewrite").startswith("💰")
-        assert page.inner_text("#saveFinal").startswith("💰")  # 최종 검수는 늘 AI
+        assert not page.inner_text("#saveFinal").startswith("💰")  # AI 를 끄면 검수를 하지 않으므로 비용 없음
+        assert page.inner_text("#redoReview").startswith("💰")  # 검수 다시 하기는 늘 AI
         page.check("#aiOn")
         page.locator("#aiOn").dispatch_event("change")
 
@@ -626,33 +627,39 @@ def test_ai_review_unchecked(tmp_path: Path):
           date:new Date(2025,5,3).getTime(),title:'예전 기준 검수 글',text:'2열',checked:true,touched:true,bodyRead:true,body:'2열 복귀에 발 끼임',
           queries:['q'],summary:'2열 복귀 끼임',reason:'',by:'ai',bodyNote:'',review:{relevance:50,keep:false,why:'예전'}}); renderResults();""")
         n_checked = page.evaluate("items.filter(x => x.checked).length")
+        # ② 1차 검수를 먼저 눌러도 검수(관련도 + 4항목)를 그 자리에서 하고 받음 · 검수할 글이 남아 있을 때만 💰
+        assert page.inner_text("#saveList").startswith("💰") and page.inner_text("#saveFinal").startswith("💰")
         with page.expect_download() as dl:
-            page.click("#saveFinal")
-        final_path = tmp_path / dl.value.suggested_filename
-        dl.value.save_as(final_path)
-        assert final_path.name.endswith("_최종.xlsx") and calls.count("review") >= 1, (final_path.name, calls)
-        assert any("최종 검수합니다" in m for m in asked())
+            page.click("#saveList")
+        first_path = tmp_path / dl.value.suggested_filename
+        dl.value.save_as(first_path)
+        assert first_path.name.endswith("_1차 검수.xlsx") and calls.count("review") >= 1, (first_path.name, calls)
+        assert any("검수합니다" in m for m in asked())
+        assert not page.inner_text("#saveList").startswith("💰") and not page.inner_text("#saveFinal").startswith("💰")
         rv = page.evaluate("Object.fromEntries(items.filter(x => x.checked).map(x => [x.key, [x.review.relevance, x.review.keep]]))")
         assert rv["palicafe/9"] == [40, False] and rv["palicafe/1"] == [95, True], rv
         assert rv["palicafe/10"][1] is False  # 전동 트렁크 이슈는 끼임이어도 배제 (①)
         assert rv["palicafe/11"] == [95, True]  # 이전 기준으로 검수한 글은 새 기준으로 다시 검수
         assert "4가지를 하나씩 다시 검수" in reviews[-1] and "[담당자 추가 규칙" in reviews[-1] and "전동 트렁크(테일게이트)" in reviews[-1]
+        sws = load_workbook(first_path, rich_text=True).active
+        rows1 = {sws.cell(r, 6).value: sws.cell(r, 11).value for r in range(4, sws.max_row + 1)}
+        assert len(rows1) == n_checked and str(rows1["3열 시트 가죽 이야기"]) == "40%"
+        assert [b.font.color.rgb for b in rows1["3열 시트 가죽 이야기"] if hasattr(b, "font")] == ["FF0070C0"]  # 70% 미만 파랑
+        assert "최종 검수: 관련도 40% · 제외 · ①시트작동O ②사고X ③우려X ④일부언급X" in page.locator("#results tbody tr", has_text="3열 시트 가죽 이야기").inner_text()
+
+        # ③ 최종 파일: ② 에서 한 검수를 그대로 씀 (AI 를 다시 부르지 않음)
+        n_review = calls.count("review")
+        with page.expect_download() as dl:
+            page.click("#saveFinal")
+        final_path = tmp_path / dl.value.suggested_filename
+        dl.value.save_as(final_path)
+        assert final_path.name.endswith("_최종.xlsx") and calls.count("review") == n_review
         fws = load_workbook(final_path, rich_text=True).active
         final_titles = [fws.cell(r, 6).value for r in range(4, fws.max_row + 1)]
         assert "3열 시트 가죽 이야기" not in final_titles and "전동 트렁크 손 끼임" not in final_titles and len(final_titles) == n_checked - 2, final_titles
         k = fws["K4"].value
         assert str(k) == "95%" and [b.font.color.rgb for b in k if hasattr(b, "font")] == ["FFE00000"]  # 70% 이상 빨강
         assert "체크한 글" in page.inner_text("#saveInfo") and "최종 검수 통과" in page.inner_text("#saveInfo")
-        assert "최종 검수: 관련도 40% · 제외 · ①시트작동O ②사고X ③우려X ④일부언급X" in page.locator("#results tbody tr", has_text="3열 시트 가죽 이야기").inner_text()
-        with page.expect_download() as dl:
-            page.click("#saveList")
-        first_path = tmp_path / dl.value.suggested_filename
-        dl.value.save_as(first_path)
-        assert first_path.name.endswith("_1차 검수.xlsx")
-        sws = load_workbook(first_path, rich_text=True).active
-        rows1 = {sws.cell(r, 6).value: sws.cell(r, 11).value for r in range(4, sws.max_row + 1)}
-        assert len(rows1) == n_checked and str(rows1["3열 시트 가죽 이야기"]) == "40%"
-        assert [b.font.color.rgb for b in rows1["3열 시트 가죽 이야기"] if hasattr(b, "font")] == ["FF0070C0"]  # 70% 미만 파랑
         page.select_option("#viewFilter", "dropped")
         assert page.locator("#results tbody tr").count() == 2
         page.select_option("#viewFilter", "")

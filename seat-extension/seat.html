@@ -159,12 +159,13 @@
       </div>
 
       <h3>엑셀 받기</h3>
-      <div class="hint">① 로우 엑셀(찾은 글 전체) · ② 1차 검수(체크한 글 + 주제 관련도 % · 70% 이상 빨강) · ③ 최종 파일(AI 최종 검수를 통과한 글)을 따로 받고, 데이터 DB 에도 따로 보관합니다.
-        최종 파일을 받을 때 최종 검수를 아직 안 한 글은 AI 가 판독된 내용(요약·상황·본문 일부)으로 관련도와 최종 포함 여부를 먼저 판단합니다(본문을 다시 읽지 않음).</div>
+      <div class="hint">순서대로 누르면 됩니다. ① 로우 엑셀(찾은 글 전체) → ② 1차 검수(체크한 글 + 주제 관련도 % · 70% 이상 빨강) → ③ 최종 파일(검수를 통과한 글만). 데이터 DB 에도 따로 보관합니다.
+        ② 를 누르면 검수가 안 된 글을 AI 가 판독된 내용(요약·상황·본문 일부)으로 먼저 검수(관련도 + 4항목)하고, ③ 은 그 결과를 그대로 씁니다(본문을 다시 읽지 않음 · 검수 비용은 한 번).
+        💰 는 검수할 글이 남아 있을 때만 붙습니다.</div>
       <div class="buttons">
         <button id="saveRaw" disabled>① 로우 엑셀 받기 <span class="hint-in">(찾은 글 전체 · 판단 근거·본문)</span></button>
-        <button id="saveList" disabled>② 1차 검수 받기 <span class="hint-in">(체크한 글 · 관련도 %)</span></button>
-        <button id="saveFinal" class="primary" disabled><span class="cost-ico">💰 </span>③ 최종 파일 받기 <span class="hint-in">(AI 최종 검수 통과)</span></button>
+        <button id="saveList" disabled><span class="cost-ico" data-when="review">💰 </span>② 1차 검수 받기 <span class="hint-in">(AI 검수 · 체크한 글 · 관련도 %)</span></button>
+        <button id="saveFinal" class="primary" disabled><span class="cost-ico" data-when="review">💰 </span>③ 최종 파일 받기 <span class="hint-in">(검수 통과한 글만)</span></button>
         <button id="redoReview" class="small" disabled title="체크한 글 전체를 AI 가 다시 최종 검수합니다"><span class="cost-ico">💰 </span>최종 검수 다시 하기</button>
       </div>
       <div id="saveInfo" class="hint"></div>

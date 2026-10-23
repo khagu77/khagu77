@@ -2149,6 +2149,9 @@ function updateCounts() {
   const coin = aiOn() ? "💰 " : "";
   $("#readBodies").textContent = coin + (n - read > 0 ? `본문 읽고 요약하기 (${n - read}개 · 약 ${formatDuration((n - read) * SEC_PER_ARTICLE)})` : "요약하기");
   for (const el of document.querySelectorAll(".cost-ico[data-when='ai']")) el.hidden = !aiOn();
+  // ②·③: 검수가 남은 글이 있고 AI 가 켜져 있을 때만 비용 (검수가 끝나면 두 버튼 모두 무료)
+  const needReview = aiOn() && items.some((x) => x.checked && !reviewed(x));
+  for (const el of document.querySelectorAll(".cost-ico[data-when='review']")) el.hidden = !needReview;
   const unread = items.filter((x) => !x.bodyRead && !x.touched).length;
   if ($("#readAllInfo")) $("#readAllInfo").textContent = `지금 읽을 글 ${unread.toLocaleString()}개 · 약 ${formatDuration(unread * SEC_PER_ARTICLE)}`;
   const vis = visibleItems();
@@ -2223,24 +2226,30 @@ async function showDiffs() {
 }
 
 // 1차 검수(kind "seat": 체크한 글 전체) · 최종 파일(kind "seatFinal": 그중 AI 최종 검수를 통과한 글)
+// ② 1차 검수 · ③ 최종 파일: 검수(관련도·4항목)가 안 된 체크한 글은 먼저 AI 검수 (② 에서 한 검수를 ③ 이 그대로 씀 → 비용은 한 번)
+// → true: 진행 · false: 멈춤
+async function ensureReviewed(kind) {
+  const todo = sortedItems().filter((x) => x.checked && !reviewed(x)); // 검수 안 했거나 이전 기준으로 한 글
+  if (!todo.length) return true;
+  if (!aiOn()) {
+    if (kind === "seatFinal") {
+      setSummary("최종 파일은 AI 검수가 필요합니다. 3번 'Claude AI 설정'에 API 키를 넣고 켜 주세요.", "err");
+      return false;
+    }
+    return askConfirm(`AI 가 꺼져 있어 검수하지 않은 글 ${todo.length}개는 '주제 관련도' 칸이 비어 있게 됩니다. 그대로 받을까요?`);
+  }
+  return aiReview(todo);
+}
+
 async function saveList() {
+  if (running) return;
+  if (!(await ensureReviewed("seat"))) return;
   return saveReport("seat");
 }
 
 async function saveFinal() {
   if (running) return;
-  const checked = sortedItems().filter((x) => x.checked);
-  if (!checked.length) return;
-  // 최종 검수를 아직 안 한 체크한 글이 있으면 먼저 AI 최종 검수
-  const todo = checked.filter((x) => !reviewed(x)); // 검수 안 했거나 이전 기준으로 한 글
-  if (todo.length) {
-    if (!aiOn()) {
-      setSummary("최종 파일은 AI 최종 검수가 필요합니다. 3번 'Claude AI 설정'에 API 키를 넣고 켜 주세요.", "err");
-      return;
-    }
-    const ok = await aiReview(todo);
-    if (!ok) return;
-  }
+  if (!(await ensureReviewed("seatFinal"))) return;
   return saveReport("seatFinal");
 }
 
@@ -2251,10 +2260,6 @@ async function saveReport(kind) {
   if (kind === "seatFinal" && !selected.length) {
     setSummary("AI 최종 검수를 통과한 글이 없습니다.", "err");
     return;
-  }
-  if (kind === "seat" && all.some((x) => !reviewed(x))) {
-    const n = all.filter((x) => !reviewed(x)).length;
-    if (!(await askConfirm(`AI 최종 검수(관련도)를 아직 하지 않은 글이 ${n}개 있어 이 글들의 '주제 관련도' 칸은 비어 있게 됩니다.\n('최종 파일 받기'를 누르면 최종 검수를 하고 관련도도 채워집니다)\n\n그대로 받을까요?`))) return;
   }
   const noSummary = selected.filter((x) => !x.summary).length;
   if (noSummary && !(await askConfirm(`요약을 아직 쓰지 않은 글이 ${noSummary}개 있습니다. 이 글들은 규칙으로 요약해 넣을까요?\n(취소하면 받지 않습니다 - '본문 읽고 요약하기'를 먼저 눌러 주세요)`))) return;
