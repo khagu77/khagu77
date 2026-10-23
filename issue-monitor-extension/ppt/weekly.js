@@ -223,7 +223,33 @@ async function loadWeek() {
   }
   $("#weekInfo").textContent = `${DailyPpt.dateKey(week.start)}(월) ~ ${DailyPpt.dateKey(week.end)}(${dow(DailyPpt.dateKey(week.end))}) · 근무일 ${week.workdays.length}일 · 게시글 ${cands.length}건`;
   recommend();
+  // 담당자가 이 주에 고쳐 둔 선택이 있으면 그대로 (추천보다 우선)
+  const saved = await loadPicks();
+  if (saved) {
+    const set = new Set(saved.keys);
+    for (const c of cands) c.picked = set.has(c.key);
+    $("#weekInfo").textContent += ` · 담당자가 고른 선택 불러옴 (${new Date(saved.at).toLocaleString("ko-KR")} 저장)`;
+  }
   renderCands();
+}
+
+// 주간 보고 게시글 선택을 바꿀 때마다 그 주 선택을 바로 저장 (담당자 요청 2026-10-23)
+// 다시 열거나 새로고침해도 고친 선택 그대로. [추천대로 다시 체크]·[↺ 초기화]를 누르면 추천으로 돌아감
+const weekKey = () => (week ? DailyPpt.dateKey(week.start) : "");
+async function loadPicks() {
+  const all = (await kvGet("weeklyPicks")) || {};
+  return all[weekKey()] || null;
+}
+async function savePicks(clear = false) {
+  if (!week) return;
+  const all = (await kvGet("weeklyPicks")) || {};
+  if (clear) delete all[weekKey()];
+  else all[weekKey()] = { keys: cands.filter((c) => c.picked).map((c) => c.key), at: Date.now() };
+  // 최근 12주만 보관
+  const keys = Object.keys(all).sort().reverse().slice(0, 12);
+  await kvSet("weeklyPicks", Object.fromEntries(keys.map((k) => [k, all[k]])));
+  const st = $("#pickSaved");
+  if (st) st.textContent = clear ? "추천대로 (저장된 선택 없음)" : `✓ 선택 저장됨 ${new Date().toLocaleTimeString("ko-KR")}`;
 }
 
 const score = (c) => [LEVEL_RANK[c.level] || 1, c.isNew ? 1 : 0, c.views];
@@ -297,6 +323,7 @@ function renderCands() {
       c.picked = e.target.checked;
       tr.className = c.picked ? "picked" : "";
       renderCount();
+      savePicks();
     });
     tbody.appendChild(tr);
   }
@@ -504,17 +531,22 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#reRecommend").addEventListener("click", () => {
     recommend();
     renderCands();
+    savePicks(true); // 추천으로 돌아감 (저장된 선택 지움)
   });
   // 선택 초기화: 체크를 모두 지움 (처음부터 직접 고를 때)
   $("#clearPicks").addEventListener("click", () => {
     for (const c of cands) c.picked = false;
     renderCands();
+    savePicks();
   });
   // 기간 초기화: 기준일을 오늘로, 뺀 날도 모두 다시 넣고 새로 불러와 추천대로 체크
   $("#resetWeek").addEventListener("click", () => {
     excludedDays = new Set();
     $("#weekDate").value = DailyPpt.dateKey(new Date());
-    loadWeek().catch((e) => setSummary(`불러오지 못했습니다: ${e.message || e}`, "err"));
+    week = weekOf(new Date());
+    savePicks(true)
+      .then(() => loadWeek())
+      .catch((e) => setSummary(`불러오지 못했습니다: ${e.message || e}`, "err"));
   });
   $("#buildWeekly").addEventListener("click", () => buildWeekly());
   $("#wkUpload").addEventListener("change", async (e) => {
