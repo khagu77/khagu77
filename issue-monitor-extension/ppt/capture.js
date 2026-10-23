@@ -503,7 +503,8 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
   if (header) header.setAttribute("data-rpt", "header");
 
   const headText = (header ? header.innerText : "") + " " + (doc.querySelector(".article_info")?.innerText || "");
-  const views = (headText.match(/조회\s*([\d,]+)/) || [])[1] || "";
+  // 조회수: 만 단위 표시("1.3만")는 그대로 (담당자 지적 2026-10-23: 1.3만이 "1"로 들어감)
+  const views = ((headText.match(/조회\s*([\d.,]+\s*[만천]?)/) || [])[1] || "").replace(/\s+/g, "");
   let commentCount = "";
   for (const el of doc.querySelectorAll(".ArticleTool, .CommentBox .comment_option, .CommentBox .comment_title, .button_comment")) {
     const m = el.innerText.match(/댓글\s*([\d,]+)/);

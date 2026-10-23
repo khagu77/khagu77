@@ -146,7 +146,17 @@ const md = (k) => {
   return `${m}/${d}`;
 };
 const dow = (k) => "일월화수목금토"[new Date(`${k}T00:00`).getDay()];
-const numOf = (v) => Number(String(v ?? "").replace(/[^\d]/g, "")) || 0;
+// "1.3만"·"2,731건" → 숫자 (비교·정렬용). 화면·PPT 에는 만 단위 글자를 그대로 쓴다
+const numOf = (v) => {
+  const t = String(v ?? "").replace(/[\s,건]/g, "");
+  const m = t.match(/^(\d+(?:\.\d+)?)([만천])$/);
+  if (m) return Math.round(Number(m[1]) * (m[2] === "만" ? 10000 : 1000));
+  return Number(t.replace(/[^\d]/g, "")) || 0;
+};
+const countLabel = (v) => {
+  const t = String(v ?? "").replace(/[\s건]/g, "");
+  return /^\d[\d.,]*[만천]$/.test(t) ? t : numOf(v).toLocaleString("en-US");
+};
 
 function isNewCar(code) {
   const list = String(settings.priorityCars || "").split(",").map((x) => x.trim()).filter(Boolean);
@@ -193,6 +203,7 @@ async function loadWeek() {
         body: x.body,
         level: x.level || "주의",
         views: numOf(x.views),
+        viewsText: countLabel(x.views),
         comments: numOf(x.commentCount),
         duplicate: (x.duplicate || "신규").replace(/\s+/g, " ").trim(),
         url: x.url,
@@ -281,7 +292,7 @@ function renderCands() {
     }
     const tr = document.createElement("tr");
     tr.className = c.picked ? "picked" : "";
-    tr.innerHTML = `<td><input type="checkbox"${c.picked ? " checked" : ""}></td><td>${md(c.date)}</td><td>${c.no}</td><td>${c.community ? "커뮤니티" : "동호회"}</td><td>${esc(c.code)}${c.isNew ? " 🆕" : ""}</td><td>${esc(c.issue)}</td><td class="lv-${esc(c.level)}">${esc(c.level)}</td><td>${c.views.toLocaleString()} / ${c.comments.toLocaleString()}</td><td>${esc(c.duplicate)}</td>`;
+    tr.innerHTML = `<td><input type="checkbox"${c.picked ? " checked" : ""}></td><td>${md(c.date)}</td><td>${c.no}</td><td>${c.community ? "커뮤니티" : "동호회"}</td><td>${esc(c.code)}${c.isNew ? " 🆕" : ""}</td><td>${esc(c.issue)}</td><td class="lv-${esc(c.level)}">${esc(c.level)}</td><td>${esc(c.viewsText || c.views.toLocaleString())} / ${c.comments.toLocaleString()}</td><td>${esc(c.duplicate)}</td>`;
     tr.querySelector("input").addEventListener("change", (e) => {
       c.picked = e.target.checked;
       tr.className = c.picked ? "picked" : "";
@@ -323,7 +334,10 @@ async function buildWeekly({ auto = false } = {}) {
       if (/cafe\.naver\.com|naver\.me/.test(c.url || "")) {
         const got = await readPostCounts(c.url, { cafe: c.cafe, title: c.issue }).catch(() => null);
         if (got && !got.deleted && (got.views || got.commentCount)) {
-          if (got.views) c.views = numOf(got.views);
+          if (got.views) {
+            c.views = numOf(got.views);
+            c.viewsText = countLabel(got.views);
+          }
           if (got.commentCount) c.comments = numOf(got.commentCount);
           refreshed++;
         }
@@ -332,7 +346,7 @@ async function buildWeekly({ auto = false } = {}) {
     }
     await closeCaptureWindow().catch(() => {});
     setSummary(`처리 중… ${picked.length} / ${picked.length}건 · PPT 만드는 중`);
-    const bytes = await WeeklyPptx.build(tpl.bytes, picked.map((c) => ({ ...c, reportDate: c.date })));
+    const bytes = await WeeklyPptx.build(tpl.bytes, picked.map((c) => ({ ...c, views: c.viewsText || c.views, reportDate: c.date })));
     const endKey = DailyPpt.dateKey(week.end);
     const ymd = endKey.slice(2).replace(/-/g, "");
     const name = `${($("#wkName").value.trim() || "{날짜}_주간 모니터링 보고서").replace("{날짜}", ymd).replace(/[<>:"/\\|?*]/g, "_")}.pptx`;

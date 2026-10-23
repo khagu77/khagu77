@@ -56,17 +56,60 @@
           rp.insertBefore(fill, before || null);
         }
         r.appendChild(rp);
-        const t = doc.createElementNS(A, "a:t");
-        t.textContent = text;
-        r.appendChild(t);
-        p.insertBefore(r, end);
+        // 글자 안의 줄바꿈("\n")은 PowerPoint 줄바꿈(a:br)으로
+        const parts = String(text).split("\n");
+        parts.forEach((part, k) => {
+          if (k > 0) {
+            const br = doc.createElementNS(A, "a:br");
+            br.appendChild(rp.cloneNode(true));
+            p.insertBefore(br, end);
+          }
+          const rr = k === 0 ? r : r.cloneNode(false);
+          if (k > 0) rr.appendChild(rp.cloneNode(true));
+          const t = doc.createElementNS(A, "a:t");
+          t.textContent = part;
+          rr.appendChild(t);
+          p.insertBefore(rr, end);
+        });
       }
     });
     for (const extra of ps.slice(paras.length)) body.removeChild(extra);
   }
 
+  // 현상 칸 줄바꿈: 단어가 중간에 잘리지 않게 칸 폭에 맞춰 띄어쓰기 자리에서 줄을 바꾼다
+  // (담당자 지적 2026-10-23: 첫 주간 보고서에서 현상 글자가 단어 중간에서 잘림 — 양식의 "선루프 개폐 오류 및 / 각종 불량" 처럼)
+  const charEm = (ch) => (/[\uac00-\ud7a3\u3131-\u318e\u4e00-\u9fff]/.test(ch) ? 1 : /[A-Z]/.test(ch) ? 0.66 : /[a-z0-9]/.test(ch) ? 0.56 : /\s/.test(ch) ? 0.3 : 0.4);
+  const textEm = (t) => [...t].reduce((n, ch) => n + charEm(ch), 0);
+  function wrapWords(text, maxEm) {
+    const words = String(text || "").trim().split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = "";
+    for (const w of words) {
+      const next = cur ? `${cur} ${w}` : w;
+      if (cur && textEm(next) > maxEm) {
+        lines.push(cur);
+        cur = w;
+      } else cur = next;
+    }
+    if (cur) lines.push(cur);
+    return lines.join("\n");
+  }
+  // 표의 열 폭(EMU)·칸 여백·글자 크기로 한 줄에 들어가는 글자 폭(em)
+  function lineEm(tbl, col, tc) {
+    const grid = all(tbl, A, "gridCol")[col];
+    const w = grid ? Number(grid.getAttribute("w")) || 0 : 0;
+    const pr = all(tc, A, "tcPr")[0];
+    const mar = (k) => (pr && pr.getAttribute(k) != null ? Number(pr.getAttribute(k)) : 91440);
+    const rp = all(tc, A, "rPr")[0] || all(tc, A, "endParaRPr")[0];
+    const sz = rp && rp.getAttribute("sz") ? Number(rp.getAttribute("sz")) : 1000;
+    const em = (sz / 100) * 12700;
+    return w ? ((w - mar("marL") - mar("marR")) / em) * 0.97 : 0;
+  }
+
   const num = (v) => {
-    const n = String(v ?? "").replace(/[^\d]/g, "");
+    const t = String(v ?? "").replace(/[\s건]/g, "");
+    if (/^\d[\d.,]*[만천]$/.test(t)) return t; // "1.3만" 그대로
+    const n = t.replace(/[^\d]/g, "");
     return n ? Number(n).toLocaleString("en-US") : "-";
   };
 
@@ -92,7 +135,8 @@
         const [y, m, d] = String(it.reportDate || "").split("-").map(Number);
         setCell(tc[0], [[["온라인", null]], [[it.community ? "(자동차 커뮤니티)" : "(동호회)", null]]]);
         setCell(tc[1], [[[it.code || "-", null]]]);
-        setCell(tc[2], [[[it.issue || "", null]]]);
+        const em2 = lineEm(tbl, 2, tc[2]);
+        setCell(tc[2], [[[em2 ? wrapWords(it.issue, em2) : it.issue || "", null]]]);
         setCell(tc[3], [[[it.body || "", null]]]);
         const lv = LEVEL_COLORS[it.level] ? it.level : "주의";
         setCell(tc[4], [[[lv, LEVEL_COLORS[lv]]]]);

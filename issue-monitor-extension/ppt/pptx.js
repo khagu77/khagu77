@@ -97,7 +97,9 @@
 
   const orTodo = (v) => (v && String(v).trim() ? [[String(v).trim(), null]] : [[TODO, RED]]);
   const countText = (v) => {
-    const n = String(v || "").replace(/[^\d]/g, "");
+    const raw = String(v || "").replace(/\s+/g, "").replace(/건$/, "");
+    if (/^\d[\d.,]*[만천]$/.test(raw)) return [[`${raw}건`, null]]; // "1.3만" 은 만 단위 그대로
+    const n = raw.replace(/[^\d]/g, "");
     return n ? [[`${Number(n).toLocaleString("en-US")}건`, null]] : [[TODO, RED]];
   };
 
