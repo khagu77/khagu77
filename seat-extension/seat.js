@@ -44,6 +44,12 @@ const AI_RULE_BLOCKS = [
   ["raw-start", `- 전차종 로데이터 엑셀은 '24년 4월 15일부터 처음 작성되었다. 그 이전에는 전차종 로데이터 파일이 없었다.
   첫 로데이터('24.4.15 월)는 직전 근무일 4.12(금)~주말 글부터 담았다. 게시일이 '24.4.12 이전이고 로데이터에도 없는 글의 누락 사유에는 "전차종 로데이터는 '24년 4월 15일부터 작성되어 이 글의 게시 시점에는 로데이터 파일이 없었음" 을 앞에 쓰고,
   그 뒤에 글 내용에 따른 이유를 이어 쓴다. (이 앞부분은 프로그램이 붙이므로 AI 는 글 내용에 따른 이유만 쓴다. 로데이터에 없다는 것 자체를 이유로 쓰지 않는다.)`],
+  ["final-review-focus", `- 최종 검수는 다음 4가지에 초점을 맞춰 다시 판단한다.
+  1. 전동 시트 작동 관련 이슈인지 재검수 - 전동 트렁크(테일게이트)·도어·선루프 등 다른 이슈는 추가로 배제한다.
+  2. 전동 시트 작동 중 사고(끼임·눌림·부딪힘·부상·파손)가 발생했는지 재검수한다.
+  3. 전동 시트 작동 관련 위험성·안전사고 우려를 언급했는지 재검수한다.
+  4. 여러 다른 이슈를 함께 말한 글이라도, 전동 시트 작동의 위험성·사고 발생·안전사고 우려 내용이 조금이라도 포함되면 포함으로 본다.
+  최종 포함 = 1번이 해당하고 2·3·4번 중 하나라도 해당하는 글.`],
 ];
 const DEFAULT_AI_RULES = `## 담당자 추가 규칙\n${AI_RULE_BLOCKS.map(([, t]) => t).join("\n")}`;
 const DEFAULT_RAW_START = "2024-04-15"; // 전차종 로데이터 엑셀 작성 시작일
@@ -1606,24 +1612,39 @@ async function aiScreen() {
 // ---------------------------------------------------------------------------
 
 const REVIEW_BATCH = 10;
+const REVIEW_VERSION = 2; // 최종 검수 기준 버전 (4항목 재검수) - 이전 기준으로 검수한 글은 다시 검수
+const reviewed = (x) => x.review?.v === REVIEW_VERSION;
+
+// 최종 검수 지시문 + 담당자 추가 규칙(메모)
+function reviewSystem() {
+  const extra = String($("#aiRules")?.value || "").trim();
+  return extra ? `${REVIEW_SYSTEM}\n\n[담당자 추가 규칙 - 위 규칙보다 우선]\n${extra}` : REVIEW_SYSTEM;
+}
 const REVIEW_BODY_CHARS = 1500;
 
 const REVIEW_SYSTEM = `당신은 현대자동차 품질 부문 온라인 동향 보고서의 최종 검수자입니다.
-조사 주제: 아이오닉9(ME1)·팰리세이드(LX3)·싼타페(MX5)의 2열·3열 시트를 조작할 때(전동 폴딩·원터치 워크인·슬라이딩·리클라이닝·
+조사 주제: 아이오닉9(ME1)·팰리세이드(LX3)·싼타페(MX5)의 2열·3열 전동 시트를 작동·조작할 때(전동 폴딩·원터치 워크인·슬라이딩·리클라이닝·
 복귀 등) 안전 사고가 발생했거나, 발생할 뻔했거나, 발생할 우려·가능성을 언급한 네이버 동호회 게시물.
 
-이미 본문을 읽고 요약까지 마친 글을 받습니다(제목, 주요내용 요약, AI 상황 분류, 본문 일부). 판독된 내용을 토대로 글마다:
-1. relevance: 조사 주제와의 관련도 (0~100 정수)
-   - 100: 2·3열 시트 조작 중 사람·반려동물·물건이 실제로 끼이거나 다친 사고가 명확함 (주제와 완전 일치)
-   - 85~95: 실제로 끼일 뻔·다칠 뻔한 아차 사고, 또는 구체적인 위험 상황 묘사
-   - 70~84: 2·3열 시트 조작의 위험 우려·주의 당부·안전장치(끼임 방지·센서·멈춤) 의문이 글의 주된 내용
-   - 40~69: 시트 조작 이야기 중 위험이 곁들여 언급된 수준, 일반론, 관련 기사·리콜 공지 단순 공유
-   - 10~39: 2·3열 시트 이야기지만 안전과 거의 무관(기능 고장·편의성·소음 등)
-   - 0~9: 주제와 무관
-2. keep: 최종 보고 파일에 넣을지. 관련도 70 이상이 기준이며, 70 미만이라도 실제 안전 위험을 구체적으로 다룬 글이면 넣을 수 있습니다.
-   꼭포함=true 인 글은 반드시 keep=true.
-3. why: 판단 근거 한 문장(15~60자).
-- 판독된 내용에 없는 사실을 지어내지 않고, 모든 글에 같은 기준을 적용합니다. 받은 순서대로, id 를 그대로 돌려줍니다.`;
+이미 본문을 읽고 요약까지 마친 글을 받습니다(제목, 주요내용 요약, AI 상황 분류, 본문 일부).
+판독된 내용을 토대로 글마다 아래 4가지를 하나씩 다시 검수합니다(checks).
+1. seatIssue: 전동 시트 작동 관련 이슈를 다루는 글인가?
+   - 전동 트렁크(테일게이트)·도어·슬라이딩 도어·선루프·창문·사이드미러 등 시트가 아닌 다른 장치의 작동 이슈는 false (추가로 배제).
+   - 카시트 제품, 시트 가죽·열선·통풍·소음 같은 작동과 무관한 시트 이야기만 있으면 false.
+2. accident: 전동 시트 작동 중 사고(사람·반려동물·물건의 끼임·눌림·부딪힘·부상·파손)가 실제로 발생했는가?
+3. concern: 전동 시트 작동 관련 위험성·안전사고 우려(끼일 뻔함, 위험하다, 조심하라, 센서·멈춤 등 안전장치 의문 포함)를 언급했는가?
+4. partialMention: 여러 다른 이슈(옵션·품질·출고 등)를 함께 말한 글이라도, 전동 시트 작동의 위험성·사고 발생·안전사고 우려 내용이 조금이라도 포함되는가?
+   한 문장이라도 있으면 true.
+
+그리고:
+- relevance: 조사 주제와의 관련도 (0~100 정수)
+  100: 전동 시트 작동 중 실제 끼임·부상 등 사고가 명확함(주제와 완전 일치) / 85~95: 아차 사고·구체적 위험 상황 /
+  70~84: 위험성·안전사고 우려·안전장치 의문이 글의 주된 내용 / 40~69: 다른 이슈 사이에 위험이 일부 언급된 수준, 기사·공지 단순 공유 /
+  10~39: 시트 작동 이야기지만 안전과 거의 무관 / 0~9: 주제와 무관(다른 장치 이슈 포함)
+- why: 4가지 판단의 근거를 한 문장(20~80자)으로. 예) "다른 옵션 이야기 중 2열 원터치 복귀 시 아이 발 끼임 우려를 한 줄 언급"
+- 판독된 내용에 없는 사실을 지어내지 않고, 모든 글에 같은 기준을 적용합니다. 받은 순서대로, id 를 그대로 돌려줍니다.
+- 최종 포함 여부는 프로그램이 정합니다: seatIssue 가 true 이고 accident·concern·partialMention 중 하나라도 true 이면 포함
+  (꼭포함=true 인 글은 항상 포함).`;
 
 const REVIEW_SCHEMA = {
   type: "object",
@@ -1632,8 +1653,16 @@ const REVIEW_SCHEMA = {
       type: "array",
       items: {
         type: "object",
-        properties: { id: { type: "string" }, relevance: { type: "integer" }, keep: { type: "boolean" }, why: { type: "string" } },
-        required: ["id", "relevance", "keep", "why"],
+        properties: {
+          id: { type: "string" },
+          seatIssue: { type: "boolean" },
+          accident: { type: "boolean" },
+          concern: { type: "boolean" },
+          partialMention: { type: "boolean" },
+          relevance: { type: "integer" },
+          why: { type: "string" },
+        },
+        required: ["id", "seatIssue", "accident", "concern", "partialMention", "relevance", "why"],
         additionalProperties: false,
       },
     },
@@ -1650,7 +1679,7 @@ async function aiReviewBatch(client, model, batch, usage) {
   const params = {
     model,
     max_tokens: 8000,
-    system: REVIEW_SYSTEM,
+    system: reviewSystem(),
     output_config: { effort: "medium", format: { type: "json_schema", schema: REVIEW_SCHEMA } },
     messages: [{ role: "user", content: `아래 글 ${batch.length}개를 최종 검수해 items ${batch.length}개로 돌려주세요.\n\n${JSON.stringify(input)}` }],
   };
@@ -1665,12 +1694,19 @@ async function aiReviewBatch(client, model, batch, usage) {
   if (msg.stop_reason === "max_tokens") throw new Error("결과가 너무 길어 잘렸습니다");
   const parsed = JSON.parse(msg.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
   const byId = new Map((parsed.items || []).map((r) => [r.id, r]));
-  const bad = batch.filter((x) => { const r = byId.get(x.key); return !r || !Number.isFinite(r.relevance) || typeof r.keep !== "boolean"; }).length;
+  const CHECKS = ["seatIssue", "accident", "concern", "partialMention"];
+  const bad = batch.filter((x) => {
+    const r = byId.get(x.key);
+    return !r || !Number.isFinite(r.relevance) || CHECKS.some((k) => typeof r[k] !== "boolean");
+  }).length;
   if (bad) throw new Error(`결과 ${bad}건의 형식이 맞지 않습니다`);
   for (const x of batch) {
     const r = byId.get(x.key);
     const relevance = Math.max(0, Math.min(100, Math.round(r.relevance)));
-    x.review = { relevance, keep: !!r.keep || !!x.must, why: String(r.why || "").replace(/\s+/g, " ").trim().slice(0, 120), at: Date.now() };
+    const checks = Object.fromEntries(CHECKS.map((k) => [k, r[k]]));
+    // 최종 포함: 전동 시트 작동 이슈이고(1) 사고(2)·우려(3)·일부 언급(4) 중 하나라도 해당 (꼭 넣을 글은 항상)
+    const keep = (checks.seatIssue && (checks.accident || checks.concern || checks.partialMention)) || !!x.must;
+    x.review = { v: REVIEW_VERSION, relevance, keep, checks, why: String(r.why || "").replace(/\s+/g, " ").trim().slice(0, 160), at: Date.now() };
   }
 }
 
@@ -1739,6 +1775,14 @@ async function aiReview(targets) {
   setSummary(line, fatal || failed ? "err" : "ok");
   stopRequested = false;
   return !fatal && !failed;
+}
+
+// 4항목 판정 → " · ①시트O ②사고X ③우려O ④일부O"
+function reviewChecksText(x) {
+  const c = x.review?.checks;
+  if (!c) return "";
+  const o = (b) => (b ? "O" : "X");
+  return ` · ①시트작동${o(c.seatIssue)} ②사고${o(c.accident)} ③우려${o(c.concern)} ④일부언급${o(c.partialMention)}`;
 }
 
 // 최종 검수만 다시 (요약을 고쳤거나 기준을 바꿨을 때)
@@ -1985,8 +2029,8 @@ function visibleItems() {
     if (view === "unchecked") return !x.checked;
     if (view === "missing") return x.checked && !inclusion(x).trend;
     if (view.startsWith("yn:")) return x.checked && ynCode(x) === view.slice(3);
-    if (view === "final") return x.checked && (x.review?.keep || x.must);
-    if (view === "dropped") return x.checked && x.review && !x.review.keep && !x.must;
+    if (view === "final") return x.checked && ((reviewed(x) && x.review.keep) || x.must);
+    if (view === "dropped") return x.checked && reviewed(x) && !x.review.keep && !x.must;
     return true;
   });
   if ($("#sortBy")?.value === "yn") {
@@ -2069,7 +2113,7 @@ function fillRow(tr, item) {
   tr.children[7].textContent = item.reason || item.by ? finalReason(item, inc) : inc.trend ? "" : notMonitoredReason(item);
   const notes = [];
   if (item.must) notes.push(`★ 꼭 넣을 글: ${item.mustNote || ""}`);
-  if (item.review) notes.push(`최종 검수: 관련도 ${item.review.relevance}% · ${item.review.keep || item.must ? "포함" : "제외"} - ${item.review.why}`);
+  if (item.review) notes.push(`최종 검수${reviewed(item) ? "" : "(이전 기준 - 다시 검수 필요)"}: 관련도 ${item.review.relevance}% · ${item.review.keep || item.must ? "포함" : "제외"}${reviewChecksText(item)} - ${item.review.why}`);
   if (item.aiScreen) notes.push(`AI 1차(제목·미리보기): ${item.aiScreen.maybe ? "관련 가능" : "무관"} - ${item.aiScreen.why}`);
   if (item.bodyNote) notes.push(item.bodyNote);
   else if (item.note) notes.push(item.note);
@@ -2188,7 +2232,7 @@ async function saveFinal() {
   const checked = sortedItems().filter((x) => x.checked);
   if (!checked.length) return;
   // 최종 검수를 아직 안 한 체크한 글이 있으면 먼저 AI 최종 검수
-  const todo = checked.filter((x) => !x.review);
+  const todo = checked.filter((x) => !reviewed(x)); // 검수 안 했거나 이전 기준으로 한 글
   if (todo.length) {
     if (!aiOn()) {
       setSummary("최종 파일은 AI 최종 검수가 필요합니다. 3번 'Claude AI 설정'에 API 키를 넣고 켜 주세요.", "err");
@@ -2202,14 +2246,14 @@ async function saveFinal() {
 
 async function saveReport(kind) {
   const all = sortedItems().filter((x) => x.checked);
-  const selected = kind === "seatFinal" ? all.filter((x) => x.review?.keep || x.must) : all;
+  const selected = kind === "seatFinal" ? all.filter((x) => (reviewed(x) && x.review.keep) || x.must) : all;
   if (!all.length) return;
   if (kind === "seatFinal" && !selected.length) {
     setSummary("AI 최종 검수를 통과한 글이 없습니다.", "err");
     return;
   }
-  if (kind === "seat" && all.some((x) => !x.review)) {
-    const n = all.filter((x) => !x.review).length;
+  if (kind === "seat" && all.some((x) => !reviewed(x))) {
+    const n = all.filter((x) => !reviewed(x)).length;
     if (!(await askConfirm(`AI 최종 검수(관련도)를 아직 하지 않은 글이 ${n}개 있어 이 글들의 '주제 관련도' 칸은 비어 있게 됩니다.\n('최종 파일 받기'를 누르면 최종 검수를 하고 관련도도 채워집니다)\n\n그대로 받을까요?`))) return;
   }
   const noSummary = selected.filter((x) => !x.summary).length;
@@ -2256,7 +2300,7 @@ async function saveReport(kind) {
 const RAW_HEADERS = [
   "순번", "차종", "동호회명", "게시일", "제목", "URL", "최종 포함(체크)", "온라인동향/로데이터 포함 여부", "주요내용 요약", "미포함시 누락 사유",
   "AI 판단(상황)", "AI 1차 검토(제목·미리보기)", "꼭 넣을 글", "본문 읽음", "비고(판단 근거)", "검색어", "AI 비용(원)", "AI 비용($)",
-  "주제 관련도(%)", "최종 검수", "최종 검수 근거", "본문",
+  "주제 관련도(%)", "최종 검수", "①전동 시트 작동 이슈", "②작동 중 사고", "③위험·안전사고 우려", "④타 이슈 중 일부 언급", "최종 검수 근거", "본문",
 ];
 
 function rawRows() {
@@ -2269,7 +2313,10 @@ function rawRows() {
       i + 1, x.car, x.cafeName, x.date ? formatDateTime(new Date(x.date), false) : "", x.title, articleUrl(x), x.checked ? "O" : "",
       `${yn(inc.trend)} / ${yn(inc.raw)}`, x.summary || "", x.reason || x.by ? finalReason(x, inc) : "", ai, screen, x.must ? "O" : "",
       x.bodyRead ? "O" : "", notes, (x.queries || []).join(", "), x.aiCost ? Math.round(x.aiCost * 10) / 10 : "", x.aiCost ? Math.round((x.aiCost / WON_PER_USD) * 10000) / 10000 : "",
-      typeof x.review?.relevance === "number" ? x.review.relevance : "", x.review ? (x.review.keep || x.must ? "포함" : "제외") : "", x.review?.why || "",
+      typeof x.review?.relevance === "number" ? x.review.relevance : "",
+      x.review ? `${x.review.keep || x.must ? "포함" : "제외"}${reviewed(x) ? "" : " (이전 기준)"}` : "",
+      ...["seatIssue", "accident", "concern", "partialMention"].map((k) => (x.review?.checks ? (x.review.checks[k] ? "O" : "X") : "")),
+      x.review?.why || "",
       (x.body || "").slice(0, 32000),
     ];
   });
@@ -2283,8 +2330,8 @@ async function saveRaw() {
     const rows = rawRows();
     const bytes = XlsxWriter.build([{
       name: "전체 raw data", rows: [RAW_HEADERS, ...rows],
-      widths: { 1: 6, 2: 6, 3: 16, 4: 11, 5: 40, 6: 38, 7: 8, 8: 10, 9: 50, 10: 40, 11: 16, 12: 36, 13: 7, 14: 7, 15: 40, 16: 24, 17: 9, 18: 9, 19: 9, 20: 8, 21: 40, 22: 80 },
-      wrapCols: [5, 9, 10, 12, 15, 21],
+      widths: { 1: 6, 2: 6, 3: 16, 4: 11, 5: 40, 6: 38, 7: 8, 8: 10, 9: 50, 10: 40, 11: 16, 12: 36, 13: 7, 14: 7, 15: 40, 16: 24, 17: 9, 18: 9, 19: 9, 20: 8, 21: 9, 22: 9, 23: 9, 24: 9, 25: 40, 26: 80 },
+      wrapCols: [5, 9, 10, 12, 15, 25],
     }], { font: EXCEL_FONT, headFill: "FFF37021" });
     const name = datedFileName(RAW_NAME);
     const where = await saveBytes(bytes, name);

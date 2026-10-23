@@ -422,6 +422,7 @@ def test_seat(tmp_path: Path):
 
 
 systems = []  # 최종 판단 요청의 지시문 (담당자 추가 규칙이 붙는지 확인)
+reviews = []  # 최종 검수 요청의 지시문
 
 
 def fake_claude(route, calls):
@@ -436,7 +437,9 @@ def fake_claude(route, calls):
     elif not screen:
         systems.append(body["system"])
     if review:  # 최종 검수: 본문에 '끼' 가 있으면 관련도 95(포함), 없으면 40(제외)
-        out = {"items": [{"id": x["id"], "relevance": 95 if "끼" in x["본문"] else 40, "keep": "끼" in x["본문"], "why": "판독 내용 기준"} for x in items]}
+        out = {"items": [{"id": x["id"], "seatIssue": "트렁크" not in x["본문"], "accident": "끼" in x["본문"], "concern": False, "partialMention": False,
+                          "relevance": 95 if "끼" in x["본문"] else 40, "why": "판독 내용 기준"} for x in items]}
+        reviews.append(body["system"])
     elif screen:
         out = {"items": [{"id": x["id"], "maybe": "아이" in x["제목"] + x["미리보기"], "why": "아이 위험 언급"} for x in items]}
     else:
@@ -615,7 +618,13 @@ def test_ai_review_unchecked(tmp_path: Path):
         # AI 최종 검수 → ② 1차 검수(체크한 글 전체 + 관련도 %) · ③ 최종 파일(최종 검수 통과한 글만)
         page.evaluate("""items.push({key:'palicafe/9',articleId:'9',car:'LX3',cafeIndex:0,cafeName:'팰리 카페',slug:'palicafe',
           date:new Date(2025,5,1).getTime(),title:'3열 시트 가죽 이야기',text:'3열',checked:true,touched:true,bodyRead:true,body:'3열 시트 가죽 질감 이야기',
-          queries:['q'],summary:'3열 시트 가죽 질감을 소개하는 내용',reason:'',by:'ai',bodyNote:''}); renderResults();""")
+          queries:['q'],summary:'3열 시트 가죽 질감을 소개하는 내용',reason:'',by:'ai',bodyNote:''},
+          {key:'palicafe/10',articleId:'10',car:'LX3',cafeIndex:0,cafeName:'팰리 카페',slug:'palicafe',
+          date:new Date(2025,5,2).getTime(),title:'전동 트렁크 손 끼임',text:'트렁크',checked:true,touched:true,bodyRead:true,body:'전동 트렁크 닫히다 손 끼임',
+          queries:['q'],summary:'전동 트렁크에 손이 끼였다는 내용',reason:'',by:'ai',bodyNote:''},
+          {key:'palicafe/11',articleId:'11',car:'LX3',cafeIndex:0,cafeName:'팰리 카페',slug:'palicafe',
+          date:new Date(2025,5,3).getTime(),title:'예전 기준 검수 글',text:'2열',checked:true,touched:true,bodyRead:true,body:'2열 복귀에 발 끼임',
+          queries:['q'],summary:'2열 복귀 끼임',reason:'',by:'ai',bodyNote:'',review:{relevance:50,keep:false,why:'예전'}}); renderResults();""")
         n_checked = page.evaluate("items.filter(x => x.checked).length")
         with page.expect_download() as dl:
             page.click("#saveFinal")
@@ -625,13 +634,16 @@ def test_ai_review_unchecked(tmp_path: Path):
         assert any("최종 검수합니다" in m for m in asked())
         rv = page.evaluate("Object.fromEntries(items.filter(x => x.checked).map(x => [x.key, [x.review.relevance, x.review.keep]]))")
         assert rv["palicafe/9"] == [40, False] and rv["palicafe/1"] == [95, True], rv
+        assert rv["palicafe/10"][1] is False  # 전동 트렁크 이슈는 끼임이어도 배제 (①)
+        assert rv["palicafe/11"] == [95, True]  # 이전 기준으로 검수한 글은 새 기준으로 다시 검수
+        assert "4가지를 하나씩 다시 검수" in reviews[-1] and "[담당자 추가 규칙" in reviews[-1] and "전동 트렁크(테일게이트)" in reviews[-1]
         fws = load_workbook(final_path, rich_text=True).active
         final_titles = [fws.cell(r, 6).value for r in range(4, fws.max_row + 1)]
-        assert "3열 시트 가죽 이야기" not in final_titles and len(final_titles) == n_checked - 1, final_titles
+        assert "3열 시트 가죽 이야기" not in final_titles and "전동 트렁크 손 끼임" not in final_titles and len(final_titles) == n_checked - 2, final_titles
         k = fws["K4"].value
         assert str(k) == "95%" and [b.font.color.rgb for b in k if hasattr(b, "font")] == ["FFE00000"]  # 70% 이상 빨강
         assert "체크한 글" in page.inner_text("#saveInfo") and "최종 검수 통과" in page.inner_text("#saveInfo")
-        assert "최종 검수: 관련도 40% · 제외" in page.locator("#results tbody tr", has_text="3열 시트 가죽 이야기").inner_text()
+        assert "최종 검수: 관련도 40% · 제외 · ①시트작동O ②사고X ③우려X ④일부언급X" in page.locator("#results tbody tr", has_text="3열 시트 가죽 이야기").inner_text()
         with page.expect_download() as dl:
             page.click("#saveList")
         first_path = tmp_path / dl.value.suggested_filename
@@ -642,7 +654,7 @@ def test_ai_review_unchecked(tmp_path: Path):
         assert len(rows1) == n_checked and str(rows1["3열 시트 가죽 이야기"]) == "40%"
         assert [b.font.color.rgb for b in rows1["3열 시트 가죽 이야기"] if hasattr(b, "font")] == ["FF0070C0"]  # 70% 미만 파랑
         page.select_option("#viewFilter", "dropped")
-        assert page.locator("#results tbody tr").count() == 1
+        assert page.locator("#results tbody tr").count() == 2
         page.select_option("#viewFilter", "")
 
         # 엑셀 저장 위치: '폴더 선택'으로 고른 폴더에 바로 저장 (시험에서는 폴더 창 대신 브라우저 안 임시 폴더)
