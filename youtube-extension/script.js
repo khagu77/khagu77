@@ -1051,6 +1051,7 @@ function aiSettings() {
 function saveAiSettings() {
   const s = aiSettings();
   $("#aiOpts").hidden = !s.on;
+  document.body.classList.toggle("ai-on", s.on); // AI 교정이 켜져 있으면 비용이 드는 버튼에 💰
   chrome.storage.local.set({ aiOn: s.on, aiKey: s.key, aiModel: s.model }).catch(() => {});
 }
 
@@ -1062,6 +1063,7 @@ async function loadAiSettings() {
   $("#aiKey").value = saved.aiKey || "";
   if (saved.aiModel && AI_MODELS.some(([id]) => id === saved.aiModel)) sel.value = saved.aiModel;
   $("#aiOpts").hidden = !$("#aiOn").checked;
+  document.body.classList.toggle("ai-on", $("#aiOn").checked);
   for (const el of ["#aiOn", "#aiKey", "#aiModel"]) $(el).addEventListener("change", saveAiSettings);
   $("#aiKey").addEventListener("input", saveAiSettings);
 }

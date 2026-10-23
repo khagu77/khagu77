@@ -109,3 +109,7 @@ fieldset.ai label.check { font-weight: 400; display: flex; gap: 6px; align-items
 .ai-opts label { margin-bottom: 0; }
 .ai-opts input[type="password"] { display: block; margin-top: 4px; width: 280px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font: 12px ui-monospace, Menlo, monospace; }
 .ai-opts .hint { flex-basis: 100%; margin: 4px 0 0; }
+
+/* AI 교정이 켜져 있을 때 비용(Anthropic API)이 드는 버튼 앞에 💰 */
+body.ai-on button.ai-cost::before,
+body.ai-on button.retry::before { content: "💰 "; }

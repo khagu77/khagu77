@@ -52,7 +52,7 @@
     </div>
     <div id="gpu" class="hint" data-mode="speech"></div>
     <fieldset class="ai">
-      <label class="check"><input type="checkbox" id="aiOn"> <b>AI 교정 (Claude)</b>
+      <label class="check"><input type="checkbox" id="aiOn"> <b>💰 AI 교정 (Claude)</b>
         <span class="hint">— 띄어쓰기·오탈자·잘못 받아쓴 차량명까지 문맥에 맞게 고침 (유료 · Anthropic API 키 필요)</span></label>
       <div class="ai-opts" id="aiOpts">
         <label>API 키 <input type="password" id="aiKey" placeholder="sk-ant-…" autocomplete="off" spellcheck="false"></label>
@@ -68,7 +68,7 @@
     <div class="hint" data-mode="screen" hidden>화면 아래쪽 가운데에 나오는 자막(흰색·노란색 글자에 테두리나 어두운 바탕)만 읽고, 효과 글자·댓글 캡처·사진 속 글자는 거릅니다. 한글·영문이 함께 나오면 한글 줄만 옮깁니다. 자막이 깔끔한 영상일수록 정확하고, 음성 인식보다 빠릅니다. 영상 소리는 자동으로 끕니다.</div>
 
     <div class="buttons">
-      <button id="start" class="primary">스크립트 만들기</button>
+      <button id="start" class="primary ai-cost">스크립트 만들기</button>
       <button id="stop" disabled>중지</button>
     </div>
 
@@ -79,7 +79,7 @@
         <option value="txt">텍스트 (.txt) — 영상별 구분선으로 묶음</option>
       </select>
       <button id="saveAll" class="primary" disabled>전체 스크립트 받기</button>
-      <button id="retryFailed" hidden>수집 안 된 영상 전체 다시 수집</button>
+      <button id="retryFailed" class="ai-cost" hidden>수집 안 된 영상 전체 다시 수집</button>
     </div>
     <p id="xlsxNote" class="notice">다운로드 한 엑셀 파일은 <a href="https://linesquare--monitor.web.app/" target="_blank" rel="noopener">https://linesquare--monitor.web.app/</a> 에서 수집된 동일 URL 스크립트 일괄 등록이 가능한 파일입니다.</p>
 

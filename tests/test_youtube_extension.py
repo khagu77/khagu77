@@ -589,7 +589,9 @@ def test_ai_correction(tmp_path: Path):
         page = ext_page(ctx, "script.html")
         page.on("dialog", lambda d: d.accept())
         assert not page.is_checked("#aiOn") and page.is_hidden("#aiKey")  # 기본은 꺼짐
+        assert page.evaluate("getComputedStyle(document.querySelector('#start'), '::before').content") == "none"  # AI 교정이 꺼져 있으면 💰 없음
         page.check("#aiOn")
+        assert page.evaluate("getComputedStyle(document.querySelector('#start'), '::before').content") == '"💰 "'  # 비용이 드는 버튼 앞에 💰
         page.fill("#aiKey", "sk-ant-test-key")
         assert page.input_value("#aiModel") == "claude-opus-5-5"
         page.fill("#urls", "https://www.youtube.com/watch?v=transcrvid1")
@@ -601,6 +603,7 @@ def test_ai_correction(tmp_path: Path):
         # 설정은 이 PC 크롬에 저장되어 다시 열어도 남아 있다
         page.reload()
         assert page.is_checked("#aiOn") and page.input_value("#aiKey") == "sk-ant-test-key"
+        assert page.evaluate("getComputedStyle(document.querySelector('#start'), '::before').content") == '"💰 "'  # 다시 열어도 💰 유지
         # 키가 틀리면 기본 교정본으로
         mode["fail"] = True
         page.fill("#urls", "https://www.youtube.com/watch?v=transcrvid1")
