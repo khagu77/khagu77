@@ -1028,6 +1028,7 @@ function setupPanel(id, needsAttention) {
 }
 
 function renderPanelStates() {
+  if (typeof updateCounts === "function" && $("#readBodies")) updateCounts();
   const cs = $("#compareState");
   if (cs) {
     const pend = pendingShorts().length;
@@ -2100,7 +2101,10 @@ function updateCounts() {
   $("#rewrite").disabled = !n || running;
   $("#selDelete").disabled = !n || running;
   $("#selDelete").textContent = n ? `선택 삭제 (${n}개)` : "선택 삭제";
-  $("#readBodies").textContent = n - read > 0 ? `본문 읽고 요약하기 (${n - read}개 · 약 ${formatDuration((n - read) * SEC_PER_ARTICLE)})` : "요약하기";
+  // 💰 = AI 비용이 드는 버튼 (본문 읽기·다시 쓰기는 AI 를 켰을 때만 비용)
+  const coin = aiOn() ? "💰 " : "";
+  $("#readBodies").textContent = coin + (n - read > 0 ? `본문 읽고 요약하기 (${n - read}개 · 약 ${formatDuration((n - read) * SEC_PER_ARTICLE)})` : "요약하기");
+  for (const el of document.querySelectorAll(".cost-ico[data-when='ai']")) el.hidden = !aiOn();
   const unread = items.filter((x) => !x.bodyRead && !x.touched).length;
   if ($("#readAllInfo")) $("#readAllInfo").textContent = `지금 읽을 글 ${unread.toLocaleString()}개 · 약 ${formatDuration(unread * SEC_PER_ARTICLE)}`;
   const vis = visibleItems();

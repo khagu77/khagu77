@@ -487,6 +487,15 @@ def test_ai_review_unchecked(tmp_path: Path):
         page.fill("#aiKey", "sk-ant-test")
         page.click("#aiSave")
         assert page.is_checked("#aiOn") and page.is_checked("#screenOn")
+        # 💰 = AI 비용이 드는 버튼 (AI 켜짐: 본문 읽기·다시 쓰기에도 붙음)
+        assert page.inner_text("#readBodies").startswith("💰") and page.inner_text("#rewrite").startswith("💰")
+        assert page.inner_text("#saveFinal").startswith("💰") and page.inner_text("#redoReview").startswith("💰")
+        page.uncheck("#aiOn")
+        page.locator("#aiOn").dispatch_event("change")
+        assert not page.inner_text("#readBodies").startswith("💰") and not page.inner_text("#rewrite").startswith("💰")
+        assert page.inner_text("#saveFinal").startswith("💰")  # 최종 검수는 늘 AI
+        page.check("#aiOn")
+        page.locator("#aiOn").dispatch_event("change")
 
         # ① 1차 검토 → ② (본문은 이미 읽음) 최종 판단
         page.click("#readBodies")
