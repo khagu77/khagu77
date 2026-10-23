@@ -39,8 +39,14 @@ function setInfo(text, cls = "") {
 
 // 그날 수집 건수와 바로 전 기록일 대비 증감 (rows: 최신순)
 function fillCounts(td, kind, rows, i) {
-  const fields = kind === "buzz" ? [["posts", "게시물"]] : [["comments", "카페 댓글"], ["youtube", "유튜브"]];
+  const fields =
+    kind === "buzz"
+      ? [["posts", "게시물"], ["news", "· 언론"], ["cafe", "· 동호회"], ["community", "· 자동차 커뮤니티"]]
+      : [["news", "언론 댓글"], ["comments", "카페 댓글"], ["community", "커뮤니티 댓글"], ["youtube", "유튜브"]];
+  // 게시물: 채널을 둘 이상 기록한 날만 채널별 줄도 (하나뿐이면 합계와 같음)
+  const channels = kind === "buzz" ? ["news", "cafe", "community"].filter((f) => rows[i].stats?.[f] != null).length : 0;
   for (const [field, label] of fields) {
+    if (kind === "buzz" && field !== "posts" && channels < 2) continue;
     const v = rows[i].stats?.[field];
     if (v === undefined || v === null) continue;
     const prev = rows.slice(i + 1).find((r) => r.stats?.[field] !== undefined && r.stats?.[field] !== null);

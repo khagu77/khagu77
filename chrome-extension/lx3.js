@@ -92,7 +92,8 @@ function showBaseInfo() {
 let cafeSlugs = {};
 let cafeNames = {};
 let lastSaved = null;
-let lastFailedCafes = []; // 지난 찾기에서 목록을 못 읽은 동호회 (다시 찾기용)
+let lastFailed = { ids: [], queries: [], boards: [] }; // 지난 찾기에서 못 읽은 동호회·언론 검색어·커뮤니티 게시판 (다시 찾기용)
+let lastKw = {}; // 지난 찾기의 언론·커뮤니티 키워드
 let lastSearchAt = 0;
 let lastRange = {};
 let diagnostics = []; // 글을 못 읽은 화면의 구조 (진단 파일)
@@ -103,7 +104,8 @@ let diagnostics = []; // 글을 못 읽은 화면의 구조 (진단 파일)
 
 async function loadSettings() {
   const s = await chrome.storage.local
-    .get(["lx3Holidays", "saveFolder", "saveAsk", "lx3TabFallback", "lx3Cafes", "lx3Query", "lx3Include", "lx3Exclude", "lx3SearchUrl", "lx3MaxPages", "lx3CafeNames", "lx3Youtube"])
+    .get(["lx3Holidays", "saveFolder", "saveAsk", "lx3TabFallback", "lx3Cafes", "lx3Query", "lx3Include", "lx3Exclude", "lx3SearchUrl", "lx3MaxPages", "lx3CafeNames", "lx3Youtube",
+      "lx3Channels", "lx3MainKw", "lx3SubKw", "lx3Boards", "lx3NewsPages"])
     .catch(() => ({}));
   $("#cafeList").value = (s.lx3Cafes || DEFAULT_CAFES).join("\n");
   $("#query").value = s.lx3Query ?? DEFAULT_QUERY;
@@ -115,6 +117,14 @@ async function loadSettings() {
   $("#saveFolder").value = s.saveFolder || "";
   $("#saveAsk").checked = !!s.saveAsk;
   $("#holidays").value = s.lx3Holidays || "";
+  const ch = s.lx3Channels || {};
+  $("#chCafe").checked = ch.cafe ?? true;
+  $("#chNews").checked = ch.news ?? true;
+  $("#chCommunity").checked = ch.community ?? true;
+  $("#mainKw").value = s.lx3MainKw ?? DEFAULT_MAIN_KEYWORDS;
+  $("#subKw").value = s.lx3SubKw ?? DEFAULT_SUB_KEYWORDS;
+  $("#boards").value = (s.lx3Boards || DEFAULT_BOARDS).join("\n");
+  $("#newsPages").value = s.lx3NewsPages || DEFAULT_NEWS_PAGES;
   cafeNames = Object.fromEntries(Object.entries(s.lx3CafeNames || {}).map(([k, v]) => [k, cleanCafeName(v)]));
   cafeSlugs = await loadCafeSlugs();
   youtube = s.lx3Youtube || [...DEFAULT_YOUTUBE];
@@ -133,8 +143,23 @@ function saveSettings() {
       saveFolder: cleanFolder($("#saveFolder").value),
       saveAsk: $("#saveAsk").checked,
       lx3Holidays: $("#holidays").value,
+      lx3Channels: { cafe: $("#chCafe").checked, news: $("#chNews").checked, community: $("#chCommunity").checked },
+      lx3MainKw: $("#mainKw").value,
+      lx3SubKw: $("#subKw").value,
+      lx3Boards: boardList(),
+      lx3NewsPages: Math.max(1, Math.min(10, Number($("#newsPages").value) || DEFAULT_NEWS_PAGES)),
     })
     .catch(() => {});
+}
+
+// 자동차 커뮤니티 게시판 목록 (보배드림·클리앙·뽐뿌 주소만)
+function boardList() {
+  const out = [];
+  for (const line of $("#boards").value.split(/\r?\n/)) {
+    const u = line.trim();
+    if (u && communityAdapter(u) && !out.includes(u)) out.push(u);
+  }
+  return out;
 }
 
 // 동호회 목록 한 줄 → 카페 번호
@@ -408,16 +433,29 @@ async function readArticleTimeIn(url, mode) {
 }
 
 function articleUrl(item) {
+  if (!isCafeItem(item)) return item.url;
   const slug = cafeSlugs[item.cafeId] || item.slug;
   return slug ? shortArticleUrl(slug, item.articleId) : `https://cafe.naver.com/f-e/cafes/${item.cafeId}/articles/${item.articleId}`;
 }
 
+// 언론·커뮤니티 글인지 (채널 표시가 없으면 예전에 찾은 동호회 글)
+function isCafeItem(x) {
+  return !x.channel || x.channel === "동호회";
+}
+
+function hostName(url) {
+  const u = safeUrl(url);
+  return u ? u.hostname.replace(/^www\./, "") : "";
+}
+
+// 찾기: 언론(네이버 뉴스 검색) → 자동차 커뮤니티(게시판 목록) → 동호회(카페 안 검색) 차례로.
+// resume: 중단된 찾기 이어하기 / '못 읽은 곳 다시 찾기' (retry) 상태
 async function search(resume = null) {
   if (running) return;
   if (resume) {
     $("#from").value = resume.from;
     $("#to").value = resume.to;
-    $("#query").value = resume.q;
+    if (resume.q) $("#query").value = resume.q;
   }
   let win;
   try {
@@ -425,12 +463,22 @@ async function search(resume = null) {
   } catch (e) {
     return setSummary(e.message, "err");
   }
-  const ids = resume ? resume.ids : cafeIds();
+  const on = { cafe: $("#chCafe").checked, news: $("#chNews").checked, community: $("#chCommunity").checked };
+  const mainKw = resume ? resume.mainKw ?? $("#mainKw").value : $("#mainKw").value;
+  const subKw = resume ? resume.subKw ?? $("#subKw").value : $("#subKw").value;
+  const ids = resume ? resume.ids || [] : on.cafe ? cafeIds() : [];
+  const queries = resume ? resume.queries || [] : on.news ? keywordQueries(mainKw, subKw) : [];
+  const boards = resume ? resume.boards || [] : on.community ? boardList() : [];
   const q = $("#query").value.trim();
-  if (!ids.length && !resume?.retry) return setSummary("동호회 목록에 카페 주소를 넣어 주세요.", "err");
-  if (!q) return setSummary("검색어를 넣어 주세요.", "err");
+  if (!resume?.retry) {
+    if (!on.cafe && !on.news && !on.community) return setSummary("찾을 곳(동호회·언론·자동차 커뮤니티)을 하나 이상 고르세요.", "err");
+    if (on.cafe && !ids.length && !resume) return setSummary("동호회 목록에 카페 주소를 넣어 주세요.", "err");
+    if (on.news && !queries.length && !resume) return setSummary("설정에 언론·자동차 커뮤니티 메인 키워드를 넣어 주세요.", "err");
+    if (on.community && !boards.length && !resume) return setSummary("설정에 자동차 커뮤니티 게시판 주소를 넣어 주세요.", "err");
+  }
+  if (ids.length && !q) return setSummary("동호회 검색어를 넣어 주세요.", "err");
   await saveSettings();
-  await checkLogin();
+  if (ids.length) await checkLogin();
   running = true;
   stopRequested = false;
   $("#search").disabled = true;
@@ -441,25 +489,149 @@ async function search(resume = null) {
   items = resume ? resume.items.map((x) => ({ ...x, date: x.date ? new Date(x.date) : null })) : [];
   renderResults();
   const maxPages = Math.max(1, Number($("#maxPages").value) || DEFAULT_MAX_PAGES);
-  const seen = new Set(items.map((x) => x.key));
+  const newsPages = Math.max(1, Number($("#newsPages").value) || DEFAULT_NEWS_PAGES);
+  const seen = new Set(items.flatMap((x) => [x.key, x.extUrl ? channelKey(x.extUrl) : ""]).filter(Boolean));
   let loginNeeded = false;
-  const checkpoint = (nextCafe) =>
-    saveResume("lx3", { from: $("#from").value, to: $("#to").value, q, ids, nextCafe, items: items.map(serializeItem) });
-  const failedCafes = [];
-  if (resume?.retry) log(`· 못 읽은 동호회 ${ids.length}곳을 다시 찾습니다 (이미 찾은 글 ${items.length}개는 그대로)`);
-  else if (resume) log(`· 중단된 곳부터 이어서 찾습니다 (동호회 ${Math.min(resume.nextCafe + 1, ids.length)}/${ids.length}부터, 이미 찾은 글 ${items.length}개)`);
+  // 어디까지 했는지 (중단되면 여기부터 이어서)
+  const pos = { query: resume?.nextQuery || 0, board: resume?.nextBoard || 0, cafe: resume?.nextCafe || 0 };
+  const checkpoint = () =>
+    saveResume("lx3", {
+      from: $("#from").value, to: $("#to").value, q, ids, nextCafe: pos.cafe, queries, nextQuery: pos.query, boards, nextBoard: pos.board,
+      mainKw, subKw, items: items.map(serializeItem),
+    });
+  const failed = { ids: [], queries: [], boards: [] };
+  const total = ids.length + queries.length + boards.length;
+  const doneSteps = () => pos.query + pos.board + pos.cafe;
+  if (resume?.retry) log(`· 못 읽은 곳을 다시 찾습니다 (${whereText({ ids, queries, boards })} · 이미 찾은 글 ${items.length}개는 그대로)`);
+  else if (resume) log(`· 중단된 곳부터 이어서 찾습니다 (이미 찾은 글 ${items.length}개)`);
   $("#retryCafes").hidden = true;
+  const addItem = (item) => {
+    item.related = isRelated(item);
+    item.checked = item.related;
+    items.push(item);
+  };
 
-  for (let ci = resume ? resume.nextCafe : 0; ci < ids.length && !stopRequested; ci++) {
+  // 1) 언론: 메인 × 서브 키워드 조합마다 네이버 뉴스 검색 (기간 지정 · 최신순)
+  for (; pos.query < queries.length && !stopRequested; pos.query++) {
+    const nq = queries[pos.query];
+    setSummary(`찾는 중… 언론 ${pos.query + 1}/${queries.length} ("${nq}")`);
+    showBusy(`게시물 찾는 중 · 언론 검색 ${pos.query + 1}/${queries.length} ("${nq}") — 끝날 때까지 이 탭을 닫지 마세요`, doneSteps(), total, "게시물 찾는 중");
+    let prevKeys = "";
+    for (let page = 1; page <= newsPages && !stopRequested; page++) {
+      let found;
+      try {
+        found = parseNewsSearch(await fetchText(newsSearchUrl(nq, win, page), { credentials: "include" }));
+      } catch (e) {
+        log(`✖ 언론 "${nq}" ${page}페이지: 검색 화면을 받지 못함 (${e.message})`);
+        failed.queries.push(nq);
+        break;
+      }
+      const keys = found.map((x) => x.aid || x.extUrl).join(",");
+      if (!found.length || keys === prevKeys) {
+        if (page === 1) log(`· 언론 "${nq}": 검색 결과 없음`);
+        break;
+      }
+      prevKeys = keys;
+      let added = 0;
+      let older = 0;
+      for (const x of found) {
+        const parsed = parseKoreanDate(x.dateText);
+        const place = placeApprox(parsed, win);
+        if (place === "older") older++;
+        if (place === "older" || place === "newer") continue;
+        const url = x.aid ? newsUrl(x) : x.extUrl;
+        const key = channelKey(url);
+        const extKey = x.extUrl ? channelKey(x.extUrl) : "";
+        if (seen.has(key) || (extKey && seen.has(extKey))) continue;
+        seen.add(key);
+        if (extKey) seen.add(extKey);
+        addItem({
+          key, channel: "언론", media: x.press || hostName(x.extUrl), url, naverUrl: x.aid ? url : "", extUrl: x.extUrl || "",
+          title: x.title, text: x.snippet || "", date: parsed ? parsed.date : null, hasTime: !!parsed?.hasTime,
+          approx: !!parsed?.approxMs, ambiguous: place === "ambiguous", checked: false, note: "", dup: false,
+        });
+        added++;
+      }
+      log(`· 언론 "${nq}": ${page}페이지 기사 ${found.length}건 중 기간 안 새 기사 ${added}건`);
+      renderResults();
+      if (older === found.length || found.length < 10) break; // 최신순이라 모두 기간 이전이면 다음 페이지는 더 이전
+      await sleep(randomBetween(NEWS_DELAY));
+    }
+    if (!stopRequested) {
+      await checkpoint();
+      await sleep(randomBetween(NEWS_DELAY));
+    }
+  }
+
+  // 2) 자동차 커뮤니티: 게시판 목록을 최신 글부터 기간 끝까지 넘기며 제목에 메인+서브 키워드가 있는 글
+  for (; pos.board < boards.length && !stopRequested; pos.board++) {
+    const boardUrl = boards[pos.board];
+    const ad = communityAdapter(boardUrl);
+    let prevIds = "";
+    let scanned = 0;
+    let matched = 0;
+    let readOk = false;
+    for (let page = 1; page <= COMMUNITY_MAX_LIST_PAGES && !stopRequested; page++) {
+      setSummary(`찾는 중… 자동차 커뮤니티 ${pos.board + 1}/${boards.length} (${ad.site}) · ${page}페이지`);
+      showBusy(`게시물 찾는 중 · ${ad.site} 게시판 ${page}페이지 — 끝날 때까지 이 탭을 닫지 마세요`, doneSteps(), total, "게시물 찾는 중");
+      let rows;
+      try {
+        rows = await readBoardPage(ad, page);
+      } catch (e) {
+        log(`✖ ${ad.site} (${boardUrl}) ${page}페이지: 목록을 받지 못함 (${e.message})`);
+        break;
+      }
+      const rowIds = rows.map((r) => r.id).join(",");
+      if (!rows.length || rowIds === prevIds) {
+        if (page === 1) log(`✖ ${ad.site} (${boardUrl}): 글 목록을 읽지 못함 (게시판 주소나 화면 구조 확인 필요)`);
+        break;
+      }
+      prevIds = rowIds;
+      const dated = rows.filter((r) => r.parsed);
+      if (!dated.length) {
+        if (page === 1) log(`✖ ${ad.site} (${boardUrl}): 목록에서 글 날짜를 읽지 못함`);
+        break;
+      }
+      readOk = true;
+      let older = 0;
+      for (const r of dated) {
+        const place = placeApprox(r.parsed, win);
+        if (place === "older") older++;
+        if (place === "older" || place === "newer" || r.notice) continue;
+        scanned++;
+        if (!matchesCombo(r.title, mainKw, subKw)) continue;
+        const url = ad.articleUrl(r.id);
+        const key = channelKey(url);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        addItem({
+          key, channel: "자동차 커뮤니티", media: ad.site, url, boardIndex: pos.board, title: r.title, text: "",
+          date: r.parsed.date, hasTime: !!r.parsed.hasTime, approx: !!r.parsed.approxMs, ambiguous: place === "ambiguous",
+          checked: false, note: "", dup: false,
+        });
+        matched++;
+      }
+      renderResults();
+      if (older * 2 >= dated.length) break; // 이 페이지 글 대부분이 기간 이전 → 끝
+      await sleep(randomBetween(COMMUNITY_DELAY));
+    }
+    if (!readOk) failed.boards.push(boardUrl);
+    else log(`· ${ad.site} (${boardUrl.replace(/^https?:\/\/(www\.)?/, "")}): 기간 안 글 ${scanned}건 중 키워드 맞는 글 ${matched}건`);
+    if (!stopRequested) await checkpoint();
+  }
+
+  // 3) 동호회: 카페마다 카페 안 검색
+  for (; pos.cafe < ids.length && !stopRequested; pos.cafe++) {
+    const ci = pos.cafe;
     const cafeId = ids[ci];
     let prevKeys = "";
     for (let page = 1; page <= maxPages && !stopRequested; page++) {
       setSummary(`찾는 중… 동호회 ${ci + 1}/${ids.length} (${cafeNames[cafeId] || cafeId}) · ${page}페이지`);
-      showBusy(`게시물 찾는 중 · 동호회 ${ci + 1}/${ids.length} (${cafeNames[cafeId] || cafeId}) — 끝날 때까지 이 탭을 닫지 마세요`, ci, ids.length, "게시물 찾는 중");
+      showBusy(`게시물 찾는 중 · 동호회 ${ci + 1}/${ids.length} (${cafeNames[cafeId] || cafeId}) — 끝날 때까지 이 탭을 닫지 마세요`, doneSteps(), total, "게시물 찾는 중");
       const res = await scanSearchPage(searchUrl(cafeId, q, page));
       if (res.login) {
         loginNeeded = true;
-        failedCafes.push(cafeId);
+        failed.ids.push(cafeId);
         log(`✖ ${cafeId}: 네이버 로그인이 필요합니다`);
         break;
       }
@@ -475,7 +647,7 @@ async function search(resume = null) {
       const keys = pageItems.map((x) => x.articleId).join(",");
       if (!pageItems.length || keys === prevKeys) {
         if (!pageItems.length && res.snapshot) diagnostics.push({ cafeId, page, url: searchUrl(cafeId, q, page), frames: res.snapshot });
-        if (!pageItems.length && !res.noResult) failedCafes.push(cafeId); // 화면을 못 읽음 → 다시 찾기 대상
+        if (!pageItems.length && !res.noResult) failed.ids.push(cafeId); // 화면을 못 읽음 → 다시 찾기 대상
         log(`· ${cafeNames[cafeId] || cafeId}: ${page}페이지 ${pageItems.length ? "(앞 페이지와 같음)" : res.noResult ? "검색 결과 없음" : `글 목록을 읽지 못함${snapshotSummary(res.snapshot)}`}`);
         break;
       }
@@ -492,14 +664,11 @@ async function search(resume = null) {
         const key = `${cafeId}/${x.articleId}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        const item = {
+        addItem({
           key, cafeId, cafeIndex: ci, articleId: x.articleId, slug: x.slug || "", title: x.title, text: x.text,
           date: parsed ? parsed.date : null, hasTime: !!parsed?.hasTime, ambiguous: place === "ambiguous",
           checked: false, note: "", dup: false,
-        };
-        item.related = isRelated(item);
-        item.checked = item.related;
-        items.push(item);
+        });
         added++;
       }
       log(`· ${cafeNames[cafeId] || cafeId}: ${page}페이지 ${pageItems.length}개 중 기간 안 ${added}개`);
@@ -507,22 +676,45 @@ async function search(resume = null) {
       if (dated && older === dated) break; // 이 페이지가 모두 기간 이전 → 다음 페이지는 더 이전
       if (page < maxPages) await sleep(randomBetween(CAFE_PAGE_DELAY));
     }
-    if (!stopRequested) await checkpoint(ci + 1);
+    if (!stopRequested) await checkpoint();
     if (ci + 1 < ids.length && !stopRequested) await sleep(randomBetween(CAFE_ARTICLE_DELAY));
   }
 
-  // 날짜만 보이는 관련 글(예: 어제 글)은 글을 열어 정확한 시간을 확인한다
-  // 목록에 날짜만 보이는 글(예: 어제 글)은 모두 글을 열어 작성 시간을 확인하고, 기간 밖이면 뺀다 (관련 글 먼저)
-  const toCheck = items.filter((x) => x.ambiguous).sort((a, b) => Number(b.related) - Number(a.related));
-  if (toCheck.length) log(`· 날짜만 보이는 글 ${toCheck.length}개의 작성 시간을 확인합니다 (글 하나에 10초 안팎)`);
+  // 목록에 날짜만 보이는 글(예: 어제 글)·'3시간 전'처럼 대략인 네이버 뉴스 기사는 글을 열어 작성 시간을 확인하고, 기간 밖이면 뺀다 (관련 글 먼저)
+  const toCheck = items
+    .filter((x) => x.ambiguous || (x.approx && x.naverUrl))
+    .sort((a, b) => Number(b.related) - Number(a.related));
+  if (toCheck.length) log(`· 날짜만 보이는 글 ${toCheck.length}개의 작성 시간을 확인합니다`);
   for (let i = 0; i < toCheck.length && !stopRequested; i++) {
     const item = toCheck[i];
-    setSummary(`날짜만 보이는 글의 작성 시간 확인 중… (${i + 1}/${toCheck.length})`);
+    setSummary(`작성 시간 확인 중… (${i + 1}/${toCheck.length})`);
     showBusy(`작성 시간 확인 중 ${i + 1}/${toCheck.length} — 끝날 때까지 이 탭을 닫지 마세요`, i, toCheck.length, "작성 시간 확인 중");
-    await sleep(randomBetween(CAFE_ARTICLE_DELAY));
-    const res = await readArticleTime(`https://cafe.naver.com/f-e/cafes/${item.cafeId}/articles/${item.articleId}`);
-    if (res.found) {
-      const parsed = parseCafeDate(res.dateText);
+    let parsed = null;
+    let login = false;
+    if (isCafeItem(item)) {
+      await sleep(randomBetween(CAFE_ARTICLE_DELAY));
+      const res = await readArticleTime(`https://cafe.naver.com/f-e/cafes/${item.cafeId}/articles/${item.articleId}`);
+      if (res.found) parsed = parseCafeDate(res.dateText);
+      login = !!res.login;
+      const slug = pickSlug(res.hints || []);
+      if (slug && !cafeSlugs[item.cafeId]) {
+        await saveCafeSlug(item.cafeId, slug);
+        cafeSlugs[item.cafeId] = slug;
+      }
+    } else if (item.naverUrl) {
+      await sleep(randomBetween(NEWS_DELAY));
+      const res = await readNewsArticle(item.naverUrl).catch(() => null);
+      parsed = res?.parsed?.hasTime ? res.parsed : null;
+      if (res?.press && (!item.media || item.media === hostName(item.extUrl))) item.media = res.press;
+    } else if (item.channel === "자동차 커뮤니티") {
+      await sleep(randomBetween(NEWS_DELAY));
+      parsed = await readCommunityTime(item.url).catch(() => null);
+    } else {
+      // 언론사 자체 사이트 기사: 열어 보지 않고 둔다 (목록의 날짜로 판단)
+      if (item.ambiguous) item.note = "시간 미확인 (언론사 사이트에서 확인)";
+      continue;
+    }
+    if (parsed) {
       const place = placeInRange(parsed, win);
       if (place === "older" || place === "newer") {
         items = items.filter((x) => x !== item);
@@ -531,17 +723,13 @@ async function search(resume = null) {
         item.date = parsed.date;
         item.hasTime = true;
         item.ambiguous = false;
+        item.approx = false;
       }
-      const slug = pickSlug(res.hints || []);
-      if (slug && !cafeSlugs[item.cafeId]) {
-        await saveCafeSlug(item.cafeId, slug);
-        cafeSlugs[item.cafeId] = slug;
-      }
-    } else {
-      item.note = res.login ? "로그인 필요 - 시간 확인 못 함" : "시간 확인 못 함";
+    } else if (item.ambiguous) {
+      item.note = login ? "로그인 필요 - 시간 확인 못 함" : "시간 확인 못 함";
     }
     renderResults();
-    if (!stopRequested) await checkpoint(ids.length);
+    if (!stopRequested) await checkpoint();
   }
 
   await clearResume("lx3");
@@ -553,26 +741,41 @@ async function search(resume = null) {
   renderResults();
   lastSearchAt = Date.now();
   lastRange = { from: $("#from").value, to: $("#to").value };
+  lastKw = { mainKw, subKw };
   await saveLast();
   const checked = items.filter((x) => x.checked).length;
+  const byChannel = ["언론", "자동차 커뮤니티", "동호회"]
+    .map((c) => [c, items.filter((x) => (x.channel || "동호회") === c).length])
+    .filter(([, n]) => n)
+    .map(([c, n]) => `${c} ${n}`);
   setSummary(
-    `${stopRequested ? "중지됨 - " : ""}찾은 글 ${items.length}개 (관련 글로 체크 ${checked}개)` +
+    `${stopRequested ? "중지됨 - " : ""}찾은 글 ${items.length}개 (${byChannel.length > 1 ? `${byChannel.join(" · ")} · ` : ""}관련 글로 체크 ${checked}개)` +
       (loginNeeded ? " · 로그인이 필요한 카페가 있습니다" : "") +
       `. 필요 없는 글을 지운 뒤 '엑셀 받기'를 누르세요.`,
     loginNeeded ? "err" : "ok",
   );
   running = false;
   hideBusy();
-  // 못 읽은 동호회 · 시간 확인 못 한 글 → 다시 찾기 버튼
-  lastFailedCafes = stopRequested ? [] : failedCafes;
-  const unchecked = items.filter((x) => x.ambiguous).length;
-  $("#retryCafes").hidden = !lastFailedCafes.length && !unchecked;
-  $("#retryCafes").textContent = lastFailedCafes.length
-    ? `못 읽은 동호회 다시 찾기 (${lastFailedCafes.length}곳${unchecked ? ` · 시간 미확인 글 ${unchecked}개` : ""})`
+  // 못 읽은 곳(동호회·언론 검색어·커뮤니티 게시판) · 시간 확인 못 한 글 → 다시 찾기 버튼
+  lastFailed = stopRequested ? { ids: [], queries: [], boards: [] } : failed;
+  const unchecked = items.filter((x) => x.ambiguous && !(x.channel === "언론" && !x.naverUrl)).length;
+  const failCount = lastFailed.ids.length + lastFailed.queries.length + lastFailed.boards.length;
+  $("#retryCafes").hidden = !failCount && !unchecked;
+  $("#retryCafes").textContent = failCount
+    ? `못 읽은 곳 다시 찾기 (${whereText(lastFailed)}${unchecked ? ` · 시간 미확인 글 ${unchecked}개` : ""})`
     : `시간 미확인 글 다시 확인 (${unchecked}개)`;
   $("#search").disabled = false;
   $("#stop").disabled = true;
   updateCounts();
+}
+
+// "동호회 2곳 · 언론 검색어 3개 · 커뮤니티 게시판 1곳"
+function whereText({ ids = [], queries = [], boards = [] }) {
+  return [
+    ids.length ? `동호회 ${ids.length}곳` : "",
+    queries.length ? `언론 검색어 ${queries.length}개` : "",
+    boards.length ? `커뮤니티 게시판 ${boards.length}곳` : "",
+  ].filter(Boolean).join(" · ") || "없음";
 }
 
 // 결과 표(삭제 반영)를 저장해 두어 화면을 다시 열어도 그대로 보이게
@@ -590,11 +793,14 @@ function serializeItem(x) {
 // 결과 표
 // ---------------------------------------------------------------------------
 
-// 날짜순(일) → 동호회 목록 순 → 시간순
+// 기존 '채널별 버즈량 현황'처럼 채널(언론 → 동호회 → 자동차 커뮤니티) → 날짜순(일) → 동호회 목록·게시판 순 → 시간순
+const CHANNEL_ORDER = { 언론: 0, 동호회: 1, "자동차 커뮤니티": 2 };
 function sortedItems() {
   const day = (x) => (x.date ? new Date(x.date.getFullYear(), x.date.getMonth(), x.date.getDate()).getTime() : Infinity);
+  const ch = (x) => CHANNEL_ORDER[x.channel || "동호회"] ?? 9;
+  const sub = (x) => (isCafeItem(x) ? x.cafeIndex : x.boardIndex) ?? 0;
   return [...items].sort(
-    (a, b) => day(a) - day(b) || a.cafeIndex - b.cafeIndex || (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0),
+    (a, b) => ch(a) - ch(b) || day(a) - day(b) || sub(a) - sub(b) || (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0),
   );
 }
 
@@ -617,8 +823,8 @@ function renderResults() {
       tr.className = item.checked ? "" : "off";
       updateCounts();
     });
-    tr.children[1].textContent = item.date ? formatDateTime(item.date, item.hasTime) : "날짜 모름";
-    tr.children[2].textContent = cafeNames[item.cafeId] || item.cafeId;
+    tr.children[1].textContent = item.date ? formatDateTime(item.date, item.hasTime) + (item.approx ? " 무렵" : "") : "날짜 모름";
+    tr.children[2].textContent = isCafeItem(item) ? cafeNames[item.cafeId] || item.cafeId : `${item.channel} · ${item.media || hostName(item.url)}`;
     const a = tr.querySelector("a");
     a.href = url;
     a.textContent = item.title;
@@ -628,7 +834,8 @@ function renderResults() {
     if (item.ambiguous) notes.push(item.note || "시간 미확인");
     else if (item.note) notes.push(item.note);
     if (!item.related) notes.push("관련 단어 없음");
-    if (!(cafeSlugs[item.cafeId] || item.slug)) notes.push("영문 카페 주소 모름(설정에서 입력)");
+    if (isCafeItem(item) && !(cafeSlugs[item.cafeId] || item.slug)) notes.push("영문 카페 주소 모름(설정에서 입력)");
+    if (item.channel === "언론" && !item.naverUrl) notes.push("언론사 사이트 기사(네이버 댓글 없음)");
     tr.children[5].textContent = notes.join(" · ");
     tr.querySelector(".del").addEventListener("click", () => {
       items = items.filter((x) => x !== item);
@@ -653,6 +860,7 @@ function updateCounts() {
 // 같은 글인지 비교하는 열쇠: 카페(영문 주소, 모르면 카페 번호) + 글번호
 // (https://cafe.naver.com/allumpc/1340146 과 …/f-e/cafes/16624720/articles/1340146 은 같은 글)
 function normUrl(u) {
+  if (!/^https?:\/\/(?:[\w-]+\.)?(?:cafe\.naver\.com|naver\.me)\//i.test(String(u || "").trim())) return channelKey(u);
   const ids = parseArticleUrl(String(u || ""));
   const cafe = ids.cafeUrl || (ids.cafeId && cafeSlugs[ids.cafeId]) || ids.cafeId;
   if (ids.articleId && cafe) return `${cafe}/${ids.articleId}`.toLowerCase();
@@ -669,7 +877,7 @@ function markDuplicates() {
   const have = new Set((base ? base.urls : []).map(normUrl));
   for (const item of items) {
     const was = item.dup;
-    item.dup = have.has(normUrl(articleUrl(item)));
+    item.dup = [articleUrl(item), item.extUrl, item.naverUrl].some((u) => u && have.has(normUrl(u)));
     // 새로 '이미 파일에 있음'이 된 글은 (먼저 직접 체크했더라도) 체크를 푼다 - 다시 체크하면 넣을 수 있음
     if (item.dup && (!was || !item.touched)) item.checked = false;
     // 이어 쓸 파일이 바뀌어 더는 '이미 있음'이 아니면 원래 판단(관련 글이면 체크)으로
@@ -757,7 +965,7 @@ async function buildList(selected) {
   }
   let serial = info.lastSerial;
   const values = selected.map((x) => [
-    null, ++serial, "동호회", cafeNames[x.cafeId] || x.cafeId,
+    null, ++serial, x.channel || "동호회", isCafeItem(x) ? cafeNames[x.cafeId] || x.cafeId : x.media || hostName(x.url),
     // 게시일은 기존 파일처럼 날짜만 (작성 시간은 결과 표에서 확인)
     x.date ? excelSerial(new Date(x.date.getFullYear(), x.date.getMonth(), x.date.getDate())) : "",
     x.title, articleUrl(x),
@@ -787,9 +995,6 @@ async function saveList() {
   $("#saveInfo").className = "hint";
   $("#saveInfo").textContent = "엑셀 만드는 중…";
   $("#diffs").hidden = true;
-  $("#saveInfo").className = "hint";
-  $("#saveInfo").textContent = "엑셀 만드는 중…";
-  $("#diffs").hidden = true;
   try {
     const out = await buildList(selected);
     const base = baseFile();
@@ -799,7 +1004,11 @@ async function saveList() {
     let dbNote = "";
     if (!separateFile()) {
       // 오늘의 최종 파일로 최종 DB 에 저장하고, 다음 저장은 이 파일에 이어 쓴다
-      await dbSaveDay("buzz", today(), name, out.bytes, "auto", `마지막 순번 ${out.to.toLocaleString()}`, { posts: selected.length });
+      // 그 채널을 찾았을 때만 건수 기록 (찾지 않은 채널은 0이 아니라 '기록 없음')
+      const count = (c) => (items.some((x) => (x.channel || "동호회") === c) ? selected.filter((x) => (x.channel || "동호회") === c).length : undefined);
+      await dbSaveDay("buzz", today(), name, out.bytes, "auto", `마지막 순번 ${out.to.toLocaleString()}`, {
+        posts: selected.length, news: count("언론"), cafe: count("동호회"), community: count("자동차 커뮤니티"),
+      });
       await showDiffs();
       listFile = null;
       $("#listFile").value = "";
@@ -809,7 +1018,7 @@ async function saveList() {
     }
     $("#saveInfo").className = "hint ok";
     $("#saveInfo").textContent = `✔ ${saveWhereText(await saveOptions())}에 ${name} - ${selected.length}개 추가 (순번 ${out.from}~${out.to})${dbNote}. '체크한 글 댓글 수집하기'로 바로 댓글을 모을 수 있습니다.`;
-    const noSlug = selected.filter((x) => !(cafeSlugs[x.cafeId] || x.slug));
+    const noSlug = selected.filter((x) => isCafeItem(x) && !(cafeSlugs[x.cafeId] || x.slug));
     if (noSlug.length) {
       $("#saveInfo").className = "hint err";
       $("#saveInfo").textContent += ` (영문 카페 주소를 몰라 긴 주소로 쓴 글 ${noSlug.length}개 - 설정의 '영문 카페 주소'를 넣고 다시 받으세요)`;
@@ -834,13 +1043,25 @@ function handOff(urls, message) {
   location.href = "app.html";
 }
 
+// 언론은 네이버 뉴스 기사만(댓글은 네이버 뉴스에만 있음), 동호회·커뮤니티 글, 유튜브 목록
 function toComments() {
-  const cafe = sortedItems().filter((x) => x.checked).map(articleUrl);
+  const sel = sortedItems().filter((x) => x.checked);
+  const news = sel.filter((x) => x.channel === "언론" && x.naverUrl).map((x) => x.naverUrl);
+  const noNaver = sel.filter((x) => x.channel === "언론" && !x.naverUrl).length;
+  const cafe = sel.filter(isCafeItem).map(articleUrl);
+  const comm = sel.filter((x) => x.channel === "자동차 커뮤니티").map((x) => x.url);
   const yt = $("#withYoutube").checked ? youtube : [];
+  const parts = [
+    news.length ? `언론 기사 ${news.length}개` : "",
+    cafe.length || (!news.length && !comm.length) ? `카페 글 ${cafe.length}개` : "",
+    comm.length ? `커뮤니티 글 ${comm.length}개` : "",
+    yt.length ? `유튜브 영상 ${yt.length}개` : "",
+  ].filter(Boolean);
   handOff(
-    [...cafe, ...yt],
-    `LX3 메뉴에서 카페 글 ${cafe.length}개${yt.length ? `, 유튜브 영상 ${yt.length}개` : ""}를 가져왔습니다. ` +
-      `기존 raw data 엑셀 파일을 고른 뒤 '수집 시작'을 누르세요.`,
+    [...news, ...cafe, ...comm, ...yt],
+    `LX3 메뉴에서 ${parts.join(", ")}를 가져왔습니다` +
+      (noNaver ? ` (언론사 자체 사이트 기사 ${noNaver}개는 네이버 뉴스 댓글이 없어 뺐습니다)` : "") +
+      `. 기존 raw data 엑셀 파일을 고른 뒤 '수집 시작'을 누르세요.`,
   );
 }
 
@@ -938,7 +1159,8 @@ async function init() {
     markDuplicates();
     renderResults();
   });
-  for (const id of ["cafeList", "include", "exclude", "searchUrl", "maxPages", "query", "tabFallback", "saveFolder", "saveAsk", "holidays"]) {
+  for (const id of ["cafeList", "include", "exclude", "searchUrl", "maxPages", "query", "tabFallback", "saveFolder", "saveAsk", "holidays",
+    "chCafe", "chNews", "chCommunity", "mainKw", "subKw", "boards", "newsPages"]) {
     $(`#${id}`).addEventListener("change", async () => {
       if (id === "searchUrl") $("#searchUrl").value = normalizeSearchUrl($("#searchUrl").value);
       if (id === "saveFolder") $("#saveFolder").value = cleanFolder($("#saveFolder").value);
@@ -961,16 +1183,21 @@ async function init() {
     $("#exclude").value = DEFAULT_EXCLUDE;
     $("#searchUrl").value = DEFAULT_SEARCH_URL;
     $("#maxPages").value = DEFAULT_MAX_PAGES;
+    $("#mainKw").value = DEFAULT_MAIN_KEYWORDS;
+    $("#subKw").value = DEFAULT_SUB_KEYWORDS;
+    $("#boards").value = DEFAULT_BOARDS.join("\n");
+    $("#newsPages").value = DEFAULT_NEWS_PAGES;
     await saveSettings();
     renderCafeInfo();
   });
   $("#resetRange").addEventListener("click", () => resetRange());
   $("#search").addEventListener("click", () => search());
-  // 못 읽은 동호회만 다시 찾고(날짜만 보이는 글의 시간 확인도 다시), 이미 찾은 글에 더한다
+  // 못 읽은 곳만 다시 찾고(날짜만 보이는 글의 시간 확인도 다시), 이미 찾은 글에 더한다
   $("#retryCafes").addEventListener("click", () =>
     search({
       retry: true, from: lastRange.from || $("#from").value, to: lastRange.to || $("#to").value, q: $("#query").value.trim(),
-      ids: lastFailedCafes, nextCafe: 0, items: items.map(serializeItem),
+      ids: lastFailed.ids, queries: lastFailed.queries, boards: lastFailed.boards, mainKw: lastKw.mainKw, subKw: lastKw.subKw,
+      items: items.map(serializeItem),
     }),
   );
   $("#stop").addEventListener("click", () => {
@@ -1026,9 +1253,17 @@ async function init() {
   // 중단된 찾기가 있으면 이어서 할지 묻는다
   const r = await loadResume("lx3");
   if (r) {
+    const ids = r.ids || [];
+    const queries = r.queries || [];
+    const boards = r.boards || [];
+    const parts = [
+      queries.length ? `언론 검색어 ${queries.length}개 중 ${Math.min(r.nextQuery || 0, queries.length)}개` : "",
+      boards.length ? `커뮤니티 게시판 ${boards.length}곳 중 ${Math.min(r.nextBoard || 0, boards.length)}곳` : "",
+      ids.length ? `동호회 ${ids.length}곳 중 ${Math.min(r.nextCafe || 0, ids.length)}곳` : "",
+    ].filter(Boolean);
     const go = confirm(
-      `중단된 게시물 찾기가 있습니다 (동호회 ${r.ids.length}곳 중 ${Math.min(r.nextCafe, r.ids.length)}곳 완료, 찾은 글 ${r.items.length}개 · ${new Date(r.at).toLocaleString()}).\n\n` +
-        "· [확인]: 이어서 찾기 (남은 동호회·시간 확인부터)\n· [취소]: 버리기",
+      `중단된 게시물 찾기가 있습니다 (${parts.join(", ")} 완료, 찾은 글 ${r.items.length}개 · ${new Date(r.at).toLocaleString()}).\n\n` +
+        "· [확인]: 이어서 찾기 (남은 곳·시간 확인부터)\n· [취소]: 버리기",
     );
     if (go) search(r);
     else await clearResume("lx3");
@@ -1044,6 +1279,13 @@ async function showDiffs() {
   box.hidden = !d;
   box.replaceChildren();
   if (d) box.append(diffLine("오늘 게시물", d));
+  // 채널을 둘 이상 찾았으면 채널별로도 (하나뿐이면 합계와 같으므로 생략)
+  const lines = [];
+  for (const [field, label] of [["news", "언론"], ["cafe", "동호회"], ["community", "자동차 커뮤니티"]]) {
+    const c = await dbStatDiff("buzz", today(), field).catch(() => null);
+    if (c && d) lines.push(diffLine(label, c));
+  }
+  if (lines.length > 1) box.append(...lines);
 }
 
 // 위쪽 '⚙ 설정' 버튼(lx3.html#settings): 설정을 펼치고 그 위치로

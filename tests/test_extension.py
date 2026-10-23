@@ -5,6 +5,7 @@
 """
 import json
 import os
+import re
 import ssl
 import subprocess
 import threading
@@ -488,6 +489,10 @@ def test_lx3(tmp_path: Path):
         page.locator("#cafeList").dispatch_event("change")
         page.fill("#from", "2026-10-11T12:00")
         page.fill("#to", "2026-10-12T12:00")
+        # 언론·커뮤니티는 기본으로 켜져 있음 → 이 테스트는 동호회만 (언론·커뮤니티는 test_lx3_news_community)
+        assert page.is_checked("#chCafe") and page.is_checked("#chNews") and page.is_checked("#chCommunity")
+        page.uncheck("#chNews")
+        page.uncheck("#chCommunity")
         page.click("#search")
         page.locator("#summary", has_text="찾은 글").wait_for(timeout=240000)
         summary = page.inner_text("#summary")
@@ -835,5 +840,342 @@ def test_resume(tmp_path: Path):
         titles = page.locator("#results tbody tr td:nth-child(4)").all_inner_texts()
         assert titles == ["아이오닉9 전동시트 리콜 공지", "중단 전에 찾은 글"], titles
         assert page.evaluate("loadResume('lx3')") is None
+        ctx.close()
+    server.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# 언론(네이버 뉴스 검색·댓글 상자) · 자동차 커뮤니티(보배드림·클리앙·뽐뿌) 흉내
+# ---------------------------------------------------------------------------
+
+def news_item(press, press_home, date_text, title, ext_url, naver_url=None):
+    naver = f'<a class="info" href="{naver_url}">네이버뉴스</a>' if naver_url else ""
+    return (
+        '<li class="bx"><div class="news_wrap"><div class="news_info"><div class="info_group">'
+        f'<a class="info press" href="{press_home}">{press}</a><span class="info">{date_text}</span>{naver}</div></div>'
+        f'<a class="news_tit" href="{ext_url}" title="{title}">{title}</a>'
+        f'<div class="news_dsc"><a class="api_txt_lines dsc_txt_wrap" href="{ext_url}">{title} 관련 요약문입니다. 자세한 내용은 기사에서 확인하세요.</a></div>'
+        "</div></li>"
+    )
+
+
+NEWS_SEARCH = (
+    '<html><body><ul class="list_news">'
+    + news_item("연합뉴스", "https://www.yna.co.kr/", "2026.10.21.", "팰리세이드 전동시트 끼임 사고 리콜",
+                "https://www.yna.co.kr/view/AKR001", "https://n.news.naver.com/mnews/article/001/0000000001?sid=103")
+    + news_item("컨슈머치", "https://www.consumuch.com/", "2026.10.22.", "팰리세이드 2열 전동시트 결함 논란",
+                "https://www.consumuch.com/news/articleView.html?idxno=79352&iqfrm=naver")
+    + news_item("한국일보", "https://www.hankookilbo.com/", "2026.10.20.", "팰리세이드 전동시트 지난 기사",
+                "https://www.hankookilbo.com/News/Read/A1", "https://n.news.naver.com/mnews/article/469/0000000003?sid=101")
+    + "</ul></body></html>"
+)
+
+NEWS_ARTICLE = (
+    '<html><head><meta property="og:title" content="팰리세이드 전동시트 끼임 사고 리콜"></head><body>'
+    '<div class="media_end_head_top_logo"><img title="연합뉴스"></div>'
+    '<h2 id="title_area">팰리세이드 전동시트 끼임 사고 리콜</h2>'
+    '<span class="media_end_head_info_datestamp_time _ARTICLE_DATE_TIME" data-date-time="2026-10-21 15:00:00">2026.10.21. 오후 3:00</span>'
+    "</body></html>"
+)
+
+
+def news_cbox(url):
+    from urllib.parse import parse_qs, urlparse
+    q = parse_qs(urlparse(url).query)
+    if q.get("parentCommentNo"):
+        lst = [{"commentNo": 1, "contents": "부모 댓글", "regTime": "2026-10-21T16:00:00+0900"},
+               {"commentNo": 11, "contents": "답글도 모아요", "regTime": "2026-10-21T16:05:00+0900"}]
+    else:
+        lst = [{"commentNo": 1, "contents": "리콜 빨리 해라", "regTime": "2026-10-21T16:00:00+0900", "replyCount": 1},
+               {"commentNo": 2, "contents": "", "regTime": "2026-10-21T16:10:00+0900", "deleted": True},
+               {"commentNo": 3, "contents": "아이 키우는 집은 무섭겠다", "regTime": "2026-10-21T17:30:00+0900", "replyCount": 0}]
+    data = {"success": True, "result": {"objectTitle": "팰리세이드 전동시트 끼임 사고 리콜", "count": {"comment": 3},
+                                        "pageModel": {"totalPages": 1}, "commentList": lst}}
+    return "cb(" + json.dumps(data, ensure_ascii=False) + ");"
+
+
+BOBAE_LIST = (
+    "<html><body><table>"
+    '<tr class="list"><td class="pl14"><a class="bsubject" href="/view?code=national&No=2398545&bm=1">싼타페 시트 결함 문의드립니다</a></td>'
+    '<td class="date">2026.10.21 16:20</td></tr>'
+    '<tr class="list"><td class="pl14"><a class="bsubject" href="/view?code=national&No=2398500&bm=1">팰리세이드 시트 지난 글</a></td>'
+    '<td class="date">2026.10.18 10:00</td></tr>'
+    "</table></body></html>"
+)
+BOBAE_VIEW = (
+    '<html><body><div class="writerProfile"><span class="countGroup">2026.10.21 16:20</span></div>'
+    '<div class="commentlistbox"><ul class="basiclist">'
+    '<li><dl><dt><span class="date">2026.10.21 17:00</span></dt><dd id="small_cmt_1">서비스센터 가 보세요</dd></dl></li>'
+    '<li><dl><dt><span class="date">2026.10.21 17:10</span></dt><dd id="small_cmt_2">저도 같은 증상이에요</dd></dl></li>'
+    "</ul></div></body></html>"
+)
+CLIEN_LIST = (
+    "<html><body>"
+    '<div class="list_item"><a class="list_subject" href="/service/board/cm_car/111?od=T31">팰리세이드 전동시트 또 고장났네요</a>'
+    '<span class="timestamp">2026-10-21 18:00:00</span></div>'
+    '<div class="list_item"><a class="list_subject" href="/service/board/cm_car/112?od=T31">타이어 교체 후기</a>'
+    '<span class="timestamp">2026-10-21 17:00:00</span></div>'
+    '<div class="list_item"><a class="list_subject" href="/service/board/cm_car/100?od=T31">팰리세이드 시트 옛날 글</a>'
+    '<span class="timestamp">2026-10-19 06:00:00</span></div>'
+    "</body></html>"
+)
+CLIEN_NEWS_LIST = (
+    '<html><body><div class="list_item"><a href="/service/board/news/500">오늘의 경제 소식</a>'
+    '<span class="timestamp">2026-10-21 13:00:00</span></div></body></html>'
+)
+CLIEN_VIEW = (
+    '<html><body><div class="post_author"><span class="view_count date">2026-10-21 18:00:00</span></div>'
+    '<div class="comment_row"><div class="comment_view">센터 예약하세요</div><span class="timestamp">2026-10-21 18:30:00</span></div>'
+    '<div class="comment_row"><div class="comment_view">리콜 대상인지 확인해 보세요</div><span class="timestamp">2026-10-21 19:00:00</span></div>'
+    "</body></html>"
+)
+PPOM_HEAD = '<html><head><meta charset="euc-kr"></head><body><div class="board-contents">본문입니다</div>'
+
+
+def ppom_comment(i, text, when):
+    return (f'<div class="comment_wrapper"><div id="commentContent_{i}" class="mid-text-area">{text}</div>'
+            f'<span class="eng-day">{when}</span></div>')
+
+
+def ppom_view(no, c_page):
+    if no == "980149":  # 댓글 5개(삭제 1개 포함)가 두 쪽에 나뉘어 있음
+        if c_page == "2":
+            body = ppom_comment(4, "둘째 쪽 댓글 하나", "2026-10-22 10:10") + ppom_comment(5, "둘째 쪽 댓글 둘", "2026-10-22 10:20")
+        else:
+            body = (ppom_comment(1, "리콜 소식 반갑네요", "2026-10-22 09:01") + ppom_comment(2, "삭제된 댓글입니다.", "2026-10-22 09:02")
+                    + ppom_comment(3, "끼임 사고 무섭다", "2026-10-22 09:05"))
+        return (PPOM_HEAD + '<span>댓글 [5]</span><div id="quote">' + body + "</div>"
+                '<div class="comment_page"><a href="view.php?id=car&amp;no=980149&amp;c_page=1">1</a> '
+                '<a href="view.php?id=car&amp;no=980149&amp;c_page=2">2</a></div></body></html>')
+    # 980150: 화면이 열린 뒤에 댓글을 불러옴 (받아 온 화면엔 없음)
+    return PPOM_HEAD + (
+        '<span>댓글 [3]</span><div id="cbox"></div><script>setTimeout(function(){var h="";'
+        '["늦게 뜨는 댓글 하나","늦게 뜨는 댓글 둘","늦게 뜨는 댓글 셋"].forEach(function(t,i){'
+        'h+=\'<div class="comment_wrapper"><div id="commentContent_\'+i+\'" class="mid-text-area">\'+t+\'</div><span class="eng-day">2026-10-22 11:0\'+i+\'</span></div>\';});'
+        'document.getElementById("cbox").innerHTML=h;},400);</script></body></html>'
+    )
+
+
+PPOM_LIST = (
+    '<html><head><meta charset="euc-kr"></head><body><table>'
+    '<tr class="baseList"><td><a href="view.php?id=car&amp;no=980149"><span class="baseList-title">[펠리세이드] 2열 시트 끼임 리콜 소식</span></a>'
+    '<span class="list_comment2"><span>5</span></span></td><td><time class="baseList-time">2026-10-22 08:00:00</time></td></tr>'
+    '<tr class="baseList"><td><a href="view.php?id=car&amp;no=980150"><span class="baseList-title">팰리세이드 전동시트 리콜 후기</span></a>'
+    '<span class="list_comment2"><span>3</span></span></td><td><time class="baseList-time">2026-10-22 07:00:00</time></td></tr>'
+    '<tr class="baseList"><td><a href="view.php?id=car&amp;no=980100"><span class="baseList-title">팰리세이드 시트 옛날 글</span></a></td>'
+    "<td>2026-10-01 08:00:00</td></tr>"
+    "</table></body></html>"
+)
+
+
+def start_fake_sites(tmp_path: Path):
+    """search.naver.com · n.news.naver.com · 보배드림 · 클리앙 · 뽐뿌 를 한 서버로 (Host 머리글로 나눔)."""
+    from urllib.parse import parse_qs, urlparse
+    cert, key = tmp_path / "sites-cert.pem", tmp_path / "sites-key.pem"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=fake",
+                    "-keyout", str(key), "-out", str(cert)], check=True, capture_output=True)
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            host = (self.headers.get("Host") or "").split(":")[0]
+            requests.append(host + self.path)
+            u = urlparse(self.path)
+            q = parse_qs(u.query)
+            ctype, body = "text/html; charset=utf-8", "<html><body></body></html>"
+            if host == "search.naver.com":
+                # '팰리세이드 전동시트'·'팰리세이드 결함' 검색에만 결과 (같은 기사가 두 검색어에 다 나옴 → 하나만)
+                if q.get("query", [""])[0] in ("팰리세이드 전동시트", "팰리세이드 결함") and q.get("start", ["1"])[0] == "1":
+                    body = NEWS_SEARCH
+            elif host == "n.news.naver.com":
+                body = NEWS_ARTICLE
+            elif host == "www.bobaedream.co.kr":
+                body = BOBAE_VIEW if u.path == "/view" else (BOBAE_LIST if q.get("page", ["1"])[0] == "1" else "<html></html>")
+            elif host == "www.clien.net":
+                if re.search(r"/service/board/\w+/\d+", u.path):
+                    body = CLIEN_VIEW
+                elif q.get("po", ["0"])[0] == "0":
+                    body = CLIEN_NEWS_LIST if "/news" in u.path else CLIEN_LIST
+            elif host == "www.ppomppu.co.kr":
+                ctype = "text/html; charset=euc-kr"
+                if "view.php" in u.path:
+                    body = ppom_view(q.get("no", [""])[0], q.get("c_page", ["1"])[0])
+                elif q.get("page", ["1"])[0] == "1":
+                    body = PPOM_LIST
+            data = body.encode("euc-kr" if "euc-kr" in ctype else "utf-8")
+            self.send_response(200)
+            if host == "www.ppomppu.co.kr":  # 실제 사이트처럼 다른 화면 안(틀)에 넣지 못하게
+                self.send_header("X-Frame-Options", "SAMEORIGIN")
+                self.send_header("Content-Security-Policy", "frame-ancestors 'self'")
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(cert, key)
+    server.socket = tls.wrap_socket(server.socket, server_side=True)
+    server.requests = requests
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def test_lx3_news_community(tmp_path: Path):
+    """언론(네이버 뉴스 검색: 네이버 뉴스·언론사 사이트 기사)·자동차 커뮤니티(게시판 목록) 게시물 찾기 → 엑셀 →
+    댓글 수집(네이버 뉴스 댓글·답글, 커뮤니티 댓글: 뽐뿌 EUC-KR·댓글 여러 쪽·늦게 뜨는 댓글, 삭제 댓글 제외)."""
+    server = start_fake_sites(tmp_path)
+    port = server.server_address[1]
+    hosts = ["search.naver.com", "n.news.naver.com", "www.bobaedream.co.kr", "www.clien.net", "www.ppomppu.co.kr"]
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True, timezone_id="Asia/Seoul",
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}",
+                  "--host-resolver-rules=" + ", ".join(f"MAP {h} 127.0.0.1:{port}" for h in hosts),
+                  "--no-proxy-server", "--ignore-certificate-errors"],
+            accept_downloads=True)
+        cbox_calls = []
+        ctx.route("https://apis.naver.com/**", lambda route: (cbox_calls.append(route.request.url), route.fulfill(
+            status=200, content_type="text/javascript; charset=utf-8", body=news_cbox(route.request.url))))
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        ext = f"chrome-extension://{sw.url.split('/')[2]}"
+        page = ctx.new_page()
+        dialogs = []
+        page.on("dialog", lambda d: (dialogs.append(d.message), d.accept()))
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"{ext}/lx3.html")
+
+        # 기본 설정: 메인 6개 × 서브 7개 = 검색어 42개, 커뮤니티 게시판 4곳
+        assert page.input_value("#mainKw") == "펠리세이드, 팰리세이드, LX3, 아이오닉9, 싼타페, MX5"
+        assert page.input_value("#subKw") == "전동시트, 시트, 결함, 리콜, 시트리콜, 시트 결함, 시트 사망 사고"
+        qs = page.evaluate("keywordQueries($('#mainKw').value, $('#subKw').value)")
+        assert len(qs) == 42 and qs[0] == "펠리세이드 전동시트" and "MX5 시트 사망 사고" in qs
+        assert page.input_value("#boards").split("\n") == [
+            "https://www.bobaedream.co.kr/list?code=national", "https://www.clien.net/service/board/cm_car",
+            "https://www.clien.net/service/board/news", "https://www.ppomppu.co.kr/zboard/zboard.php?id=car"]
+        assert page.evaluate("matchesCombo('[펠리세이드] 2열 시트 끼임', '팰리세이드, 펠리세이드', '시트')")
+        assert not page.evaluate("matchesCombo('팰리세이드 타이어', '팰리세이드', '시트, 결함')")
+
+        # 언론·커뮤니티만, 검색어는 짧게 (메인 1 × 서브 2)
+        page.locator("#settings summary").click()
+        page.uncheck("#chCafe")
+        page.fill("#mainKw", "팰리세이드, 펠리세이드, 싼타페")
+        page.locator("#mainKw").dispatch_event("change")
+        page.fill("#subKw", "전동시트, 시트, 결함")
+        page.locator("#subKw").dispatch_event("change")
+        page.fill("#from", "2026-10-21T12:00")
+        page.fill("#to", "2026-10-22T12:00")
+        # 메인 3 × 서브 3 = 9개 검색어 중 2개만 결과가 있음 → 기간·중복을 걸러 언론 2건
+        page.click("#search")
+        page.locator("#summary", has_text="찾은 글").wait_for(timeout=240000)
+        summary = page.inner_text("#summary")
+        rows = page.locator("#results tbody tr")
+        got = [(rows.nth(i).locator("td").nth(1).inner_text(), rows.nth(i).locator("td").nth(2).inner_text(),
+                rows.nth(i).locator("td").nth(3).inner_text(), rows.nth(i).locator("td").nth(4).inner_text(),
+                rows.nth(i).locator("input").is_checked()) for i in range(rows.count())]
+        assert got == [
+            # 언론: 네이버 뉴스 기사는 글을 열어 시간 확인(15:00), 언론사 사이트 기사는 날짜만 (iqfrm 주소 그대로)
+            ("2026-10-21 15:00", "언론 · 연합뉴스", "팰리세이드 전동시트 끼임 사고 리콜", "https://n.news.naver.com/mnews/article/001/0000000001", True),
+            ("2026-10-22", "언론 · 컨슈머치", "팰리세이드 2열 전동시트 결함 논란", "https://www.consumuch.com/news/articleView.html?idxno=79352&iqfrm=naver", True),
+            # 커뮤니티: 게시판 순(보배드림 → 클리앙 → 뽐뿌) · 날짜순
+            ("2026-10-21 16:20", "자동차 커뮤니티 · 보배드림", "싼타페 시트 결함 문의드립니다", "https://www.bobaedream.co.kr/view?code=national&No=2398545", True),
+            ("2026-10-21 18:00", "자동차 커뮤니티 · 클리앙", "팰리세이드 전동시트 또 고장났네요", "https://www.clien.net/service/board/cm_car/111", True),
+            ("2026-10-22 07:00", "자동차 커뮤니티 · 뽐뿌", "팰리세이드 전동시트 리콜 후기", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980150", True),
+            ("2026-10-22 08:00", "자동차 커뮤니티 · 뽐뿌", "[펠리세이드] 2열 시트 끼임 리콜 소식", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980149", True),
+        ], (got, summary, page.inner_text("#log"))
+        assert "찾은 글 6개 (언론 2 · 자동차 커뮤니티 4 · 관련 글로 체크 6개)" in summary, summary
+        assert "언론사 사이트 기사(네이버 댓글 없음)" in rows.nth(1).inner_text()
+        news_q = [r for r in server.requests if r.startswith("search.naver.com")]
+        assert len(news_q) == 9 and all("ds=2026.10.21" in r and "de=2026.10.22" in r and "sort=1" in r for r in news_q), news_q
+        assert not any("/cm_car/112" in r for r in server.requests)  # 키워드 없는 글은 열지 않음
+        assert not errors, errors
+
+        # 엑셀: 채널·매체명·날짜·URL
+        page.check("#separate")
+        with page.expect_download() as dl:
+            page.click("#saveList")
+        buzz = tmp_path / "buzz.xlsx"
+        dl.value.save_as(buzz)
+        ws = load_workbook(buzz).worksheets[0]
+        vals = [r[1:7] for r in ws.iter_rows(min_row=4, values_only=True) if r[1]]
+        assert [(v[0], v[1], v[2], v[3].date().isoformat(), v[5]) for v in vals] == [
+            (1, "언론", "연합뉴스", "2026-10-21", "https://n.news.naver.com/mnews/article/001/0000000001"),
+            (2, "언론", "컨슈머치", "2026-10-22", "https://www.consumuch.com/news/articleView.html?idxno=79352&iqfrm=naver"),
+            (3, "자동차 커뮤니티", "보배드림", "2026-10-21", "https://www.bobaedream.co.kr/view?code=national&No=2398545"),
+            (4, "자동차 커뮤니티", "클리앙", "2026-10-21", "https://www.clien.net/service/board/cm_car/111"),
+            (5, "자동차 커뮤니티", "뽐뿌", "2026-10-22", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980150"),
+            (6, "자동차 커뮤니티", "뽐뿌", "2026-10-22", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980149"),
+        ], vals
+
+        # 이미 파일에 있는 글: 같은 기사를 다른 주소 모양(sid·iqfrm 없음)으로 넣은 파일에 이어 쓰면 체크가 풀린다
+        page.uncheck("#separate")
+        old = tmp_path / "20261021_버즈량.xlsx"
+        make_buzz_file(old)
+        wb = load_workbook(old)
+        ws = wb.worksheets[0]
+        ws.append([None, 99, "언론", "연합뉴스", None, "예전에 넣은 기사", "https://n.news.naver.com/mnews/article/001/0000000001?sid=103"])
+        ws.append([None, 100, "언론", "컨슈머치", None, "예전에 넣은 기사", "https://www.consumuch.com/news/articleView.html?idxno=79352"])
+        wb.save(old)
+        page.set_input_files("#listFile", str(old))
+        page.locator("#listFileInfo", has_text="✔").wait_for()
+        assert [rows.nth(i).locator("input").is_checked() for i in range(2)] == [False, False]
+        assert "이미 파일에 있음" in rows.nth(0).inner_text() and "이미 파일에 있음" in rows.nth(1).inner_text()
+        page.set_input_files("#listFile", [])
+        page.check("#separate")
+        for i in range(2):
+            rows.nth(i).locator("input").check()
+
+        # 댓글 수집으로: 언론은 네이버 뉴스 기사만 (언론사 사이트 기사는 댓글이 없어 뺌)
+        page.uncheck("#withYoutube")
+        page.click("#toComments")
+        page.wait_for_url("**/app.html")
+        handoff = page.inner_text("#handoff")
+        assert "언론 기사 1개, 커뮤니티 글 4개" in handoff and "언론사 자체 사이트 기사 1개는" in handoff, handoff
+        assert page.input_value("#urls").split("\n") == [
+            "https://n.news.naver.com/mnews/article/001/0000000001",
+            "https://www.bobaedream.co.kr/view?code=national&No=2398545",
+            "https://www.clien.net/service/board/cm_car/111",
+            "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980150",
+            "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980149",
+        ]
+        page.check("#separate")
+        with page.expect_download(timeout=240000) as dl:
+            page.click("#start")
+        raw = tmp_path / "raw.xlsx"
+        dl.value.save_as(raw)
+        progress = page.inner_text("#progress")
+        wb = load_workbook(raw)
+        news_rows = [r for r in list(wb["언론"].values)[1:]]
+        assert news_rows == [
+            (1, "언론", "2026.10.21. 16:00", "리콜 빨리 해라", "https://n.news.naver.com/mnews/article/001/0000000001"),
+            (2, "언론", "2026.10.21. 16:05", "답글도 모아요", "https://n.news.naver.com/mnews/article/001/0000000001"),
+            (3, "언론", "2026.10.21. 17:30", "아이 키우는 집은 무섭겠다", "https://n.news.naver.com/mnews/article/001/0000000001"),
+        ], (news_rows, progress)
+        comm = [r for r in list(wb["자동차 커뮤니티"].values)[1:]]
+        assert [(r[0], r[1], r[2], r[3]) for r in comm] == [
+            (1, "보배드림", "2026.10.21. 17:00", "서비스센터 가 보세요"),
+            (2, "보배드림", "2026.10.21. 17:10", "저도 같은 증상이에요"),
+            (3, "클리앙", "2026.10.21. 18:30", "센터 예약하세요"),
+            (4, "클리앙", "2026.10.21. 19:00", "리콜 대상인지 확인해 보세요"),
+            # 화면이 열린 뒤 불러오는 댓글 → 보이지 않는 틀로 열어 읽음
+            (5, "뽐뿌", "2026.10.22. 11:00", "늦게 뜨는 댓글 하나"),
+            (6, "뽐뿌", "2026.10.22. 11:01", "늦게 뜨는 댓글 둘"),
+            (7, "뽐뿌", "2026.10.22. 11:02", "늦게 뜨는 댓글 셋"),
+            # 댓글 두 쪽 (EUC-KR) · 삭제된 댓글 제외
+            (8, "뽐뿌", "2026.10.22. 09:01", "리콜 소식 반갑네요"),
+            (9, "뽐뿌", "2026.10.22. 09:05", "끼임 사고 무섭다"),
+            (10, "뽐뿌", "2026.10.22. 10:10", "둘째 쪽 댓글 하나"),
+            (11, "뽐뿌", "2026.10.22. 10:20", "둘째 쪽 댓글 둘"),
+        ], (comm, progress)
+        assert comm[0][4] == "https://www.bobaedream.co.kr/view?code=national&No=2398545"
+        assert comm[-1][4] == "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980149"
+        assert any("parentCommentNo=1" in u for u in cbox_calls)  # 답글도 읽음
+        summary = page.inner_text("#summary")
+        assert "언론 3개 추가" in summary and "자동차 커뮤니티 11개 추가" in summary, summary
+        assert not errors, errors
         ctx.close()
     server.shutdown()

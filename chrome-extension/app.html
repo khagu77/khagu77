@@ -28,9 +28,9 @@
     <label class="inline"><input type="checkbox" id="separate"> 별도 파일로 작성 <span class="hint">(최종 DB에 이어 쓰지 않고 새 파일로 · 최종 DB에 저장 안 함)</span></label>
     <div id="templateInfo" class="hint"></div>
 
-    <label for="urls">네이버 카페 게시글 / 유튜브 영상 URL <span class="hint">(한 줄에 하나씩, 섞어서 넣어도 됩니다)</span></label>
+    <label for="urls">네이버 뉴스 기사 / 네이버 카페 게시글 / 자동차 커뮤니티(보배드림·클리앙·뽐뿌) 게시글 / 유튜브 영상 URL <span class="hint">(한 줄에 하나씩, 섞어서 넣어도 됩니다)</span></label>
     <textarea id="urls" rows="8" spellcheck="false"
-      placeholder="https://cafe.naver.com/카페주소/12345&#10;https://www.youtube.com/watch?v=xxxxxxxxxxx"></textarea>
+      placeholder="https://n.news.naver.com/mnews/article/001/0012345678&#10;https://cafe.naver.com/카페주소/12345&#10;https://www.ppomppu.co.kr/zboard/view.php?id=car&amp;no=123456&#10;https://www.youtube.com/watch?v=xxxxxxxxxxx"></textarea>
 
     <div class="buttons">
       <button id="start" class="primary">수집 시작</button>
@@ -49,6 +49,7 @@
     </table>
 
     <p class="note">
+      언론은 네이버 뉴스 기사의 댓글(답글 포함)을, 자동차 커뮤니티는 게시글 화면의 댓글을 모두 읽습니다(삭제·블라인드 댓글 제외 · 댓글이 많아 여러 쪽이거나 '더보기'로 나오는 글은 끝까지 펼쳐 읽음).
       네이버 카페는 계정 보호를 위해 게시글을 하나씩 열어 천천히 읽습니다(글 하나에 10~20초). 창·탭은 띄우지 않고 이 화면 안의 보이지 않는 곳에서 읽습니다.
       내가 열람할 수 있는 글만 수집됩니다(로그인 필요). 유튜브는 로그인 없이 공개 댓글을 수집하며,
       작성일은 유튜브가 보여주는 그대로(예: 3일 전) 저장됩니다. 수집한 닉네임·댓글은 개인정보일 수 있으니
@@ -58,6 +59,7 @@
   <script src="xlsx.js"></script>
   <script src="template.js"></script>
   <script src="cafe-common.js"></script>
+  <script src="channels.js"></script>
   <script src="db-store.js"></script>
   <script src="app.js"></script>
 </body>
