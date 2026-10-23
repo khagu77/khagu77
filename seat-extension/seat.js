@@ -91,6 +91,7 @@ let items = []; // { key, car, cafeIndex, cafeName, slug, articleId, title, text
 let compare = []; // 비교 파일 [{ id, name, kind: "trend"|"raw", keys, slugs, minDate, maxDate, rows }]
 let clubIds = {}; // 영문 주소 → 카페 번호
 let running = false;
+let checkUndo = null; // ↶ 체크 되돌리기용 (한꺼번에 체크·해제하기 직전 상태)
 let stopRequested = false;
 let diagnostics = [];
 
@@ -2217,6 +2218,12 @@ function updateCounts() {
   $("#saveRaw").disabled = !items.length || running;
   $("#readBodies").disabled = (!n && !items.length) || running;
   $("#rewrite").disabled = !n || running;
+  $("#undoChecks").hidden = !checkUndo;
+  if (checkUndo) $("#undoChecks").title = `'${checkUndo.what}' 하기 전으로 (${formatDateTime(new Date(checkUndo.at))})`;
+  // 체크가 하나도 없는데 본문 판독 결과는 있을 때: 판독 결과대로 다시 체크
+  const judged = !n && items.some(judgedRelevant);
+  $("#recheck").hidden = !judged;
+  $("#recheck").disabled = running;
   const oldReason = items.filter((x) => reasonOutdated(x)).length;
   $("#rewriteReason").hidden = !oldReason;
   $("#rewriteReason").disabled = running;
@@ -2235,6 +2242,45 @@ function updateCounts() {
   const vis = visibleItems();
   $("#checkAll").checked = !!vis.length && vis.every((x) => x.checked);
   renderYnCounts();
+}
+
+// ↶ 체크 되돌리기: 한꺼번에 바꾸기 직전의 체크 상태 (이 PC 크롬에 저장 · checkUndo 는 위에)
+async function saveCheckUndo(what) {
+  checkUndo = { what, at: Date.now(), checked: items.filter((x) => x.checked).map((x) => x.key), touched: items.filter((x) => x.touched).map((x) => x.key) };
+  await chrome.storage.local.set({ seatCheckUndo: checkUndo }).catch(() => {});
+}
+async function undoChecks() {
+  if (!checkUndo || running) return;
+  const on = new Set(checkUndo.checked);
+  const touched = new Set(checkUndo.touched);
+  if (!(await askConfirm(`'${checkUndo.what}' (${formatDateTime(new Date(checkUndo.at))}) 하기 전으로 체크를 되돌릴까요?\n그때 체크된 글 ${on.size}개가 다시 체크됩니다.`))) return;
+  for (const x of items) {
+    x.checked = on.has(x.key);
+    x.touched = touched.has(x.key);
+  }
+  checkUndo = null;
+  await chrome.storage.local.remove("seatCheckUndo").catch(() => {});
+  renderResults();
+  await saveItems();
+  setSummary(`✔ 체크를 되돌렸습니다 (체크한 글 ${on.size}개).`, "ok");
+}
+
+// 판독 결과대로 다시 체크: 본문 판독(AI·규칙)에서 관련 있다고 본 글 + 꼭 넣을 글 (체크가 통째로 풀렸을 때 되살리기)
+const judgedRelevant = (x) => !!x.must || (x.by === "ai" ? x.aiRelevant !== false : x.by === "rule" ? !!x.related : false);
+async function recheckByJudge() {
+  if (running) return;
+  const list = items.filter(judgedRelevant);
+  if (!list.length) return setSummary("본문 판독에서 관련 있다고 본 글이 없습니다.", "err");
+  const byCar = CARS.map((c) => `${c.code} ${list.filter((x) => x.car === c.code).length}`).join(" · ");
+  if (!(await askConfirm(`본문 판독에서 관련 있다고 본 글 ${list.length}개(${byCar})를 다시 체크합니다.\n요약·누락 사유·최종 검수 결과는 그대로 남아 있습니다.\n\n계속할까요?`))) return;
+  await saveCheckUndo("판독 결과대로 다시 체크");
+  for (const x of items) {
+    x.checked = judgedRelevant(x);
+    x.touched = false;
+  }
+  renderResults();
+  await saveItems();
+  setSummary(`✔ 판독 결과대로 ${list.length}개를 다시 체크했습니다 (${byCar}).`, "ok");
 }
 
 // 결과는 이 PC 크롬에 저장해 두어 화면을 다시 열어도 그대로
@@ -2527,8 +2573,9 @@ async function init() {
   setupPanel("panelCompare", !compare.length || pendingShorts().length > 0);
   setupPanel("panelAi", !$("#aiKey").value.trim());
   for (const c of CARS) $("#carFilter").add(new Option(c.label, c.code));
-  const saved = (await chrome.storage.local.get("seatItems").catch(() => ({}))).seatItems || [];
-  items = saved;
+  const got = await chrome.storage.local.get(["seatItems", "seatCheckUndo"]).catch(() => ({}));
+  items = got.seatItems || [];
+  checkUndo = got.seatCheckUndo || null;
   renderResults();
   if (items.length) setSummary(`지난번까지 찾은 글 ${items.length}개입니다. '게시물 찾기'를 다시 누르면 새로 찾은 글이 더해집니다.`);
 
@@ -2584,17 +2631,25 @@ async function init() {
   $("#carFilter").addEventListener("change", renderResults);
   $("#viewFilter").addEventListener("change", renderResults);
   $("#sortBy").addEventListener("change", renderResults);
-  const setVisible = (fn) => {
-    for (const x of visibleItems()) {
-      x.checked = fn(x);
+  // 보이는 글 한꺼번에 체크·해제: 바뀌기 전 체크 상태를 남겨 두고(↶ 체크 되돌리기), 10개 이상 해제할 때는 먼저 확인
+  const setVisible = async (on) => {
+    const change = visibleItems().filter((x) => x.checked !== on);
+    if (!change.length) return renderResults();
+    if (!on && change.length >= 10 && !(await askConfirm(`보이는 글 ${change.length}개의 체크를 모두 풉니다.\n체크를 푼 글은 1차 검수·최종 엑셀에 들어가지 않습니다.\n\n계속할까요? (잘못 눌렀으면 '↶ 체크 되돌리기' 로 되돌릴 수 있습니다)`)))
+      return renderResults();
+    await saveCheckUndo(`보이는 글 ${change.length}개 ${on ? "선택" : "해제"}`);
+    for (const x of change) {
+      x.checked = on;
       x.touched = true;
     }
     renderResults();
     saveItemsSoon();
   };
-  $("#selAll").addEventListener("click", () => setVisible(() => true));
-  $("#selNone").addEventListener("click", () => setVisible(() => false));
-  $("#checkAll").addEventListener("change", (e) => setVisible(() => e.target.checked));
+  $("#selAll").addEventListener("click", () => setVisible(true));
+  $("#selNone").addEventListener("click", () => setVisible(false));
+  $("#checkAll").addEventListener("change", (e) => setVisible(e.target.checked));
+  $("#undoChecks").addEventListener("click", undoChecks);
+  $("#recheck").addEventListener("click", recheckByJudge);
   $("#selDelete").addEventListener("click", async () => {
     const n = items.filter((x) => x.checked).length;
     if (!n || !(await askConfirm(`체크한 게시물 ${n}개를 목록에서 삭제할까요?`))) return;

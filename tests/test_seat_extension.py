@@ -636,6 +636,31 @@ def test_ai_review_unchecked(tmp_path: Path):
         # 누락 사유 기준(일어나지 않은 일은 로데이터로 수집하지 않아 왔음)도 메모에 한 번 덧붙음
         assert page.input_value("#aiRules").count("누락 사유에서 가장 중요한 것은") == 1 and "일어나지 않은 일" in rules and "로데이터에 왜 수집되지 않았는지" in rules
 
+        # '체크한 글' 보기에서 머리 칸(☐)·'보이는 글 모두 해제'를 누르면 체크가 통째로 풀림 → 10개 이상이면 먼저 확인 · ↶ 되돌리기
+        before = page.evaluate("items.filter(x => x.checked).map(x => x.key).sort()")
+        page.select_option("#viewFilter", "checked")
+        n_asked = len(asked())
+        page.click("#selNone")
+        page.wait_for_function("() => items.every(x => !x.checked)")
+        assert (len(asked()) > n_asked) == (len(before) >= 10)
+        assert page.locator("#undoChecks").is_visible() and page.locator("#recheck").is_visible()
+        page.reload()  # 화면을 다시 열어도 되돌리기 가능
+        open_panels(page)
+        page.click("#undoChecks")
+        page.wait_for_function("() => items.some(x => x.checked)")
+        assert page.evaluate("items.filter(x => x.checked).map(x => x.key).sort()") == before
+        assert page.locator("#undoChecks").is_hidden()
+        # 되돌리기 기록이 없을 때(1.4.0 이전에 풀린 체크): 판독 결과대로 다시 체크
+        page.evaluate("items.forEach(x => { x.checked = false; x.touched = true; }); checkUndo = null; renderResults(); saveItems()")
+        page.click("#recheck")
+        page.wait_for_function("() => items.some(x => x.checked)")
+        again = page.evaluate("items.filter(x => x.checked).map(x => x.key).sort()")
+        assert again == page.evaluate("items.filter(judgedRelevant).map(x => x.key).sort()") and set(again) <= set(before) | set(page.evaluate("items.filter(x => x.must).map(x => x.key)")), (again, before)
+        assert page.evaluate("items.filter(x => x.by === 'ai' && x.aiRelevant !== false).every(x => x.checked)")
+        page.select_option("#viewFilter", "")
+        # 이후 시험은 원래 체크 상태로
+        page.evaluate(f"(() => {{ const on = new Set({before!r}); items.forEach(x => {{ x.checked = on.has(x.key); }}); renderResults(); }})()")
+
         # AI 최종 검수 → ② 1차 검수(체크한 글 전체 + 관련도 %) · ③ 최종 파일(최종 검수 통과한 글만)
         page.evaluate("""items.push({key:'palicafe/9',articleId:'9',car:'LX3',cafeIndex:0,cafeName:'팰리 카페',slug:'palicafe',
           date:new Date(2025,5,1).getTime(),title:'3열 시트 가죽 이야기',text:'3열',checked:true,touched:true,bodyRead:true,body:'3열 시트 가죽 질감 이야기',
