@@ -768,7 +768,7 @@ async function renderRawHistory() {
         el("td", {}, el("b", { class: "count-red", text: `${h.rows || 0}건` })),
         el("td", { class: "hint", text: h.detail || "" }),
         el("td", { class: "actions" },
-          el("button", { text: "받기", onclick: async () => {
+          el("button", { class: "btn-get", text: "받기", onclick: async () => {
             const where = await saveBytesFile(h.name, h.bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             alert(`✅ RAW data 파일 저장 완료\n\n저장 위치: ${where}`);
           } }),
@@ -835,7 +835,7 @@ async function renderDailyPpts() {
             } })
           ))),
         el("td", { class: "actions" },
-          el("button", { text: "받기", onclick: async () => {
+          el("button", { class: "btn-get", text: "받기", onclick: async () => {
             const where = await saveBytesFile(f.name, f.bytes, PPT_MIME);
             alert(`✅ PPT 저장 완료\n\n저장 위치: ${where}`);
           } }),

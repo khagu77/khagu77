@@ -23,3 +23,14 @@ main { padding-top: 4px; }
   .wk-box tr.picked td { background: #1c2b40; }
   #dayList .day.warn { background: #3a2a0a; }
 }
+
+/* 삭제는 빨간 바탕, 최종본 받기는 현대차 블루, 시스템 작성본 받기는 회색 점선 (담당자 요청 2026-10-23) */
+button.danger { background: #d93025; color: #fff; border-color: #d93025; font-weight: 600; }
+button.danger:hover { filter: brightness(0.9); }
+button.btn-get { background: var(--blue); color: #fff; border-color: var(--blue); font-weight: 600; }
+button.btn-sys { background: transparent; color: var(--muted); border: 1px dashed var(--border); }
+button.btn-warn { color: #b45309; border-color: #f59e0b; }
+.wk-box td.actions { white-space: nowrap; }
+.wk-box td.actions button { margin-right: 4px; }
+#histTable td:nth-child(-n+3) { white-space: nowrap; }
+#histTable td:nth-child(5) { white-space: nowrap; }

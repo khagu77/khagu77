@@ -448,7 +448,11 @@ async function renderHistory() {
   for (const h of hist) {
     const f = h.final || null;
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${new Date(h.at).toLocaleString("ko-KR")}</td><td>${esc(h.start)} ~ ${esc(h.end)}</td><td><b>${f ? "담당자 수정본" : h.uploaded ? "올린 파일" : "시스템 작성본"}</b>${f ? `<div class="hint">${new Date(f.at).toLocaleString("ko-KR")} 올림</div>` : ""}</td><td>${esc(f ? f.name : h.name)}</td><td class="count-red">${f ? f.count : h.count}건</td><td class="actions"><button data-a="get">받기</button>${f && !h.uploaded ? '<button data-a="sys">시스템 작성본 받기</button>' : ""}<button data-a="up">수정본 올리기</button>${f ? '<button data-a="delf" title="올린 수정본만 지우고 시스템 작성본을 최종본으로">수정본 지우기</button>' : ""}<button data-a="del" class="danger">삭제</button></td>`;
+    const short = (t) => {
+      const d = new Date(t);
+      return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    };
+    tr.innerHTML = `<td>${short(h.at)}</td><td>${esc(h.start)} ~ ${esc(h.end)}</td><td><b>${f ? "담당자 수정본" : h.uploaded ? "올린 파일" : "시스템 작성본"}</b>${f ? `<div class="hint">${short(f.at)} 올림</div>` : ""}</td><td>${esc(f ? f.name : h.name)}</td><td class="count-red">${f ? f.count : h.count}건</td><td class="actions"><button data-a="get" class="btn-get">⬇ ${f ? "최종본(수정본) 받기" : "받기"}</button>${f && !h.uploaded ? '<button data-a="sys" class="btn-sys">시스템 작성본 받기</button>' : ""}<button data-a="up">수정본 올리기</button>${f ? '<button data-a="delf" class="btn-warn" title="올린 수정본만 지우고 시스템 작성본을 최종본으로">수정본 지우기</button>' : ""}<button data-a="del" class="danger">삭제</button></td>`;
     const save = async (name, bytes) => {
       const dir = await weeklyDirIfAllowed(true);
       const where = await saveFile(dir, await freeName(dir, name), bytes);
