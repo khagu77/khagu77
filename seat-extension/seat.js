@@ -50,6 +50,13 @@ const AI_RULE_BLOCKS = [
   3. 전동 시트 작동 관련 위험성·안전사고 우려를 언급했는지 재검수한다.
   4. 여러 다른 이슈를 함께 말한 글이라도, 전동 시트 작동의 위험성·사고 발생·안전사고 우려 내용이 조금이라도 포함되면 포함으로 본다.
   최종 포함 = 1번이 해당하고 2·3·4번 중 하나라도 해당하는 글.`],
+  ["raw-omission-focus", `- 누락 사유에서 가장 중요한 것은 '로데이터에 왜 수집되지 않았는지' 이다.
+  로데이터는 실제로 발생한 사고·품질 이슈 글만 수집해 왔고, 일어나지 않은 일(위험 우려·가능성, 주의 당부, 끼일 뻔한 아차 상황, 작동 방식 문의, 기사·공지 공유 등)에 대한 글은
+  지금까지 로데이터로 수집하지 않았다. 이번 보고서는 바로 그런 글들을 점검하기 위한 것이다.
+  그래서 로데이터에도 없는 글(N / N)의 누락 사유는 이 기준에 근거해, 글 내용상 무엇이 '실제로 일어나지 않은 일' 이었는지를 밝혀
+  "실제 사고·품질 이슈가 발생하지 않은 ○○ 글로, 일어나지 않은 일은 로데이터 수집 대상이 아니어서 제외된 것으로 추정" 처럼 쓴다.
+  실제 사고가 일어난 글이면 그런데도 품질 이슈로 보지 않았을 이유(경미함·사용 부주의 등)를 쓴다.
+  로데이터에는 있는 글(N / Y)만 "로데이터에는 수집되었으나, " 로 시작해 온라인 동향 보고에서 빠진 이유를 쓴다.`],
 ];
 const DEFAULT_AI_RULES = `## 담당자 추가 규칙\n${AI_RULE_BLOCKS.map(([, t]) => t).join("\n")}`;
 const DEFAULT_RAW_START = "2024-04-15"; // 전차종 로데이터 엑셀 작성 시작일
@@ -1308,6 +1315,32 @@ async function writeSummaries(force) {
   await saveItems();
 }
 
+function rewriteReasonByRule(item) {
+  item.reason = ruleReason(item, inclusion(item));
+  item.reasonV = REASON_VERSION;
+}
+
+// N / N 글(로데이터에도 없는 글)의 누락 사유만 새 기준(로데이터 수집 단계에서 빠진 이유)으로 다시 쓰기
+async function rewriteReasons() {
+  const targets = sortedItems().filter((x) => reasonOutdated(x));
+  if (!targets.length) {
+    setSummary("다시 쓸 누락 사유가 없습니다 (N / N 글의 사유는 모두 새 기준으로 쓰여 있습니다).", "ok");
+    return;
+  }
+  if (aiOn()) {
+    const model = $("#aiModel").value;
+    const chars = targets.reduce((n, x) => n + Math.min(AI_BODY_CHARS, (x.body || x.text || "").length) + x.title.length + 200, 0);
+    const est = fmtWon(aiCostWon(chars * 1.1 + 1500 * Math.ceil(targets.length / AI_BATCH), targets.length * 160, model));
+    if (!(await askConfirm(`N / N 글 ${targets.length}개의 누락 사유를 '로데이터에 수집되지 않은 이유' 로 다시 씁니다.\n요약·체크는 그대로 둡니다.\n\n예상 비용 ${est} · 약 ${formatDuration(Math.ceil(targets.length / AI_BATCH / AI_PARALLEL) * 25)}\n\n계속할까요?`))) return;
+    await aiWrite(targets, $("#aiKey").value.trim(), model, { reasonOnly: true });
+  } else {
+    for (const x of targets) rewriteReasonByRule(x);
+    renderResults();
+    setSummary(`✔ N / N 글 ${targets.length}개의 누락 사유를 규칙으로 다시 썼습니다.`, "ok");
+  }
+  await saveItems();
+}
+
 // 규칙으로 요약: 본문에서 시트·위험 단어가 많은 문장 1~2개
 function ruleSummary(item) {
   const src = item.body || item.text || "";
@@ -1326,6 +1359,12 @@ function ruleSummary(item) {
   if (!out) out = item.title;
   return out.length > 150 ? `${out.slice(0, 148)}…` : out;
 }
+
+// 누락 사유 기준 버전: 2 = 로데이터에도 없는 글(N / N)은 로데이터 수집 단계에서 빠진 이유로 씀
+// 이전 기준으로 쓴 N / N 글의 사유는 '💰 N / N 누락 사유 다시 쓰기' 로 사유만 새로 씀 (요약·체크는 그대로)
+const REASON_VERSION = 2;
+const reasonOutdated = (x, inc = inclusion(x)) =>
+  x.checked && (x.reason || x.by) && x.reasonV !== REASON_VERSION && !inc.trend && !inc.raw && inc.trendRange && !notMonitoredReason(x);
 
 const OUT_OF_RANGE = "비교한 온라인 동향 파일의 기간 밖에 게시된 글로, 해당 기간 동향 파일 확인 필요";
 
@@ -1379,7 +1418,23 @@ function ruleReason(item, inc) {
   const t = compactText(`${item.title} ${item.body || item.text}`);
   const any = (list) => list.some((w) => t.includes(w));
   if (!inc.trendRange) return OUT_OF_RANGE;
-  if (!inc.trendCafe && !inc.raw) return "해당 동호회가 온라인 동향 모니터링 대상 채널에 포함되지 않아 수집되지 않은 것으로 추정";
+  if (!inc.trendCafe && !inc.raw) return "해당 동호회가 당시 모니터링 대상 채널에 포함되지 않아 로데이터에 수집되지 않은 것으로 추정";
+  if (!inc.raw) {
+    // 로데이터에도 없는 글(N / N): 로데이터는 실제 발생한 사고·품질 이슈만 수집(일어나지 않은 일은 수집하지 않음) → 무엇이 일어나지 않았는지
+    let raw;
+    if (any(["기사", "뉴스", "보도", "리콜", "공지", "업데이트", "무상수리"]))
+      raw = "언론 기사·리콜 공지 공유 글로 고객에게 실제 일어난 사고·품질 이슈가 아니어서 로데이터 수집 대상에서 제외된";
+    else if (any(["다쳤", "부상", "병원", "피가", "피나", "골절", "멍들", "멍이", "응급", "깁스"]))
+      raw = "실제 끼임은 있었으나 경미하고 작동 중 신체를 넣은 사용 부주의로 보여 품질 이슈로 분류되지 않아 로데이터 수집 대상에서 제외된";
+    else if (any(["끼었", "끼여", "끼임", "끼인", "낄뻔", "끼일뻔", "아찔", "큰일날", "큰일 날"]))
+      raw = "끼일 뻔한 아차 상황으로 실제 사고(부상·파손)는 일어나지 않아 로데이터 수집 대상에서 제외된";
+    else if (/[?？]|궁금|문의|되나요|있나요|어떻게|인가요|건가요/.test(`${item.title} ${item.body || item.text}`))
+      raw = "안전장치 작동 방식에 대한 문의로 실제 발생한 품질 이슈가 아니어서 로데이터 수집 대상에서 제외된";
+    else if (any(["후기", "출고", "인수", "시승", "리뷰", "장단점", "사용기"]))
+      raw = "다른 주제 글 속 위험 가능성 언급으로 실제 발생한 사고·품질 이슈가 아니어서 로데이터 수집 대상에서 제외된";
+    else raw = "실제 사고·품질 이슈가 발생하지 않은 위험 우려·주의 당부 글로, 일어나지 않은 일은 로데이터 수집 대상이 아니어서 제외된";
+    return `${raw} 것으로 추정`;
+  }
   let why;
   if (any(["기사", "뉴스", "보도", "리콜", "공지", "업데이트", "무상수리"])) why = "언론 보도·리콜/업데이트 소식을 공유한 글로 고객 실사용 불만에 해당하지 않아";
   else if (any(["다쳤", "부상", "병원", "피가", "피나", "골절", "멍들", "멍이", "응급", "깁스"]))
@@ -1389,14 +1444,13 @@ function ruleReason(item, inc) {
     why = "안전장치·작동 방식에 대한 단순 문의성 글로 품질 불만으로 보기 어려워";
   else if (any(["조심", "주의", "위험", "걱정", "무섭", "무서", "다칠"])) why = "실제 사고 발생이 아닌 사용 시 주의 당부·위험 우려 수준의 글로";
   else why = "시트 기능·편의성 위주의 의견으로 안전 사고와의 관련성이 낮다고 판단되어";
-  return inc.raw
-    ? `로데이터에는 수집되었으나, ${why} 온라인 동향 보고 대상에서 제외된 것으로 추정`
-    : `${why} 품질 이슈로 분류되지 않아 수집되지 않은 것으로 추정`;
+  return `로데이터에는 수집되었으나, ${why} 온라인 동향 보고 대상에서 제외된 것으로 추정`;
 }
 
 function writeByRule(item) {
   item.summary = ruleSummary(item);
   item.reason = ruleReason(item, inclusion(item));
+  item.reasonV = REASON_VERSION;
   item.by = "rule";
 }
 
@@ -1434,15 +1488,24 @@ const AI_SYSTEM = `당신은 현대자동차 품질 부문의 온라인 동향 �
    relevant=false 이면 글의 실제 주제를 같은 문체로 한 문장 요약합니다.
 4. reason (미포함시 누락 사유):
    - 온라인동향포함=true 이거나 relevant=false 이면 반드시 빈 문자열 "".
-   - 그 밖에는 이 글이 온라인 동향 보고에서 빠졌을 그럴듯한 이유를 한 문장(30~90자)으로 쓰고 반드시 "~로 추정" 으로 끝냅니다.
-   - 글 내용에 근거한 이유를 고릅니다. 예:
-     · 실제 사고가 아닌 사용 시 주의 당부·위험 우려 수준의 글이라 품질 이슈로 분류되지 않은 것으로 추정
-     · 끼임 직전의 아차 상황으로 실제 부상·파손이 없어 보고 기준에 미달한 것으로 추정
-     · 경미한 부상이나 작동 중 신체를 넣은 사용 부주의 사례로 판단되어 품질 이슈에서 제외된 것으로 추정
-     · 안전장치 작동 방식에 대한 단순 문의로 불만·결함 글로 분류되지 않은 것으로 추정
-     · 언론 기사·리콜 공지 공유 글로 고객 실사용 불만이 아니어서 제외된 것으로 추정
-   - 동호회모니터링=false 이고 로데이터포함=false 이면, 해당 동호회가 모니터링 대상 채널이 아니었을 가능성을 사유로 씁니다.
-   - 로데이터포함=true 이면 "로데이터에는 수집되었으나, " 로 시작해 온라인 동향 보고 기준에 못 미친 이유를 씁니다.
+   - 그 밖에는 한 문장(30~90자)으로 쓰고 반드시 "~로 추정" 으로 끝냅니다. 글 내용(제목·본문 표현, 글의 성격)에 근거한 이유를 고릅니다.
+   - [가장 중요] 로데이터포함=false 인 글(로데이터에도 없음)은 '로데이터에 왜 수집되지 않았는지' 를 씁니다.
+     로데이터는 실제로 발생한 사고·품질 이슈 글만 수집해 왔고, 일어나지 않은 일(위험 우려·가능성, 주의 당부, 끼일 뻔한 아차 상황, 작동 방식 문의 등)에 대한 글은
+     지금까지 로데이터로 수집하지 않았습니다. 이 보고서는 그렇게 빠진 글을 점검하기 위한 것입니다.
+     그래서 이 기준에 근거해, 글 내용상 무엇이 '실제로 일어나지 않은 일' 이었는지를 밝혀 씁니다. 예:
+     · 실제 사고·품질 이슈가 발생하지 않은 위험 우려·주의 당부 글로, 일어나지 않은 일은 로데이터 수집 대상이 아니어서 제외된 것으로 추정
+     · 끼일 뻔한 아차 상황으로 실제 사고(부상·파손)는 일어나지 않아 로데이터 수집 대상에서 제외된 것으로 추정
+     · 안전장치 작동 방식에 대한 문의로 실제 발생한 품질 이슈가 아니어서 로데이터 수집 대상에서 제외된 것으로 추정
+     · 언론 기사·리콜 공지 공유 글로 고객에게 실제 일어난 사고·품질 이슈가 아니어서 로데이터 수집 대상에서 제외된 것으로 추정
+     · 다른 주제 글 속 위험 가능성 언급으로 실제 발생한 사고·품질 이슈가 아니어서 로데이터 수집 대상에서 제외된 것으로 추정
+     실제 사고가 일어난 글이면, 그런데도 품질 이슈로 보지 않았을 이유를 씁니다. 예:
+     · 실제 끼임은 있었으나 경미하고 작동 중 신체를 넣은 사용 부주의로 보여 품질 이슈로 분류되지 않아 로데이터 수집 대상에서 제외된 것으로 추정
+     동호회모니터링=false 이면 해당 동호회가 당시 모니터링 대상 채널이 아니었을 가능성을 사유로 씁니다.
+     로데이터작성전=true 이면 로데이터 파일이 없던 시기라는 앞부분은 프로그램이 붙이므로, 글 내용에 따른 이유만 씁니다.
+     "로데이터에 없어서" 처럼 로데이터에 없다는 사실 자체를 이유로 쓰지 않습니다.
+   - 로데이터포함=true 인 글(로데이터에는 있음)만 "로데이터에는 수집되었으나, " 로 시작해 온라인 동향 보고에서 빠진 이유를 씁니다. 예:
+     · 로데이터에는 수집되었으나, 실제 사고가 아닌 주의 당부·위험 우려 수준의 글이라 온라인 동향 보고 대상에서 제외된 것으로 추정
+     · 로데이터에는 수집되었으나, 끼임 직전의 아차 상황으로 실제 부상·파손이 없어 보고 기준에 미달한 것으로 추정
 
 [반드시 지킬 것]
 - 글에 없는 사실(부상 정도·차량 상태·날짜·정비 결과·글쓴이 신원)을 지어내거나 추측해 단정하지 않습니다.
@@ -1886,7 +1949,7 @@ function checkAiResult(r, inc, must = false, fixedReason = "") {
   return { relevant, situation: relevant && r.situation === "관련 없음" ? "위험 우려" : r.situation, summary, reason };
 }
 
-async function aiBatch(client, model, batch, usage) {
+async function aiBatch(client, model, batch, usage, reasonOnly = false) {
   const input = batch.map((x) => {
     const inc = inclusion(x);
     return {
@@ -1928,6 +1991,12 @@ async function aiBatch(client, model, batch, usage) {
   if (bad) throw new Error(`결과 ${bad}건의 형식이 맞지 않습니다`);
   batch.forEach((x, i) => {
     const r = results[i];
+    x.reasonV = REASON_VERSION;
+    if (reasonOnly) {
+      // 누락 사유만 새로 (요약·체크·상황 분류는 그대로) · 지금 결과로 관련 없다고 나와도 이전 판단을 지킴
+      x.reason = r.reason || ruleReason(x, inclusion(x));
+      return;
+    }
     x.summary = r.summary;
     x.reason = r.reason;
     x.situation = r.situation;
@@ -1939,8 +2008,9 @@ async function aiBatch(client, model, batch, usage) {
 }
 
 // nested: 본문을 읽는 도중에 읽은 글만 바로 요약할 때 (진행 막대·결과 문구는 본문 읽기 쪽에서 보여줌, 중지를 눌러도 이 묶음은 마침)
-async function aiWrite(targets, apiKey, model, { nested = false, usage = { input: 0, output: 0 } } = {}) {
+async function aiWrite(targets, apiKey, model, { nested = false, usage = { input: 0, output: 0 }, reasonOnly = false } = {}) {
   const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 4 });
+  const fallback = (x) => (reasonOnly ? rewriteReasonByRule(x) : writeByRule(x)); // AI 가 끝내 못 쓰면 규칙으로
   const batches = [];
   for (let i = 0; i < targets.length; i += AI_BATCH) batches.push(targets.slice(i, i + AI_BATCH));
   let done = 0;
@@ -1959,7 +2029,7 @@ async function aiWrite(targets, apiKey, model, { nested = false, usage = { input
       let ok = false;
       for (let attempt = 1; attempt <= 3 && !ok && !fatal; attempt++) {
         try {
-          await aiBatch(client, model, batch, usage);
+          await aiBatch(client, model, batch, usage, reasonOnly);
           ok = true;
         } catch (e) {
           lastError = e;
@@ -1970,18 +2040,18 @@ async function aiWrite(targets, apiKey, model, { nested = false, usage = { input
       if (!ok && !fatal && batch.length > 1) {
         for (const x of batch) {
           try {
-            await aiBatch(client, model, [x], usage);
+            await aiBatch(client, model, [x], usage, reasonOnly);
           } catch (e) {
             lastError = e;
             failed++;
-            writeByRule(x);
+            fallback(x);
           }
         }
         ok = true;
       }
       if (!ok) {
         failed += batch.length;
-        for (const x of batch) writeByRule(x);
+        for (const x of batch) fallback(x);
       }
       done++;
       progress();
@@ -2147,6 +2217,10 @@ function updateCounts() {
   $("#saveRaw").disabled = !items.length || running;
   $("#readBodies").disabled = (!n && !items.length) || running;
   $("#rewrite").disabled = !n || running;
+  const oldReason = items.filter((x) => reasonOutdated(x)).length;
+  $("#rewriteReason").hidden = !oldReason;
+  $("#rewriteReason").disabled = running;
+  $("#rewriteReason").textContent = `${aiOn() ? "💰 " : ""}N / N 누락 사유 다시 쓰기 (${oldReason}개)`;
   $("#selDelete").disabled = !n || running;
   $("#selDelete").textContent = n ? `선택 삭제 (${n}개)` : "선택 삭제";
   // 💰 = AI 비용이 드는 버튼 (본문 읽기·다시 쓰기는 AI 를 켰을 때만 비용)
@@ -2538,6 +2612,7 @@ async function init() {
   $("#readBodies").addEventListener("click", readBodies);
   $("#readAll").addEventListener("change", updateCounts);
   $("#rewrite").addEventListener("click", () => !running && writeSummaries(true));
+  $("#rewriteReason").addEventListener("click", () => !running && rewriteReasons());
   // 저장 버튼을 누른 그때 폴더 쓰기 허용을 확인해 둔다 (허용 요청은 사용자 동작 안에서만 가능)
   $("#saveList").addEventListener("click", () => (prepareFolder(), saveList()));
   $("#saveRaw").addEventListener("click", () => (prepareFolder(), saveRaw()));

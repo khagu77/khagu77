@@ -557,6 +557,24 @@ def test_ai_review_unchecked(tmp_path: Path):
         assert page.evaluate("rawStartNote({date:new Date(2024,3,12).getTime()}, {trend:false, raw:false})") == ""
         assert page.evaluate("rawStartNote({date:new Date(2024,3,11).getTime()}, {trend:false, raw:false})").startswith("전차종 로데이터는 '24년 4월 15일부터")
 
+        # 누락 사유 기준 2: N / N 글은 '로데이터에 수집되지 않은 이유' · 이전 기준으로 쓴 N / N 글만 사유를 다시 씀(요약·체크는 그대로)
+        assert "일어나지 않은 일" in systems[-1] and "로데이터는 실제로 발생한 사고·품질 이슈 글만 수집해 왔고" in systems[-1] and "raw-omission-focus" not in systems[-1]
+        assert page.locator("#rewriteReason").is_hidden()
+        page.evaluate("""items.push({key:'palicafe/250505',articleId:'250505',car:'LX3',cafeIndex:0,cafeName:'팰리 카페',slug:'palicafe',
+          date:new Date(2025,4,5).getTime(),title:'2열 끼임 이전 사유',text:'2열 끼임',checked:true,bodyRead:true,body:'2열 폴딩에 손이 끼일 뻔',
+          queries:['q'],touched:false,summary:'옛 요약',situation:'아차 사고',reason:'옛 기준 사유로 추정',by:'ai',bodyNote:''}); renderResults();""")
+        assert page.inner_text("#rewriteReason") == "💰 N / N 누락 사유 다시 쓰기 (1개)"
+        page.click("#rewriteReason")
+        page.wait_for_function("() => items.find(x => x.key === 'palicafe/250505').reasonV === 2", timeout=60000)
+        x = page.evaluate("(({summary, reason, checked}) => ({summary, reason, checked}))(items.find(x => x.key === 'palicafe/250505'))")
+        assert x == {"summary": "옛 요약", "reason": "아차 상황으로 보고 기준에 미달한 것으로 추정", "checked": True}, x
+        page.wait_for_function("() => document.getElementById('rewriteReason').hidden")
+        # 규칙으로 쓰면: 로데이터에도 없는 글은 로데이터 수집 관점, 로데이터에 있는 글은 '로데이터에는 수집되었으나'
+        nn = page.evaluate("ruleReason({title:'2열 시트 조심', body:'2열 폴딩할 때 아이 손 조심하세요', date:Date.now(), slug:'palicafe'}, {trend:false, raw:false, trendCafe:true, trendRange:true})")
+        assert nn == "실제 사고·품질 이슈가 발생하지 않은 위험 우려·주의 당부 글로, 일어나지 않은 일은 로데이터 수집 대상이 아니어서 제외된 것으로 추정", nn
+        ny = page.evaluate("ruleReason({title:'2열 시트 조심', body:'2열 폴딩할 때 아이 손 조심하세요', date:Date.now(), slug:'palicafe'}, {trend:false, raw:true, trendCafe:true, trendRange:true})")
+        assert ny.startswith("로데이터에는 수집되었으나"), ny
+
         # 실제 쓴 AI 비용: 요청마다 사용량으로 계산해 글마다 나눠 붙이고 전체 누적도 남김
         costs = page.evaluate("items.map(x => x.aiCost || 0)")
         assert all(c > 0 for c in costs[:2]), costs
@@ -615,6 +633,8 @@ def test_ai_review_unchecked(tmp_path: Path):
         page.reload()
         open_panels(page)
         assert page.input_value("#aiRules").count("전차종 로데이터 엑셀은") == 1  # 두 번 덧붙지 않음
+        # 누락 사유 기준(일어나지 않은 일은 로데이터로 수집하지 않아 왔음)도 메모에 한 번 덧붙음
+        assert page.input_value("#aiRules").count("누락 사유에서 가장 중요한 것은") == 1 and "일어나지 않은 일" in rules and "로데이터에 왜 수집되지 않았는지" in rules
 
         # AI 최종 검수 → ② 1차 검수(체크한 글 전체 + 관련도 %) · ③ 최종 파일(최종 검수 통과한 글만)
         page.evaluate("""items.push({key:'palicafe/9',articleId:'9',car:'LX3',cafeIndex:0,cafeName:'팰리 카페',slug:'palicafe',
