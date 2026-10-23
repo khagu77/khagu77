@@ -307,3 +307,6 @@ td.cost { white-space: nowrap; }
 .cost-up { color: var(--neg); font-weight: 700; font-size: 12px; }
 .cost-down { color: var(--pos); font-weight: 700; font-size: 12px; }
 .cost-same { color: var(--muted); font-size: 12px; }
+
+/* AI 비용이 드는 버튼 */
+button.paid::before { content: "💰 "; }

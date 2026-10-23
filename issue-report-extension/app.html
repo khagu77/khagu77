@@ -66,7 +66,7 @@
 
       <div class="labelrow">
         <label for="keywords">수집 키워드 <span class="hint">(조합 키워드 가능)</span></label>
-        <button id="suggestKeywords" class="ai-btn" title="보고서 작성 목적·이슈명을 읽고 AI 가 수집 키워드를 추천해 키워드 칸에 넣습니다">🤖 목적으로 키워드 추천</button>
+        <button id="suggestKeywords" class="paid ai-btn" title="보고서 작성 목적·이슈명을 읽고 AI 가 수집 키워드를 추천해 키워드 칸에 넣습니다">목적으로 키워드 추천</button>
         <span id="suggestMsg" class="hint"></span>
       </div>
       <textarea id="keywords" rows="4" placeholder="CN8|아반떼 가격|가격표&#10;디 올 뉴 아반떼&#10;-렌트"></textarea>
@@ -148,12 +148,12 @@
       <div id="oldNewsNotice" class="resumebox" hidden></div>
       <div id="runChannels" class="modebox"></div>
       <div class="buttons">
-        <button id="collectPosts" class="primary">게시글 수집 시작</button>
-        <button id="rejudge" title="AI 관련성 판독만 다시 합니다">AI 관련성 다시 판독</button>
+        <button id="collectPosts" class="paid primary">게시글 수집 시작</button>
+        <button id="rejudge" class="paid" title="AI 관련성 판독만 다시 합니다">AI 관련성 다시 판독</button>
         <button id="stopPosts" class="danger" disabled>중지</button>
       </div>
       <div id="postsSummary" class="summary"></div>
-      <div class="inline"><span id="postsSentiment" class="hint"></span><button id="fillPostSenti" class="ai-btn" hidden title="체크(수집 여부)는 바꾸지 않고, 게시글 성향이 빈 글만 AI 가 판정합니다"></button></div>
+      <div class="inline"><span id="postsSentiment" class="hint"></span><button id="fillPostSenti" class="paid ai-btn" hidden title="체크(수집 여부)는 바꾸지 않고, 게시글 성향이 빈 글만 AI 가 판정합니다"></button></div>
       <div class="toolbar">
         <span class="seg" id="postsFilter">
           <button data-f="all" class="on">전체</button><button data-f="news">언론</button><button data-f="cafe">동호회</button><button data-f="youtube">유튜브</button><button data-f="community">커뮤니티</button>
@@ -180,9 +180,9 @@
     <section id="tab-comments" hidden>
       <div id="commentsInfo" class="hint"></div>
       <div class="buttons">
-        <button id="collectComments" class="primary">댓글 수집 시작</button>
-        <button id="retryComments">못 읽은 글만 다시</button>
-        <button id="recollectSel" disabled>선택한 글 댓글 다시 수집 (0)</button>
+        <button id="collectComments" class="paid primary" title="💰 커뮤니티 댓글을 화면 구조로 못 읽을 때만 AI 가 화면에서 읽어 비용이 듭니다">댓글 수집 시작</button>
+        <button id="retryComments" class="paid" title="💰 커뮤니티 댓글을 화면 구조로 못 읽을 때만 AI 가 화면에서 읽어 비용이 듭니다">못 읽은 글만 다시</button>
+        <button id="recollectSel" class="paid" disabled title="💰 커뮤니티 댓글을 화면 구조로 못 읽을 때만 AI 가 화면에서 읽어 비용이 듭니다">선택한 글 댓글 다시 수집 (0)</button>
         <button id="stopComments" class="danger" disabled>중지</button>
       </div>
       <div class="buttons small">
@@ -207,8 +207,8 @@
     <section id="tab-sentiment" hidden>
       <div id="sentimentInfo" class="hint"></div>
       <div class="buttons">
-        <button id="runSentiment" class="primary">AI 성향 분석 시작</button>
-        <button id="rerunSentiment" title="이미 분석한 댓글까지 모두 다시 분석합니다">처음부터 다시 분석</button>
+        <button id="runSentiment" class="paid primary">AI 성향 분석 시작</button>
+        <button id="rerunSentiment" class="paid" title="이미 분석한 댓글까지 모두 다시 분석합니다">처음부터 다시 분석</button>
         <button id="stopSentiment" class="danger" disabled>중지</button>
         <span id="costEstimate" class="hint"></span>
       </div>
@@ -229,7 +229,7 @@
           </select>
           <label class="check inline-check"><input type="checkbox" id="reKeepManual" checked> 손으로 고친 판정은 그대로</label>
           <label class="check inline-check"><input type="checkbox" id="reSave" checked> 지시사항을 명령 규칙 메모리에 저장 (다음에도 적용)</label>
-          <button id="reRun" class="primary">재분석 시작</button>
+          <button id="reRun" class="paid primary">재분석 시작</button>
         </div>
         <div id="reResult" class="hint"></div>
       </details>
@@ -265,8 +265,8 @@
       <div id="reportSummary" class="rsum"></div>
       <div class="hint">AI 가 보고서 작성 목적에 맞춰 제목·요약 문장·성향별 대표 댓글을 고릅니다. 받기 전에 아래 칸에서 자유롭게 고치세요. PPT 는 샘플 양식(서체·색·표·차트)을 그대로 씁니다.</div>
       <div class="buttons">
-        <button id="writeReport" class="primary">AI 보고서 초안 작성</button>
-        <button id="writeSummary" title="성향별 주요 댓글은 그대로 두고 제목·요약 문장만 다시 씁니다 (전체 초안보다 비용이 훨씬 적음)">요약만 다시 쓰기</button>
+        <button id="writeReport" class="paid primary">AI 보고서 초안 작성</button>
+        <button id="writeSummary" class="paid" title="성향별 주요 댓글은 그대로 두고 제목·요약 문장만 다시 씁니다 (전체 초안보다 비용이 훨씬 적음)">요약만 다시 쓰기</button>
       </div>
       <div id="reportMsg" class="hint"></div>
       <div class="grid2">
@@ -350,7 +350,7 @@
           <select id="model"></select>
         </div>
       </div>
-      <div class="buttons"><button id="testKey">키 확인</button><span id="keyMsg" class="hint"></span></div>
+      <div class="buttons"><button id="testKey" class="paid">키 확인</button><span id="keyMsg" class="hint"></span></div>
       <div class="hint">API 키는 이 PC 크롬 안에만 저장되고, 게시글 제목·내용 일부와 댓글 글자가 판독을 위해 Anthropic 으로 전송됩니다(유료). 키가 없으면 관련성은 키워드로만 고르고 성향 분석·보고서 초안은 할 수 없습니다.</div>
       <h2>수집</h2>
       <div class="grid3">
