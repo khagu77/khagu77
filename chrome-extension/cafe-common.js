@@ -282,6 +282,130 @@ async function tabFallbackOn() {
 }
 
 // ---------------------------------------------------------------------------
+// 카페 검색 결과 화면 읽기 (LX3 게시물 찾기 · 시트 위험 게시물 화면이 함께 씀)
+// ---------------------------------------------------------------------------
+
+// 검색 결과 화면: 게시글 링크마다 제목·날짜·미리보기 글자
+function scanSearchInFrame() {
+  const body = document.body;
+  // 카페 화면의 맨 위(탭이면 탭 자체, 수집 화면 안 보이지 않는 틀이면 그 틀)
+  const top = (window === window.top || (window.parent === window.top && (() => { try { return !window.top.location.href; } catch { return true; } })()));
+  if (!body) return { items: [], noResult: false, href: location.href, top, title: top ? document.title : "" };
+  const pageText = body.innerText || "";
+  const noResult = /검색\s*결과가\s*없|검색된\s*(?:게시물|게시글|글)이\s*없|등록된\s*(?:게시물|게시글)이\s*없/.test(pageText);
+  const idOf = (href) => {
+    href = String(href || "");
+    let m = href.match(/\/cafes\/(\d+)\/articles\/(\d+)/);
+    if (m) return { cafeId: m[1], articleId: m[2], slug: "" };
+    m = href.match(/\/cafes\/([A-Za-z][\w-]*)\/articles\/(\d+)/);
+    if (m) return { cafeId: "", articleId: m[2], slug: m[1] };
+    m = href.match(/[?&]articleid=(\d+)/i);
+    if (m) {
+      const c = href.match(/[?&]clubid=(\d+)/i);
+      return { cafeId: c ? c[1] : "", articleId: m[1], slug: "" };
+    }
+    m = href.match(/^https?:\/\/(?:m\.)?cafe\.naver\.com\/([A-Za-z0-9][\w-]*)\/(\d+)(?:[?#/]|$)/);
+    if (m && !/^(f-e|ca-fe|cafes)$/.test(m[1])) return { cafeId: "", articleId: m[2], slug: m[1] };
+    m = href.match(/(?:^|[/"'=(,\s])articles?\/(\d{3,})/) || href.match(/article[_-]?id["'=:\s]+(\d{3,})/i);
+    if (m) return { cafeId: "", articleId: m[1], slug: "" };
+    return null;
+  };
+  // 글 링크: <a href> 뿐 아니라 data-*·onclick 으로 글을 여는 화면도 있다
+  const anchors = [];
+  const SEL = "a, [href], [data-href], [data-url], [data-link], [data-article-id], [data-articleid], [data-article], [onclick]";
+  for (const a of document.querySelectorAll(SEL)) {
+    const cands = [a.href, a.getAttribute("href"), a.getAttribute("onclick")];
+    for (const at of a.attributes) if (at.name.startsWith("data-")) cands.push(/article.?id$/i.test(at.name) ? `articleid=${at.value}` : at.value);
+    for (const c of cands) {
+      const id = c && idOf(c);
+      if (id) {
+        anchors.push({ a, ...id });
+        break;
+      }
+    }
+  }
+  const idsIn = (el) => {
+    const s = new Set();
+    for (const x of anchors) if (el.contains(x.a)) s.add(x.articleId);
+    return s;
+  };
+  const groups = new Map();
+  for (const x of anchors) {
+    let el = x.a;
+    while (el.parentElement && el.parentElement !== body && idsIn(el.parentElement).size <= 1) el = el.parentElement;
+    if (!groups.has(x.articleId)) groups.set(x.articleId, { ...x, box: el, anchors: [] });
+    const g = groups.get(x.articleId);
+    if (el.contains(g.box)) g.box = el;
+    g.anchors.push(x.a);
+    if (!g.cafeId && x.cafeId) g.cafeId = x.cafeId;
+    if (!g.slug && x.slug) g.slug = x.slug;
+  }
+  const clean = (t) => String(t || "").replace(/\s+/g, " ").replace(/\s*\[\d+\]\s*$/, "").replace(/\s*(?:new|N)\s*$/i, "").trim();
+  const items = [];
+  for (const g of groups.values()) {
+    let best = null;
+    let bestScore = -1;
+    for (const a of g.anchors) {
+      // 글 전체가 링크인 모양이면 그 안의 제목 부분만
+      const titleEl = a.querySelector("[class*='title'], [class*='tit'], [class*='subject'], strong");
+      const t = clean((titleEl || a).innerText);
+      if (!t || /^\[?\d+\]?$/.test(t) || /^댓글/.test(t)) continue;
+      const cls = `${a.className} ${a.parentElement?.className || ""}`;
+      const score = (/title|tit|subject|article/i.test(cls) ? 2 : 0) + (best === null ? 1 : 0) + (t.length <= 120 ? 1 : 0);
+      if (score > bestScore) {
+        best = t;
+        bestScore = score;
+      }
+    }
+    if (!best) continue;
+    const dateEl = g.box.querySelector('[class*="date"], [class*="Date"], time, .td_date');
+    items.push({
+      cafeId: g.cafeId,
+      articleId: g.articleId,
+      slug: g.slug,
+      title: best,
+      dateText: dateEl ? dateEl.innerText : g.box.innerText,
+      text: String(g.box.innerText || "").replace(/\s+/g, " ").slice(0, 600),
+    });
+  }
+  // 링크로 못 찾았으면: 글번호(5자리 이상)로 시작하고 날짜·시간이 있는 줄(전체글보기 목록 모양)
+  if (!items.length) {
+    const dateRe = /\d{4}\.\s*\d{1,2}\.\s*\d{1,2}\.|(?:^|\s)\d{1,2}:\d{2}(?:\s|$)|\d+\s*(?:분|시간)\s*전/;
+    const seen = new Set();
+    for (const row of document.querySelectorAll("tr, li, [role='row'], [class*='article'], [class*='Article']")) {
+      const t = String(row.innerText || "").trim();
+      const m = t.match(/^(\d{5,})\s+([\s\S]+)$/);
+      if (!m || seen.has(m[1]) || !dateRe.test(t) || t.length > 1500) continue;
+      seen.add(m[1]);
+      const titleEl = row.querySelector("[class*='title'], [class*='tit'], [class*='subject'], a");
+      const title = clean(titleEl ? titleEl.innerText : m[2].split("\n")[0]);
+      const dateEl = row.querySelector('[class*="date"], [class*="Date"], time, .td_date');
+      if (title) items.push({ cafeId: "", articleId: m[1], slug: "", title, dateText: dateEl ? dateEl.innerText : t, text: t.replace(/\s+/g, " ").slice(0, 600) });
+    }
+  }
+  return { items, noResult, href: location.href, top, title: top ? document.title : "", anchorCount: anchors.length };
+}
+
+// 진단용: 이 화면이 어떻게 생겼는지 (글을 못 찾았을 때 보내 주시면 화면 구조에 맞춰 고칠 수 있음)
+function snapshotInFrame() {
+  const body = document.body;
+  const links = [...document.querySelectorAll("a")].slice(0, 80).map((a) => ({
+    href: a.getAttribute("href"), text: String(a.innerText || "").replace(/\s+/g, " ").slice(0, 80),
+    cls: String(a.className || "").slice(0, 80), data: [...a.attributes].filter((x) => x.name.startsWith("data-") || x.name === "onclick").map((x) => `${x.name}=${x.value}`.slice(0, 120)),
+  }));
+  const rows = [...document.querySelectorAll("tr, li, [role='row'], [class*='article'], [class*='Article']")]
+    .filter((r) => /\d{1,2}:\d{2}|\d{4}\.\s*\d{1,2}\./.test(r.innerText || ""))
+    .slice(0, 5)
+    .map((r) => r.outerHTML.slice(0, 3000));
+  return {
+    href: location.href, top: (window === window.top || (window.parent === window.top && (() => { try { return !window.top.location.href; } catch { return true; } })())), title: document.title, readyState: document.readyState,
+    visibility: document.visibilityState, counts: { a: document.querySelectorAll("a").length, iframes: document.querySelectorAll("iframe").length, rows: rows.length },
+    iframes: [...document.querySelectorAll("iframe")].map((f) => f.src).slice(0, 10),
+    text: body ? String(body.innerText || "").slice(0, 3000) : "", links, rows,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // 게시 날짜 읽기: "2026.10.11. 15:22" / "2026.10.11." / "15:22"(오늘) / "3시간 전" / "어제"
 // → { date: Date, hasTime } 또는 null
 // ---------------------------------------------------------------------------
@@ -448,6 +572,7 @@ function showBusy(label, done, total, short = "작업 중") {
     busyTitle = document.title;
     window.addEventListener("beforeunload", busyGuard);
     document.body.classList.add("busy-lock"); // 수집 중에는 위쪽 메뉴로 다른 화면에 가지 못하게
+    guardNavigation(true); // 뒤로가기·백스페이스·마우스 뒤로 버튼·스와이프도 막는다
   }
   const pct = total ? Math.max(2, Math.min(100, Math.round((done / total) * 100))) : 0;
   bar.querySelector(".busy-text").textContent = `⏳ ${label}${total ? ` · ${pct}%` : ""}`;
@@ -460,9 +585,72 @@ function showBusy(label, done, total, short = "작업 중") {
 function hideBusy() {
   document.getElementById("busyBar")?.remove();
   document.body.classList.remove("busy-lock");
+  guardNavigation(false);
   if (busyTitle) document.title = busyTitle;
   busyTitle = "";
   window.removeEventListener("beforeunload", busyGuard);
+}
+
+// 작업 중 나가기 막기: 뒤로가기(키보드 Alt+←·백스페이스·마우스 뒤로/앞으로 버튼·트랙패드 두 손가락 스와이프·브라우저 뒤로 버튼)
+// 뒤로가기 버튼은 막을 수 없어 같은 주소를 한 번 더 쌓아 두고, 뒤로 가면 다시 앞으로 돌려놓는다.
+let navGuardOn = false;
+
+function guardNavigation(on) {
+  navGuardOn = on;
+  document.documentElement.classList.toggle("nav-guard", on);
+  if (on && !history.state?.navGuard) history.pushState({ navGuard: true }, "", location.href);
+}
+
+window.addEventListener("popstate", () => {
+  if (!navGuardOn) return;
+  history.pushState({ navGuard: true }, "", location.href);
+  showGuardNotice();
+});
+
+window.addEventListener("keydown", (e) => {
+  if (!navGuardOn) return;
+  const t = e.target;
+  const typing = t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) && !/^(checkbox|radio|button|file)$/i.test(t.type || "");
+  const back = (e.key === "Backspace" && !typing) || (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) || e.key === "BrowserBack" || e.key === "BrowserForward";
+  if (back) {
+    e.preventDefault();
+    showGuardNotice();
+  }
+}, true);
+
+for (const type of ["mousedown", "mouseup", "auxclick"]) {
+  window.addEventListener(type, (e) => {
+    if (navGuardOn && (e.button === 3 || e.button === 4)) {
+      e.preventDefault();
+      if (type === "mouseup") showGuardNotice();
+    }
+  }, true);
+}
+
+// 트랙패드 가로 스와이프(뒤로 가기 제스처)는 css(overscroll-behavior-x)로 막고, 남는 가로 휠은 화면 안에서만 쓴다
+window.addEventListener("wheel", (e) => {
+  if (!navGuardOn || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+  let el = e.target;
+  while (el && el !== document.body) {
+    if (el.scrollWidth > el.clientWidth && /auto|scroll/.test(getComputedStyle(el).overflowX)) return;
+    el = el.parentElement;
+  }
+  e.preventDefault();
+}, { passive: false, capture: true });
+
+function showGuardNotice() {
+  let box = document.getElementById("guardNotice");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "guardNotice";
+    box.style.cssText =
+      "position:fixed;left:50%;top:70px;transform:translateX(-50%);padding:9px 16px;border-radius:8px;font-size:13.5px;font-weight:700;" +
+      "background:#b3261e;color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.25);z-index:9999;";
+    document.body.appendChild(box);
+  }
+  box.textContent = "작업 중에는 뒤로 가거나 화면을 나갈 수 없습니다. 먼저 '중지'를 누르세요.";
+  clearTimeout(box._t);
+  box._t = setTimeout(() => box.remove(), 3000);
 }
 
 // 수집 중에 창을 닫거나 새로고침하려 하면 확인 (그대로 나가면 수집이 멈춤)

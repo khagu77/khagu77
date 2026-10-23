@@ -146,3 +146,5 @@ body.busy-lock nav.menu a { pointer-events: none; opacity: 0.4; }
 .diff.none { color: var(--muted); font-weight: 600; }
 @media (prefers-color-scheme: dark) { .diff.up { color: #ff6b5f; } .diff.down { color: #8ab4f8; } }
 .diffs { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; display: flex; gap: 18px; flex-wrap: wrap; }
+
+html.nav-guard, html.nav-guard body { overscroll-behavior-x: none; }

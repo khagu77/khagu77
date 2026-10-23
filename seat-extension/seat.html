@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LX3 / ME1 / MX5 전동 시트 작동 위험 상황 관련 게시물 수집</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body class="theme-hermes">
+  <header class="topbar">
+    <div class="topbar-in">
+      <div class="brand">
+        <img src="icons/logo-seat.png" alt="2열 시트" class="logo">
+        <h1>LX3 / ME1 / MX5 전동 시트 작동 위험 상황 관련 게시물 수집</h1>
+        <span class="ver" id="ver"></span>
+        <div class="tools"><a class="tool" href="seat-db.html">🗄 데이터 DB</a><a class="tool" href="seat.html#settings">⚙ 설정</a></div>
+      </div>
+    </div>
+  </header>
+  <main>
+
+    <div id="login" class="login">로그인 상태 확인 중…</div>
+
+    <section>
+      <h2>1. 동호회 게시물 찾기</h2>
+      <div class="hint">차종별 양산 시점부터 끝 날짜까지, 동호회마다 검색어를 하나씩 검색해 2·3열 시트 조작 중 위험상황을 언급한 글을 찾습니다.
+        글이 많아 오래 걸리니(동호회·검색어 하나에 1~2분) 차종을 나눠 찾아도 됩니다. 찾은 글은 앞서 찾은 글에 더해집니다.</div>
+      <table class="compact cars">
+        <thead><tr><th>찾기</th><th>차종</th><th>시작일 (양산 시점)</th><th>동호회</th></tr></thead>
+        <tbody id="carRows"></tbody>
+      </table>
+      <div class="row">
+        <label class="inline">끝 날짜 <input type="date" id="endDate"></label>
+        <span class="hint" id="jobInfo"></span>
+      </div>
+
+      <label for="mustList">꼭 넣을 글 <span class="hint">(한 줄에 하나 · 검색 결과와 상관없이 체크해서 넣고, 찾기가 끝나면 검색으로 찾았는지 알려줌 · 동호회 목록에 없는 카페는 앞에 차종: <b>LX3 https://…</b>)</span></label>
+      <textarea id="mustList" rows="2" spellcheck="false"></textarea>
+
+      <details id="settings">
+        <summary>설정 (동호회 · 검색어 · 관련 단어 · 저장 위치)</summary>
+        <label for="cafeList">동호회 목록 <span class="hint">(한 줄에 하나: <b>차종 | 동호회명 | 영문 카페 주소</b> · 여러 차종이 함께 있는 동호회는 끝에 <b>| 혼합</b>)</span></label>
+        <textarea id="cafeList" rows="13" spellcheck="false"></textarea>
+        <table id="cafeInfo" class="compact">
+          <thead><tr><th>차종</th><th>동호회명</th><th>영문 주소</th><th>카페 번호 <span class="hint">(찾을 때 자동으로 알아냄, 직접 넣어도 됨)</span></th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <label for="queries">검색어 <span class="hint">(쉼표로 구분 · 동호회마다 하나씩 검색)</span></label>
+        <textarea id="queries" rows="2" spellcheck="false"></textarea>
+        <label for="mixedQueries">혼합 동호회 검색어 <span class="hint">({차종} 자리에 차종 이름이 들어감 · 여러 차종이 함께 있는 동호회에서만 사용)</span></label>
+        <textarea id="mixedQueries" rows="1" spellcheck="false"></textarea>
+        <label for="carWords">차종 이름 <span class="hint">(한 줄에 하나: <b>차종 | 이름들</b> · 첫 이름이 {차종} 자리에 들어가고, 혼합 동호회 글은 이 이름이 있어야 체크)</span></label>
+        <textarea id="carWords" rows="3" spellcheck="false"></textarea>
+        <label for="rowWords">시트 단어 <span class="hint">(아래 위험 단어와 함께 있어야 '관련 글'로 체크)</span></label>
+        <textarea id="rowWords" rows="2" spellcheck="false"></textarea>
+        <label for="riskWords">위험 단어</label>
+        <textarea id="riskWords" rows="3" spellcheck="false"></textarea>
+        <label for="exclude">관련 없는 글 단어 <span class="hint">(있으면 체크 해제)</span></label>
+        <textarea id="exclude" rows="1" spellcheck="false"></textarea>
+        <label for="monitorStart">동호회별 모니터링 시작일 <span class="hint">(한 줄에 하나: <b>영문 카페 주소 | 이 날짜 이전 글은 모니터링 대상 아님 | 누락 사유에 덧붙일 말</b> · 그 이전 글이 온라인 동향에 없으면 누락 사유를 이 내용으로 씀)</span></label>
+        <textarea id="monitorStart" rows="2" spellcheck="false"></textarea>
+        <div class="row">
+          <label class="inline">전차종 로데이터 작성 시작일 <input type="date" id="rawStart"></label>
+          <label class="inline">첫 로데이터에 담긴 게시일 시작 <input type="date" id="rawCover"></label>
+        </div>
+        <div class="hint">게시일이 '첫 로데이터에 담긴 게시일 시작' 이전이고 로데이터에도 없는 글은, 누락 사유 앞에 로데이터 파일이 없던 시기라는 내용을 붙입니다
+          (첫 로데이터('24.4.15 월)는 직전 근무일 4.12(금)~주말 글부터 담음 · 로데이터에 있는 글(Y)에는 붙이지 않음).</div>
+        <label for="aiRules">AI 추가 규칙 (메모) <span class="hint">(마크다운 · 요약·누락 사유를 쓸 때마다 AI 에게 함께 전달 · 담당자 기준이 생기면 여기에 적어 두세요)</span></label>
+        <textarea id="aiRules" rows="6" spellcheck="false"></textarea>
+        <label for="searchUrl">카페 검색 주소 형식 <span class="hint">(검색이 안 되면 카페에서 직접 검색한 주소창 주소를 그대로 붙여 넣으세요)</span></label>
+        <input type="text" id="searchUrl" class="full" spellcheck="false">
+        <label class="inline">검색어마다 최대 <input type="number" id="maxPages" min="1" max="100" class="tiny"> 페이지까지 봅니다 <span class="hint">(시작일보다 오래된 글만 나오면 그 전에 멈춤)</span></label>
+        <label class="inline"><input type="checkbox" id="tabFallback"> 숨긴 화면에서 못 읽으면 뒤쪽 탭으로 다시 읽기</label>
+        <label>엑셀 저장 위치 <span class="hint">(최종·전체 raw 엑셀과 백업 파일을 저장할 폴더)</span></label>
+        <div class="row"><span id="folderName" class="folder-name"></span><button id="pickFolder" class="small">폴더 선택</button><button id="clearFolder" class="small" hidden>다운로드 폴더로</button></div>
+        <div class="hint">크롬 보안상 폴더 이름만 보이고, 크롬을 새로 켠 뒤 처음 저장할 때 '파일 수정 허용'을 한 번 물을 수 있습니다(허용을 누르세요).</div>
+        <label class="inline"><input type="checkbox" id="saveAsk"> 폴더를 고르지 않았을 때: 받을 때마다 저장 위치 묻기</label>
+        <div class="buttons"><button id="resetSettings" class="small">설정 처음 값으로</button></div>
+      </details>
+
+      <div class="buttons">
+        <button id="search" class="primary">게시물 찾기</button>
+        <button id="stop" disabled>중지</button>
+        <button id="mustOnly" title="검색 없이 '꼭 넣을 글'만 지금 넣습니다">꼭 넣을 글만 넣기</button>
+      </div>
+      <div id="summary" class="summary"></div>
+      <div id="log" class="log" hidden></div>
+      <div class="buttons"><button id="diag" class="small" hidden>진단 파일 받기 (개발자에게 보내기)</button></div>
+    </section>
+
+    <details class="panel" id="panelCompare">
+      <summary><h2>2. 비교 파일 (온라인 동향 · 로데이터)</h2><span class="panel-state" id="compareState"></span></summary>
+      <div class="hint">일일 온라인 동향 리스트와 로데이터 엑셀을 여러 개 한꺼번에 등록하세요(이 PC 크롬에 보관, 다시 넣지 않아도 됨).
+        파일 안의 카페 글 주소(카페 영문 주소 + 글번호로 비교 · 주소 뒤 꼬리·새 카페 주소 모양이 달라도 같은 글로 봄 · naver.me 짧은 주소는 풀어서 비교)로 각 게시물이 들어 있었는지 확인해 엑셀 '포함 여부' 칸에 <b>온라인동향 / 로데이터</b> 순서로 <b class="yn-y">Y</b> / <b class="yn-n">N</b> 을 씁니다.
+        종류는 머리글(불만구분·중복 → 온라인 동향, 주요 내용 → 로데이터)로 자동으로 정하며 바꿀 수 있습니다.</div>
+      <div class="row"><input type="file" id="compareFiles" accept=".xlsx" multiple></div>
+      <div id="compareInfo" class="hint"></div>
+      <div id="shortInfo" class="row" hidden><span id="shortText" class="hint"></span><button id="resolveShorts" class="primary small">짧은 주소 풀기</button></div>
+      <table id="compareTable" class="compact" hidden>
+        <thead><tr><th>파일</th><th>종류</th><th>카페 글</th><th>게시일 기간</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </details>
+
+    <details class="panel" id="panelAi">
+      <summary><h2>3. Claude AI 설정 (요약 · 누락 사유)</h2><span class="panel-state" id="aiState"></span></summary>
+      <div class="hint">본문을 읽은 뒤 AI 가 주제에 맞는 글인지 다시 판단하고, 주요내용 요약과 누락 사유를 씁니다. 끄면 정해진 규칙 문장으로 씁니다.</div>
+      <fieldset class="ai">
+        <div class="row">
+          <label class="inline">Anthropic API 키 <input type="password" id="aiKey" class="key" placeholder="sk-ant-…" autocomplete="off" spellcheck="false"></label>
+          <button id="aiSave" class="small">저장</button>
+          <button id="aiTest" class="small" title="키가 맞는지 확인합니다 (요금 없음)">키 확인</button>
+          <label class="inline">모델 <select id="aiModel"></select></label>
+        </div>
+        <label class="inline"><input type="checkbox" id="aiOn"> Claude AI 로 요약·누락 사유 쓰기 <span class="hint">(유료 · 키를 저장하면 자동으로 켜짐)</span></label>
+        <div id="aiStatus" class="hint"></div>
+        <div class="hint">API 키는 이 PC 크롬에만 저장되고, 요약을 위해 체크한 글의 제목·본문이 Anthropic(Claude)으로 보내집니다.
+          API 키는 <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> 에서 만들 수 있습니다.</div>
+      </fieldset>
+    </details>
+
+    <section id="resultBox" hidden>
+      <h2>4. 결과 확인 · 본문 요약 · 엑셀 받기</h2>
+      <div class="hint">시트 단어와 위험 단어가 함께 있는 글이 체크됩니다. 필요 없는 글은 체크를 풀거나 삭제하세요. 체크된 글만 다음 단계와 엑셀에 들어갑니다.</div>
+      <div class="row">
+        <label class="inline">차종 <select id="carFilter"><option value="">전체</option></select></label>
+        <label class="inline">보기 <select id="viewFilter">
+          <option value="">전체</option><option value="checked">체크한 글</option><option value="unchecked">체크 안 한 글</option>
+          <option value="missing">온라인 동향 미보고(N)</option>
+          <option value="yn:NN">체크한 글 · N / N</option><option value="yn:NY">체크한 글 · N / Y</option>
+          <option value="yn:YY">체크한 글 · Y / Y</option>
+          <option value="final">최종 검수 포함</option><option value="dropped">최종 검수 제외</option>
+        </select></label>
+        <label class="inline">정렬 <select id="sortBy"><option value="">차종 · 게시일</option><option value="yn">포함 여부 (N/N → N/Y → Y/Y)</option></select></label>
+        <button id="selAll" class="small">보이는 글 모두 선택</button>
+        <button id="selNone" class="small">보이는 글 모두 해제</button>
+        <button id="selDelete" class="small danger">선택 삭제</button>
+        <button id="clearAll" class="small danger">결과 모두 지우기</button>
+      </div>
+      <div class="tablewrap">
+        <table id="results">
+          <colgroup><col class="w-cb"><col class="w-car"><col class="w-day"><col class="w-cafe"><col class="w-title"><col><col class="w-yn"><col class="w-reason"><col class="w-note"><col class="w-del"></colgroup>
+          <thead><tr><th><input type="checkbox" id="checkAll" title="보이는 글 모두 체크/해제"></th><th>차종</th><th>게시일</th><th>동호회</th><th>제목</th><th>주요내용 요약</th><th class="nowrap">동향 / 로데이터</th><th>누락 사유</th><th>비고</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="resultCount" class="hint"></div>
+      <div id="ynCounts" class="hint"></div>
+
+      <h3>본문 읽기 · 요약</h3>
+      <div class="hint">체크한 글을 하나씩 열어 본문을 읽고(글 하나에 10초 안팎), 주요내용 요약과 온라인 동향 미포함(N) 글의 누락 사유를 씁니다(로데이터에도 없는 N / N 글은 로데이터에 수집되지 않은 이유).
+        AI 를 쓰면 본문 내용을 보고 AI 가 체크 여부를 최종 판단하고(직접 체크·해제한 글은 그대로), 쓰지 않으면 본문의 단어로 정합니다. 이미 읽은 글은 다시 열지 않습니다. AI 사용 여부·키는 위 3번에서 정합니다.</div>
+      <label class="inline"><input type="checkbox" id="screenOn" checked> 체크 안 된 글도 AI 가 제목·미리보기 내용으로 한 번 더 검토 <span class="hint">(관련 가능성이 있으면 체크해서 본문까지 읽음 · 네이버 접속 없음 · 수백 원 · AI 를 켰을 때만)</span></label>
+      <label class="inline"><input type="checkbox" id="readAll"> 체크 안 된 글도 모두 본문을 읽고 AI 가 판단 <span class="hint">(가장 정확하지만 글 1개에 약 12초 · 찾은 글 전체를 엶 · <span id="readAllInfo"></span>)</span></label>
+      <div class="hint cost-legend">💰 = 누르면 Claude AI 비용이 드는 버튼 (실행 전에 예상 비용을 보여주고 확인을 받음)</div>
+      <div class="buttons">
+        <button id="readBodies" class="primary">본문 읽고 요약하기</button>
+        <button id="rewrite" title="본문은 다시 읽지 않고 요약·누락 사유만 다시 씁니다"><span class="cost-ico" data-when="ai">💰 </span>요약·사유만 다시 쓰기</button>
+        <button id="rewriteReason" hidden title="로데이터에도 없는 글(N / N)의 누락 사유만 '로데이터에 수집되지 않은 이유' 로 다시 씁니다 (요약·체크는 그대로)">N / N 누락 사유 다시 쓰기</button>
+      </div>
+
+      <h3>엑셀 받기</h3>
+      <div class="hint">순서대로 누르면 됩니다. ① 로우 엑셀(찾은 글 전체) → ② 1차 검수(체크한 글 + 주제 관련도 % · 70% 이상 빨강) → ③ 최종 파일(검수를 통과한 글만). 데이터 DB 에도 따로 보관합니다.
+        ② 를 누르면 검수가 안 된 글을 AI 가 판독된 내용(요약·상황·본문 일부)으로 먼저 검수(관련도 + 4항목)하고, ③ 은 그 결과를 그대로 씁니다(본문을 다시 읽지 않음 · 검수 비용은 한 번).
+        💰 는 검수할 글이 남아 있을 때만 붙습니다.</div>
+      <div class="buttons">
+        <button id="saveRaw" disabled>① 로우 엑셀 받기 <span class="hint-in">(찾은 글 전체 · 판단 근거·본문)</span></button>
+        <button id="saveList" disabled><span class="cost-ico" data-when="review">💰 </span>② 1차 검수 받기 <span class="hint-in">(AI 검수 · 체크한 글 · 관련도 %)</span></button>
+        <button id="saveFinal" class="primary" disabled><span class="cost-ico" data-when="review">💰 </span>③ 최종 파일 받기 <span class="hint-in">(검수 통과한 글만)</span></button>
+        <button id="redoReview" class="small" disabled title="체크한 글 전체를 AI 가 다시 최종 검수합니다"><span class="cost-ico">💰 </span>최종 검수 다시 하기</button>
+      </div>
+      <div id="saveInfo" class="hint"></div>
+      <div id="diffs" class="diffs" hidden></div>
+    </section>
+
+    <p class="note">
+      네이버 카페는 계정 보호를 위해 검색 화면과 게시글을 하나씩 열어 사람처럼 천천히 읽습니다. 창·탭은 띄우지 않고 이 화면 안의 보이지 않는 곳에서 읽습니다.
+      오래 걸리는 작업이니 중간에 멈추거나 화면을 닫아도, 다시 열면 이어서 할 수 있습니다. 내가 열람할 수 있는 글만 찾을 수 있습니다(로그인 필요).
+    </p>
+  </main>
+  <script src="lib/anthropic-sdk.min.js"></script>
+  <script src="xlsx.js"></script>
+  <script src="template.js"></script>
+  <script src="cafe-common.js"></script>
+  <script src="seat-ui.js"></script>
+  <script src="db-store.js"></script>
+  <script src="seat.js"></script>
+</body>
+</html>

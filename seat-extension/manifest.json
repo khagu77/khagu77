@@ -1,0 +1,55 @@
+{
+  "manifest_version": 3,
+  "name": "LX3 / ME1 / MX5 전동 시트 작동 위험 상황 관련 게시물 수집",
+  "version": "1.4.0",
+  "description": "차종별 네이버 동호회에서 2·3열 전동 시트 조작 중 위험 상황을 언급한 글을 찾아, 온라인 동향·로데이터 포함 여부와 요약·누락 사유를 붙여 엑셀로 받습니다.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "LX3 / ME1 / MX5 전동 시트 작동 위험 상황 관련 게시물 수집",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "declarativeNetRequest",
+    "scripting",
+    "cookies",
+    "storage",
+    "downloads",
+    "unlimitedStorage",
+    "webNavigation",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "https://cafe.naver.com/*",
+    "https://m.cafe.naver.com/*",
+    "https://*.naver.com/*",
+    "https://naver.me/*",
+    "https://api.anthropic.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://cafe.naver.com/*"
+      ],
+      "js": [
+        "bg-render.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    }
+  ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAw1a3F3VBbw5kmfAD7YyHJDwfIHaU2AxQGx6rGEjtwuWLs/tMv+8G2ywZr5K2Ah7cb+XruUujg+gSUxbYkFdULcdASubdgiSTCMJLGQuOCNQOH5kAvx1AjA6wQ3T5vIg8mXs3K+oqR6MKV19ppBj9hGmckvsyJ6OudJRTrQPeKnG29MXXiWuGDnAWzrhiNuDJSlwxDCgjIZfh2JdM4RS88s8Ioq1A1edNB0L2pSJRDjt1zlfyqNd/vnHf4sRGVNyFa1uHZmXRabNzivVNM26IdM/B8uCFoFavV+ET02gnQEaBveSAJJfFUw0tALuW048iilMkdoyekd0/KfEoY+Ug+QIDAQAB"
+}
