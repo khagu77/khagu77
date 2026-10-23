@@ -92,6 +92,7 @@ async function setSource({ mode, bytes, label, titles } = {}) {
       source.kind = "";
       $("#excelInfo").textContent = "전체(통합) 엑셀을 첨부해 주세요";
       $("#excelInfo").className = "hint err";
+      await restoreLastExcel(); // 오늘 첨부했던 전체 엑셀이 있으면 다시 불러오고, 작성하던 글도 화면에 되살림
     }
   } else if (bytes && source.kind !== "file") {
     await loadExcelBytes(bytes, label || "수집 결과");
@@ -313,12 +314,62 @@ async function loadTemplate() {
 // ---------------------------------------------------------------------------
 // 엑셀
 // ---------------------------------------------------------------------------
+// 업데이트·새로고침으로 화면이 다시 열려도 오늘 첨부한 전체 엑셀과 작성하던 글이 사라지지 않게
+// (담당자 지적 2026-10-23: 업데이트 후 RAW 받기 버튼이 꺼지고 작성한 PPT 내용이 화면에서 사라짐)
+async function restoreLastExcel() {
+  const last = await kvGet("lastExcel").catch(() => null);
+  const today = new Date().toDateString();
+  if (!last || !last.bytes || new Date(last.at).toDateString() !== today) return;
+  await loadExcelBytes(last.bytes, `${last.name} · 오늘 첨부했던 파일을 다시 불러옴`);
+  if (!excelItems.length && !excelAllRows.length) return;
+  source.kind = "file";
+  renderSource();
+  await restoreItemsFromProgress();
+  refreshButtons();
+}
+
+// 저장해 둔 작성 기록(이어하기용)으로 미리보기 카드를 되살린다 (다시 캡처하지 않음)
+async function restoreItemsFromProgress() {
+  if (items.some((it) => it.ready)) return;
+  const prev = await loadPptProgress();
+  if (!prev) return;
+  const byUrl = new Map(prev.items.map((x) => [x.url, x]));
+  plan = countPlan();
+  items = excelItems.map((row) => ({ no: null, row, ready: false }));
+  $("#items").innerHTML = "";
+  let n = 0;
+  // 번호: 저장된 번호가 없으면(예전 기록) 지금 작성 개수 설정대로 매긴다 (start() 와 같은 방식)
+  const mine = plan.all ? items : plan.part === "front" ? items.slice(0, plan.mine) : items.slice(-plan.mine);
+  let nextNo = 1;
+  for (const it of items) {
+    const x = byUrl.get(it.row.url);
+    if (!x) {
+      renderItem(it);
+      setItemStatus(it, "작성 안 함");
+      continue;
+    }
+    try {
+      await restoreItem(it, x);
+      it.no = x.no ?? (it.deleted ? null : plan.all ? nextNo++ : mine.includes(it) ? plan.startNo + mine.indexOf(it) : null);
+      renderItem(it);
+      setItemStatus(it, it.deleted ? "삭제된 게시물 — 보고서에서 제외" : "지난 작업에서 불러옴", it.deleted ? "err" : "ok");
+      n++;
+    } catch {
+      renderItem(it);
+    }
+  }
+  if (n) setSummary(`화면이 다시 열려 오늘 작성하던 글 ${n}건을 불러왔습니다. 이어서 [PPT 받기]·[RAW data 엑셀 파일 받기]를 할 수 있습니다.`, "ok");
+}
+
 async function onExcelFile() {
   const file = $("#excelFile").files[0];
   if (!file) return;
-  await loadExcelBytes(new Uint8Array(await file.arrayBuffer()), file.name);
+  const fileBytes = new Uint8Array(await file.arrayBuffer());
+  await kvSet("lastExcel", { name: file.name, bytes: fileBytes, at: Date.now() }).catch(() => {});
+  await loadExcelBytes(fileBytes, file.name);
   source.kind = excelItems.length || excelAllRows.length ? "file" : "";
   renderSource();
+  await restoreItemsFromProgress().catch(() => {}); // 같은 엑셀로 작성하던 글이 있으면 미리보기 카드를 되살림
   refreshButtons();
 }
 
@@ -538,6 +589,7 @@ function savedItem(it) {
   const cap = it.cap ? { ...it.cap, imagesOriginal: (it.cap.images || []).map((b) => !!(b && b.isOriginal)) } : null;
   return {
     url: it.row.url,
+    no: it.no ?? null,
     ready: it.ready,
     deleted: !!it.deleted,
     error: it.error || "",
@@ -643,6 +695,7 @@ async function start() {
       // 전체: 삭제 글을 빼고 1번부터 이어서 / N개 중 K개: + 글 순서 그대로의 번호 (삭제 글 자리는 빈 칸)
       it.no = plan.all ? nextNo++ : plan.startNo + mine.indexOf(it);
       written++;
+      savePptProgress(500);
       renderItem(it);
       setItemStatus(it, it.error ? "완료(확인 필요)" : "완료", it.error ? "err" : "ok");
     }
