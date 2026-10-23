@@ -30,7 +30,15 @@ button.danger:hover { filter: brightness(0.9); }
 button.btn-get { background: var(--blue); color: #fff; border-color: var(--blue); font-weight: 600; }
 button.btn-sys { background: transparent; color: var(--muted); border: 1px dashed var(--border); }
 button.btn-warn { color: #b45309; border-color: #f59e0b; }
-.wk-box td.actions { white-space: nowrap; }
-.wk-box td.actions button { margin-right: 4px; }
+/* 버튼이 상자 밖으로 나가지 않게: 칸 안에서 여러 줄로 감싼다 (담당자 지적 2026-10-23) */
+#histTable { table-layout: auto; width: 100%; }
+#histTable td.actions { white-space: normal; }
+#histTable td.actions .acts { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-start; }
+#histTable td.actions button { margin: 0; padding: 5px 9px; font-size: 12.5px; }
+#histTable td:nth-child(4) { word-break: break-all; min-width: 140px; }
 #histTable td:nth-child(-n+3) { white-space: nowrap; }
 #histTable td:nth-child(5) { white-space: nowrap; }
+
+/* 파일 올리기 버튼 모양 */
+label.filebtn { display: inline-flex; align-items: center; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); font-size: 13px; font-weight: 600; cursor: pointer; }
+label.filebtn:hover { border-color: var(--blue); }
