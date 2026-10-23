@@ -776,6 +776,12 @@ async function renderRawHistory() {
             if (!confirm(`다음 RAW data 를 이 파일 끝에 이어 쓸까요?\n${h.name}`)) return;
             await pptKv("readwrite", (st) => st.put({ name: h.name, bytes: h.bytes, savedAt: fmtDateTime(new Date(h.at)) }, "rawLatest"));
             renderRawHistory();
+          } }),
+          el("button", { class: "danger", text: "삭제", title: isBase ? "다음 RAW 이어 쓰기 기준 파일은 지울 수 없습니다 (다른 파일을 기준으로 바꾼 뒤 지우세요)" : "이 RAW 파일 기록 지우기", disabled: !!isBase, onclick: async () => {
+            if (!confirm(`RAW data 파일 기록을 지울까요?\n${h.name}\n(저장 폴더의 파일은 그대로입니다)`)) return;
+            const list = (await pptKv("readonly", (st) => st.get("rawHistory"))) || [];
+            await pptKv("readwrite", (st) => st.put(list.filter((x) => !(x.at === h.at && x.name === h.name)), "rawHistory"));
+            renderRawHistory();
           } })
         )
       )
@@ -818,7 +824,16 @@ async function renderDailyPpts() {
         el("td", {}, el("b", { text: DailyPpt.KIND_LABEL[f.kind] || f.kind }), f.partial ? el("span", { class: "count-red", text: " · 일부(나눠 쓴 PPT)" }) : null),
         el("td", { text: f.name }),
         el("td", {}, el("b", { class: "count-red", text: `${f.count || 0}건` })),
-        el("td", { class: "hint", text: day.entries.map((e) => `${DailyPpt.KIND_LABEL[e.kind]}${e.partial ? "(일부)" : ""} ${fmtDateTime(new Date(e.at))}`).join(" / ") }),
+        // 보관된 파일마다 ✕ (필요 없는 파일만 지우기) — 담당자 요청 2026-10-23
+        el("td", { class: "hint" }, ...day.entries.map((e) =>
+          el("span", { class: "kept-file" },
+            `${DailyPpt.KIND_LABEL[e.kind]}${e.partial ? "(일부)" : ""} ${fmtDateTime(new Date(e.at))} `,
+            el("button", { class: "x-del", text: "✕", title: `이 파일만 지우기: ${e.name}`, onclick: async () => {
+              if (!confirm(`데일리 DB 에서 이 PPT 를 지울까요?\n${day.date} · ${DailyPpt.KIND_LABEL[e.kind]}\n${e.name}\n(저장 폴더의 파일은 그대로입니다)`)) return;
+              await DailyPpt.remove(e.id);
+              renderDailyPpts();
+            } })
+          ))),
         el("td", { class: "actions" },
           el("button", { text: "받기", onclick: async () => {
             const where = await saveBytesFile(f.name, f.bytes, PPT_MIME);
@@ -831,6 +846,11 @@ async function renderDailyPpts() {
           el("button", { text: "전체 PPT 올리기", title: "나눠 쓴 날: 합친 전체 PPT 를 이 날짜의 최종본으로", disabled: !f.partial, onclick: () => {
             dailyPptTarget = { date: day.date, kind: "full" };
             $("#dailyPptOne").click();
+          } }),
+          el("button", { class: "danger", text: "삭제", title: "이 날짜의 PPT 를 모두 지우기", onclick: async () => {
+            if (!confirm(`데일리 DB 에서 ${day.date} 의 PPT ${day.entries.length}개를 모두 지울까요?\n(저장 폴더의 파일은 그대로입니다)`)) return;
+            for (const e of day.entries) await DailyPpt.remove(e.id);
+            renderDailyPpts();
           } })
         )
       )

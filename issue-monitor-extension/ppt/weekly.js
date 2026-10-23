@@ -421,7 +421,7 @@ async function renderHistory() {
   for (const h of hist) {
     const f = h.final || null;
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${new Date(h.at).toLocaleString("ko-KR")}</td><td>${esc(h.start)} ~ ${esc(h.end)}</td><td><b>${f ? "담당자 수정본" : h.uploaded ? "올린 파일" : "시스템 작성본"}</b>${f ? `<div class="hint">${new Date(f.at).toLocaleString("ko-KR")} 올림</div>` : ""}</td><td>${esc(f ? f.name : h.name)}</td><td class="count-red">${f ? f.count : h.count}건</td><td class="actions"><button data-a="get">받기</button>${f && !h.uploaded ? '<button data-a="sys">시스템 작성본 받기</button>' : ""}<button data-a="up">수정본 올리기</button></td>`;
+    tr.innerHTML = `<td>${new Date(h.at).toLocaleString("ko-KR")}</td><td>${esc(h.start)} ~ ${esc(h.end)}</td><td><b>${f ? "담당자 수정본" : h.uploaded ? "올린 파일" : "시스템 작성본"}</b>${f ? `<div class="hint">${new Date(f.at).toLocaleString("ko-KR")} 올림</div>` : ""}</td><td>${esc(f ? f.name : h.name)}</td><td class="count-red">${f ? f.count : h.count}건</td><td class="actions"><button data-a="get">받기</button>${f && !h.uploaded ? '<button data-a="sys">시스템 작성본 받기</button>' : ""}<button data-a="up">수정본 올리기</button>${f ? '<button data-a="delf" title="올린 수정본만 지우고 시스템 작성본을 최종본으로">수정본 지우기</button>' : ""}<button data-a="del" class="danger">삭제</button></td>`;
     const save = async (name, bytes) => {
       const dir = await weeklyDirIfAllowed(true);
       const where = await saveFile(dir, await freeName(dir, name), bytes);
@@ -429,6 +429,22 @@ async function renderHistory() {
     };
     tr.querySelector('[data-a="get"]').addEventListener("click", () => save(f ? f.name : h.name, f ? f.bytes : h.bytes));
     tr.querySelector('[data-a="sys"]')?.addEventListener("click", () => save(h.name, h.bytes));
+    // 필요 없는 주간 보고서 기록 지우기 (담당자 요청 2026-10-23) — 저장 폴더의 파일은 그대로
+    const removeIt = async (onlyFinal) => {
+      const list = (await kvGet("weeklyHistory")) || [];
+      const i = list.findIndex((x) => x.at === h.at);
+      if (i < 0) return;
+      if (onlyFinal && !list[i].uploaded) delete list[i].final;
+      else list.splice(i, 1);
+      await kvSet("weeklyHistory", list);
+      renderHistory();
+    };
+    tr.querySelector('[data-a="del"]').addEventListener("click", () => {
+      if (confirm(`주간 DB 에서 ${h.start} ~ ${h.end} 주간 보고서 기록을 지울까요?${f ? "\n(시스템 작성본과 올린 수정본 모두)" : ""}\n(저장 폴더의 파일은 그대로입니다)`)) removeIt(false);
+    });
+    tr.querySelector('[data-a="delf"]')?.addEventListener("click", () => {
+      if (confirm(`올린 수정본(${f.name})만 지울까요?${h.uploaded ? "\n(시스템 작성본이 없는 주라 이 주 기록 전체가 지워집니다)" : "\n시스템 작성본이 다시 최종본이 됩니다."}`)) removeIt(true);
+    });
     tr.querySelector('[data-a="up"]').addEventListener("click", () => {
       wkTarget = h;
       $("#wkUploadOne").click();

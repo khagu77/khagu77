@@ -327,3 +327,7 @@ nav .tab.work.active .step { background: var(--blue); border-color: var(--blue);
 .cost-down { color: #1a5fd0; font-weight: 700; font-size: 12px; }
 .cost-same { color: var(--muted); font-weight: 700; font-size: 12px; }
 @media (prefers-color-scheme: dark) { #dbTable tr.db-total td { background: #1c2b40; } .cost-down { color: #6ea3ff; } }
+
+.kept-file { display: inline-flex; align-items: center; gap: 2px; margin-right: 8px; white-space: nowrap; }
+button.x-del { padding: 0 5px; font-size: 11px; line-height: 16px; border-radius: 4px; color: var(--red); border-color: transparent; background: transparent; }
+button.x-del:hover { border-color: var(--red); }
