@@ -354,6 +354,8 @@ def test_seat(tmp_path: Path):
         assert raw_path.name.endswith("_전체 raw data.xlsx"), raw_path.name
         page.locator("#saveInfo", has_text="데이터 DB(로우 엑셀)에 오늘 파일로 저장").wait_for()
         rws = load_workbook(raw_path).active
+        # 모든 글 행 같은 높이 (머리글 36 · 글 66)
+        assert rws.row_dimensions[1].height == 36 and {rws.row_dimensions[r].height for r in range(2, rws.max_row + 1)} == {66}
         assert rws["A1"].font.name == "현대산스 Text" and rws["E2"].font.name == "현대산스 Text"
         head = [c.value for c in rws[1]]
         assert head[:8] == ["순번", "차종", "동호회명", "게시일", "제목", "URL", "최종 포함(체크)", "온라인동향/로데이터 포함 여부"] and head[-1] == "본문"
@@ -687,6 +689,7 @@ def test_ai_review_unchecked(tmp_path: Path):
         assert rv["palicafe/11"] == [95, True]  # 이전 기준으로 검수한 글은 새 기준으로 다시 검수
         assert "4가지를 하나씩 다시 검수" in reviews[-1] and "[담당자 추가 규칙" in reviews[-1] and "전동 트렁크(테일게이트)" in reviews[-1]
         sws = load_workbook(first_path, rich_text=True).active
+        assert {sws.row_dimensions[r].height for r in range(4, sws.max_row + 1)} == {66}
         rows1 = {sws.cell(r, 6).value: sws.cell(r, 11).value for r in range(4, sws.max_row + 1)}
         assert len(rows1) == n_checked and rows1["3열 시트 가죽 이야기"] == 0.4  # 숫자(백분율 서식) - '텍스트로 저장된 숫자' 경고 없음
         assert "최종 검수: 관련도 40% · 제외 · ①시트작동O ②사고X ③우려X ④일부언급X" in page.locator("#results tbody tr", has_text="3열 시트 가죽 이야기").inner_text()
@@ -699,6 +702,7 @@ def test_ai_review_unchecked(tmp_path: Path):
         dl.value.save_as(final_path)
         assert final_path.name.endswith("_최종.xlsx") and calls.count("review") == n_review
         fws = load_workbook(final_path, rich_text=True).active
+        assert {fws.row_dimensions[r].height for r in range(4, fws.max_row + 1)} == {66} and fws.column_dimensions['F'].width == 56 and fws.column_dimensions['G'].width == 46
         final_titles = [fws.cell(r, 6).value for r in range(4, fws.max_row + 1)]
         assert "3열 시트 가죽 이야기" not in final_titles and "전동 트렁크 손 끼임" not in final_titles and len(final_titles) == n_checked - 2, final_titles
         assert fws["K4"].value == 0.95 and fws["K4"].number_format == "0%"

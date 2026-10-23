@@ -2502,8 +2502,11 @@ async function saveRaw() {
     const rows = rawRows();
     const bytes = XlsxWriter.build([{
       name: "전체 raw data", rows: [RAW_HEADERS, ...rows],
-      widths: { 1: 6, 2: 6, 3: 16, 4: 11, 5: 40, 6: 38, 7: 8, 8: 10, 9: 50, 10: 40, 11: 16, 12: 36, 13: 7, 14: 7, 15: 40, 16: 24, 17: 9, 18: 9, 19: 9, 20: 8, 21: 9, 22: 9, 23: 9, 24: 9, 25: 40, 26: 80 },
+      // 1차 검수·최종 파일과 같은 너비 · 모든 글 행 같은 높이(4줄) · 제목·URL 은 가능한 한 한 줄
+      widths: { 1: 6, 2: 7, 3: 22, 4: 12, 5: 56, 6: 46, 7: 9, 8: 14, 9: 68, 10: 80, 11: 16, 12: 36, 13: 9, 14: 9, 15: 40, 16: 24, 17: 9, 18: 9, 19: 9, 20: 9, 21: 11, 22: 11, 23: 11, 24: 11, 25: 40, 26: 80 },
       wrapCols: [5, 9, 10, 12, 15, 25],
+      rowHeight: 66,
+      headHeight: 36,
     }], { font: EXCEL_FONT, headFill: "FFF37021" });
     const name = datedFileName(RAW_NAME);
     const where = await saveBytes(bytes, name);

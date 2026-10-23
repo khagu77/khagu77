@@ -29,7 +29,7 @@ def build():
     wb = load_workbook(ROOT / "seat-template.xlsx")
     ws = wb.create_sheet("판단 기준")
     ws.sheet_view.showGridLines = False
-    for col, w in {"A": 2, "B": 22, "C": 46, "D": 40, "E": 44, "F": 10}.items():
+    for col, w in {"A": 2, "B": 30, "C": 46, "D": 40, "E": 44, "F": 10}.items():
         ws.column_dimensions[col].width = w
     r = 2
 
@@ -80,7 +80,7 @@ def build():
             c.font = font(bold=i == 0 and not left_first, color=(colors or {}).get(i, "FF1B1D21"))
             c.border = BOX
             if i == 0 and left_first:
-                c.alignment = Alignment(wrap_text=True, vertical="center", horizontal="left", indent=1)
+                c.alignment = Alignment(wrap_text=False, vertical="center", horizontal="left", indent=1)  # 항목 이름은 한 줄
             else:
                 c.alignment = Alignment(wrap_text=True, vertical="center", horizontal="center" if (i == 0 or i == 4) else None)
         if merge_to:
@@ -144,6 +144,7 @@ def build():
     # 2. 최종 검수
     section("2. 최종 검수 4항목 · 최종 확정 조건")
     header("항목", "검수 내용", "포함으로 보는 경우", "제외로 보는 경우", "")
+    ws.merge_cells(start_row=r - 1, start_column=5, end_row=r - 1, end_column=6)  # '제외로 보는 경우' 를 끝 열까지
     checks = [
         ("① 전동 시트 작동 이슈", "전동 시트 작동·조작(전동 폴딩·원터치 워크인·슬라이딩·리클라이닝·복귀)과 관련된 글인지",
          "2·3열 전동 시트의 작동·조작이 글에 나옴", "전동 트렁크(테일게이트)·도어·선루프·창문 등 다른 장치 이슈, 카시트·가죽·열선 등 작동과 무관한 시트 이야기"),
@@ -152,7 +153,7 @@ def build():
         ("④ 타 이슈 중 일부 언급", "여러 다른 이슈를 함께 말한 글이라도 시트 작동 위험·사고·우려가 조금이라도 포함되는지", "한 문장이라도 있으면 해당", "위험·사고·우려 문장이 전혀 없음"),
     ]
     for a, b, c, d in checks:
-        row(a, b, c, d, "", height=52, left_first=True)  # 항목 이름은 왼쪽 정렬 (①~④ 번호 줄 맞춤)
+        row(a, b, c, d, height=52, left_first=True, merge_to=6)  # 항목 이름은 왼쪽 정렬 (①~④ 번호 줄 맞춤)
     note("· 최종 확정 = ① 에 해당하고, ②·③·④ 중 하나 이상에 해당하는 글.\n"
          "· 최종 확정 여부는 4항목 판정으로 정하며, 관련도는 함께 참고용으로 표시합니다.", height=40)
 

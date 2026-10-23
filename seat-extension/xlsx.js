@@ -1,5 +1,6 @@
 // 외부 라이브러리 없이 .xlsx 파일을 만드는 최소 구현.
-// XlsxWriter.build([{ name, rows: [[...], ...], widths: {열번호(1부터): 너비}, wrapCols: [열번호] }], { font: "글꼴 이름" })
+// XlsxWriter.build([{ name, rows: [[...], ...], widths: {열번호(1부터): 너비}, wrapCols: [열번호], rowHeight, headHeight }], { font: "글꼴 이름" })
+// rowHeight: 글 행을 모두 같은 높이(pt)로 · headHeight: 머리글 행 높이
 //   → Uint8Array (엑셀 파일 바이트). 첫 행은 머리글로 꾸며지고 틀 고정/필터가 걸린다.
 (function (global) {
   const enc = new TextEncoder();
@@ -118,7 +119,8 @@
           cells += `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
         }
       });
-      data += `<row r="${r}">${cells}</row>`;
+      const ht = ri === 0 ? sheet.headHeight : sheet.rowHeight;
+      data += `<row r="${r}"${ht ? ` ht="${ht}" customHeight="1"` : ""}>${cells}</row>`;
     });
     const lastRef = colName(ncols) + Math.max(1, rows.length);
     return (
@@ -142,9 +144,9 @@
     `<fill><patternFill patternType="solid"><fgColor rgb="${headFill}"/><bgColor indexed="64"/></patternFill></fill></fills>` +
     '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
     '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
-    '<cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
-    '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>' +
-    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf></cellXfs>' +
+    '<cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf>' +
+    '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>' +
+    '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf></cellXfs>' +
     '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
     "</styleSheet>";
 
