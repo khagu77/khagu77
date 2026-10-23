@@ -24,9 +24,19 @@
       엑셀에서 직접 고친 파일은 그 날짜의 <b>수정본 올리기</b>로 바꿔 두세요.
     </p>
 
+    <section data-kind="seatFinal" class="db-section">
+      <h2>1. 최종 파일 (AI 최종 검수 통과 · 보고 양식)</h2>
+      <div class="row"><button class="small register">파일 등록</button><span class="hint">따로 갖고 있는 최종 파일을 넣을 때 · 파일명 앞 날짜(예: 20261023_…)의 날짜로 등록</span></div>
+      <table class="dbtable">
+        <colgroup><col class="w-date"><col><col class="w-sum"><col class="w-cnt"><col class="w-act"></colgroup>
+        <thead><tr><th>날짜</th><th>파일</th><th>내용</th><th>건수 <span class="th-sub">(전 기록 대비)</span></th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
     <section data-kind="seat" class="db-section">
-      <h2>1. 최종 데이터 (체크한 글 · 보고 양식)</h2>
-      <div class="row"><button class="small register">파일 등록</button><span class="hint">따로 갖고 있는 최종 파일을 넣을 때 · 파일명 앞 날짜(예: 20261022_…)의 날짜로 등록</span></div>
+      <h2>2. 1차 검수 (체크한 글 · 주제 관련도)</h2>
+      <div class="row"><button class="small register">파일 등록</button><span class="hint">따로 갖고 있는 1차 검수 파일을 넣을 때</span></div>
       <table class="dbtable">
         <colgroup><col class="w-date"><col><col class="w-sum"><col class="w-cnt"><col class="w-act"></colgroup>
         <thead><tr><th>날짜</th><th>파일</th><th>내용</th><th>건수 <span class="th-sub">(전 기록 대비)</span></th><th></th></tr></thead>
@@ -35,8 +45,8 @@
     </section>
 
     <section data-kind="seatRaw" class="db-section">
-      <h2>2. 전체 raw 데이터 (찾은 글 전체 · 판단 근거·요약·본문)</h2>
-      <div class="row"><button class="small register">파일 등록</button><span class="hint">따로 갖고 있는 전체 raw 데이터 파일을 넣을 때</span></div>
+      <h2>3. 로우 엑셀 (찾은 글 전체 · 판단 근거·요약·본문)</h2>
+      <div class="row"><button class="small register">파일 등록</button><span class="hint">따로 갖고 있는 로우 엑셀 파일을 넣을 때</span></div>
       <table class="dbtable">
         <colgroup><col class="w-date"><col><col class="w-sum"><col class="w-cnt"><col class="w-act"></colgroup>
         <thead><tr><th>날짜</th><th>파일</th><th>내용</th><th>건수 <span class="th-sub">(전 기록 대비)</span></th><th></th></tr></thead>
@@ -45,7 +55,7 @@
     </section>
 
     <section class="db-section">
-      <h2>3. 작업 데이터 (찾은 글 · 본문 · 요약)</h2>
+      <h2>4. 작업 데이터 (찾은 글 · 본문 · 요약)</h2>
       <div class="hint">게시물 수집 화면에서 찾은 글, 읽은 본문, 요약·누락 사유, 카페 번호, 설정, 직접 등록한 비교 파일입니다. 이 PC 크롬에만 있으니,
         다른 PC로 옮기거나 확장프로그램을 지우기 전에는 <b>백업 받기</b>로 파일을 받아 두세요.</div>
       <table class="compact" id="work"><tbody></tbody></table>

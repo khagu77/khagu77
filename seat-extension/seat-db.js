@@ -1,13 +1,17 @@
 // 데이터 DB 화면: 받은 엑셀(날짜별) 목록 · 받기 · 수정본 올리기 · 삭제 · 등록, 작업 데이터 백업 받기·불러오기
 
-const KINDS = ["seat", "seatRaw"]; // 최종 데이터 · 전체 raw 데이터
+const KINDS = ["seatFinal", "seat", "seatRaw"]; // 최종 파일 · 1차 검수 · 로우 엑셀
 const CAR_CODES = ["LX3", "ME1", "MX5"];
 // 백업에 넣는 작업 데이터 (API 키는 넣지 않음)
 const BACKUP_KEYS = ["seatItems", "seatClubIds", "seatSettings", "seatCars"];
 let pickFor = null; // { kind, date|null }
 // 종류별로 보여줄 건수
 // (최종 데이터의 '온라인 동향 N' = 일일 온라인 동향에 보고되지 않은 글 수)
-const COUNT_FIELDS = { seat: [["posts", "글"], ["missing", "온라인 동향 N"]], seatRaw: [["posts", "찾은 글"], ["checked", "체크"]] };
+const COUNT_FIELDS = {
+  seatFinal: [["posts", "최종 글"], ["missing", "온라인 동향 N"]],
+  seat: [["posts", "글"], ["missing", "온라인 동향 N"]],
+  seatRaw: [["posts", "찾은 글"], ["checked", "체크"]],
+};
 
 // 올린 파일이 그 종류의 양식인지 확인하고 건수를 센다
 async function summarize(kind, bytes) {
@@ -32,7 +36,8 @@ async function summarize(kind, bytes) {
   if (!head || String(head.cells.B || "").trim() !== "순번" || String(head.cells.C || "").trim() !== "차종") {
     throw new Error("3행 머리글(B 순번 · C 차종 …)이 없습니다. 이 프로그램에서 받은 엑셀이 맞는지 확인해 주세요.");
   }
-  const stats = { posts: 0, missing: 0, nn: 0, ny: 0, yy: 0, yn: 0, LX3: 0, ME1: 0, MX5: 0 };
+  const stats = { posts: 0, missing: 0, nn: 0, ny: 0, yy: 0, yn: 0, LX3: 0, ME1: 0, MX5: 0, relHigh: 0 };
+  const rels = [];
   for (const r of rows) {
     if (r.r <= 3 || r.cells.C === undefined) continue;
     stats.posts++;
@@ -42,7 +47,13 @@ async function summarize(kind, bytes) {
     if (yn.startsWith("N")) stats.missing++;
     const code = yn.replace("/", "").toLowerCase();
     if (code in stats) stats[code]++;
+    const rel = parseInt(String(r.cells.K ?? "").replace("%", ""), 10); // K 주제 관련도 "85%"
+    if (Number.isFinite(rel)) {
+      rels.push(rel);
+      if (rel >= 70) stats.relHigh++;
+    }
   }
+  stats.relAvg = rels.length ? Math.round(rels.reduce((a, b) => a + b, 0) / rels.length) : null;
   const summary = `글 ${stats.posts.toLocaleString()}개 · ${CAR_CODES.map((c) => `${c} ${stats[c].toLocaleString()}`).join(" · ")} · N/N ${stats.nn} · N/Y ${stats.ny} · Y/Y ${stats.yy}`;
   return { summary, stats };
 }
@@ -84,6 +95,9 @@ function fillChips(td, kind, rec) {
         ...(st.nn !== undefined
           ? [[`N/N ${st.nn.toLocaleString()}`, "warn"], [`N/Y ${(st.ny ?? 0).toLocaleString()}`, "warn"], [`Y/Y ${(st.yy ?? 0).toLocaleString()}`, "ok"]]
           : [[`온라인 동향 N ${(st.missing ?? 0).toLocaleString()}`, "warn"]])];
+  // 주제 관련도: 평균 · 70% 이상 건수 (최종 검수한 글)
+  if (st && typeof st.relAvg === "number") chips.push([`관련도 평균 ${st.relAvg}% · 70%↑ ${(st.relHigh ?? 0).toLocaleString()}`, st.relAvg >= 70 ? "warn" : "ok"]);
+  if (st && kind === "seatFinal" && st.from) chips.push([`체크한 글 ${st.from.toLocaleString()}개 중`, ""]);
   // 이 파일에 든 글들에 쓴 AI 비용 (글마다 실제 사용량으로 나눠 붙인 것의 합)
   if (st && st.aiCost > 0) {
     chips.push([`AI 비용 ${fmtWon(st.aiCost)}${st.posts ? ` · 글당 ${fmtWon(st.aiCost / st.posts)}` : ""}`, "cost"]);

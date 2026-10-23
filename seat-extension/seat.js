@@ -53,7 +53,9 @@ const DEFAULT_SEARCH_URL = "https://cafe.naver.com/f-e/cafes/{cafeId}/menus/0?vi
 const DEFAULT_MAX_PAGES = 10;
 const HEADER_ROW = 3; // 양식: 3행 머리글(B 순번 · C 차종 · D 동호회명 · E 게시일 · F 제목 · G URL · H 요약 · I 포함 여부 · J 누락 사유)
 const STYLE_ROW = 4;
-const OUT_NAME = "LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물.xlsx";
+const OUT_NAME = "LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물_1차 검수.xlsx"; // 체크한 글 전체 + 관련도
+const FINAL_NAME = "LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물_최종.xlsx"; // AI 최종 검수를 통과한 글
+const RELEVANCE_RED = 70; // 관련도 이 값 이상은 빨강, 미만은 파랑
 const RAW_NAME = "LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물_전체 raw data.xlsx";
 const EXCEL_FONT = "현대산스 Text"; // 받는 엑셀 글꼴 (양식 seat-template.xlsx 도 이 글꼴)
 const BLUE = "FF0070C0"; // 포함 여부 Y
@@ -1597,6 +1599,156 @@ async function aiScreen() {
   return !fatal;
 }
 
+// ---------------------------------------------------------------------------
+// AI 최종 검수: 본문 판독·요약까지 마친 체크한 글을 판독 내용(제목·요약·상황·본문 일부)으로 한 번 더 보고
+// 주제 관련도(0~100%)와 최종 포함 여부를 정한다 → 1차 검수 엑셀의 관련도 · 최종 파일(포함된 글만)
+// ---------------------------------------------------------------------------
+
+const REVIEW_BATCH = 10;
+const REVIEW_BODY_CHARS = 1500;
+
+const REVIEW_SYSTEM = `당신은 현대자동차 품질 부문 온라인 동향 보고서의 최종 검수자입니다.
+조사 주제: 아이오닉9(ME1)·팰리세이드(LX3)·싼타페(MX5)의 2열·3열 시트를 조작할 때(전동 폴딩·원터치 워크인·슬라이딩·리클라이닝·
+복귀 등) 안전 사고가 발생했거나, 발생할 뻔했거나, 발생할 우려·가능성을 언급한 네이버 동호회 게시물.
+
+이미 본문을 읽고 요약까지 마친 글을 받습니다(제목, 주요내용 요약, AI 상황 분류, 본문 일부). 판독된 내용을 토대로 글마다:
+1. relevance: 조사 주제와의 관련도 (0~100 정수)
+   - 100: 2·3열 시트 조작 중 사람·반려동물·물건이 실제로 끼이거나 다친 사고가 명확함 (주제와 완전 일치)
+   - 85~95: 실제로 끼일 뻔·다칠 뻔한 아차 사고, 또는 구체적인 위험 상황 묘사
+   - 70~84: 2·3열 시트 조작의 위험 우려·주의 당부·안전장치(끼임 방지·센서·멈춤) 의문이 글의 주된 내용
+   - 40~69: 시트 조작 이야기 중 위험이 곁들여 언급된 수준, 일반론, 관련 기사·리콜 공지 단순 공유
+   - 10~39: 2·3열 시트 이야기지만 안전과 거의 무관(기능 고장·편의성·소음 등)
+   - 0~9: 주제와 무관
+2. keep: 최종 보고 파일에 넣을지. 관련도 70 이상이 기준이며, 70 미만이라도 실제 안전 위험을 구체적으로 다룬 글이면 넣을 수 있습니다.
+   꼭포함=true 인 글은 반드시 keep=true.
+3. why: 판단 근거 한 문장(15~60자).
+- 판독된 내용에 없는 사실을 지어내지 않고, 모든 글에 같은 기준을 적용합니다. 받은 순서대로, id 를 그대로 돌려줍니다.`;
+
+const REVIEW_SCHEMA = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { id: { type: "string" }, relevance: { type: "integer" }, keep: { type: "boolean" }, why: { type: "string" } },
+        required: ["id", "relevance", "keep", "why"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["items"],
+  additionalProperties: false,
+};
+
+async function aiReviewBatch(client, model, batch, usage) {
+  const input = batch.map((x) => ({
+    id: x.key, 차종: x.car, 제목: x.title, 주요내용요약: x.summary || "", AI상황: x.situation || "",
+    본문: (x.body || x.text || "").slice(0, REVIEW_BODY_CHARS), 꼭포함: !!x.must,
+  }));
+  const params = {
+    model,
+    max_tokens: 8000,
+    system: REVIEW_SYSTEM,
+    output_config: { effort: "medium", format: { type: "json_schema", schema: REVIEW_SCHEMA } },
+    messages: [{ role: "user", content: `아래 글 ${batch.length}개를 최종 검수해 items ${batch.length}개로 돌려주세요.\n\n${JSON.stringify(input)}` }],
+  };
+  const stream = model === "claude-haiku-5-5"
+    ? client.messages.stream(params)
+    : client.beta.messages.stream({ ...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" });
+  const msg = await stream.finalMessage();
+  usage.input += msg.usage?.input_tokens || 0;
+  usage.output += msg.usage?.output_tokens || 0;
+  chargeAi(batch, msg, model);
+  if (msg.stop_reason === "refusal") throw new Error("Claude 가 최종 검수를 거절했습니다");
+  if (msg.stop_reason === "max_tokens") throw new Error("결과가 너무 길어 잘렸습니다");
+  const parsed = JSON.parse(msg.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
+  const byId = new Map((parsed.items || []).map((r) => [r.id, r]));
+  const bad = batch.filter((x) => { const r = byId.get(x.key); return !r || !Number.isFinite(r.relevance) || typeof r.keep !== "boolean"; }).length;
+  if (bad) throw new Error(`결과 ${bad}건의 형식이 맞지 않습니다`);
+  for (const x of batch) {
+    const r = byId.get(x.key);
+    const relevance = Math.max(0, Math.min(100, Math.round(r.relevance)));
+    x.review = { relevance, keep: !!r.keep || !!x.must, why: String(r.why || "").replace(/\s+/g, " ").trim().slice(0, 120), at: Date.now() };
+  }
+}
+
+// → true: 끝남 · false: 취소·실패
+async function aiReview(targets) {
+  const model = $("#aiModel").value;
+  const chars = targets.reduce((n, x) => n + (x.title || "").length + (x.summary || "").length + Math.min(REVIEW_BODY_CHARS, (x.body || x.text || "").length) + 80, 0);
+  const batches = Math.ceil(targets.length / REVIEW_BATCH);
+  const est = aiCostWon(chars * 1.1 + 1200 * batches, targets.length * 50, model);
+  if (!(await askConfirm(
+    `체크한 글 ${targets.length.toLocaleString()}개를 AI 가 최종 검수합니다 (판독된 내용으로 주제 관련도 % 와 최종 포함 여부 판단).\n` +
+      `예상 비용 ${fmtWon(est)} · 예상 소요 시간 약 ${formatDuration(Math.ceil(batches / AI_PARALLEL) * 25)} (본문을 다시 읽지 않음 · 네이버 접속 없음)\n\n계속할까요?`,
+  ))) return false;
+  const client = new Anthropic({ apiKey: $("#aiKey").value.trim(), dangerouslyAllowBrowser: true, maxRetries: 4 });
+  const list = [];
+  for (let i = 0; i < targets.length; i += REVIEW_BATCH) list.push(targets.slice(i, i + REVIEW_BATCH));
+  const usage = { input: 0, output: 0 };
+  const t0 = Date.now();
+  let done = 0;
+  let failed = 0;
+  let fatal = null;
+  let lastError = null;
+  let next = 0;
+  startBusy();
+  const progress = () => showBusy(`AI 최종 검수 중 ${done}/${list.length}묶음${estimateRemaining(t0, done, list.length, (list.length - done) * 25)}`, done, list.length, "AI 최종 검수 중");
+  progress();
+  const worker = async () => {
+    while (next < list.length && !fatal && !stopRequested) {
+      const batch = list[next++];
+      let ok = false;
+      for (let attempt = 1; attempt <= 3 && !ok && !fatal; attempt++) {
+        try {
+          await aiReviewBatch(client, model, batch, usage);
+          ok = true;
+        } catch (e) {
+          lastError = e;
+          if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) fatal = e;
+        }
+      }
+      if (!ok && !fatal && batch.length > 1) {
+        ok = true;
+        for (const x of batch) {
+          try {
+            await aiReviewBatch(client, model, [x], usage);
+          } catch (e) {
+            lastError = e;
+            failed++;
+          }
+        }
+      } else if (!ok) failed += batch.length;
+      done++;
+      progress();
+      for (const x of batch) renderRow(x);
+    }
+  };
+  await Promise.all(Array.from({ length: AI_PARALLEL }, worker));
+  endBusy();
+  await saveItems();
+  renderResults();
+  const kept = targets.filter((x) => x.review?.keep).length;
+  const line = fatal
+    ? `AI 최종 검수를 하지 못했습니다: ${aiErrorMessage(fatal)}`
+    : `✔ AI 최종 검수: ${targets.length.toLocaleString()}개 중 ${kept.toLocaleString()}개 최종 포함 · ${formatDuration((Date.now() - t0) / 1000)} · ` +
+      `비용 ${fmtWon(aiWonExact(usage.input, usage.output, model))}${failed ? ` · ${failed}개는 실패(다시 누르면 다시 검수: ${aiErrorMessage(lastError)})` : ""}`;
+  log(`· ${line}`);
+  setSummary(line, fatal || failed ? "err" : "ok");
+  stopRequested = false;
+  return !fatal && !failed;
+}
+
+// 최종 검수만 다시 (요약을 고쳤거나 기준을 바꿨을 때)
+async function redoReview() {
+  if (running) return;
+  const checked = sortedItems().filter((x) => x.checked);
+  if (!checked.length) return;
+  if (!aiOn()) return setSummary("AI 최종 검수는 API 키가 필요합니다 (3번 Claude AI 설정).", "err");
+  await aiReview(checked);
+}
+
 // API 키 저장: 키를 넣으면 'Claude AI 로 쓰기'를 자동으로 켠다
 async function saveAiKey() {
   const key = $("#aiKey").value.trim();
@@ -1832,6 +1984,8 @@ function visibleItems() {
     if (view === "unchecked") return !x.checked;
     if (view === "missing") return x.checked && !inclusion(x).trend;
     if (view.startsWith("yn:")) return x.checked && ynCode(x) === view.slice(3);
+    if (view === "final") return x.checked && (x.review?.keep || x.must);
+    if (view === "dropped") return x.checked && x.review && !x.review.keep && !x.must;
     return true;
   });
   if ($("#sortBy")?.value === "yn") {
@@ -1914,6 +2068,7 @@ function fillRow(tr, item) {
   tr.children[7].textContent = item.reason || item.by ? finalReason(item, inc) : inc.trend ? "" : notMonitoredReason(item);
   const notes = [];
   if (item.must) notes.push(`★ 꼭 넣을 글: ${item.mustNote || ""}`);
+  if (item.review) notes.push(`최종 검수: 관련도 ${item.review.relevance}% · ${item.review.keep || item.must ? "포함" : "제외"} - ${item.review.why}`);
   if (item.aiScreen) notes.push(`AI 1차(제목·미리보기): ${item.aiScreen.maybe ? "관련 가능" : "무관"} - ${item.aiScreen.why}`);
   if (item.bodyNote) notes.push(item.bodyNote);
   else if (item.note) notes.push(item.note);
@@ -1938,6 +2093,8 @@ function updateCounts() {
   const byCar = CARS.map((c) => `${c.code} ${items.filter((x) => x.checked && x.car === c.code).length}`).join(" · ");
   $("#resultCount").textContent = items.length ? `전체 ${items.length}개 중 ${n}개 체크 (${byCar}) · 본문 읽음 ${read}/${n}` : "";
   $("#saveList").disabled = !n || running;
+  $("#saveFinal").disabled = !n || running;
+  $("#redoReview").disabled = !n || running;
   $("#saveRaw").disabled = !items.length || running;
   $("#readBodies").disabled = (!n && !items.length) || running;
   $("#rewrite").disabled = !n || running;
@@ -1985,6 +2142,7 @@ async function buildExcel(selected) {
         ],
       },
       finalReason(x, inc),
+      relevanceCell(x),
     ];
   });
   await wb.replaceRowsAfter(sheet, HEADER_ROW, values, STYLE_ROW, { focusFirstNew: true });
@@ -1992,6 +2150,13 @@ async function buildExcel(selected) {
   values.forEach((v, i) => (links[`G${HEADER_ROW + 1 + i}`] = v[6]));
   await wb.addHyperlinks(sheet, links);
   return wb.save();
+}
+
+// K열 주제 관련도: "85%" (70% 이상 빨강 · 미만 파랑), 최종 검수 전이면 빈칸
+function relevanceCell(x) {
+  const r = x.review?.relevance;
+  if (typeof r !== "number") return "";
+  return { runs: [{ text: `${r}%`, color: r >= RELEVANCE_RED ? RED : BLUE, bold: true, font: EXCEL_FONT }] };
 }
 
 // "글 120개 · LX3 50 · ME1 40 · MX5 30 · 동향 미포함 95"
@@ -2009,9 +2174,40 @@ async function showDiffs() {
   if (d) box.append(diffLine("엑셀에 넣은 글", d));
 }
 
+// 1차 검수(kind "seat": 체크한 글 전체) · 최종 파일(kind "seatFinal": 그중 AI 최종 검수를 통과한 글)
 async function saveList() {
-  const selected = sortedItems().filter((x) => x.checked);
-  if (!selected.length) return;
+  return saveReport("seat");
+}
+
+async function saveFinal() {
+  if (running) return;
+  const checked = sortedItems().filter((x) => x.checked);
+  if (!checked.length) return;
+  // 최종 검수를 아직 안 한 체크한 글이 있으면 먼저 AI 최종 검수
+  const todo = checked.filter((x) => !x.review);
+  if (todo.length) {
+    if (!aiOn()) {
+      setSummary("최종 파일은 AI 최종 검수가 필요합니다. 3번 'Claude AI 설정'에 API 키를 넣고 켜 주세요.", "err");
+      return;
+    }
+    const ok = await aiReview(todo);
+    if (!ok) return;
+  }
+  return saveReport("seatFinal");
+}
+
+async function saveReport(kind) {
+  const all = sortedItems().filter((x) => x.checked);
+  const selected = kind === "seatFinal" ? all.filter((x) => x.review?.keep || x.must) : all;
+  if (!all.length) return;
+  if (kind === "seatFinal" && !selected.length) {
+    setSummary("AI 최종 검수를 통과한 글이 없습니다.", "err");
+    return;
+  }
+  if (kind === "seat" && all.some((x) => !x.review)) {
+    const n = all.filter((x) => !x.review).length;
+    if (!(await askConfirm(`AI 최종 검수(관련도)를 아직 하지 않은 글이 ${n}개 있어 이 글들의 '주제 관련도' 칸은 비어 있게 됩니다.\n('최종 파일 받기'를 누르면 최종 검수를 하고 관련도도 채워집니다)\n\n그대로 받을까요?`))) return;
+  }
   const noSummary = selected.filter((x) => !x.summary).length;
   if (noSummary && !(await askConfirm(`요약을 아직 쓰지 않은 글이 ${noSummary}개 있습니다. 이 글들은 규칙으로 요약해 넣을까요?\n(취소하면 받지 않습니다 - '본문 읽고 요약하기'를 먼저 눌러 주세요)`))) return;
   if (!compare.length && !(await askConfirm("비교 파일(온라인 동향·로데이터)이 등록되지 않아 포함 여부가 모두 N / N 으로 들어갑니다. 계속할까요?"))) return;
@@ -2024,24 +2220,28 @@ async function saveList() {
   $("#saveInfo").textContent = "엑셀 만드는 중…";
   try {
     const bytes = await buildExcel(selected);
-    const name = datedFileName(OUT_NAME);
+    const name = datedFileName(kind === "seatFinal" ? FINAL_NAME : OUT_NAME);
     const where = await saveBytes(bytes, name);
     const miss = selected.filter((x) => !inclusion(x).trend).length;
     // 데이터 DB 에 오늘 파일로 보관 (같은 날 다시 받으면 바꿈)
     const yns = { nn: 0, ny: 0, yy: 0, yn: 0 };
     for (const x of selected) yns[ynCode(x).toLowerCase()]++;
-    const stats = { posts: selected.length, missing: miss, ...yns, aiCost: Math.round(selected.reduce((n, x) => n + (x.aiCost || 0), 0)), aiTotal: Math.round(aiSpend.won) };
+    const reviewed = selected.filter((x) => typeof x.review?.relevance === "number");
+    const rel = reviewed.length ? Math.round(reviewed.reduce((n, x) => n + x.review.relevance, 0) / reviewed.length) : null;
+    const stats = { posts: selected.length, missing: miss, ...yns, ...(kind === "seatFinal" ? { from: all.length } : {}), relAvg: rel,
+      relHigh: reviewed.filter((x) => x.review.relevance >= RELEVANCE_RED).length, aiCost: Math.round(selected.reduce((n, x) => n + (x.aiCost || 0), 0)), aiTotal: Math.round(aiSpend.won) };
     for (const c of CARS) stats[c.code] = selected.filter((x) => x.car === c.code).length;
     let dbNote = "";
     try {
-      await dbSaveDay("seat", today(), name, bytes, "auto", fileSummary(stats), stats);
-      dbNote = " · 데이터 DB(최종 데이터)에 오늘 파일로 저장했습니다";
-      await showDiffs();
+      await dbSaveDay(kind, today(), name, bytes, "auto", fileSummary(stats), stats);
+      dbNote = ` · 데이터 DB(${DB_KINDS[kind].short})에 오늘 파일로 저장했습니다`;
+      if (kind === "seat") await showDiffs();
     } catch {
       dbNote = " · (데이터 DB 저장은 하지 못했습니다)";
     }
     $("#saveInfo").className = "hint ok";
-    $("#saveInfo").textContent = `✔ ${where}에 ${name} - 글 ${selected.length}개 (온라인 동향 미포함 ${miss}개)${dbNote}`;
+    $("#saveInfo").textContent =
+      `✔ ${where}에 ${name} - 글 ${selected.length}개${kind === "seatFinal" ? ` (체크한 글 ${all.length}개 중 최종 검수 통과)` : ""} · 온라인 동향 N ${miss}개${dbNote}`;
   } catch (e) {
     $("#saveInfo").className = "hint err";
     $("#saveInfo").textContent = `엑셀을 만들지 못했습니다: ${e.message}`;
@@ -2051,7 +2251,8 @@ async function saveList() {
 // 전체 raw 데이터: 찾은 글 전체(체크 안 된 글 포함)와 판단 근거·요약·본문 - 검토·보관용
 const RAW_HEADERS = [
   "순번", "차종", "동호회명", "게시일", "제목", "URL", "최종 포함(체크)", "온라인동향/로데이터 포함 여부", "주요내용 요약", "미포함시 누락 사유",
-  "AI 판단(상황)", "AI 1차 검토(제목·미리보기)", "꼭 넣을 글", "본문 읽음", "비고(판단 근거)", "검색어", "AI 비용(원)", "AI 비용($)", "본문",
+  "AI 판단(상황)", "AI 1차 검토(제목·미리보기)", "꼭 넣을 글", "본문 읽음", "비고(판단 근거)", "검색어", "AI 비용(원)", "AI 비용($)",
+  "주제 관련도(%)", "최종 검수", "최종 검수 근거", "본문",
 ];
 
 function rawRows() {
@@ -2063,7 +2264,9 @@ function rawRows() {
     return [
       i + 1, x.car, x.cafeName, x.date ? formatDateTime(new Date(x.date), false) : "", x.title, articleUrl(x), x.checked ? "O" : "",
       `${yn(inc.trend)} / ${yn(inc.raw)}`, x.summary || "", x.reason || x.by ? finalReason(x, inc) : "", ai, screen, x.must ? "O" : "",
-      x.bodyRead ? "O" : "", notes, (x.queries || []).join(", "), x.aiCost ? Math.round(x.aiCost * 10) / 10 : "", x.aiCost ? Math.round((x.aiCost / WON_PER_USD) * 10000) / 10000 : "", (x.body || "").slice(0, 32000),
+      x.bodyRead ? "O" : "", notes, (x.queries || []).join(", "), x.aiCost ? Math.round(x.aiCost * 10) / 10 : "", x.aiCost ? Math.round((x.aiCost / WON_PER_USD) * 10000) / 10000 : "",
+      typeof x.review?.relevance === "number" ? x.review.relevance : "", x.review ? (x.review.keep || x.must ? "포함" : "제외") : "", x.review?.why || "",
+      (x.body || "").slice(0, 32000),
     ];
   });
 }
@@ -2076,8 +2279,8 @@ async function saveRaw() {
     const rows = rawRows();
     const bytes = XlsxWriter.build([{
       name: "전체 raw data", rows: [RAW_HEADERS, ...rows],
-      widths: { 1: 6, 2: 6, 3: 16, 4: 11, 5: 40, 6: 38, 7: 8, 8: 10, 9: 50, 10: 40, 11: 16, 12: 36, 13: 7, 14: 7, 15: 40, 16: 24, 17: 9, 18: 9, 19: 80 },
-      wrapCols: [5, 9, 10, 12, 15],
+      widths: { 1: 6, 2: 6, 3: 16, 4: 11, 5: 40, 6: 38, 7: 8, 8: 10, 9: 50, 10: 40, 11: 16, 12: 36, 13: 7, 14: 7, 15: 40, 16: 24, 17: 9, 18: 9, 19: 9, 20: 8, 21: 40, 22: 80 },
+      wrapCols: [5, 9, 10, 12, 15, 21],
     }], { font: EXCEL_FONT, headFill: "FFF37021" });
     const name = datedFileName(RAW_NAME);
     const where = await saveBytes(bytes, name);
@@ -2086,7 +2289,7 @@ async function saveRaw() {
     let dbNote = "";
     try {
       await dbSaveDay("seatRaw", today(), name, bytes, "auto", `찾은 글 ${items.length.toLocaleString()}개 · 체크 ${checked.toLocaleString()}개`, stats);
-      dbNote = " · 데이터 DB(전체 raw 데이터)에 오늘 파일로 저장했습니다";
+      dbNote = " · 데이터 DB(로우 엑셀)에 오늘 파일로 저장했습니다";
     } catch {
       dbNote = " · (데이터 DB 저장은 하지 못했습니다)";
     }
@@ -2235,6 +2438,8 @@ async function init() {
   // 저장 버튼을 누른 그때 폴더 쓰기 허용을 확인해 둔다 (허용 요청은 사용자 동작 안에서만 가능)
   $("#saveList").addEventListener("click", () => (prepareFolder(), saveList()));
   $("#saveRaw").addEventListener("click", () => (prepareFolder(), saveRaw()));
+  $("#saveFinal").addEventListener("click", () => (prepareFolder(), saveFinal()));
+  $("#redoReview").addEventListener("click", redoReview);
   $("#pickFolder").addEventListener("click", pickSaveFolder);
   $("#clearFolder").addEventListener("click", clearSaveFolder);
   renderSaveFolder();

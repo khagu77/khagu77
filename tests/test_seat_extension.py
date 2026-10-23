@@ -342,8 +342,8 @@ def test_seat(tmp_path: Path):
             page.click("#saveList")
         path = tmp_path / dl.value.suggested_filename
         dl.value.save_as(path)
-        assert re.match(r"^\d{8}_LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물\.xlsx$", path.name), path.name
-        page.locator("#saveInfo", has_text="데이터 DB(최종 데이터)에 오늘 파일로 저장").wait_for()
+        assert re.match(r"^\d{8}_LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물_1차 검수\.xlsx$", path.name), path.name
+        page.locator("#saveInfo", has_text="데이터 DB(1차 검수)에 오늘 파일로 저장").wait_for()
         assert "엑셀에 넣은 글 2건" in page.inner_text("#diffs")
 
         # 전체 raw 데이터: 찾은 글 전체(체크 안 된 글 포함) · 판단 근거·본문 · DB 에 따로 보관
@@ -352,7 +352,7 @@ def test_seat(tmp_path: Path):
         raw_path = tmp_path / dl.value.suggested_filename
         dl.value.save_as(raw_path)
         assert raw_path.name.endswith("_전체 raw data.xlsx"), raw_path.name
-        page.locator("#saveInfo", has_text="데이터 DB(전체 raw 데이터)에 오늘 파일로 저장").wait_for()
+        page.locator("#saveInfo", has_text="데이터 DB(로우 엑셀)에 오늘 파일로 저장").wait_for()
         rws = load_workbook(raw_path).active
         assert rws["A1"].font.name == "현대산스 Text" and rws["E2"].font.name == "현대산스 Text"
         head = [c.value for c in rws[1]]
@@ -401,7 +401,7 @@ def test_seat(tmp_path: Path):
 
     wb = load_workbook(path, rich_text=True)
     ws = wb.active
-    assert [c.value for c in ws[3]][1:] == ["순번", "차종", "동호회명", "게시일", "제목", "URL", "주요내용 요약", "온라인동향/로데이터 포함 여부", "미포함시 누락 사유"]
+    assert [c.value for c in ws[3]][1:] == ["순번", "차종", "동호회명", "게시일", "제목", "URL", "주요내용 요약", "온라인동향/로데이터 포함 여부", "미포함시 누락 사유", "주제 관련도"]
     r4 = [c.value for c in ws[4]]
     assert r4[1:4] == [1, "LX3", "팰리 카페"] and r4[5] == "3열 탈 때 2열 시트에 아이 발 끼임"
     assert ws["E4"].value.strftime("%Y-%m-%d") == "2025-03-10" and ws["E4"].number_format == "yyyy-mm-dd"
@@ -430,9 +430,14 @@ def fake_claude(route, calls):
     items = json.loads(body["messages"][0]["content"].split("\n\n", 1)[1])
     screen = "1차 검토자" in body["system"]
     calls.append("screen" if screen else "final")
-    if not screen:
+    review = "최종 검수자" in body["system"]
+    if review:
+        calls[-1] = "review"
+    elif not screen:
         systems.append(body["system"])
-    if screen:
+    if review:  # 최종 검수: 본문에 '끼' 가 있으면 관련도 95(포함), 없으면 40(제외)
+        out = {"items": [{"id": x["id"], "relevance": 95 if "끼" in x["본문"] else 40, "keep": "끼" in x["본문"], "why": "판독 내용 기준"} for x in items]}
+    elif screen:
         out = {"items": [{"id": x["id"], "maybe": "아이" in x["제목"] + x["미리보기"], "why": "아이 위험 언급"} for x in items]}
     else:
         out = {"items": [{
@@ -598,6 +603,39 @@ def test_ai_review_unchecked(tmp_path: Path):
         open_panels(page)
         assert page.input_value("#aiRules").count("전차종 로데이터 엑셀은") == 1  # 두 번 덧붙지 않음
 
+        # AI 최종 검수 → ② 1차 검수(체크한 글 전체 + 관련도 %) · ③ 최종 파일(최종 검수 통과한 글만)
+        page.evaluate("""items.push({key:'palicafe/9',articleId:'9',car:'LX3',cafeIndex:0,cafeName:'팰리 카페',slug:'palicafe',
+          date:new Date(2025,5,1).getTime(),title:'3열 시트 가죽 이야기',text:'3열',checked:true,touched:true,bodyRead:true,body:'3열 시트 가죽 질감 이야기',
+          queries:['q'],summary:'3열 시트 가죽 질감을 소개하는 내용',reason:'',by:'ai',bodyNote:''}); renderResults();""")
+        n_checked = page.evaluate("items.filter(x => x.checked).length")
+        with page.expect_download() as dl:
+            page.click("#saveFinal")
+        final_path = tmp_path / dl.value.suggested_filename
+        dl.value.save_as(final_path)
+        assert final_path.name.endswith("_최종.xlsx") and calls.count("review") >= 1, (final_path.name, calls)
+        assert any("최종 검수합니다" in m for m in asked())
+        rv = page.evaluate("Object.fromEntries(items.filter(x => x.checked).map(x => [x.key, [x.review.relevance, x.review.keep]]))")
+        assert rv["palicafe/9"] == [40, False] and rv["palicafe/1"] == [95, True], rv
+        fws = load_workbook(final_path, rich_text=True).active
+        final_titles = [fws.cell(r, 6).value for r in range(4, fws.max_row + 1)]
+        assert "3열 시트 가죽 이야기" not in final_titles and len(final_titles) == n_checked - 1, final_titles
+        k = fws["K4"].value
+        assert str(k) == "95%" and [b.font.color.rgb for b in k if hasattr(b, "font")] == ["FFE00000"]  # 70% 이상 빨강
+        assert "체크한 글" in page.inner_text("#saveInfo") and "최종 검수 통과" in page.inner_text("#saveInfo")
+        assert "최종 검수: 관련도 40% · 제외" in page.locator("#results tbody tr", has_text="3열 시트 가죽 이야기").inner_text()
+        with page.expect_download() as dl:
+            page.click("#saveList")
+        first_path = tmp_path / dl.value.suggested_filename
+        dl.value.save_as(first_path)
+        assert first_path.name.endswith("_1차 검수.xlsx")
+        sws = load_workbook(first_path, rich_text=True).active
+        rows1 = {sws.cell(r, 6).value: sws.cell(r, 11).value for r in range(4, sws.max_row + 1)}
+        assert len(rows1) == n_checked and str(rows1["3열 시트 가죽 이야기"]) == "40%"
+        assert [b.font.color.rgb for b in rows1["3열 시트 가죽 이야기"] if hasattr(b, "font")] == ["FF0070C0"]  # 70% 미만 파랑
+        page.select_option("#viewFilter", "dropped")
+        assert page.locator("#results tbody tr").count() == 1
+        page.select_option("#viewFilter", "")
+
         # 엑셀 저장 위치: '폴더 선택'으로 고른 폴더에 바로 저장 (시험에서는 폴더 창 대신 브라우저 안 임시 폴더)
         page.evaluate("document.getElementById('settings').open = true")
         assert page.inner_text("#folderName") == "크롬 다운로드 폴더" and page.is_hidden("#clearFolder")
@@ -609,7 +647,7 @@ def test_ai_review_unchecked(tmp_path: Path):
         page.locator("#saveInfo", has_text="폴더에").wait_for(timeout=30000)
         saved = page.evaluate("""async () => { const d = await navigator.storage.getDirectory(); const out = [];
           for await (const [name, h] of d.entries()) if (h.kind === 'file') out.push([name, (await h.getFile()).size]); return out; }""")
-        assert any(n.endswith("_LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물.xlsx") and size > 1000 for n, size in saved), saved
+        assert any(n.endswith("_LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물_1차 검수.xlsx") and size > 1000 for n, size in saved), saved
         page.reload()
         open_panels(page)
         page.evaluate("document.getElementById('settings').open = true")
