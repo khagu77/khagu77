@@ -1015,6 +1015,7 @@ function currentOpts() {
     speed: Number($("#speed").value) || DEFAULT_SPEED[mode] || 1,
     region: Number($("#region").value),
     mute: $("#mute").checked,
+    skipSpeaker: $("#skipSpeaker").checked,
   };
 }
 
