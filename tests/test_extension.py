@@ -444,7 +444,7 @@ def test_lx3(tmp_path: Path):
         page.on("dialog", lambda d: d.accept())
 
         # 제목·메뉴, 기본 시간: 전일 오후 12시 ~ 당일 오후 12시
-        assert page.inner_text("h1") == "팰리세이드(LX3) 전동 시트 관련 카페·유튜브 게시물 및 댓글 수집기"
+        assert page.inner_text("h1") == "팰리세이드(LX3) 전동 시트 관련 언론·카페·유튜브·자동차 커뮤니티 게시물 및 댓글 수집기"
         now = datetime.now(ZoneInfo("Asia/Seoul"))
         today_noon = now.replace(hour=12, minute=0, second=0, microsecond=0)
         assert page.input_value("#to") == today_noon.strftime("%Y-%m-%dT12:00")
