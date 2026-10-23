@@ -163,12 +163,29 @@ class WorkerTab {
 // 화면 안에서 실행되는 함수들 (확장 바깥 변수는 못 쓴다)
 // ---------------------------------------------------------------------------
 
+// 막힘 안내: 어느 화면에서 무엇을 보고 멈췄는지 함께 남긴다 (잘못 멈춘 것인지 담당자가 확인할 수 있게)
+function blockedMsg(signals) {
+  const s = signals.find((x) => x.blocked) || {};
+  return `네이버 보호조치·자동입력 방지 화면이 보여 네이버 수집을 멈췄습니다 (${s.blockedWhy || "막힘 화면"} · ${String(s.href || "").slice(0, 120)})`;
+}
+
 // 막힘/로그인/권한 신호
+// 보호조치 판정은 "진짜 막힘 화면"일 때만 (담당자 지적 2026-10-23: 네이버 로그인은 멀쩡한데 수집이 멈춤 —
+// 예전에는 게시글 본문·목록 글자에 '보호조치', '이용이 제한' 같은 말만 있어도 막힘으로 잘못 봤다).
+// 진짜 막힘 = 자동입력 방지 입력칸/그림이 있거나, 본문·목록이 없는 짧은 안내 화면에 막힘 문구가 있을 때.
 function pageSignalsInFrame() {
   const text = (document.body ? document.body.innerText : "").slice(0, 4000);
+  const q = (sel) => !!document.querySelector(sel);
+  const captchaUi =
+    /captcha|ncpt\.naver/i.test(location.href) ||
+    q('img[src*="captcha" i], input[id*="captcha" i], input[name*="captcha" i], iframe[src*="captcha" i], #rcpt_form, .captcha_wrap');
+  const normalPage = q(".se-main-container, .ContentRenderer, .article_viewer, .ArticleContentBox, .article-board, .ArticleList, .article_container, #main-area, .cafe-menu-list, #cafe-menu, .comment_list, .CommentBox, #main_pack, .api_subject_bx, .lst_total");
+  const phrase = (text.match(/보호조치|비정상적인 (접근|활동|이용)|자동입력 ?방지|자동 입력 방지|로봇이 아닙니다|일시적으로 (이용|사용)이 제한/) || [])[0] || "";
+  const blocked = captchaUi || (!!phrase && !normalPage && text.trim().length < 1500);
   return {
     href: location.href,
-    blocked: /보호조치|비정상적인 (접근|활동)|자동입력 방지|자동 입력 방지|로봇이 아닙니다|captcha|이용이 제한/i.test(text),
+    blocked,
+    blockedWhy: blocked ? (captchaUi ? "자동입력 방지 입력칸" : `'${phrase}' 안내 화면`) : "",
     memberOnly: /멤버만 (볼|이용)|카페 멤버가 아닙니다|가입 후 이용|등급이 (부족|되어야)|읽기 권한/.test(text),
     login: location.hostname === "nid.naver.com",
   };
@@ -509,7 +526,7 @@ class NaverCollector {
     if (/nid\.naver\.com/.test(finalUrl)) throw new BlockedError("네이버 로그인이 풀렸습니다. 크롬에서 네이버에 다시 로그인해 주세요");
     const signals = await this.tab.run(pageSignalsInFrame);
     if (signals.some((s) => s.login)) throw new BlockedError("네이버 로그인이 풀렸습니다. 크롬에서 네이버에 다시 로그인해 주세요");
-    if (signals.some((s) => s.blocked)) throw new BlockedError("네이버 보호조치·자동입력 방지 화면이 보여 네이버 수집을 멈췄습니다");
+    if (signals.some((s) => s.blocked)) throw new BlockedError(blockedMsg(signals));
     return { finalUrl, memberOnly: signals.some((s) => s.memberOnly) };
   }
 
@@ -843,7 +860,7 @@ class NaverCollector {
       const tab = { url: await this.tab.url() };
       if (/nid\.naver\.com/.test(tab.url || "")) throw new BlockedError("네이버 로그인이 풀렸습니다. 크롬에서 네이버에 다시 로그인해 주세요");
       const signals = await this.tab.run(pageSignalsInFrame);
-      if (signals.some((x) => x.blocked)) throw new BlockedError("네이버 보호조치·자동입력 방지 화면이 보여 네이버 수집을 멈췄습니다");
+      if (signals.some((x) => x.blocked)) throw new BlockedError(blockedMsg(signals));
       const info = await this.readOpenedArticle(post);
       if (info) return { ...info, via: "검색" };
       break;
