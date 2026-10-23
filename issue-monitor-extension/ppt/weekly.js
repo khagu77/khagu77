@@ -368,6 +368,50 @@ async function buildWeekly({ auto = false } = {}) {
   }
 }
 
+// 주간 보고서 보관함(주간 DB): 주마다 시스템 작성본 + 담당자 수정본(최종본). 수정본을 올리면 그 주의 최종본이 된다 (담당자 요청 2026-10-23)
+async function weeklyRowsIn(bytes) {
+  // 올린 PPT 에서 게시글 줄 수 (구분 칸이 '온라인'인 줄)
+  try {
+    const files = await Zip.read(bytes);
+    let n = 0;
+    for (const [name, data] of files) {
+      if (!/^ppt\/slides\/slide\d+\.xml$/.test(name)) continue;
+      const x = Zip.text(data);
+      n += (x.match(/<a:tr[ >][\s\S]*?<\/a:tr>/g) || []).filter((tr) => /<a:t>\s*온라인\s*<\/a:t>/.test(tr)).length;
+    }
+    return n;
+  } catch {
+    return 0;
+  }
+}
+
+async function attachWeeklyFinal(file, target = null) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const count = await weeklyRowsIn(bytes);
+  if (!count) throw new Error(`${file.name}: 주간 보고서 표(구분 '온라인' 줄)를 찾지 못했습니다`);
+  const hist = (await kvGet("weeklyHistory")) || [];
+  let h = target ? hist.find((x) => x.at === target.at) : null;
+  if (!h) {
+    let d = DailyPpt.dateFromName(file.name);
+    if (!d) {
+      d = (prompt(`「${file.name}」 은 어느 주의 보고서인가요? 그 주의 아무 날짜나 적어 주세요 (예: 2026-10-23)`, DailyPpt.dateKey(new Date())) || "").trim().replace(/[./]/g, "-");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error(`${file.name}: 날짜를 알 수 없어 건너뜁니다`);
+    }
+    const w = weekOf(new Date(`${d}T00:00`));
+    const start = DailyPpt.dateKey(w.start);
+    const end = DailyPpt.dateKey(w.end);
+    h = hist.find((x) => x.start === start && x.end === end);
+    if (!h) {
+      h = { at: Date.now(), start, end, name: file.name, bytes, count, where: "", uploaded: true };
+      hist.unshift(h);
+    }
+  }
+  h.final = { name: file.name, bytes, at: Date.now(), count };
+  await kvSet("weeklyHistory", hist.slice(0, 20));
+  return `${h.start} ~ ${h.end} 주 최종본: ${file.name} (${count}건)`;
+}
+
+let wkTarget = null;
 async function renderHistory() {
   const hist = (await kvGet("weeklyHistory")) || [];
   const tbody = $("#histTable tbody");
@@ -375,12 +419,19 @@ async function renderHistory() {
   $("#histTable").hidden = !hist.length;
   $("#histEmpty").hidden = !!hist.length;
   for (const h of hist) {
+    const f = h.final || null;
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${new Date(h.at).toLocaleString("ko-KR")}</td><td>${esc(h.start)} ~ ${esc(h.end)}</td><td>${esc(h.name)}</td><td class="count-red">${h.count}건</td><td><button>받기</button></td>`;
-    tr.querySelector("button").addEventListener("click", async () => {
+    tr.innerHTML = `<td>${new Date(h.at).toLocaleString("ko-KR")}</td><td>${esc(h.start)} ~ ${esc(h.end)}</td><td><b>${f ? "담당자 수정본" : h.uploaded ? "올린 파일" : "시스템 작성본"}</b>${f ? `<div class="hint">${new Date(f.at).toLocaleString("ko-KR")} 올림</div>` : ""}</td><td>${esc(f ? f.name : h.name)}</td><td class="count-red">${f ? f.count : h.count}건</td><td class="actions"><button data-a="get">받기</button>${f && !h.uploaded ? '<button data-a="sys">시스템 작성본 받기</button>' : ""}<button data-a="up">수정본 올리기</button></td>`;
+    const save = async (name, bytes) => {
       const dir = await weeklyDirIfAllowed(true);
-      const where = await saveFile(dir, await freeName(dir, h.name), h.bytes);
+      const where = await saveFile(dir, await freeName(dir, name), bytes);
       alert(`✅ 주간 보고서 저장 완료\n\n저장 위치: ${where}`);
+    };
+    tr.querySelector('[data-a="get"]').addEventListener("click", () => save(f ? f.name : h.name, f ? f.bytes : h.bytes));
+    tr.querySelector('[data-a="sys"]')?.addEventListener("click", () => save(h.name, h.bytes));
+    tr.querySelector('[data-a="up"]').addEventListener("click", () => {
+      wkTarget = h;
+      $("#wkUploadOne").click();
     });
     tbody.appendChild(tr);
   }
@@ -450,6 +501,33 @@ document.addEventListener("DOMContentLoaded", async () => {
     loadWeek().catch((e) => setSummary(`불러오지 못했습니다: ${e.message || e}`, "err"));
   });
   $("#buildWeekly").addEventListener("click", () => buildWeekly());
+  $("#wkUpload").addEventListener("change", async (e) => {
+    const files = [...e.target.files];
+    e.target.value = "";
+    const ok = [];
+    const bad = [];
+    for (const f of files) {
+      try {
+        ok.push(await attachWeeklyFinal(f));
+      } catch (err) {
+        bad.push(err.message || String(err));
+      }
+    }
+    await renderHistory();
+    alert(`${ok.length ? `✅ 주간 DB 에 최종본으로 저장했습니다\n${ok.join("\n")}` : ""}${bad.length ? `\n\n⚠ 저장하지 못한 파일\n${bad.join("\n")}` : ""}`);
+  });
+  $("#wkUploadOne").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    if (!f || !wkTarget) return;
+    try {
+      alert(`✅ ${await attachWeeklyFinal(f, wkTarget)}`);
+    } catch (err) {
+      alert(`⚠ ${err.message || err}`);
+    }
+    wkTarget = null;
+    await renderHistory();
+  });
 
   await showTemplate();
   await showWhere();

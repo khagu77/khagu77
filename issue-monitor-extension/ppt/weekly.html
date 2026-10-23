@@ -62,9 +62,14 @@
     </section>
 
     <section class="wk-box">
-      <h3>주간 보고서 보관함 <span class="hint">만든 주간 보고서를 보관합니다 (최근 20개).</span></h3>
+      <h3>주간 보고서 보관함 (주간 DB) <span class="hint">주마다 최종본을 보관합니다 (최근 20개). 최종본 = 담당자 수정본 &gt; 시스템 작성본.</span></h3>
+      <div class="buttons">
+        <label class="filebtn">주간 보고서 올리기 (최종본)<input type="file" id="wkUpload" accept=".pptx" multiple hidden></label>
+        <span class="hint">PowerPoint 에서 고친 주간 보고서를 올리면 그 주의 최종본이 됩니다. 주는 파일 이름의 날짜(예: 261023)로 정하고, 없으면 물어봅니다. 표의 [수정본 올리기]로 그 주에 바로 올릴 수도 있습니다.</span>
+      </div>
+      <input type="file" id="wkUploadOne" accept=".pptx" hidden>
       <table id="histTable" hidden>
-        <thead><tr><th>만든 일시</th><th>주간 기간</th><th>파일 이름</th><th>건수</th><th></th></tr></thead>
+        <thead><tr><th>만든 일시</th><th>주간 기간</th><th>최종본</th><th>파일 이름</th><th>건수</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
       <p id="histEmpty" class="hint">아직 만든 주간 보고서가 없습니다.</p>
