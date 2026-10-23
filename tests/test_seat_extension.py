@@ -657,7 +657,7 @@ def test_ai_review_unchecked(tmp_path: Path):
         final_titles = [fws.cell(r, 6).value for r in range(4, fws.max_row + 1)]
         assert "3열 시트 가죽 이야기" not in final_titles and "전동 트렁크 손 끼임" not in final_titles and len(final_titles) == n_checked - 2, final_titles
         assert fws["K4"].value == 0.95 and fws["K4"].number_format == "0%"
-        # 최종 파일의 '판단 기준' 시트: 관련도 구간별 기준 · 수집·정렬 기준을 그때 설정값으로 채움 · 보고용이라 'AI' 표현 없음
+        # 최종 파일의 '판단 기준' 시트: 관련도 구간별 기준 · 최종 검수 4항목 · 수집 기간·채널 · 포함 여부·누락 사유을 그때 설정값으로 채움 · 보고용이라 'AI' 표현 없음
         fwb = load_workbook(final_path)
         assert fwb.sheetnames == ["시트 위험상황 게시물", "판단 기준"] and fwb.active.title == "시트 위험상황 게시물"
         cws = fwb["판단 기준"]
@@ -665,8 +665,9 @@ def test_ai_review_unchecked(tmp_path: Path):
         joined = "\n".join(texts)
         assert not any("{{" in t for t in texts), [t for t in texts if "{{" in t]
         assert "AI" not in joined, [t for t in texts if "AI" in t]
-        assert "단계별 건수" not in joined and "작성 정보" not in joined
-        for must in ["100%", "85~95%", "70~84%", "40~69%", "10~39%", "0~9%", "① 전동 시트 작동 이슈", "5. 정렬(소팅) 기준", "팰리세이드 피플(cafe.naver.com/allumpc)"]:
+        assert not any(w in joined for w in ["단계별 건수", "작성 정보", "검색어", "비교 파일", "정렬", "꼭 넣을"])
+        assert any(c.value == 1 and c.number_format == "0%" for row in cws.iter_rows() for c in row), "100% 는 숫자 셀"
+        for must in ["85~95%", "70~84%", "40~69%", "10~39%", "0~9%", "① 전동 시트 작동 이슈", "팰리세이드 피플(cafe.naver.com/allumpc)", "4. 포함 여부(온라인동향 / 로데이터) · 누락 사유 기준", "모니터링 대상 동호회로 지정", "전차종 로데이터는 2024-04-15 부터 작성"]:
             assert must in joined, must
         # 색은 조건부 서식: 70% 이상 빨강 · 미만 파랑
         cf = {str(r.sqref): [(x.operator, x.formula, x.dxf.font.color.rgb) for x in r.rules] for r in fws.conditional_formatting}

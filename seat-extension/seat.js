@@ -2223,9 +2223,6 @@ async function buildExcel(selected, { final = false } = {}) {
 
 // 최종 파일 '판단 기준' 시트에 넣을 값 (그때의 설정·건수)
 function finalCriteria() {
-  const n = (v) => Number(v).toLocaleString();
-  const lines = (v) => String(v || "").split(/[,\n]/).map((w) => w.trim()).filter(Boolean).join(", ");
-  const day = (t) => (t === null || t === undefined ? "?" : new Date(t).toISOString().slice(0, 10));
   const end = $("#endDate").value || ymd(new Date());
   const cafeList = cafes();
   const ms = monitorStarts();
@@ -2236,15 +2233,6 @@ function finalCriteria() {
       const list = cafeList.filter((cf) => cf.car === x.code);
       return `${x.code} (${list.length}곳): ${list.map((cf) => `${cf.name}(cafe.naver.com/${cf.slug})${cf.mixed ? " - 여러 차종 동호회라 차종 이름이 있는 글만" : ""}`).join(", ")}`;
     }).join("\n"),
-    queries: `일반 동호회: ${lines($("#queries").value)}\n여러 차종 동호회: ${lines($("#mixedQueries").value).replace(/\{차종\}/g, "(차종 이름)")}\n` +
-      `검색어마다 결과 최대 ${$("#maxPages").value}페이지까지, 시작일보다 오래된 글만 나오면 그 전에 멈춤`,
-    words: `제목·미리보기에 아래 시트 단어와 위험 단어가 함께 있으면 체크, 제외 단어가 있으면 체크 해제\n` +
-      `· 시트 단어: ${lines($("#rowWords").value)}\n· 위험 단어: ${lines($("#riskWords").value)}\n· 제외 단어: ${lines($("#exclude").value)}`,
-    must: mustList().length ? `검색·판단과 상관없이 넣는 글(담당자 지정): ${mustList().map((x) => x.url).join(", ")}` : "없음",
-    compareFiles: compare.length
-      ? compare.map((f) => `[${f.kind === "trend" ? "온라인 동향" : "로데이터"}] ${f.name} (게시일 ${day(f.minDate)} ~ ${day(f.maxDate)} · 카페 글 ${n(f.keys.length)}개)`).join("\n") +
-        (pendingShorts().length ? `\n※ 아직 풀지 않은 짧은 주소 ${n(pendingShorts().length)}개` : "")
-      : "등록된 비교 파일 없음",
     monitorStart: Object.keys(ms).length
       ? Object.entries(ms).map(([slug, v]) => {
         const name = cafeList.find((cf) => cf.slug.toLowerCase() === slug)?.name || slug;
