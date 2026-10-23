@@ -1150,10 +1150,7 @@ async function buildRawWork(opts = {}) {
     const common = Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0];
     const fallbackSerial = common ? Number(common) : Raw.toSerial(y, m, d) - 1;
     const res = await Raw.append(base.bytes, excelAllRows, { fallbackSerial });
-    if (res.dupDates.length && !confirm(`RAW 파일에 이미 ${res.dupDates.join(", ")} 자료가 들어 있습니다.\n같은 날 자료를 두 번 넣는 것일 수 있어요. 그래도 이어 붙일까요?`)) {
-      setSummary("RAW data 엑셀 만들기를 취소했습니다");
-      return;
-    }
+    // 이미 RAW 에 있던 게시글은 빼고 이어 붙였다 (확인 창 없이) — 저장 결과에 몇 건 뺐는지 알려 준다
     const name = ($("#rawName").value.trim() || "{날짜}_차종별 온라인 동향 raw data").replace("{날짜}", `${String(y).slice(2)}${pad(m)}${pad(d)}`);
     const fileName = await freeName(saveDir, `${name.replace(/[<>:"/\\|?*]/g, "_")}.xlsx`); // 덮어쓰지 않음
     const where = await saveFile(saveDir, fileName, res.bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -1162,11 +1159,11 @@ async function buildRawWork(opts = {}) {
     // 데일리 DB 탭에서 보고 다시 받을 수 있게 RAW 파일 이력 (최근 15개)
     try {
       const hist = (await kvGet("rawHistory")) || [];
-      hist.unshift({ id: `raw-${Date.now()}`, at: Date.now(), name: fileName, bytes: res.bytes, where, detail: res.sheets.map((s) => (s.count ? `${s.name} ${s.count}행 (연번 ${s.from}~${s.to})` : `${s.name} 0행`)).join(" · "), rows: excelAllRows.length });
+      hist.unshift({ id: `raw-${Date.now()}`, at: Date.now(), name: fileName, bytes: res.bytes, where, detail: res.sheets.map((s) => (s.count ? `${s.name} ${s.count}행 (연번 ${s.from}~${s.to})` : `${s.name} 0행`)).join(" · "), rows: res.sheets.reduce((n, s) => n + (s.count || 0), 0) });
       await kvSet("rawHistory", hist.slice(0, 15));
     } catch {}
     showRawInfo(saved);
-    const detail = res.sheets.map((s) => (s.count ? `${s.name} ${s.count}행 (연번 ${s.from}~${s.to})` : `${s.name} 0행`)).join(" · ");
+    const detail = res.sheets.map((s) => (s.count ? `${s.name} ${s.count}행 (연번 ${s.from}~${s.to})` : `${s.name} 0행`)).join(" · ") + (res.skipped ? ` · 이미 RAW 에 있던 글 ${res.skipped}건은 빼고 붙임` : "");
     setSummary(`RAW data 저장했습니다: ${where} — ${detail}`, "ok");
     if (opts.quiet) return `${where} (${detail})`;
     $("#doneTitle").textContent = "✅ RAW data 엑셀 저장 완료";

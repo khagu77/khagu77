@@ -180,8 +180,40 @@
     const hy = sheets.find((s) => /현대/.test(s.name));
     const gn = sheets.find((s) => /제네시스|genesis/i.test(s.name));
     if (!hy || !gn) throw new Error("RAW 엑셀에서 '현대자동차'·'제네시스' 시트를 찾지 못했습니다");
+    // 이미 RAW 에 들어 있는 게시글(같은 게시글 위치)은 다시 넣지 않는다 — 앞에 들어 있던 행은 그대로 두고 새로 겹치는 행만 뺀다
+    // (담당자 요청 2026-10-23: '이미 10월 22일 자료가 들어 있다' 확인 창 대신, 겹치는 글만 빼고 이어 쓰기)
+    const key = (u) =>
+      String(u || "")
+        .trim()
+        .replace(/&amp;/g, "&")
+        .replace(/^http:/i, "https:")
+        .replace("://m.cafe.", "://cafe.")
+        .replace(/(cafe\.naver\.com\/[^/?#]+\/\d+)[?#].*$/i, "$1")
+        .replace(/\/+$/, "")
+        .toLowerCase();
+    const existing = new Set();
+    const addFrom = (xml) => {
+      for (const m of String(xml || "").matchAll(/https?:\/\/[^"<\s]+/g)) existing.add(key(m[0]));
+    };
+    for (const sh of sheets) {
+      if (files.has(sh.rels)) addFrom(Zip.text(files.get(sh.rels)));
+      addFrom(Zip.text(files.get(sh.path)));
+    }
+    if (files.has("xl/sharedStrings.xml")) addFrom(Zip.text(files.get("xl/sharedStrings.xml")));
+    const seenNew = new Set();
+    let skipped = 0;
     const rows = daily
       .filter((r) => r.url || r.main || r.car)
+      .filter((r) => {
+        if (!r.url) return true;
+        const k = key(r.url);
+        if (existing.has(k) || seenNew.has(k)) {
+          skipped++;
+          return false;
+        }
+        seenNew.add(k);
+        return true;
+      })
       .map((r) => ({ ...r, serial: dateSerial(r.date) ?? fallbackSerial }));
     const styles = files.has("xl/styles.xml") ? noFillStyles(Zip.text(files.get("xl/styles.xml"))) : { map: (s) => s, finish: null };
     const result = [];
@@ -193,8 +225,7 @@
       const xml = Zip.text(files.get(sheet.path));
       const rels = files.has(sheet.rels) ? Zip.text(files.get(sheet.rels)) : "";
       const out = appendRows(xml, rels, list, styles.map);
-      // 같은 게시일 자료가 이미 들어 있으면 알려 준다 (두 번 받기 방지)
-      for (const r of list) if (out.lastDate && r.serial && r.serial <= out.lastDate) dupDates.add(serialText(r.serial));
+
       files.set(sheet.path, Zip.bytes(out.xml));
       if (list.length) files.set(sheet.rels, Zip.bytes(out.rels));
       result.push({ name: sheet.name, count: out.count, from: out.from, to: out.to });
@@ -206,7 +237,7 @@
     if (ct) files.set("[Content_Types].xml", Zip.bytes(Zip.text(ct).replace(/<Override[^>]*calcChain[^>]*\/>/, "")));
     const wbRel = files.get("xl/_rels/workbook.xml.rels");
     if (wbRel) files.set("xl/_rels/workbook.xml.rels", Zip.bytes(Zip.text(wbRel).replace(/<Relationship[^>]*calcChain[^>]*\/>/, "")));
-    return { bytes: await Zip.write(files), sheets: result, dupDates: [...dupDates] };
+    return { bytes: await Zip.write(files), sheets: result, dupDates: [...dupDates], skipped };
   }
 
   global.Raw = { append, isGenesis, dateSerial, toSerial };
