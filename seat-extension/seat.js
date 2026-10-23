@@ -61,7 +61,7 @@ const HEADER_ROW = 3; // 양식: 3행 머리글(B 순번 · C 차종 · D 동호
 const STYLE_ROW = 4;
 const OUT_NAME = "LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물_1차 검수.xlsx"; // 체크한 글 전체 + 관련도
 const FINAL_NAME = "LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물_최종.xlsx"; // AI 최종 검수를 통과한 글
-const RELEVANCE_RED = 70; // 관련도 이 값 이상은 빨강, 미만은 파랑
+const RELEVANCE_RED = 70; // 관련도 이 값 이상은 빨강, 미만은 파랑 (엑셀 색은 seat-template.xlsx K열 조건부 서식 0.7)
 const RAW_NAME = "LX3·ME1·MX5 전동 시트 작동 위험 상황 관련 게시물_전체 raw data.xlsx";
 const EXCEL_FONT = "현대산스 Text"; // 받는 엑셀 글꼴 (양식 seat-template.xlsx 도 이 글꼴)
 const BLUE = "FF0070C0"; // 포함 여부 Y
@@ -1637,10 +1637,14 @@ const REVIEW_SYSTEM = `당신은 현대자동차 품질 부문 온라인 동향 
    한 문장이라도 있으면 true.
 
 그리고:
-- relevance: 조사 주제와의 관련도 (0~100 정수)
-  100: 전동 시트 작동 중 실제 끼임·부상 등 사고가 명확함(주제와 완전 일치) / 85~95: 아차 사고·구체적 위험 상황 /
-  70~84: 위험성·안전사고 우려·안전장치 의문이 글의 주된 내용 / 40~69: 다른 이슈 사이에 위험이 일부 언급된 수준, 기사·공지 단순 공유 /
-  10~39: 시트 작동 이야기지만 안전과 거의 무관 / 0~9: 주제와 무관(다른 장치 이슈 포함)
+- relevance: 조사 주제와의 관련도 (0~100 정수) - 최종 파일 '판단 기준' 시트와 같은 기준
+  100: 2·3열 전동 시트 작동 중 실제로 끼이거나 다친 사고가 명확함(끼였다·눌렸다·다쳤다·멍·피·병원·파손 등 실제 결과 + 원인이 시트 작동)
+  85~95: 실제로 겪은 아차 사고·구체적 위험 장면(끼일 뻔·다칠 뻔·급히 멈춤) - 95: 사고 직전·반복 경험 / 85: 한 번의 짧은 아차 경험
+  70~84: 위험성·안전사고 우려·주의 당부·안전장치(센서·멈춤) 의문이 글의 중심 - 84: 구체적 상황을 들어 우려 / 70: 짧은 우려·당부
+  40~69: 다른 주제 글 속 한두 문장의 위험 언급, 일반론, 기사·공지 단순 공유 - 69: 위험 문장이 분명함 / 40: 스치듯 언급
+  10~39: 전동 시트 작동 이야기지만 불편·고장·소음만 있고 위험 언급 없음
+  0~9: 주제와 무관(전동 트렁크·도어·선루프 등 다른 장치, 카시트·가죽·열선 등 작동과 무관한 시트 이야기)
+  같은 구간 안에서는 장면·결과가 구체적일수록, 아이·반려동물 등 피해 대상이 분명할수록, 반복될수록 위쪽 점수.
 - why: 4가지 판단의 근거를 한 문장(20~80자)으로. 예) "다른 옵션 이야기 중 2열 원터치 복귀 시 아이 발 끼임 우려를 한 줄 언급"
 - 판독된 내용에 없는 사실을 지어내지 않고, 모든 글에 같은 기준을 적용합니다. 받은 순서대로, id 를 그대로 돌려줍니다.
 - 최종 포함 여부는 프로그램이 정합니다: seatIssue 가 true 이고 accident·concern·partialMention 중 하나라도 true 이면 포함
@@ -2174,8 +2178,9 @@ function saveItemsSoon() {
 // 엑셀 받기 (첨부 양식: B 순번 · C 차종 · D 동호회명 · E 게시일 · F 제목 · G URL · H 주요내용 요약 · I 포함 여부 · J 누락 사유)
 // ---------------------------------------------------------------------------
 
-async function buildExcel(selected) {
-  const resp = await fetch(chrome.runtime.getURL("seat-template.xlsx"));
+async function buildExcel(selected, { final = false } = {}) {
+  // 최종 파일은 '판단 기준' 시트가 붙은 양식 (scripts/build_seat_final_template.py)
+  const resp = await fetch(chrome.runtime.getURL(final ? "seat-final-template.xlsx" : "seat-template.xlsx"));
   const wb = await XlsxTemplate.Workbook.open(new Uint8Array(await resp.arrayBuffer()));
   const sheet = wb.sheetNames()[0];
   const values = selected.map((x, i) => {
@@ -2200,14 +2205,62 @@ async function buildExcel(selected) {
   const links = {};
   values.forEach((v, i) => (links[`G${HEADER_ROW + 1 + i}`] = v[6]));
   await wb.addHyperlinks(sheet, links);
+  if (final) {
+    // '판단 기준' 시트의 {{키}} 자리를 지금 설정값·건수로 채운다 (보고용이라 'AI' 라는 말은 쓰지 않음)
+    const crit = "판단 기준";
+    const fill = finalCriteria();
+    const updates = {};
+    for (const row of await wb.readRows(crit)) {
+      for (const [col, v] of Object.entries(row.cells)) {
+        const m = typeof v === "string" && v.match(/^\{\{(\w+)\}\}$/);
+        if (m) updates[`${col}${row.r}`] = fill[m[1]] ?? "";
+      }
+    }
+    await wb.setCellTexts(crit, updates);
+  }
   return wb.save();
 }
 
-// K열 주제 관련도: "85%" (70% 이상 빨강 · 미만 파랑), 최종 검수 전이면 빈칸
+// 최종 파일 '판단 기준' 시트에 넣을 값 (그때의 설정·건수)
+function finalCriteria() {
+  const n = (v) => Number(v).toLocaleString();
+  const lines = (v) => String(v || "").split(/[,\n]/).map((w) => w.trim()).filter(Boolean).join(", ");
+  const day = (t) => (t === null || t === undefined ? "?" : new Date(t).toISOString().slice(0, 10));
+  const end = $("#endDate").value || ymd(new Date());
+  const cafeList = cafes();
+  const ms = monitorStarts();
+  const m = String($("#rawStart").value || ""), c = String($("#rawCover").value || "");
+  return {
+    period: CARS.map((x) => `${x.label}: ${ymd(carStart(x.code))} ~ ${end} (양산 시점부터)`).join("\n"),
+    cafes: CARS.map((x) => {
+      const list = cafeList.filter((cf) => cf.car === x.code);
+      return `${x.code} (${list.length}곳): ${list.map((cf) => `${cf.name}(cafe.naver.com/${cf.slug})${cf.mixed ? " - 여러 차종 동호회라 차종 이름이 있는 글만" : ""}`).join(", ")}`;
+    }).join("\n"),
+    queries: `일반 동호회: ${lines($("#queries").value)}\n여러 차종 동호회: ${lines($("#mixedQueries").value).replace(/\{차종\}/g, "(차종 이름)")}\n` +
+      `검색어마다 결과 최대 ${$("#maxPages").value}페이지까지, 시작일보다 오래된 글만 나오면 그 전에 멈춤`,
+    words: `제목·미리보기에 아래 시트 단어와 위험 단어가 함께 있으면 체크, 제외 단어가 있으면 체크 해제\n` +
+      `· 시트 단어: ${lines($("#rowWords").value)}\n· 위험 단어: ${lines($("#riskWords").value)}\n· 제외 단어: ${lines($("#exclude").value)}`,
+    must: mustList().length ? `검색·판단과 상관없이 넣는 글(담당자 지정): ${mustList().map((x) => x.url).join(", ")}` : "없음",
+    compareFiles: compare.length
+      ? compare.map((f) => `[${f.kind === "trend" ? "온라인 동향" : "로데이터"}] ${f.name} (게시일 ${day(f.minDate)} ~ ${day(f.maxDate)} · 카페 글 ${n(f.keys.length)}개)`).join("\n") +
+        (pendingShorts().length ? `\n※ 아직 풀지 않은 짧은 주소 ${n(pendingShorts().length)}개` : "")
+      : "등록된 비교 파일 없음",
+    monitorStart: Object.keys(ms).length
+      ? Object.entries(ms).map(([slug, v]) => {
+        const name = cafeList.find((cf) => cf.slug.toLowerCase() === slug)?.name || slug;
+        return `${name}(cafe.naver.com/${slug}): 게시일 ${ymd(v.from)} 이전 글은 모니터링 대상이 아니었으므로, 온라인 동향에 없으면 누락 사유를 '해당 동호회(${name})는 당시 모니터링 대상 동호회가 아니었음${v.note ? ` (${v.note})` : ""}' 으로 씀`;
+      }).join("\n")
+      : "없음",
+    rawStart: `전차종 로데이터는 ${m} 부터 작성(첫 로데이터에는 ${c} 게시글부터 담김). 그 이전 게시글이면서 로데이터에도 없는 글은 누락 사유 앞에 ` +
+      `'전차종 로데이터는 …부터 작성되어 이 글의 게시 시점에는 로데이터 파일이 없었음' 을 붙임 (로데이터에 있는 글에는 붙이지 않음)`,
+  };
+}
+
+// K열 주제 관련도: 숫자(0.85 → 양식의 백분율 서식으로 85%), 색은 양식의 조건부 서식(70% 이상 빨강 · 미만 파랑)
+// (글자 "85%" 로 넣으면 엑셀이 '텍스트로 저장된 숫자' 경고를 띄우고 정렬도 글자순이 됨) · 검수 전이면 빈칸
 function relevanceCell(x) {
   const r = x.review?.relevance;
-  if (typeof r !== "number") return "";
-  return { runs: [{ text: `${r}%`, color: r >= RELEVANCE_RED ? RED : BLUE, bold: true, font: EXCEL_FONT }] };
+  return typeof r === "number" ? r / 100 : "";
 }
 
 // "글 120개 · LX3 50 · ME1 40 · MX5 30 · 동향 미포함 95"
@@ -2272,7 +2325,7 @@ async function saveReport(kind) {
   $("#saveInfo").className = "hint";
   $("#saveInfo").textContent = "엑셀 만드는 중…";
   try {
-    const bytes = await buildExcel(selected);
+    const bytes = await buildExcel(selected, { final: kind === "seatFinal" });
     const name = datedFileName(kind === "seatFinal" ? FINAL_NAME : OUT_NAME);
     const where = await saveBytes(bytes, name);
     const miss = selected.filter((x) => !inclusion(x).trend).length;
@@ -2293,8 +2346,14 @@ async function saveReport(kind) {
       dbNote = " · (데이터 DB 저장은 하지 못했습니다)";
     }
     $("#saveInfo").className = "hint ok";
-    $("#saveInfo").textContent =
-      `✔ ${where}에 ${name} - 글 ${selected.length}개${kind === "seatFinal" ? ` (체크한 글 ${all.length}개 중 최종 검수 통과)` : ""} · 온라인 동향 N ${miss}개${dbNote}`;
+    if (kind === "seatFinal") {
+      // 최종 파일: "1차 검수 130개 중 85개 최종 확정"을 먼저
+      const head = `✔ 1차 검수 ${all.length.toLocaleString()}개 중 ${selected.length.toLocaleString()}개 최종 확정 (제외 ${(all.length - selected.length).toLocaleString()}개)`;
+      $("#saveInfo").textContent = `${head} · ${where}에 ${name} 저장 · 온라인 동향 N ${miss}개${dbNote}`;
+      setSummary(head, "ok");
+    } else {
+      $("#saveInfo").textContent = `✔ ${where}에 ${name} - 글 ${selected.length.toLocaleString()}개 · 온라인 동향 N ${miss}개${dbNote}`;
+    }
   } catch (e) {
     $("#saveInfo").className = "hint err";
     $("#saveInfo").textContent = `엑셀을 만들지 못했습니다: ${e.message}`;

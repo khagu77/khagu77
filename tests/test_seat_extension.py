@@ -643,8 +643,7 @@ def test_ai_review_unchecked(tmp_path: Path):
         assert "4가지를 하나씩 다시 검수" in reviews[-1] and "[담당자 추가 규칙" in reviews[-1] and "전동 트렁크(테일게이트)" in reviews[-1]
         sws = load_workbook(first_path, rich_text=True).active
         rows1 = {sws.cell(r, 6).value: sws.cell(r, 11).value for r in range(4, sws.max_row + 1)}
-        assert len(rows1) == n_checked and str(rows1["3열 시트 가죽 이야기"]) == "40%"
-        assert [b.font.color.rgb for b in rows1["3열 시트 가죽 이야기"] if hasattr(b, "font")] == ["FF0070C0"]  # 70% 미만 파랑
+        assert len(rows1) == n_checked and rows1["3열 시트 가죽 이야기"] == 0.4  # 숫자(백분율 서식) - '텍스트로 저장된 숫자' 경고 없음
         assert "최종 검수: 관련도 40% · 제외 · ①시트작동O ②사고X ③우려X ④일부언급X" in page.locator("#results tbody tr", has_text="3열 시트 가죽 이야기").inner_text()
 
         # ③ 최종 파일: ② 에서 한 검수를 그대로 씀 (AI 를 다시 부르지 않음)
@@ -657,9 +656,23 @@ def test_ai_review_unchecked(tmp_path: Path):
         fws = load_workbook(final_path, rich_text=True).active
         final_titles = [fws.cell(r, 6).value for r in range(4, fws.max_row + 1)]
         assert "3열 시트 가죽 이야기" not in final_titles and "전동 트렁크 손 끼임" not in final_titles and len(final_titles) == n_checked - 2, final_titles
-        k = fws["K4"].value
-        assert str(k) == "95%" and [b.font.color.rgb for b in k if hasattr(b, "font")] == ["FFE00000"]  # 70% 이상 빨강
-        assert "체크한 글" in page.inner_text("#saveInfo") and "최종 검수 통과" in page.inner_text("#saveInfo")
+        assert fws["K4"].value == 0.95 and fws["K4"].number_format == "0%"
+        # 최종 파일의 '판단 기준' 시트: 관련도 구간별 기준 · 수집·정렬 기준을 그때 설정값으로 채움 · 보고용이라 'AI' 표현 없음
+        fwb = load_workbook(final_path)
+        assert fwb.sheetnames == ["시트 위험상황 게시물", "판단 기준"] and fwb.active.title == "시트 위험상황 게시물"
+        cws = fwb["판단 기준"]
+        texts = [str(c.value) for row in cws.iter_rows() for c in row if c.value is not None]
+        joined = "\n".join(texts)
+        assert not any("{{" in t for t in texts), [t for t in texts if "{{" in t]
+        assert "AI" not in joined, [t for t in texts if "AI" in t]
+        assert "단계별 건수" not in joined and "작성 정보" not in joined
+        for must in ["100%", "85~95%", "70~84%", "40~69%", "10~39%", "0~9%", "① 전동 시트 작동 이슈", "5. 정렬(소팅) 기준", "팰리세이드 피플(cafe.naver.com/allumpc)"]:
+            assert must in joined, must
+        # 색은 조건부 서식: 70% 이상 빨강 · 미만 파랑
+        cf = {str(r.sqref): [(x.operator, x.formula, x.dxf.font.color.rgb) for x in r.rules] for r in fws.conditional_formatting}
+        assert cf == {"K4:K5000": [("greaterThanOrEqual", ["0.7"], "FFE00000"), ("between", ["0", "0.6999"], "FF0070C0")]}, cf
+        assert page.inner_text("#saveInfo").startswith(f"✔ 1차 검수 {n_checked}개 중 {n_checked - 2}개 최종 확정 (제외 2개)"), page.inner_text("#saveInfo")
+        assert page.inner_text("#summary") == f"✔ 1차 검수 {n_checked}개 중 {n_checked - 2}개 최종 확정 (제외 2개)"
         page.select_option("#viewFilter", "dropped")
         assert page.locator("#results tbody tr").count() == 2
         page.select_option("#viewFilter", "")

@@ -47,7 +47,9 @@ async function summarize(kind, bytes) {
     if (yn.startsWith("N")) stats.missing++;
     const code = yn.replace("/", "").toLowerCase();
     if (code in stats) stats[code]++;
-    const rel = parseInt(String(r.cells.K ?? "").replace("%", ""), 10); // K 주제 관련도 "85%"
+    // K 주제 관련도: 숫자 0.85(백분율 서식) 또는 예전 글자 "85%"
+    const k = r.cells.K;
+    const rel = typeof k === "number" ? Math.round(k <= 1 ? k * 100 : k) : parseInt(String(k ?? "").replace("%", ""), 10);
     if (Number.isFinite(rel)) {
       rels.push(rel);
       if (rel >= 70) stats.relHigh++;
