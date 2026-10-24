@@ -13,7 +13,7 @@ const ISSUE_DEFINITION = `부정 이슈는 다음 3가지다. (지난 보고서 
 3) 결품: 입고했는데 부품 재고 부족·부품 수급 문제로 정비가 지연되는 불만. (고장으로 입고했더라도 불만의 무게가 부품 결품·정비 지연에 있으면 결품)`;
 
 // 기본 프롬프트(아래 규칙)를 마지막으로 고친 때 - '명령 프롬프트' 화면에 표시
-const PROMPT_BUILT_AT = "2026-10-22 (v1.10.10)";
+const PROMPT_BUILT_AT = "2026-10-24 (v1.10.22)";
 
 // '명령 프롬프트' 화면에서 사용자가 추가한 지시사항 (모든 AI 단계에 붙고, 기본 규칙보다 우선)
 function customInstructions(settings) {
@@ -85,6 +85,7 @@ ${ISSUE_DEFINITION}
 - '차종 필수: 예' 표시가 붙은 글(예: 전기차 동호회 자유게시판)은 카페 기본 차종으로 추측하지 않는다. 제목·본문·댓글·닉네임에 근거가 없으면 car_code "-", car_uncertain=true 로 둔다 (프로그램이 작성자의 다른 글을 확인하고, 그래도 모르면 뺀다).
 - 본문에 차종·세대가 없으면 댓글에서 유추한다. [작성자] 표시가 붙은 작성자 본인 댓글(예: "저는 24년식 더 뉴예요")을 가장 믿고, 다른 사람 댓글은 "같은 차종 같은데요" 처럼 이 글의 차를 가리킬 때만 참고한다. 다른 사람이 자기 차 이야기를 한 것은 이 글의 차종으로 쓰지 않는다.
 - harsh: 글·댓글에 심한 욕설이나 회사·제품에 대한 강한 비판·분노가 있으면 true.
+- safety: 시트 오작동·차량 밀림·급가속·끼임 등 차량 때문에 사고가 날 뻔했거나 다칠 수 있다는 안전사고 우려·경고 글이면 true (결과 화면에 연보라색으로 표시), 아니면 false.
 - model_year: 글·댓글에 차량 연식이 드러나면 "24년식" 처럼 적는다 (연식 표현이 없고 출고 시기만 있으면 "24년 출고"). 모르면 빈 문자열.
 - car_uncertain: 차종을 모르거나("-") PE(부분변경) 여부·세대 구분이 글만으로 분명하지 않으면 true (프로그램이 작성자의 다른 글을 확인해 다시 묻는다), 분명하면 false.
 - 차종 코드는 가장 주의해서 정확하게 정한다. 근거 순서: 제목·본문·댓글에 적힌 차명/코드 > 게시판 이름(예: 'ST1 게시판', '스타리아EV 게시판') > 사진 설명·트림·용도(카고·냉동탑차 등) > 작성자 닉네임 > 카페 기본 차종.
@@ -150,8 +151,9 @@ const CLASSIFY_SCHEMA = {
           car_uncertain: { type: "boolean" },
           model_year: { type: "string" },
           harsh: { type: "boolean" },
+          safety: { type: "boolean" },
         },
-        required: ["id", "relevant", "category", "car_code", "summary", "highlight", "car_uncertain", "model_year", "harsh"],
+        required: ["id", "relevant", "category", "car_code", "summary", "highlight", "car_uncertain", "model_year", "harsh", "safety"],
         additionalProperties: false,
       },
     },

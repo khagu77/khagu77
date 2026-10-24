@@ -490,6 +490,14 @@ function resultHref(r) {
   return `https://search.naver.com/search.naver?ssc=tab.cafe.all&query=${encodeURIComponent(q)}`;
 }
 
+// 안전사고 우려 글 (시트 오작동·밀림·급가속·끼임 등으로 사고 날 뻔·다칠 뻔·조심하라는 글) → 결과 표에서 연보라색
+// (담당자 요청 2026-10-24: 노란색 집중 관리 항목처럼 눈에 띄게. AI 판정(safety)이 없는 예전 결과는 제목·본문·주요 내용 글자로 판단)
+const SAFETY_RE = /사고\s?(가\s?)?날\s?뻔|큰일\s?날\s?뻔|죽을\s?뻔|다칠\s?뻔|아찔|위험(했|하|합|해|천만|한)|사고\s?위험|안전\s?(사고|위협|우려)|조심(하세요|하시길|하십시오|들 하)|주의(하세요|하시길)|급발진|급가속|차량\s?밀림|밀림\s?(현상|사고)|끼임|미끄러/;
+function isSafetyRow(r) {
+  if (typeof r.safety === "boolean") return r.safety;
+  return SAFETY_RE.test(`${r.title || ""}\n${r.excerpt || ""}\n${r.summary || ""}`);
+}
+
 function renderResults() {
   const tbody = $("#results tbody");
   tbody.textContent = "";
@@ -500,7 +508,7 @@ function renderResults() {
     const sum = el("input", { type: "text", value: r.summary, title: r.summary, oninput: (e) => (r.summary = e.target.value, e.target.title = e.target.value, saveLastResult(), learnRow(r)) });
     const tr = el(
       "tr",
-      { class: `${r.highlight ? "yellow" : ""} ${r.report ? "report" : ""} ${r.selected ? "selected" : ""}` },
+      { class: `${r.highlight ? "yellow" : ""} ${isSafetyRow(r) ? "safety" : ""} ${r.report ? "report" : ""} ${r.selected ? "selected" : ""}`, title: isSafetyRow(r) ? "안전사고 우려 글 (연보라색)" : "" },
       el(
         "td",
         { class: "sel" },
@@ -1707,7 +1715,7 @@ async function processSource(src, posts, readBody, ctx) {
       let row;
       if (j) {
         if (!j.relevant) continue;
-        row = { car: j.car_code || (it.needCar ? "" : firstHint(it.carHint)) || "-", category: j.category, summary: j.summary, highlight: !!j.highlight, harsh: !!j.harsh, year: j.model_year || findModelYear(`${it.title}\n${it.body}\n${it.comments || ""}`) };
+        row = { car: j.car_code || (it.needCar ? "" : firstHint(it.carHint)) || "-", category: j.category, summary: j.summary, highlight: !!j.highlight, harsh: !!j.harsh, safety: !!j.safety, year: j.model_year || findModelYear(`${it.title}\n${it.body}\n${it.comments || ""}`) };
       } else {
         const text = `${it.title}\n${it.body}`;
         const cat = keywordCategory(text);
