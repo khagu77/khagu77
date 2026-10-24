@@ -102,7 +102,7 @@ function fillChips(td, kind, rec) {
   if (st && kind === "seatFinal" && st.from) chips.push([`체크한 글 ${st.from.toLocaleString()}개 중`, ""]);
   // AI 비용: 로우 엑셀(찾은 글 전체) = 총비용 · 1차 검수·최종 = 그 총비용 중 이 파일 글들 몫 (서로 더하지 않음)
   if (st && st.aiCost > 0) {
-    if (kind === "seatRaw") chips.push([`AI 총비용 ${fmtWon(st.aiCost)}`, "cost", "찾은 글 전체에 쓴 AI 비용입니다. 1차 검수·최종 파일의 비용은 이 안에 들어 있습니다."]);
+    if (kind === "seatRaw") chips.push([`AI 총비용 ${fmtWon(st.aiCost)}`, "total", "찾은 글 전체에 쓴 AI 비용입니다. 1차 검수·최종 파일의 비용은 이 안에 들어 있습니다."]);
     else {
       const tip = `이 파일에 든 글 ${(st.posts ?? 0).toLocaleString()}개에 쓴 AI 비용입니다. 로우 엑셀의 'AI 총비용' 안에 들어 있는 금액이라 더하지 않습니다.`;
       chips.push([`이 글들 몫 ${fmtWon(st.aiCost)}`, "cost", tip]);
