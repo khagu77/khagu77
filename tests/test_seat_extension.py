@@ -378,6 +378,11 @@ def test_seat(tmp_path: Path):
         assert "온라인 동향 N" in db_rows.first.locator(".counts").inner_text()
         assert db_rows.first.locator(".pill").inner_text() == "최종" and "첫 기록" in db_rows.first.locator(".counts").inner_text()
         assert "찾은 글" in page.inner_text("#work") and "3개" in page.inner_text("#work")
+        # AI 비용 칩: 로우 엑셀 = 'AI 총비용' · 1차 검수·최종 = '이 글들 몫' + 총비용의 % (서로 더하지 않음)
+        chip = lambda kind, st: page.evaluate("([k, st]) => { const td = document.createElement('td'); fillChips(td, k, { stats: st }); return [...td.querySelectorAll('.chip')].map(c => c.textContent); }", [kind, st])
+        assert "AI 총비용 약 47,066원 ($33.62)" in chip("seatRaw", {"posts": 8991, "checked": 697, "aiCost": 47066})
+        fc = chip("seatFinal", {"posts": 429, "nn": 230, "aiCost": 11901, "aiAll": 47066})
+        assert "이 글들 몫 약 11,901원 ($8.50)" in fc and "총비용의 25%" in fc and not any(c.startswith("AI 비용") for c in fc), fc
         assert "아직 기록 없음" in page.inner_text("#work")  # 규칙 요약만 써서 AI 비용 기록 없음
         with page.expect_file_chooser() as fc:
             db_rows.first.locator(".up").click()

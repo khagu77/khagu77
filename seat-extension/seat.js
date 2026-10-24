@@ -2443,7 +2443,8 @@ async function saveReport(kind) {
     const reviewed = selected.filter((x) => typeof x.review?.relevance === "number");
     const rel = reviewed.length ? Math.round(reviewed.reduce((n, x) => n + x.review.relevance, 0) / reviewed.length) : null;
     const stats = { posts: selected.length, missing: miss, ...yns, ...(kind === "seatFinal" ? { from: all.length } : {}), relAvg: rel,
-      relHigh: reviewed.filter((x) => x.review.relevance >= RELEVANCE_RED).length, aiCost: Math.round(selected.reduce((n, x) => n + (x.aiCost || 0), 0)), aiTotal: Math.round(aiSpend.won) };
+      relHigh: reviewed.filter((x) => x.review.relevance >= RELEVANCE_RED).length, aiCost: Math.round(selected.reduce((n, x) => n + (x.aiCost || 0), 0)), aiTotal: Math.round(aiSpend.won),
+      aiAll: Math.round(items.reduce((n, x) => n + (x.aiCost || 0), 0)) }; // aiAll: 찾은 글 전체에 쓴 총비용 (이 파일 몫이 그중 얼마인지)
     for (const c of CARS) stats[c.code] = selected.filter((x) => x.car === c.code).length;
     let dbNote = "";
     try {

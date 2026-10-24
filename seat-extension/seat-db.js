@@ -100,16 +100,21 @@ function fillChips(td, kind, rec) {
   // 주제 관련도: 평균 · 70% 이상 건수 (최종 검수한 글)
   if (st && typeof st.relAvg === "number") chips.push([`관련도 평균 ${st.relAvg}% · 70%↑ ${(st.relHigh ?? 0).toLocaleString()}`, st.relAvg >= 70 ? "warn" : "ok"]);
   if (st && kind === "seatFinal" && st.from) chips.push([`체크한 글 ${st.from.toLocaleString()}개 중`, ""]);
-  // 이 파일에 든 글들에 쓴 AI 비용 (글마다 실제 사용량으로 나눠 붙인 것의 합)
+  // AI 비용: 로우 엑셀(찾은 글 전체) = 총비용 · 1차 검수·최종 = 그 총비용 중 이 파일 글들 몫 (서로 더하지 않음)
   if (st && st.aiCost > 0) {
-    // 총액·글당을 따로 (한 칩에 넣으면 길어져 옆 칸을 덮음)
-    chips.push([`AI 비용 ${fmtWon(st.aiCost)}`, "cost"]);
+    if (kind === "seatRaw") chips.push([`AI 총비용 ${fmtWon(st.aiCost)}`, "cost", "찾은 글 전체에 쓴 AI 비용입니다. 1차 검수·최종 파일의 비용은 이 안에 들어 있습니다."]);
+    else {
+      const tip = `이 파일에 든 글 ${(st.posts ?? 0).toLocaleString()}개에 쓴 AI 비용입니다. 로우 엑셀의 'AI 총비용' 안에 들어 있는 금액이라 더하지 않습니다.`;
+      chips.push([`이 글들 몫 ${fmtWon(st.aiCost)}`, "cost", tip]);
+      if (st.aiAll > 0) chips.push([`총비용의 ${Math.round((st.aiCost / st.aiAll) * 100)}%`, "cost", tip]);
+    }
     if (st.posts) chips.push([`글당 ${fmtWon(st.aiCost / st.posts)}`, "cost"]);
   }
   const box = document.createElement("div");
   box.className = "chips";
-  for (const [text, cls] of chips) {
+  for (const [text, cls, tip] of chips) {
     const c = document.createElement("span");
+    if (tip) c.title = tip;
     c.className = `chip ${cls}`;
     c.textContent = text;
     box.append(c);
@@ -121,6 +126,8 @@ async function renderFiles(kind) {
   const tbody = document.querySelector(`section[data-kind="${kind}"] tbody`);
   tbody.innerHTML = "";
   const rows = await dbList(kind);
+  // 예전 기록(총비용 aiAll 없음)은 같은 날 로우 엑셀의 'AI 총비용' 으로 이 파일 몫의 비율을 보여 줌
+  const rawCost = new Map(kind === "seatRaw" ? [] : (await dbList("seatRaw")).map((r) => [r.date, r.stats?.aiCost || 0]));
   if (!rows.length) {
     tbody.innerHTML = `<tr class="empty"><td colspan="5" class="hint">아직 저장된 파일이 없습니다. 게시물 수집 화면에서 엑셀을 받으면 자동으로 저장됩니다.</td></tr>`;
     return;
@@ -141,7 +148,8 @@ async function renderFiles(kind) {
     }
     tr.querySelector(".fname").textContent = rec.name;
     tr.querySelector(".meta").textContent = `${new Date(rec.savedAt).toLocaleString()} · ${rec.source === "upload" ? "직접 올림" : "자동 저장"}`;
-    fillChips(tr.children[2], kind, rec);
+    const st = rec.stats && !rec.stats.aiAll && rawCost.get(rec.date) ? { ...rec.stats, aiAll: rawCost.get(rec.date) } : rec.stats;
+    fillChips(tr.children[2], kind, { ...rec, stats: st });
     fillCounts(tr.children[3], kind, rows, i);
     tr.querySelector(".get").addEventListener("click", async () => {
       prepareFolder();
