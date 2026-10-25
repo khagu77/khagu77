@@ -2568,8 +2568,20 @@ async function cleanStrayWorker() {
       const rows = [...byKey.values()];
       state.base = { label: `지난 보고 이후 수집 기록 ${prior.length}개(${prior.map((e) => `${fmtDateTime(new Date(e.range.start))}~${fmtDateTime(new Date(e.range.end))}`).join(", ")})`, rows };
       state.autoBaseUsed = true;
-      start = new Date(Math.max(...prior.map((e) => e.range.end)));
+      // 기록들이 지난 자동 수집 끝부터 빈틈없이 이어져 있으면 마지막 기록 끝부터, 중간에 빈 기간이 있으면 그 빈 곳부터 다시 수집
+      // (예: 일요일에 토 07:30~일 07:30 만 모아 두고 금 07:30~토 07:30 은 안 모았으면 금 07:30 부터. 겹치는 글은 모아 둔 것만 남김)
+      let cover = start.getTime();
+      let gap = null;
+      for (const e of [...prior].sort((a, b) => a.range.start - b.range.start)) {
+        if (e.range.start > cover + 60000) {
+          gap = cover;
+          break;
+        }
+        cover = Math.max(cover, e.range.end);
+      }
+      start = new Date(gap ?? cover);
       log(`이전 수집 기록 ${prior.length}개(${rows.length}건)를 자동으로 이어서 작성합니다: ${prior.map((e) => dbLabel(e)).join(" / ")}`);
+      if (gap) log(`모아 둔 기록 사이에 빈 기간이 있어 ${fmtDateTime(new Date(gap))}부터 다시 수집합니다 (이미 모은 글은 모아 둔 것 그대로)`);
     }
     setRange(start, end);
     log(`자동 수집을 시작합니다 (${fmtDateTime(start)} ~ ${fmtDateTime(end)}: ${prior.length ? "이전 수집 기록에 이어서" : "지난 자동 수집에 이어서"})`);
