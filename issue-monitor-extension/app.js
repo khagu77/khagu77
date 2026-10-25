@@ -1381,7 +1381,10 @@ async function downloadReport(rows = state.rows, range = state.range, interactiv
       // 한글 파일명을 못 쓰는 환경이면 영문 이름으로
       for (const ascii of [false, true]) {
         try {
-          const name = await uniqueFileName(dir, reportFilename(range, ascii));
+          // 같은 수집 기간 파일이 이미 있으면 새 이름(… (1).xlsx)으로 따로 만들지 않고 그 파일을 덮어써 최종본으로
+          // (담당자 요청 2026-10-25: 결과 표에서 보고 필요·삭제 등을 고치고 [엑셀 받기]를 누르면 그 파일이 최종 파일이 되게)
+          const name = reportFilename(range, ascii);
+          const existed = await dir.getFileHandle(name).then(() => true, () => false);
           await withTimeout(
             (async () => {
               const fh = await dir.getFileHandle(name, { create: true });
@@ -1392,7 +1395,7 @@ async function downloadReport(rows = state.rows, range = state.range, interactiv
             20000,
             "폴더 저장"
           );
-          return `'${dir.name}' 폴더 (${name})`;
+          return `'${dir.name}' 폴더 (${name}${existed ? " — 기존 파일을 고친 내용으로 덮어씀" : ""})`;
         } catch (e) {
           lastErr = e;
         }
@@ -1407,10 +1410,10 @@ async function downloadReport(rows = state.rows, range = state.range, interactiv
   const url = URL.createObjectURL(blob);
   try {
     try {
-      await chrome.downloads.download({ url, filename: reportFilename(range), conflictAction: "uniquify", saveAs: false });
+      await chrome.downloads.download({ url, filename: reportFilename(range), conflictAction: "overwrite", saveAs: false });
     } catch {
       // 한글 파일명을 못 쓰는 환경이면 영문 이름으로
-      await chrome.downloads.download({ url, filename: reportFilename(range, true), conflictAction: "uniquify", saveAs: false });
+      await chrome.downloads.download({ url, filename: reportFilename(range, true), conflictAction: "overwrite", saveAs: false });
     }
   } finally {
     setTimeout(() => URL.revokeObjectURL(url), 60000);
@@ -1424,8 +1427,11 @@ function savedAlert(where, auto = false) {
   }, 50);
 }
 
-function downloadClick(plain) {
+async function downloadClick(plain) {
   setSummary("엑셀 저장 중…");
+  // 고친 내용을 데일리 DB 에도 바로 반영 (자동 저장 1초 기다리지 않고)
+  clearTimeout(dbSyncTimer);
+  await syncDbEntry().catch(() => {});
   downloadReport(state.rows, state.range, true, plain)
     .then((where) => {
       log(`엑셀을 ${where}에 저장했습니다`);
