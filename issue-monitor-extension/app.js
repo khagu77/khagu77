@@ -937,7 +937,7 @@ async function renderDb() {
       el("td", { text: `${totalReport}건` }),
       el("td", { text: fmtDuration(totalTime) }),
       el("td", {}, el("b", { text: `$${totalCost.toFixed(2)}` })),
-      el("td", { class: "hint", text: absorbed.size ? `합본에 들어간 기록 ${absorbed.size}개는 건수에서 합본 수량으로 한 번만 셈` : "" }),
+      el("td", { class: "hint note", text: absorbed.size ? `합본에 들어간 기록 ${absorbed.size}개는 건수에서 합본 수량으로 한 번만 셈` : "" }),
       el("td", {})
     )
   );
@@ -973,7 +973,7 @@ async function renderDb() {
         el("td", { text: `${rows.filter((r) => r.report).length}건` }),
         el("td", { text: fmtDuration(e.finishedAt - e.startedAt) }),
         costCell(e),
-        el("td", { class: "hint", text: [e.base ? `합본(${e.base})` : "", e.stopped ? "중지됨" : "", e.blocked ? "네이버 중단" : ""].filter(Boolean).join(" · ") }),
+        el("td", { class: "hint note", text: [e.base ? `합본(${e.base})` : "", e.stopped ? "중지됨" : "", e.blocked ? "네이버 중단" : ""].filter(Boolean).join(" · ") }),
         el(
           "td",
           { class: "actions" },
