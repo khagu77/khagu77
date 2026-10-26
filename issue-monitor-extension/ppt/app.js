@@ -505,7 +505,7 @@ function fieldsFrom(row, info, ai) {
     spec,
     kind: row.kind || "품질",
     level: ai.level || "주의",
-    progress: "초기",
+    progress: progressFor(ai.level, ai.progress),
     cafe: row.cafe,
     url: info?.canonicalUrl || row.url, // naver.me 등은 https://cafe.naver.com/카페주소/글번호 로 통일
     views: info?.views || "",
@@ -729,6 +729,11 @@ async function start() {
 // ---------------------------------------------------------------------------
 // 미리보기 카드
 // ---------------------------------------------------------------------------
+// 경과: 주의·경고는 '초기', 심각은 AI 가 내용을 보고 정한 값(초기/진행/타결) (담당자 지정 2026-10-26: 무조건 진행 아님)
+function progressFor(level, aiProgress) {
+  if (level !== "심각") return "초기";
+  return ["초기", "진행", "타결"].includes(aiProgress) ? aiProgress : "초기";
+}
 const FIELD_DEFS = [
   ["title", "페이지 제목", "text", "■ 뒤에 들어갈 '차명(모델명) 증상'"],
   ["url", "게시글 위치", "text", "https://cafe.naver.com/카페주소/글번호"],
@@ -855,7 +860,7 @@ function learnPptItem(it) {
     }, 1500)
   );
 }
-window.PptLearn = { load: async () => { await loadPptExamples(); return loadPptLearned(); }, save: savePptLearned, line: pptLearnLine, system: () => aiSystem() };
+window.PptLearn = { load: async () => { await loadPptExamples(); return loadPptLearned(); }, save: savePptLearned, line: pptLearnLine, system: () => aiSystem(), fromPpt: (details) => learnFromPpt(details) };
 
 // 담당자가 고친 PPT 를 올리면: 기억해 둔 원본과 비교해 바뀐 칸을 학습 메모로, 원본이 없으면 '확정 예시'로 저장
 const PPT_DIFF_FIELDS = ["title", "spec", "level", "progress", "body", "reaction", "short", "duplicate", "region", "focus"];
@@ -871,42 +876,7 @@ async function onLearnPpt() {
     const rd = reportDate();
     const pptDate = DailyPpt.dateFromName(file.name) || `${rd.y}-${pad(rd.m)}-${pad(rd.d)}`;
     await DailyPpt.add({ date: pptDate, kind: "edited", partial: !!edited.partial, name: file.name, bytes: fileBytes, count: edited.length }).catch(() => {});
-    const { pptSnapshots = [] } = await chrome.storage.local.get("pptSnapshots");
-    const byKey = new Map();
-    for (const s of [...pptSnapshots].reverse()) for (const x of s.items) byKey.set(x.key, x); // 최신 원본 우선
-    const t = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
-    let diffs = 0;
-    let examples = 0;
-    const lines = [];
-    const learned = await loadPptLearned();
-    const exList = await loadPptExamples();
-    for (const e of edited) {
-      const key = normUrl(e.url);
-      const orig = byKey.get(key);
-      if (orig) {
-        const ch = {};
-        for (const k of PPT_DIFF_FIELDS) {
-          const a = t(orig.fields[k]);
-          const b = t(e[k]);
-          if (b && a !== b) ch[k] = [a, b];
-        }
-        if (Object.keys(ch).length) {
-          const i = learned.findIndex((x) => x.key === key);
-          if (i >= 0) learned.splice(i, 1);
-          learned.unshift({ key, at: Date.now(), cafe: orig.cafe || e.cafe, car: orig.car || e.code, title: orig.title || "", ch, from: "PPT 수정본" });
-          diffs++;
-          lines.push(`No.${e.no} ${e.title}: ${Object.keys(ch).map((k) => PPT_LEARN_FIELDS[k] || k).join(", ")} 수정`);
-        }
-      } else {
-        // 원본을 모르면 담당자 확정본을 예시로
-        const i = exList.findIndex((x) => x.key === key);
-        if (i >= 0) exList.splice(i, 1);
-        exList.unshift({ key, at: Date.now(), car: e.code, kind: e.kind, title: e.title, short: e.short, spec: e.spec, level: e.level, region: e.region, body: e.body, reaction: e.reaction });
-        examples++;
-      }
-    }
-    await savePptLearned(learned);
-    await savePptExamples(exList);
+    const { diffs, examples, lines } = await learnFromPpt(edited);
     const msg = `수정한 PPT 학습 완료: 원본과 비교해 고친 글 ${diffs}건${examples ? ` · 원본이 없어 확정 예시로 저장 ${examples}건` : ""}. 다음 PPT 작성부터 반영됩니다. 이 파일을 ${pptDate} 최종본으로 데일리 DB 에 저장했습니다${edited.partial ? " (나눠 쓴 일부 PPT — 전체 PPT 도 [전체 PPT 첨부하기]로 올려 주세요)" : ""}.`;
     setSummary(msg + (lines.length ? `\n${lines.join("\n")}` : ""), "ok");
     $("#doneTitle").textContent = "✅ 수정한 PPT 학습 완료";
@@ -916,6 +886,49 @@ async function onLearnPpt() {
   } catch (err) {
     setSummary(`수정한 PPT 를 읽지 못했습니다: ${err.message || err}`, "err");
   }
+}
+
+// 최종본 PPT(담당자 수정본·전체 PPT)로 학습: 기억해 둔 시스템 원본이 있는 글은 고친 칸을 학습 메모로,
+// 원본이 없는 글(다른 담당자가 쓴 글 등)은 '확정 예시'로. 같은 글은 나중에 올린 최종본으로 덮어쓴다.
+// (담당자 확인 2026-10-26: 전체 PPT 를 첨부하면 그 파일을 최종본으로 보고 최종 학습도 그 파일로)
+async function learnFromPpt(edited) {
+  const { pptSnapshots = [] } = await chrome.storage.local.get("pptSnapshots");
+  const byKey = new Map();
+  for (const s of [...pptSnapshots].reverse()) for (const x of s.items) byKey.set(x.key, x); // 최신 원본 우선
+  const t = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
+  let diffs = 0;
+  let examples = 0;
+  const lines = [];
+  const learned = await loadPptLearned();
+  const exList = await loadPptExamples();
+  for (const e of edited) {
+    const key = normUrl(e.url);
+    const orig = byKey.get(key);
+    if (orig) {
+      const ch = {};
+      for (const k of PPT_DIFF_FIELDS) {
+        const a = t(orig.fields[k]);
+        const b = t(e[k]);
+        if (b && a !== b) ch[k] = [a, b];
+      }
+      if (Object.keys(ch).length) {
+        const i = learned.findIndex((x) => x.key === key);
+        if (i >= 0) learned.splice(i, 1);
+        learned.unshift({ key, at: Date.now(), cafe: orig.cafe || e.cafe, car: orig.car || e.code, title: orig.title || "", ch, from: "PPT 수정본" });
+        diffs++;
+        lines.push(`No.${e.no} ${e.title}: ${Object.keys(ch).map((k) => PPT_LEARN_FIELDS[k] || k).join(", ")} 수정`);
+      }
+    } else {
+      // 원본을 모르면 담당자 확정본을 예시로
+      const i = exList.findIndex((x) => x.key === key);
+      if (i >= 0) exList.splice(i, 1);
+      exList.unshift({ key, at: Date.now(), car: e.code, kind: e.kind, title: e.title, short: e.short, spec: e.spec, level: e.level, region: e.region, body: e.body, reaction: e.reaction });
+      examples++;
+    }
+  }
+  await savePptLearned(learned);
+  await savePptExamples(exList);
+  return { diffs, examples, lines };
 }
 
 // 1인용(나눠 쓰기)일 때: 담당자들이 합친 전체 PPT 를 올려 그날의 전체 최종본으로 데일리 DB 에 저장 (주간 보고서 바탕)
@@ -930,7 +943,8 @@ async function onFullPpt() {
     const rd = reportDate();
     const date = DailyPpt.dateFromName(file.name) || `${rd.y}-${pad(rd.m)}-${pad(rd.d)}`;
     await DailyPpt.add({ date, kind: "full", partial: !!details.partial, name: file.name, bytes, count: details.length });
-    setSummary(`전체 PPT 를 ${date} 최종본으로 데일리 DB 에 저장했습니다 (${details.length}건${details.partial ? " · ⚠ 이 파일도 일부만 들어 있는 것 같습니다" : ""}).`, details.partial ? "err" : "ok");
+    const { diffs, examples } = await learnFromPpt(details);
+    setSummary(`전체 PPT 를 ${date} 최종본으로 데일리 DB 에 저장하고 학습했습니다 (${details.length}건 · 내가 쓴 글 중 고친 글 ${diffs}건 학습 · 확정 예시 ${examples}건${details.partial ? " · ⚠ 이 파일도 일부만 들어 있는 것 같습니다" : ""}). 다음 PPT 작성부터 반영됩니다.`, details.partial ? "err" : "ok");
   } catch (err) {
     setSummary(`전체 PPT 를 읽지 못했습니다: ${err.message || err}`, "err");
   }

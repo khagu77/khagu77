@@ -884,7 +884,17 @@ async function addDailyPptFile(file, { date, kind } = {}) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error(`${file.name}: 날짜를 알 수 없어 건너뜁니다`);
   }
   const e = await DailyPpt.add({ date: d, kind: kind || "full", partial: !!details.partial, name: file.name, bytes, count: details.length });
-  return `${d} ${file.name} (${details.length}건${details.partial ? " · 일부만 있는 PPT" : ""})`;
+  // 그날 최종본이 되면 학습도 그 파일로 (PPT·RAW 작성 화면의 학습 기능 사용)
+  let learned = "";
+  try {
+    const fin = await DailyPpt.finalOf(d);
+    const L = $("#pptFrame") && $("#pptFrame").contentWindow && $("#pptFrame").contentWindow.PptLearn;
+    if (fin && fin.id === e.id && L && L.fromPpt) {
+      const r = await L.fromPpt(details);
+      learned = ` · 학습: 고친 글 ${r.diffs}건, 확정 예시 ${r.examples}건`;
+    }
+  } catch {}
+  return `${d} ${file.name} (${details.length}건${details.partial ? " · 일부만 있는 PPT" : ""}${learned})`;
 }
 
 let dailyPptTarget = null; // 표에서 [수정본 올리기]/[전체 PPT 올리기]를 누른 날짜·종류

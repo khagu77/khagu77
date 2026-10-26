@@ -91,6 +91,11 @@ const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작�
          또는 실제로 민원 제기·소송·언론 제보·집단 행동이 진행 중이고 여러 사람이 동조해 확산되는 경우.
   심각 = 이건 최악이다 싶은 경우에만: 화재, 급발진, 인명 피해가 있거나 날 뻔한 사고, 차량 전손 등.
   애매하면 한 단계 낮게 씁니다 (경고인지 애매하면 주의).
+- progress: 경과("초기"/"진행"/"타결"). 주의·경고는 "초기".
+  level 이 "심각"이면 무조건 정하지 말고 본문·댓글 내용을 잘 보고 판단합니다 (담당자 지정 2026-10-26):
+  초기 = 방금 일이 생겨 알리기만 한 단계 (아직 입고·신고·조사 등 후속 조치가 없음).
+  진행 = 후속 조치가 이어지는 중 (센터·사업소 입고, 견인·점검, 원인 조사, 보험·보상 협의, 민원·신고·소송 진행 등). 예: 정차 후 출발 시 엔진룸 화재 → 소화기로 진압 후 센터 입고, 조치 방법 문의 = "진행".
+  타결 = 보상·교환·환불 합의나 수리 완료 등으로 마무리됐다고 글에 분명히 나올 때.
 - duplicate: 아래 두 가지를 러프하게 더한 수.
   ① 댓글 중 "저도 그래요", "나도 그랬다"처럼 같은 증상을 겪었다는 뉘앙스의 댓글 수
   ② boardPosts(이 글이 있는 게시판의 최근 글 목록) 중 게시일(postDate) 기준 최근 3개월 안의 같은 차종/같은 증상 관련 게시글 수 (이 글 자신은 빼고, 날짜가 시간만 있으면 최근 글)
@@ -193,11 +198,12 @@ const AI_SCHEMA = {
     comment_picks: { type: "array", items: { type: "integer" } },
     reaction: { type: "string" },
     level: { type: "string", enum: ["주의", "경고", "심각"] },
+    progress: { type: "string", enum: ["초기", "진행", "타결"] },
     duplicate: { type: "string" },
     region: { type: "string" },
     focus: { type: "boolean" },
   },
-  required: ["issue", "spec", "short", "body", "reaction", "level", "duplicate", "region", "focus", "comment_picks"],
+  required: ["issue", "spec", "short", "body", "reaction", "level", "progress", "duplicate", "region", "focus", "comment_picks"],
   additionalProperties: false,
 };
 
