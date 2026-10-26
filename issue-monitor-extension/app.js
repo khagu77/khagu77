@@ -760,6 +760,73 @@ async function saveBytesFile(fileName, bytes, mime) {
   return "다운로드 폴더";
 }
 
+// RAW data 담당자 수정본 올리기 (담당자 요청 2026-10-26)
+// - 위 [RAW 수정본 올리기]: 새 줄로 보관하고 다음 RAW 이어 쓰기 기준으로
+// - 줄의 [수정본 올리기]: 그 줄의 파일을 고친 파일로 바꾸고, 그 줄이 기준(또는 가장 최근)이면 기준도 고친 파일로
+let rawTarget = null;
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+async function readRawUpload(file) {
+  if (!/\.xlsx$/i.test(file.name)) throw new Error(`${file.name}: .xlsx 엑셀 파일만 올릴 수 있습니다`);
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const files = await Zip.read(bytes).catch(() => null);
+  if (!files || !files.has("xl/workbook.xml")) throw new Error(`${file.name}: 엑셀 파일을 읽지 못했습니다`);
+  return bytes;
+}
+function refreshPptRawInfo(saved) {
+  try {
+    const w = $("#pptFrame") && $("#pptFrame").contentWindow;
+    if (w && typeof w.showRawInfo === "function") w.showRawInfo(saved);
+  } catch {}
+}
+$("#rawUpload").addEventListener("change", async (ev) => {
+  const f = ev.target.files[0];
+  ev.target.value = "";
+  if (!f) return;
+  try {
+    const bytes = await readRawUpload(f);
+    const now = Date.now();
+    const hist = (await pptKv("readonly", (st) => st.get("rawHistory"))) || [];
+    hist.unshift({ id: `raw-${now}`, at: now, name: f.name, bytes, edited: true, detail: "담당자 수정본 (직접 올림)", rows: 0 });
+    await pptKv("readwrite", (st) => st.put(hist.slice(0, 15), "rawHistory"));
+    const saved = { name: f.name, bytes, savedAt: fmtDateTime(new Date(now)) };
+    await pptKv("readwrite", (st) => st.put(saved, "rawLatest"));
+    refreshPptRawInfo(saved);
+    alert(`✅ RAW 수정본을 데일리 DB 에 보관했습니다\n${f.name}\n\n다음 RAW data 는 이 파일 끝에 이어 씁니다.`);
+  } catch (e) {
+    alert(`⚠ ${e.message || e}`);
+  }
+  renderRawHistory();
+});
+$("#rawOne").addEventListener("change", async (ev) => {
+  const f = ev.target.files[0];
+  ev.target.value = "";
+  const target = rawTarget;
+  rawTarget = null;
+  if (!f || !target) return;
+  try {
+    const bytes = await readRawUpload(f);
+    const hist = (await pptKv("readonly", (st) => st.get("rawHistory"))) || [];
+    const latest = await pptKv("readonly", (st) => st.get("rawLatest"));
+    const i = hist.findIndex((x) => x.at === target.at && x.name === target.name);
+    if (i < 0) throw new Error("바꿀 RAW 기록을 찾지 못했습니다. 화면을 새로 고친 뒤 다시 해 주세요");
+    const h = hist[i];
+    const wasBase = latest && latest.name === h.name && latest.bytes && h.bytes && latest.bytes.length === h.bytes.length;
+    hist[i] = { ...h, name: f.name, bytes, edited: true, origName: h.origName || h.name, editedAt: Date.now(), detail: `담당자 수정본${h.detail ? ` (처음: ${h.detail})` : ""}` };
+    await pptKv("readwrite", (st) => st.put(hist, "rawHistory"));
+    let msg = "";
+    if (wasBase || i === 0 || confirm(`다음 RAW data 를 이 수정본 끝에 이어 쓸까요?\n${f.name}`)) {
+      const saved = { name: f.name, bytes, savedAt: fmtDateTime(new Date()) };
+      await pptKv("readwrite", (st) => st.put(saved, "rawLatest"));
+      refreshPptRawInfo(saved);
+      msg = "\n\n다음 RAW data 는 이 파일 끝에 이어 씁니다.";
+    }
+    alert(`✅ RAW 수정본으로 바꿨습니다\n${f.name}${msg}`);
+  } catch (e) {
+    alert(`⚠ ${e.message || e}`);
+  }
+  renderRawHistory();
+});
+
 async function renderRawHistory() {
   const hist = (await pptKv("readonly", (st) => st.get("rawHistory"))) || [];
   const latest = await pptKv("readonly", (st) => st.get("rawLatest"));
@@ -772,13 +839,17 @@ async function renderRawHistory() {
     tbody.append(
       el("tr", {},
         el("td", { text: fmtDateTime(new Date(h.at)) }),
-        el("td", { text: `${h.name}${isBase ? "  ← 다음 RAW 이어 쓰기 기준" : ""}` }),
-        el("td", {}, el("b", { class: "count-red", text: `${h.rows || 0}건` })),
+        el("td", {}, h.edited ? el("span", { class: "badge-edit", text: "담당자 수정본" }) : null, ` ${h.name}${isBase ? "  ← 다음 RAW 이어 쓰기 기준" : ""}`),
+        el("td", {}, h.edited && !h.rows ? "-" : el("b", { class: "count-red", text: `${h.rows || 0}건` })),
         el("td", { class: "hint", text: h.detail || "" }),
         el("td", { class: "actions" },
           el("button", { class: "btn-get", text: "받기", onclick: async () => {
             const where = await saveBytesFile(h.name, h.bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             alert(`✅ RAW data 파일 저장 완료\n\n저장 위치: ${where}`);
+          } }),
+          el("button", { text: "수정본 올리기", title: "엑셀에서 고친 RAW 파일로 이 줄을 바꿉니다 (다음 RAW 이어 쓰기 기준이면 그 기준도 고친 파일로)", onclick: () => {
+            rawTarget = h;
+            $("#rawOne").click();
           } }),
           isBase ? null : el("button", { text: "이어 쓸 기준으로", title: "다음 RAW 를 이 파일 끝에 이어 씁니다", onclick: async () => {
             if (!confirm(`다음 RAW data 를 이 파일 끝에 이어 쓸까요?\n${h.name}`)) return;

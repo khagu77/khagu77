@@ -343,3 +343,5 @@ nav .tab.work.active .step { background: var(--blue); border-color: var(--blue);
 .kept-file { display: inline-flex; align-items: center; gap: 2px; margin-right: 8px; white-space: nowrap; }
 button.x-del { padding: 0 5px; font-size: 11px; line-height: 16px; border-radius: 4px; color: var(--red); border-color: transparent; background: transparent; }
 button.x-del:hover { border-color: var(--red); }
+/* RAW 담당자 수정본 표시 */
+.badge-edit { display: inline-block; padding: 1px 7px; border-radius: 999px; background: var(--blue); color: #fff; font-size: 11px; font-weight: 700; }

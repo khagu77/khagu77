@@ -168,6 +168,11 @@
       <input type="file" id="dailyPptOne" accept=".pptx" hidden>
 
       <h2>RAW data 파일 <span class="hint">PPT·RAW 작성 탭에서 만든 'YYMMDD_차종별 온라인 동향 raw data.xlsx' (최근 15개). 다시 받거나, 다음 RAW 를 이어 쓸 기준으로 바꿀 수 있습니다.</span></h2>
+      <div class="buttons">
+        <label class="filebtn">RAW 수정본 올리기<input type="file" id="rawUpload" accept=".xlsx" hidden></label>
+        <span class="hint">엑셀에서 고친 RAW data 파일을 올리면 데일리 DB 에 담당자 수정본으로 보관하고, 다음 RAW 는 이 파일 끝에 이어 씁니다. 표의 [수정본 올리기]로 그 줄의 파일을 바로 바꿀 수도 있습니다.</span>
+      </div>
+      <input type="file" id="rawOne" accept=".xlsx" hidden>
       <table id="rawTable">
         <thead><tr><th>만든 일시</th><th>파일 이름</th><th>이번에 붙인 행</th><th>시트별</th><th></th></tr></thead>
         <tbody></tbody>
