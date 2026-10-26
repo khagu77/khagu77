@@ -149,8 +149,10 @@ body.embedded main { padding-top: 4px; }
 #zoomBox .zoom-label { font-weight: 700; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #zoomBox .zoom-close { background: #fff; color: #111; border: 0; border-radius: 6px; padding: 6px 12px; font-weight: 700; cursor: pointer; }
 #zoomBox .zoom-body { flex: 1; overflow: auto; display: flex; align-items: center; justify-content: center; padding: 8px 16px 16px; }
-#zoomBox .zoom-body img { max-width: 100%; max-height: 100%; background: #fff; cursor: zoom-in; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5); }
+/* 화면 맞춤: 작은 그림도 화면 가득 키워서 (원래는 원본보다 크게는 안 늘려서 작게 보였음) */
+#zoomBox .zoom-body { min-height: 0; }
+#zoomBox .zoom-body img { width: 100%; height: 100%; object-fit: contain; background: transparent; cursor: zoom-in; }
 #zoomBox.actual .zoom-body { align-items: flex-start; justify-content: flex-start; }
-#zoomBox.actual .zoom-body img { max-width: none; max-height: none; cursor: zoom-out; }
+#zoomBox.actual .zoom-body img { height: auto; max-width: none; max-height: none; background: #fff; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5); cursor: zoom-out; }
 
 label.filebtn.disabled { opacity: 0.45; pointer-events: none; }

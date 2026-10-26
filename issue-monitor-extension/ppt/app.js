@@ -957,8 +957,9 @@ function selectedVisuals(it) {
 }
 
 // 슬라이드 모양 미리보기 (안내선 + 캡처 배치)
-function drawPreview(it) {
-  const canvas = $(".preview canvas", it.el);
+// target: 크게 보기용 고해상도 캔버스 (없으면 화면의 작은 미리보기)
+function drawPreview(it, target) {
+  const canvas = target || $(".preview canvas", it.el);
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
   const W = 9906000;
@@ -966,9 +967,10 @@ function drawPreview(it) {
   const s = canvas.width / W;
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const k = canvas.width / 600; // 화면 미리보기(600px) 대비 배율 — 글자·선 굵기도 같이 키운다
   ctx.strokeStyle = "#c8ccd2";
-  ctx.lineWidth = 1;
-  ctx.setLineDash([3, 3]);
+  ctx.lineWidth = k;
+  ctx.setLineDash([3 * k, 3 * k]);
   const g = Layout.G;
   for (const x of [g.xText, g.xBody, g.xRight, g.xImg, g.xImgR]) {
     ctx.beginPath();
@@ -984,7 +986,7 @@ function drawPreview(it) {
   }
   ctx.setLineDash([]);
   ctx.fillStyle = "#1b1d21";
-  ctx.font = "bold 13px sans-serif";
+  ctx.font = `bold ${Math.round(13 * k)}px sans-serif`;
   ctx.fillText(`■ ${it.fields.title}`.slice(0, 48), 404327 * s, 420000 * s);
   ctx.fillStyle = "#f1f2f4";
   ctx.fillRect(343851 * s, 653393 * s, 9228818 * s, (g.yTop - 653393 - 60000) * s);
@@ -998,6 +1000,7 @@ function drawPreview(it) {
       ctx.drawImage(src, 0, 0, src.width, sh, p.x * s, p.y * s, p.w * s, p.h * s);
     }
     ctx.strokeStyle = { header: "#5b9bd5", body: "#ed7d31", comment: "#70ad47", image: "#e00000" }[p.kind];
+    ctx.lineWidth = k;
     ctx.strokeRect(p.x * s, p.y * s, p.w * s, p.h * s);
   }
 }
@@ -1342,7 +1345,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     const cv = e.target.closest(".preview canvas");
     if (!img && !cv) return;
     e.preventDefault(); // 그림을 눌러도 체크가 바뀌지 않게
-    openZoom(img ? img.src : cv.toDataURL("image/png"), img ? (img.closest(".shot").querySelector("span") || {}).textContent : "슬라이드 미리보기");
+    if (img) return openZoom(img.src, (img.closest(".shot").querySelector("span") || {}).textContent);
+    // 슬라이드 미리보기는 화면의 작은 캔버스(600px)를 그대로 키우면 글자가 안 보여서, 캡처 원본으로 크게 다시 그린다
+    // (담당자 지적 2026-10-26: 미리보기를 눌러도 확대는 안 되고 위치만 바뀜)
+    const it = items.find((x) => x.el && x.el.contains(cv));
+    let src = cv.toDataURL("image/png");
+    if (it) {
+      try {
+        const big = document.createElement("canvas");
+        big.width = 2400;
+        big.height = Math.round((2400 * 6858000) / 9906000);
+        drawPreview(it, big);
+        src = big.toDataURL("image/png");
+      } catch {}
+    }
+    openZoom(src, it && it.fields ? `슬라이드 미리보기 · ${it.fields.title || ""}` : "슬라이드 미리보기");
   });
   $("#start").addEventListener("click", start);
   $("#stop").addEventListener("click", () => {
@@ -1379,7 +1396,15 @@ function openZoom(src, label = "") {
     box.innerHTML = `<div class="zoom-bar"><span class="zoom-label"></span><span class="hint">그림을 누르면 원본 크기 ↔ 화면 맞춤 · Esc 닫기</span><button type="button" class="zoom-close">닫기 ✕</button></div><div class="zoom-body"><img alt=""></div>`;
     document.body.appendChild(box);
     box.addEventListener("click", (e) => {
-      if (e.target.tagName === "IMG") box.classList.toggle("actual");
+      if (e.target.tagName === "IMG") {
+        // 원본 크기: 그림이 작아 화면 맞춤보다 작아지는 경우에도 확실히 커지게 (화면 맞춤의 2배 이상)
+        const im = e.target;
+        if (box.classList.toggle("actual")) {
+          const r = im.getBoundingClientRect();
+          const fitW = Math.min(r.width, (r.height * im.naturalWidth) / (im.naturalHeight || 1));
+          im.style.width = `${Math.max(im.naturalWidth, fitW * 2)}px`;
+        } else im.style.width = "";
+      }
       else if (e.target.closest(".zoom-close") || e.target.classList.contains("zoom-body")) box.hidden = true;
     });
     document.addEventListener("keydown", (e) => {
@@ -1387,6 +1412,7 @@ function openZoom(src, label = "") {
     });
   }
   box.classList.remove("actual");
+  $("img", box).style.width = "";
   $(".zoom-label", box).textContent = String(label || "").trim();
   $("img", box).src = src;
   box.hidden = false;
