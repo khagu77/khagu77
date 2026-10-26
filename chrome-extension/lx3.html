@@ -34,10 +34,11 @@
         <label class="inline">시작 <input type="datetime-local" id="from"></label>
         <label class="inline">끝 <input type="datetime-local" id="to"></label>
         <label class="inline">동호회 검색어 <input type="text" id="query" class="short"></label>
-        <button id="resetRange" class="small" title="직전 근무일 오후 12시 ~ 오늘 오후 12시">기본 시간으로</button>
+        <button id="resetRange" class="small">기본 시간으로</button>
+        <button id="saveRange" class="small" title="지금 시작·끝 칸의 시각(날짜 말고 시각만)을 다음부터 기본 시각으로 씁니다">이 시각을 기본으로 저장</button>
       </div>
-      <div class="hint">화면을 새로 열면(새로고침) 시간은 <b>직전 근무일 오후 12시 ~ 오늘 오후 12시</b>로 돌아갑니다
-        (평일은 전일 12시부터, 월요일·연휴 다음 날은 주말·공휴일·대체공휴일을 건너뛴 마지막 근무일 12시부터). <span id="rangeInfo"></span></div>
+      <div class="hint">화면을 새로 열면(새로고침) 시간은 <b id="baseText">직전 근무일 오전 11:30 ~ 오늘 오전 11:30</b>으로 돌아갑니다
+        (평일은 전일부터, 월요일·연휴 다음 날은 주말·공휴일·대체공휴일을 건너뛴 마지막 근무일 <span id="baseFrom">오전 11:30</span>부터 · 시각을 바꾸고 <b>이 시각을 기본으로 저장</b>을 누르면 다음부터 그 시각으로). <span id="rangeInfo"></span></div>
 
       <details id="settings">
         <summary>설정 (동호회 목록 · 언론·커뮤니티 키워드 · 관련 단어 · 저장 위치)</summary>

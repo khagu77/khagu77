@@ -443,12 +443,12 @@ def test_lx3(tmp_path: Path):
         page.goto(f"{ext}/lx3.html")
         page.on("dialog", lambda d: d.accept())
 
-        # 제목·메뉴, 기본 시간: 전일 오후 12시 ~ 당일 오후 12시
+        # 제목·메뉴, 기본 시간: 직전 근무일 오전 11:30 ~ 당일 오전 11:30
         assert page.inner_text("h1") == "팰리세이드(LX3) 전동 시트 관련 언론·카페·유튜브·자동차 커뮤니티 게시물 및 댓글 수집기"
         now = datetime.now(ZoneInfo("Asia/Seoul"))
-        today_noon = now.replace(hour=12, minute=0, second=0, microsecond=0)
-        assert page.input_value("#to") == today_noon.strftime("%Y-%m-%dT12:00")
-        # 시작: 직전 근무일 오후 12시 (주말·공휴일·대체공휴일 건너뜀)
+        assert page.input_value("#to") == now.strftime("%Y-%m-%dT11:30")
+        assert "직전 근무일 오전 11:30 ~ 오늘 오전 11:30" in page.inner_text("#baseText")
+        # 시작: 직전 근무일 오전 11:30 (주말·공휴일·대체공휴일 건너뜀)
         cases = {  # 오늘 → 시작
             "2026-10-14": "2026-10-13",  # 평일: 전날
             "2026-10-19": "2026-10-16",  # 월요일: 금요일
@@ -457,8 +457,8 @@ def test_lx3(tmp_path: Path):
             "2027-02-09": "2027-02-04",  # 설 연휴(금~일)·대체공휴일(월) 다음 날: 목요일
         }
         for today, start in cases.items():
-            got = page.evaluate("(d) => { const r = defaultRange(new Date(d + 'T09:00')); return [ymd(r.from), r.from.getHours(), ymd(r.to), r.to.getHours()]; }", today)
-            assert got == [start, 12, today, 12], (today, got)
+            got = page.evaluate("(d) => { const r = defaultRange(new Date(d + 'T09:00')); return [ymd(r.from), toLocalInput(r.from).slice(11), ymd(r.to), toLocalInput(r.to).slice(11)]; }", today)
+            assert got == [start, "11:30", today, "11:30"], (today, got)
         page.evaluate("document.getElementById('holidays').value = '2026-10-13'")  # 추가 휴일(회사 휴무)
         assert page.evaluate("ymd(defaultRange(new Date('2026-10-14T09:00')).from)") == "2026-10-12"
         page.evaluate("document.getElementById('holidays').value = ''")
@@ -468,7 +468,21 @@ def test_lx3(tmp_path: Path):
         page.fill("#from", "2026-01-01T09:00")
         page.click("#resetRange")  # '기본 시간으로' 버튼 (클릭 정보가 시각 자리에 넘어가 오류 나던 문제)
         assert page.input_value("#from") == page.evaluate("toLocalInput(defaultRange().from)") and not errors, errors
-        assert "기본 시간:" in page.inner_text("#rangeInfo")
+        assert "기본 시간:" in page.inner_text("#rangeInfo") and "오전 11:30" in page.inner_text("#rangeInfo")
+        # 시각을 바꾸고 '이 시각을 기본으로 저장' → 다시 열어도 그 시각이 기본 (날짜 규칙은 그대로)
+        page.fill("#from", "2026-01-05T09:00")
+        page.fill("#to", "2026-01-06T10:15")
+        page.click("#saveRange")
+        assert "기본 시각을 저장했습니다 (시작 오전 9시 · 끝 오전 10:15)" in page.inner_text("#rangeInfo")
+        page.reload()
+        assert page.input_value("#to") == now.strftime("%Y-%m-%dT10:15")
+        assert page.input_value("#from").endswith("T09:00")
+        assert page.evaluate("toLocalInput(defaultRange(new Date('2026-10-19T09:00')).from)") == "2026-10-16T09:00"
+        assert "직전 근무일 오전 9시 ~ 오늘 오전 10:15" in page.inner_text("#baseText")
+        page.locator("#settings summary").click()
+        page.click("#resetSettings")  # 설정 처음 값으로 → 기본 시각도 오전 11:30
+        assert page.input_value("#to") == now.strftime("%Y-%m-%dT11:30")
+        page.locator("#settings summary").click()
         assert len(page.input_value("#cafeList").split("\n")) == 12 and "16624720" in page.input_value("#cafeList")
 
         # 유튜브 목록: 기본 23개 · 추가 · 삭제 · 기본으로 되돌리기

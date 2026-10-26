@@ -1,5 +1,5 @@
 // LX3 팰리세이드 전동 시트 관련 - 동호회(네이버 카페)에서 검색어('시트')로 찾은 글 중
-// 정한 시간(기본: 전일 오후 12시 ~ 당일 오후 12시)에 올라온 관련 글을 추려 '채널별 버즈량 현황' 엑셀로 받고,
+// 정한 시간(기본: 직전 근무일 오전 11:30 ~ 당일 오전 11:30, 설정에서 저장한 시각)에 올라온 관련 글을 추려 '채널별 버즈량 현황' 엑셀로 받고,
 // 그 글들(과 저장해 둔 유튜브 영상)의 댓글 수집으로 바로 넘긴다.
 // 네이버는 API 를 부르지 않고 검색 화면·게시글을 탭으로 열어 화면에 보이는 내용만 읽는다(cafe-common.js).
 
@@ -105,7 +105,7 @@ let diagnostics = []; // 글을 못 읽은 화면의 구조 (진단 파일)
 async function loadSettings() {
   const s = await chrome.storage.local
     .get(["lx3Holidays", "saveFolder", "saveAsk", "lx3TabFallback", "lx3Cafes", "lx3Query", "lx3Include", "lx3Exclude", "lx3SearchUrl", "lx3MaxPages", "lx3CafeNames", "lx3Youtube",
-      "lx3Channels", "lx3MainKw", "lx3SubKw", "lx3Boards", "lx3NewsPages"])
+      "lx3Channels", "lx3MainKw", "lx3SubKw", "lx3Boards", "lx3NewsPages", "lx3BaseTimes"])
     .catch(() => ({}));
   $("#cafeList").value = (s.lx3Cafes || DEFAULT_CAFES).join("\n");
   $("#query").value = s.lx3Query ?? DEFAULT_QUERY;
@@ -117,6 +117,7 @@ async function loadSettings() {
   $("#saveFolder").value = s.saveFolder || "";
   $("#saveAsk").checked = !!s.saveAsk;
   $("#holidays").value = s.lx3Holidays || "";
+  if (s.lx3BaseTimes?.from && s.lx3BaseTimes?.to) baseTimes = { from: s.lx3BaseTimes.from, to: s.lx3BaseTimes.to };
   const ch = s.lx3Channels || {};
   $("#chCafe").checked = ch.cafe ?? true;
   $("#chNews").checked = ch.news ?? true;
@@ -250,7 +251,7 @@ function renderCafeInfo() {
 }
 
 // ---------------------------------------------------------------------------
-// 시간 범위 (기본: 전일 오후 12시 ~ 당일 오후 12시, 새로고침하면 다시 기본값)
+// 시간 범위 (기본: 직전 근무일 오전 11:30 ~ 당일 오전 11:30 — 저장한 기본 시각, 새로고침하면 다시 기본값)
 // ---------------------------------------------------------------------------
 
 function toLocalInput(d) {
@@ -287,18 +288,35 @@ function isOffDay(d, extra = extraHolidays()) {
   return d.getDay() === 0 || d.getDay() === 6 || KR_HOLIDAYS.has(ymd(d)) || extra.has(ymd(d));
 }
 
-// 기본 시간: 직전 근무일 오후 12시 ~ 오늘 오후 12시 (사이의 주말·공휴일은 건너뜀)
-// 예) 월요일 → 금요일 12시 ~ 월요일 12시, 추석 연휴 다음 날 → 연휴 전 마지막 근무일 12시부터
+// 기본 시각 (시작·끝, "HH:MM"). '이 시각을 기본으로 저장'으로 바꿀 수 있다
+const DEFAULT_BASE_TIMES = { from: "11:30", to: "11:30" };
+let baseTimes = { ...DEFAULT_BASE_TIMES };
+
+function hm(text) {
+  const m = String(text || "").match(/^(\d{1,2}):(\d{2})/);
+  return m ? [Number(m[1]), Number(m[2])] : [11, 30];
+}
+
+// "오전 11:30" · "오후 12시"
+function timeLabel(text) {
+  const [h, m] = hm(text);
+  return `${h < 12 ? "오전" : "오후"} ${h % 12 || 12}${m ? `:${pad(m)}` : "시"}`;
+}
+
+// 기본 시간: 직전 근무일 기본 시각 ~ 오늘 기본 시각 (사이의 주말·공휴일은 건너뜀)
+// 예) 월요일 → 금요일 11:30 ~ 월요일 11:30, 추석 연휴 다음 날 → 연휴 전 마지막 근무일 11:30부터
 function defaultRange(now = new Date()) {
   const extra = extraHolidays();
-  const to = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12, 0);
+  const [th, tm] = hm(baseTimes.to);
+  const [fh, fm] = hm(baseTimes.from);
+  const to = new Date(now.getFullYear(), now.getMonth(), now.getDate(), th, tm);
   const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
   const skipped = [];
   for (let i = 0; i < 31 && isOffDay(day, extra); i++) {
     skipped.unshift(new Date(day));
     day.setDate(day.getDate() - 1);
   }
-  return { from: new Date(day.getFullYear(), day.getMonth(), day.getDate(), 12, 0), to, skipped };
+  return { from: new Date(day.getFullYear(), day.getMonth(), day.getDate(), fh, fm), to, skipped };
 }
 
 const WEEKDAY = "일월화수목금토";
@@ -308,8 +326,32 @@ function resetRange(now = new Date()) {
   const { from, to, skipped } = defaultRange(now);
   $("#from").value = toLocalInput(from);
   $("#to").value = toLocalInput(to);
+  showBaseTimes();
   $("#rangeInfo").textContent =
-    `기본 시간: ${md(from)} 오후 12시 ~ ${md(to)} 오후 12시` + (skipped.length ? ` (휴일 ${skipped.map(md).join(", ")} 포함)` : "");
+    `기본 시간: ${md(from)} ${timeLabel(baseTimes.from)} ~ ${md(to)} ${timeLabel(baseTimes.to)}` + (skipped.length ? ` (휴일 ${skipped.map(md).join(", ")} 포함)` : "");
+}
+
+// 안내 문구에 지금 기본 시각
+function showBaseTimes() {
+  const f = timeLabel(baseTimes.from);
+  const t = timeLabel(baseTimes.to);
+  $("#baseText").textContent = `직전 근무일 ${f} ~ 오늘 ${t}`;
+  $("#baseFrom").textContent = f;
+  $("#resetRange").title = `직전 근무일 ${f} ~ 오늘 ${t}`;
+}
+
+// 지금 시작·끝 칸의 시각을 기본 시각으로 저장 (날짜는 그대로 '직전 근무일 ~ 오늘')
+async function saveBaseTimes() {
+  const from = $("#from").value.slice(11, 16);
+  const to = $("#to").value.slice(11, 16);
+  if (!/^\d{2}:\d{2}$/.test(from) || !/^\d{2}:\d{2}$/.test(to)) {
+    $("#rangeInfo").textContent = "시작·끝 시각을 먼저 넣어 주세요.";
+    return;
+  }
+  baseTimes = { from, to };
+  await chrome.storage.local.set({ lx3BaseTimes: baseTimes }).catch(() => {});
+  resetRange();
+  $("#rangeInfo").textContent = `✔ 기본 시각을 저장했습니다 (시작 ${timeLabel(from)} · 끝 ${timeLabel(to)}). ` + $("#rangeInfo").textContent;
 }
 
 function range() {
@@ -1187,10 +1229,14 @@ async function init() {
     $("#subKw").value = DEFAULT_SUB_KEYWORDS;
     $("#boards").value = DEFAULT_BOARDS.join("\n");
     $("#newsPages").value = DEFAULT_NEWS_PAGES;
+    baseTimes = { ...DEFAULT_BASE_TIMES };
+    await chrome.storage.local.set({ lx3BaseTimes: baseTimes }).catch(() => {});
+    resetRange();
     await saveSettings();
     renderCafeInfo();
   });
   $("#resetRange").addEventListener("click", () => resetRange());
+  $("#saveRange").addEventListener("click", saveBaseTimes);
   $("#search").addEventListener("click", () => search());
   // 못 읽은 곳만 다시 찾고(날짜만 보이는 글의 시간 확인도 다시), 이미 찾은 글에 더한다
   $("#retryCafes").addEventListener("click", () =>
