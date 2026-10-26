@@ -12,6 +12,7 @@
 const DEFAULT_SEARCH_FIRST = "nexocafe\n넥쏘카페\n영운모";
 const DEFAULT_SEARCH_URL = "https://search.naver.com/search.naver?ssc=tab.cafe.all&query={q}";
 const DEFAULT_REPORT_NAME = "정비 예약 관련 게시물 보고서.xlsx";
+const DEFAULT_SHEET_NAME = "정비 예약 모니터링";
 const CHANNEL = "동호회";
 const HEADERS = ["No", "채널", "채널명", "작성일", "제목", "작성자", "URL"];
 
@@ -100,13 +101,14 @@ function ymdNumber(d) {
 
 async function loadSettings() {
   const s = await chrome.storage.local
-    .get(["bhSearchFirst", "bhSearchUrl", "bhKeepGaps", "bhExtraHolidays", "bhDb", "bhHistory", "bhReadMode"])
+    .get(["bhSearchFirst", "bhSearchUrl", "bhKeepGaps", "bhExtraHolidays", "bhDb", "bhHistory", "bhReadMode", "bhSheetName"])
     .catch(() => ({}));
   $("#searchFirst").value = s.bhSearchFirst ?? DEFAULT_SEARCH_FIRST;
   $("#searchUrl").value = s.bhSearchUrl || DEFAULT_SEARCH_URL;
   $("#keepGaps").checked = s.bhKeepGaps ?? true;
   $("#extraHolidays").value = s.bhExtraHolidays || "";
   $("#readMode").value = s.bhReadMode === "window" ? "window" : "hidden";
+  $("#sheetName").value = s.bhSheetName ?? DEFAULT_SHEET_NAME;
   db = s.bhDb || {};
   history = s.bhHistory || [];
   cafeSlugs = await loadCafeSlugs();
@@ -124,6 +126,7 @@ function saveSettings() {
       bhKeepGaps: $("#keepGaps").checked,
       bhExtraHolidays: $("#extraHolidays").value,
       bhReadMode: $("#readMode").value,
+      bhSheetName: $("#sheetName").value.trim(),
     })
     .catch(() => {});
 }
@@ -1133,9 +1136,15 @@ function sortRecords(list) {
 }
 
 // 머리글 1행 + 서식 견본 2행짜리 양식에 records 를 채운다
+// 받는 엑셀의 시트 이름: 설정 값(비우면 원본 이름 그대로)
+async function applySheetName(wb, sheet) {
+  const want = $("#sheetName").value.trim();
+  return want ? wb.renameSheet(sheet, want) : sheet;
+}
+
 async function buildFromTemplate(records) {
   const wb = await openTemplate();
-  const sheet = pickReportSheet(wb);
+  const sheet = await applySheetName(wb, pickReportSheet(wb));
   const values = records.map(recordValues);
   await wb.replaceRowsAfter(sheet, 1, values, 2);
   const links = {};
@@ -1168,6 +1177,7 @@ async function saveReport() {
       const links = {};
       values.forEach((v, i) => (links[`G${info.lastRow + 1 + i}`] = v[6]));
       await wb.addHyperlinks(info.sheet, links);
+      await applySheetName(wb, info.sheet);
       bytes = await wb.save();
       all = [...info.records, ...fresh];
     } else {
@@ -1325,7 +1335,7 @@ async function init() {
   showTab();
   window.addEventListener("hashchange", showTab);
   renderReportInfo();
-  for (const id of ["searchFirst", "searchUrl", "keepGaps", "extraHolidays", "readMode"]) {
+  for (const id of ["searchFirst", "searchUrl", "keepGaps", "extraHolidays", "readMode", "sheetName"]) {
     $(`#${id}`).addEventListener("change", async () => {
       await saveSettings();
       if (id === "extraHolidays") renderSchedule();
@@ -1337,6 +1347,7 @@ async function init() {
     $("#searchUrl").value = DEFAULT_SEARCH_URL;
     $("#keepGaps").checked = true;
     $("#readMode").value = "hidden";
+    $("#sheetName").value = DEFAULT_SHEET_NAME;
     await saveSettings();
     renderItems();
   });

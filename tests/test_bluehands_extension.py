@@ -313,7 +313,14 @@ def test_bluehands(tmp_path: Path):
     server.shutdown()
     assert api_calls == []
 
-    ws = load_workbook(out).active
+    # 시트 이름은 설정의 고정 이름(원본 '기사목록20260911 (1)' 대신), 문서 속성의 시트 목록도 같이
+    out_wb = load_workbook(out)
+    assert out_wb.sheetnames == ["정비 예약 모니터링"]
+    assert load_workbook(db_file).sheetnames == ["정비 예약 모니터링"]
+    import zipfile
+    app = zipfile.ZipFile(out).read("docProps/app.xml").decode()
+    assert "기사목록" not in app
+    ws = out_wb.active
     data = [[c.value for c in row] for row in ws.iter_rows(min_row=1)]
     assert data[0] == ["No", "채널", "채널명", "작성일", "제목", "작성자", "URL"]
     assert data[1:] == [

@@ -346,6 +346,36 @@
       this.texts.set(path, xml.replace(re, (m, open, close) => `${open}${esc(quoted)}!$${c1}$${r1}:$${c2}$${r2}${close}`));
     }
 
+    // 시트 이름을 바꾼다 - 통합 문서 목록, 이 시트를 가리키는 이름 정의, 문서 속성의 시트 목록까지
+    async renameSheet(name, newName) {
+      newName = String(newName || "").replace(/[\[\]:*?/\\]/g, " ").replace(/^'+|'+$/g, "").trim().slice(0, 31);
+      if (!newName || newName === name) return name;
+      if (this.sheetNames().includes(newName)) throw new Error(`'${newName}' 시트가 이미 있습니다.`);
+      const xmlName = (s) => esc(s).replace(/'/g, "&apos;");
+      const quoted = (s) => `'${s.replace(/'/g, "''")}'!`;
+      const wbPath = "xl/workbook.xml";
+      let wbXml = await this.text(wbPath);
+      wbXml = wbXml.replace(/<sheet\b[^>]*>/g, (tag) => {
+        const m = tag.match(/\bname="([^"]*)"/);
+        const cur = m ? parseXml(`<x n="${m[1]}"/>`).documentElement.getAttribute("n") : null;
+        return cur === name ? tag.replace(/\bname="[^"]*"/, `name="${xmlName(newName)}"`) : tag;
+      });
+      // 이름 정의(필터 범위 등): '옛 이름'!$A$1 / 옛이름!$A$1 → '새 이름'!
+      wbXml = wbXml.replace(/(<definedName\b[^>]*>)([^<]*)(<\/definedName>)/g, (all, open, body, close) => {
+        const text = parseXml(`<x>${body}</x>`).documentElement.textContent;
+        const replaced = text.split(quoted(name)).join(quoted(newName)).replace(new RegExp(`(^|[^\\w'])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}!`, "g"), `$1${quoted(newName)}`);
+        return open + esc(replaced) + close;
+      });
+      this.texts.set(wbPath, wbXml);
+      const appPath = "docProps/app.xml";
+      const app = await this.text(appPath);
+      if (app !== null)
+        this.texts.set(appPath, app.replace(/(<TitlesOfParts>[\s\S]*?<\/TitlesOfParts>)/, (part) => part.split(`>${xmlName(name)}<`).join(`>${xmlName(newName)}<`).split(`>${esc(name)}<`).join(`>${esc(newName)}<`)));
+      const s = this.sheets.find((x) => x.name === name);
+      if (s) s.name = newName;
+      return newName;
+    }
+
     // 셀에 바깥 링크를 건다. links: { "A2": "https://…", ... } (양식에 시트 관계 파일이 있어야 함)
     async addHyperlinks(name, links) {
       const path = this._sheetPath(name);
