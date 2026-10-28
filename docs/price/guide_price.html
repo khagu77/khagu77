@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>설치안내서 - 싼타페 페이스리프트(MX5 F/L) 가격 언급 게시물 수집</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm; }
+  body { font: 13px/1.65 "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans CJK KR", sans-serif; color: #1b1d21; margin: 0; }
+  .top { background: #6b6b45; color: #fff; border-radius: 10px; padding: 14px 18px; display: flex; gap: 14px; align-items: center; }
+  .top img { height: 46px; }
+  .top h1 { margin: 0; font-size: 19px; }
+  .top p { margin: 2px 0 0; opacity: .85; font-size: 12px; }
+  h2 { font-size: 15px; margin: 20px 0 6px; border-left: 4px solid #6b6b45; padding-left: 8px; }
+  ol, ul { margin: 6px 0; padding-left: 20px; }
+  li { margin: 3px 0; }
+  code, .k { background: #ededE3; padding: 1px 6px; border-radius: 4px; font-family: inherit; font-weight: 700; }
+  .warn { border: 1px solid #e00000; color: #b3261e; border-radius: 8px; padding: 8px 12px; margin: 10px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; margin: 6px 0; }
+  th, td { border: 1px solid #c9c9bb; padding: 4px 7px; text-align: left; vertical-align: top; }
+  th { background: #ededE3; }
+</style>
+</head>
+<body>
+  <div class="top"><img src="logo.png" alt=""><div><h1>싼타페 페이스리프트(MX5 F/L) 가격 언급 게시물 수집</h1>
+    <p>설치안내서 · 크롬 확장프로그램 (윈도우 · 맥 공통)</p></div></div>
+
+  <h2>무엇을 하나요?</h2>
+  <p>싼타페 동호회 3곳(싼타페MX5패밀리 · 클럽싼타페 · 싼타페MX5클럽)에서 <b>싼타페 F/L 예상 가격을 언급한 글</b>을 기간을 정해 모두 모으고,
+    <b>아반떼·투싼 가격 공개 전후로 예상 가격 여론이 어떻게 바뀌었는지</b> 엑셀 보고서(게시물 · 구간별 여론 · 주별 추이)로 정리합니다.
+    현행 차량의 가격만 이야기한 글은 넣지 않습니다.</p>
+
+  <h2>설치 (최초 1회)</h2>
+  <ol>
+    <li>받은 압축 파일을 풉니다. 안의 <code>MX5FL_가격여론수집기_확장프로그램</code> 폴더를 지우거나 옮기지 않을 곳(예: 문서 폴더)에 둡니다.</li>
+    <li>크롬 주소창에 <code>chrome://extensions</code> 를 입력합니다.</li>
+    <li>오른쪽 위 <b>개발자 모드</b> 스위치를 켭니다.</li>
+    <li>왼쪽 위 <b>압축해제된 확장 프로그램을 로드합니다</b> → 위 폴더를 선택합니다.</li>
+    <li>오른쪽 위 퍼즐 아이콘 → 싼타페 아이콘 옆 핀을 눌러 고정합니다. 아이콘을 누르면 수집 화면이 새 탭으로 열립니다.</li>
+  </ol>
+  <div class="warn">새 버전으로 바꿀 때는 확장을 <b>삭제하지 말고</b>, 쓰던 폴더에 새 파일을 덮어쓴 뒤 <code>chrome://extensions</code> 에서 새로고침(↻)하세요.
+    삭제하면 찾은 글·데이터 DB 가 함께 지워집니다.</div>
+
+  <h2>사용 순서</h2>
+  <ol>
+    <li>크롬에서 <b>네이버에 로그인</b>해 둡니다.</li>
+    <li><b>기간 · 기준 사건</b>을 확인합니다. 기준 사건 기본값: <span class="k">2026-08-05 아반떼 가격 공개</span> · <span class="k">2026-10-21 투싼 가격 공개</span>.
+      기간은 처음에 첫 사건 30일 전 ~ 오늘입니다.</li>
+    <li><b>게시물 찾기</b> → 동호회마다 검색어를 하나씩 검색합니다(사람처럼 천천히 · 중간에 멈춰도 다시 누르면 이어서).</li>
+    <li><b>본문 읽고 요약하기</b> → 글마다 본문 · 작성자 닉네임 · 조회수 · 댓글수를 읽고 요약합니다.</li>
+    <li>(선택) <b>2. Claude AI 설정</b>에 API 키를 넣으면 AI 가 예상 가격 여론(긍정·중립·부정) · 예상 인상 폭 · 비교 차종 · 구매 영향을 판단하고, <b>💰 여론 변화 보고 쓰기</b>로 보고 요지를 씁니다.</li>
+    <li><b>엑셀 받기</b> → 보고 엑셀을 받고, 오른쪽 위 <b>🗄 데이터 DB</b>에 날짜별로 보관됩니다(AI 비용 · 소요 시간 포함).</li>
+  </ol>
+
+  <h2>받는 엑셀</h2>
+  <table>
+    <tr><th>시트</th><th>내용</th></tr>
+    <tr><td>게시물</td><td>순번 · 동호회명 · 작성일 · 제목 · 내용 요약 · URL · 작성자 닉네임 · 조회수 · 댓글수 + 구간 · 예상 가격 여론 · 예상 가격·인상 폭 언급 · 예상 인상 폭(만 원) · 비교 차종 · 구매 영향 · 여론 요지</td></tr>
+    <tr><td>구간별 여론</td><td>① 아반떼 공개 전 · ② 아반떼 공개 후 · ③ 투싼 공개 후: 글 수 · 하루 평균 · 긍정/중립/부정 · 비율 · 예상 인상 폭 평균/중앙값 · 비교 차종 언급 · 구매 대기·이탈 · 여론 요지. 맨 위에 '숫자로 본 변화'와 보고 요지</td></tr>
+    <tr><td>주별 추이</td><td>주마다 글 수 · 여론 · 부정 비율 · 예상 인상 폭 평균 · 그 주의 사건</td></tr>
+  </table>
+
+  <h2>네이버 계정 보호</h2>
+  <ul>
+    <li>네이버 API 를 부르지 않고, 검색 화면과 글을 화면 안 보이지 않는 곳에서 하나씩 천천히 엽니다(글 하나에 10초 안팎).</li>
+    <li>한 번에 너무 많은 글을 읽지 말고, 필요하면 '중지' 후 시간을 두고 이어서 하세요.</li>
+  </ul>
+</body>
+</html>

@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "싼타페 페이스리프트(MX5 F/L) 가격 언급 게시물 수집",
+  "version": "1.0.0",
+  "description": "싼타페 동호회 3곳(싼타페MX5패밀리·클럽싼타페·싼타페MX5클럽)에서 기간을 정해, 제목·본문에 출시 예정인 싼타페 페이스리프트(MX5 F/L) 가격 이야기가 있는 글을 찾아 순번·동호회명·작성일·제목·내용 요약·URL·작성자 닉네임·조회수·댓글수를 엑셀로 받습니다.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "싼타페 페이스리프트(MX5 F/L) 가격 언급 게시물 수집",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "declarativeNetRequest",
+    "scripting",
+    "cookies",
+    "storage",
+    "downloads",
+    "unlimitedStorage",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "https://cafe.naver.com/*",
+    "https://m.cafe.naver.com/*",
+    "https://*.naver.com/*",
+    "https://naver.me/*",
+    "https://api.anthropic.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://cafe.naver.com/*"
+      ],
+      "js": [
+        "bg-render.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    }
+  ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyxXP7J8x/QvqmbtirqumF9nUsvTw1pfZyCAJlcKd9F1FhpZ5vcCmF8V9zj9BucLDBIigzXLgROM3tpT+WqMpH9kxzdIqSps1LRuhPm/55D9+sZv2pY6tDN9jxL4CcGWMHu+ncKylGJ5q8Q7K4+6gue4T4hi2cNAunlz1J0r8BCTZF8Bng6hPH0ha7no8XybFofzGnMs4JEt/ZAByYTQUl/j8Ug0YJZ5tithn21le77aOhy5gZwFPInts2FuoU0ZqwYe+TdC+64PFZQfeSEiCsFAGQ6U+9HftPLAVw1LsZXZu9tR0oAUHRe1sh6PcjDL8nO/TuzdYTjeG2WZmro4DYwIDAQAB"
+}
