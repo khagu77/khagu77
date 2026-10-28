@@ -148,3 +148,8 @@ body.busy-lock nav.menu a { pointer-events: none; opacity: 0.4; }
 .diffs { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; display: flex; gap: 18px; flex-wrap: wrap; }
 
 html.nav-guard, html.nav-guard body { overscroll-behavior-x: none; }
+
+/* 유튜브 새 콘텐츠: 유튜브 아이콘 + 빨간 둥근 상자(흰색 굵은 글씨) */
+.yt-new-label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.yt-icon { width: 28px; height: 20px; flex: none; }
+.yt-badge { background: #ff0000; color: #fff; font-weight: 700; font-size: 13px; padding: 4px 12px; border-radius: 999px; }
