@@ -51,23 +51,31 @@ POST_HEAD = ["순번", "동호회명", "작성일", "제목", "내용 요약", "
              "구간", "예상 가격 여론", "예상 가격·인상 폭 언급", "예상 인상 폭(만 원)", "비교 차종", "구매 영향", "여론 요지"]
 
 
+COMMENT_HEAD = ["순번", "동호회명", "게시글 순번", "게시글 제목", "게시글 URL", "구간", "댓글 작성일", "작성자 닉네임", "구분", "댓글 내용",
+                "가격 관련", "댓글 여론", "금액 언급", "인상액 언급", "인상액(만 원)", "요지"]
+
+
 def test_template():
     """시트 3개 · 기존 보고 양식(seat-template)과 같은 서체·크기·테두리 · 머리글은 현대 블루 바탕에 흰색 굵은 글씨."""
     wb = load_workbook(EXT_DIR / "price-template.xlsx")
-    assert wb.sheetnames == ["게시물", "구간별 여론", "주별 추이"]
+    assert wb.sheetnames == ["게시물", "댓글", "구간별 여론", "주별 추이"]
+    assert [c.value for c in wb["댓글"][3]][1:] == COMMENT_HEAD
     ws = wb["게시물"]
     assert [c.value for c in ws[3]][1:] == POST_HEAD
     base = load_workbook(ROOT / "seat-extension" / "seat-template.xlsx").active
     for mine, theirs in [(ws["B3"], base["B3"]), (ws["C4"], base["C4"]), (ws["E4"], base["F4"])]:
         assert (mine.font.name, mine.font.sz, mine.font.b) == (theirs.font.name, theirs.font.sz, theirs.font.b)
         assert mine.border.left.style == theirs.border.left.style
-    for sheet, row in [("게시물", 3), ("구간별 여론", 5), ("주별 추이", 3)]:
+    for sheet, row in [("게시물", 3), ("댓글", 3), ("구간별 여론", 5), ("주별 추이", 3)]:
         for c in wb[sheet][row][1:]:
             assert c.fill.fgColor.rgb == "FF002C5F" and c.font.color.rgb == "FFFFFFFF" and c.font.b, (sheet, c.coordinate)
     assert ws["B3"].alignment.horizontal == "center" and ws.freeze_panes == "A4"
     assert [c.value for c in wb["구간별 여론"][5]][1:5] == ["구간", "기간", "일수", "글 수"]
     colors = {r.formula[0].split('"')[1]: r.dxf.font.color.rgb for cf in ws.conditional_formatting for r in cf.rules}
-    assert colors == {"부정": "FFE00000", "긍정": "FF0070C0", "중립": "FF00B050"}
+    assert colors == {"부정": "FFE00000", "긍정": "FF0070C0", "중립": "FF00B050", "단순비난": "FF7030A0"}
+    # 댓글: 금액·인상액 언급이 있으면 댓글 내용·금액·인상액 칸 빨강
+    red = [(str(cf.sqref), r.formula[0], r.dxf.font.color.rgb) for cf in wb["댓글"].conditional_formatting for r in cf.rules if "OR" in r.formula[0]]
+    assert red == [("K4:K50000 N4:P50000", 'OR($N4<>"",$O4<>"")', "FFE00000")], red
 
 
 CAFES = {"trailer": "60001", "iroid": "60002", "choids": "60003"}  # 영문 주소 → 카페 번호
@@ -94,6 +102,14 @@ SEARCH = {  # (카페 번호, 검색어) → 결과에 나오는 글번호
     ("60003", "페리 가격"): ["3002", "3001"],
     ("60003", "투싼 가격"): ["3004", "3003"],
 }
+# 글마다 댓글 (닉네임, 작성일, 내용, 답글 여부)
+COMMENTS = {"1001": [
+    ("오너1", "2026.10.13. 10:00", "페리 4,500만 원대면 너무 비싸네요", False),
+    ("오너2", "2026.10.15. 09:00", "300 오르면 부담돼서 안 삽니다", True),
+    ("오너3", "2026.10.15. 11:00", "현기차가 늘 그렇지 ㅋㅋ 호구들만 삼", False),
+    ("오너4", "2026.10.12. 08:00", "축하드려요 ^^", False),
+    ("삭제", "2026.10.12. 08:30", "", False),  # 삭제된 댓글 (빼고 읽음)
+]}
 # 글마다 작성자 · 조회수 · 댓글수
 META = {"1001": ("싼타기다림", "1,234", 12), "1002": ("페리러버", "88", 0), "2001": ("견적왕", "56", 3)}
 
@@ -112,13 +128,20 @@ def article_html(cafe, aid):
     title, date, text, kind = POSTS[(cafe, aid)]
     nick, views, comments = META.get(aid, ("익명", "1", 0))
     body = "".join(f"<p>{line}</p>" for line in text.split("\n"))
+    clist = "".join(
+        f'<li class="CommentItem{" CommentItem--reply" if reply else ""}" id="c{aid}{k}"><span class="comment_nickname">{n}</span>'
+        + (f'<span class="text_comment">{t}</span>' if t else '<p class="comment_deleted">삭제된 댓글입니다</p>')
+        + f'<span class="comment_info_date">{d}</span></li>'
+        for k, (n, d, t, reply) in enumerate(COMMENTS.get(aid, []))
+    )
     if kind == "new":  # 지금 카페 글 화면 모양
         return (f'<html><body><div class="ArticleContentBox"><div class="article_header">'
                 f'<div class="ArticleTitle"><h3 class="title_text">{title}</h3></div>'
                 f'<div class="WriterInfo"><div class="profile_info"><div class="nick_box"><button class="nickname">{nick}</button></div></div>'
                 f'<div class="article_info"><span class="date">{date} 14:05</span><span class="count">조회 {views}</span></div></div></div>'
                 f'<div class="article_container"><div class="se-main-container">{body}</div></div>'
-                f'<div class="ArticleTool"><a class="button_comment">댓글 <strong class="num">{comments}</strong></a></div></div></body></html>')
+                f'<div class="ArticleTool"><a class="button_comment">댓글 <strong class="num">{comments}</strong></a></div>'
+                f'<div class="CommentBox"><ul>{clist}</ul></div></div></body></html>')
     # 조회수가 머리 글자에만 있고, 댓글수는 댓글 목록으로만 알 수 있는 모양
     items = "".join(f'<li class="CommentItem"><span class="text_comment">댓글{i}</span></li>' for i in range(comments))
     return (f'<html><body><div class="article_header"><h3 class="title_text">{title}</h3>'
@@ -246,7 +269,7 @@ def test_price(tmp_path: Path):
         assert page.evaluate("items.find(x => x.key === 'iroid/2002').queries") == ["페리 가격", "신형 가격"]
         # 찾기만 한 단계: 여론 변화 숫자는 잠정치
         page.locator("#stageState", has_text="잠정치").wait_for()
-        assert "본문 확인 전 글 2개 포함" in page.inner_text("#stageState") and "본문에서 확인할 글 4개 남음" in page.inner_text("#stageState")
+        assert "본문·댓글 확인 전 글 2개 포함" in page.inner_text("#stageState") and "본문에서 확인할 글 4개 남음" in page.inner_text("#stageState")
 
         # 본문 읽기 + 규칙 요약 (AI 없음): 작성자 닉네임·조회수·댓글수도 읽고, 본문에서 확인할 글도 연다
         page.click("#readBodies")
@@ -267,7 +290,17 @@ def test_price(tmp_path: Path):
             "choids/3003": ["부정", None, ["투싼"], "대기·관망"],
             "iroid/2001": ["중립", None, [], "해당 없음"],
         }, ops
+        # 댓글: 삭제 댓글 빼고 읽고, 댓글마다 금액·인상액·여론(규칙) 판단
+        cm = page.evaluate("items.find(x => x.key === 'trailer/1001').commentList.map(c => { const a = commentOpinion(c); return [c.nickname, c.isReply, a.relevant, a.tone, a.amount, a.raise]; })")
+        assert cm == [
+            ["오너1", False, True, "부정", "4,500만 원대", None],
+            ["오너2", True, True, "부정", "", 300],
+            ["오너3", False, True, "단순비난", "", None],
+            ["오너4", False, False, "중립", "", None],
+        ], cm
+        assert page.evaluate("items.filter(x => x.checked).every(x => x.commentsRead)")
         row = rows.filter(has_text="페리 가격 얼마나 오를까요")
+        assert "댓글 4개 읽음 (가격 관련 3 · 부정 2 · 단순비난 1)" in row.inner_text()
         assert row.locator("td").nth(4).inner_text() == "싼타기다림" and row.locator("td").nth(5).inner_text() == "1,234"
         assert row.locator(".tone").inner_text() == "부정"
 
@@ -342,6 +375,18 @@ def test_price(tmp_path: Path):
     assert ws["D4"].number_format == "yyyy-mm-dd hh:mm" and ws["I4"].number_format == "#,##0"
     assert ws["B4"].font.name == "현대산스 Text" and ws["B4"].font.sz == 11 and ws["B3"].font.b
     assert ws.max_row == 7
+    # 댓글 시트: 게시글 순서 · 게시글 안에서는 작성순 · 구간은 댓글 작성일 기준
+    ws = wb["댓글"]
+    assert [c.value for c in ws[3]][1:] == COMMENT_HEAD
+    cr = [[c.value for c in r][1:] for r in ws.iter_rows(min_row=4)]
+    assert [r[9] for r in cr[:4]] == ["축하드려요 ^^", "페리 4,500만 원대면 너무 비싸네요", "300 오르면 부담돼서 안 삽니다", "현기차가 늘 그렇지 ㅋㅋ 호구들만 삼"]
+    assert cr[1][:9] == [2, "싼타페MX5패밀리", 1, "페리 가격 얼마나 오를까요", "https://cafe.naver.com/trailer/1001", "② 아반떼 가격 공개 후",
+                         cr[1][6], "오너1", "댓글"] and cr[1][6].strftime("%Y-%m-%d %H:%M") == "2026-10-13 10:00"
+    assert cr[1][10:15] == ["O", "부정", "4,500만 원대", None, None]
+    assert cr[2][5] == "③ 투싼 가격 공개 후" and cr[2][8] == "답글" and cr[2][11:15] == ["부정", None, "300 오르면", 300]
+    assert cr[3][10:12] == ["O", "단순비난"] and cr[0][10:12] == [None, "중립"]
+    assert len(cr) == 7 and [r[2] for r in cr[4:]] == [4, 4, 4]  # 신형 견적(옛 화면 모양) 글의 댓글 3개
+    assert ws["F5"].hyperlink.target == "https://cafe.naver.com/trailer/1001"
     # 구간별 여론: 기준 사건 전후 숫자 + 숫자로 본 변화
     ws = wb["구간별 여론"]
     st = {r[1].value: [c.value for c in r][1:] for r in ws.iter_rows(min_row=6)}
@@ -351,6 +396,10 @@ def test_price(tmp_path: Path):
     assert a[10:13] == [2, 250, 250]  # 예상 가격 언급 글 · 인상 폭 평균 · 중앙값
     assert st["② 아반떼 가격 공개 후"][3] == 1 and st["② 아반떼 가격 공개 후"][14] == 1  # 투싼 비교 언급
     assert st["③ 투싼 가격 공개 후"][1] == "2026-10-14 ~ 2026-10-20" and st["③ 투싼 가격 공개 후"][2] == 7
+    # 댓글 여론 열 (가격 관련 댓글 수 · 긍정 · 중립 · 부정 · 단순비난 · 부정·비난 비율 · 금액 언급 · 인상액 평균)
+    assert st["② 아반떼 가격 공개 후"][19:27] == [1, 0, 0, 1, 0, 1, 1, None]
+    assert st["③ 투싼 가격 공개 후"][19:27] == [2, 0, 0, 1, 1, 1, 0, 300]
+    assert "가격 관련 댓글 1개" in ws["B3"].value
     assert "[숫자로 본 변화]" in ws["B3"].value and "부정 비율" in ws["B3"].value and "기준 사건 2026-10-12 아반떼 가격 공개" in ws["B2"].value
     assert ws["J6"].number_format == "0%"
     # 주별 추이: 월요일 시작 · 사건이 있는 주 표시
@@ -366,7 +415,11 @@ def fake_claude(route, calls):
     body = json.loads(route.request.post_data)
     data = json.loads(body["messages"][0]["content"].split("\n\n", 1)[1])
     calls.append(body)
-    if "여론 보고서" in body["system"]:
+    if "달린 댓글들" in body["system"]:
+        out = {"items": [{"id": x["id"], "relevant": "축하" not in x["댓글"], "tone": "단순비난" if "호구" in x["댓글"] else "중립" if "축하" in x["댓글"] else "부정",
+                          "amount": "4,500만 원대 (AI)" if "4,500" in x["댓글"] else "", "raiseText": "300 인상" if "300" in x["댓글"] else "",
+                          "raise": 300 if "300" in x["댓글"] else None, "point": "가격 부담"} for x in data]}
+    elif "여론 보고서" in body["system"]:
         out = {"overall": ["투싼 가격 공개 후 F/L 인상 우려가 커짐"], "stages": [{"stage": s["구간"], "summary": f"{s['구간']} 요지"} for s in data["구간"]]}
     else:
         out = {"items": [{"id": x["id"], "relevant": "만원" in x["본문"], "tone": "부정", "expect": "300만 원 인상 예상" if "300" in x["본문"] else "",
@@ -412,7 +465,7 @@ def test_ai_summary(tmp_path: Path):
             "trailer/1001": [True, "ai", "페리 가격 얼마나 오를까요 가격 이야기를 하는 내용", "싼타기다림", "부정", 300, "대기·관망"],  # 끝 마침표는 뗌
             "trailer/1002": [False, "ai", "페리 디자인 유출 사진 가격 이야기를 하는 내용", "페리러버", "부정", None, "대기·관망"],  # 예상 가격 언급 없음 → 해제
         }, got
-        assert len(calls) == 1
+        assert len(calls) == 2 and "달린 댓글들" in calls[1]["system"]  # 글 판단 1번 + 댓글 판단 1번
         system = calls[0]["system"]
         assert "예상 가격" in system and "하이브리드 가격은 따로 적는다" in system and "2026-10-14 투싼 가격 공개" in system and "현행 차량 가격은 넣지 않음" in system
         sent = json.loads(calls[0]["messages"][0]["content"].split("\n\n", 1)[1])
@@ -425,7 +478,7 @@ def test_ai_summary(tmp_path: Path):
         path = tmp_path / dl.value.suggested_filename
         dl.value.save_as(path)
         page.locator("#saveInfo", has_text="데이터 DB에 오늘 파일로 저장").wait_for()
-        assert len(calls) == 2 and "여론 보고서" in calls[1]["system"]
+        assert len(calls) == 3 and "여론 보고서" in calls[2]["system"]
         assert "투싼 가격 공개 후 F/L 인상 우려가 커짐" in page.inner_text("#reportText")
         rec = page.evaluate("dbLatest('price').then(r => r.stats)")
         assert rec["aiCost"] > 0 and rec["time"]["read"] > 0 and rec["time"]["report"] >= 0 and rec["neg"] == 1
@@ -436,6 +489,8 @@ def test_ai_summary(tmp_path: Path):
     wb = load_workbook(path)
     ws = wb["구간별 여론"]
     assert "[보고 요지]" in ws["B3"].value and "- 투싼 가격 공개 후 F/L 인상 우려가 커짐" in ws["B3"].value
-    assert ws["U6"].value == "① 아반떼 가격 공개 전 요지"
+    assert ws["AC6"].value == "① 아반떼 가격 공개 전 요지"
+    cr = [[c.value for c in r][1:] for r in wb["댓글"].iter_rows(min_row=4)]
+    assert [r[11] for r in cr] == ["중립", "부정", "부정", "단순비난"] and cr[1][12] == "4,500만 원대 (AI)" and cr[2][14] == 300
     r = [c.value for c in wb["게시물"][4]][1:]
     assert r[10:16] == ["부정", "300만 원 인상 예상", 300, None, "대기·관망", "인상 폭 우려"]

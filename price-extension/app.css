@@ -310,3 +310,8 @@ body.theme-price .tools a.tool.on { background: rgba(255, 255, 255, 0.18); }
 .stage-state.provisional { color: #b3541e; border-color: #e8a06a; background: rgba(243, 112, 33, 0.08); }
 .stage-state.final { color: #fff; background: #002c5f; border-color: #002c5f; }
 #stageTable td:nth-child(5) .hint { white-space: nowrap; }
+.tonebar .blame { background: #7030a0; }
+.t-blame { color: #7030a0; }
+@media (prefers-color-scheme: dark) { .t-blame { color: #c79bff; } }
+#stageTable td:nth-child(8) { min-width: 180px; }
+#stageTable td:nth-child(8) .hint { white-space: nowrap; }

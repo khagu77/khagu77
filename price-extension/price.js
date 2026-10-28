@@ -617,7 +617,10 @@ async function readPost(url) {
       for (let i = 0; i < 8; i++) {
         const frames = await runInFrames(where, readPostInFrame);
         const hit = frames.find((f) => f.found);
-        if (hit) return hit;
+        if (hit) {
+          if (!hit.locked && !hit.deleted) hit.commentList = await readCommentsIn(where);
+          return hit;
+        }
         if (frames.some((f) => /nid\.naver\.com/.test(f.href || ""))) return { found: false, login: true };
         await sleep(1500);
       }
@@ -626,6 +629,66 @@ async function readPost(url) {
   const res = await tryIn("frame");
   if (!res.found && !res.login && $("#tabFallback").checked) return tryIn("tab");
   return res;
+}
+
+// 게시글 화면의 댓글·답글을 모두 읽는다 (댓글 페이지는 사람처럼 천천히 넘김 · 삭제 댓글 제외)
+// 각 틀 안에서 실행되므로 확장 바깥 함수는 쓸 수 없음 (댓글 수집기 chrome-extension/app.js 의 scrapeCommentsInFrame 과 같은 방식)
+async function readCommentsInFrame(pageDelay) {
+  if (!document.querySelector("li.CommentItem, .CommentBox")) return { found: false, href: location.href };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const randomWait = () => wait(pageDelay[0] + Math.floor(Math.random() * (pageDelay[1] - pageDelay[0])));
+  const all = [];
+  const seen = new Set();
+  const visited = new Set();
+  for (let guard = 0; guard < 300; guard++) {
+    for (const li of document.querySelectorAll("li.CommentItem")) {
+      const q = (sel) => li.querySelector(sel)?.innerText.trim() || "";
+      const row = {
+        id: li.id || "",
+        isReply: li.classList.contains("CommentItem--reply"),
+        nickname: q(".comment_nickname"),
+        content: q(".text_comment"),
+        dateText: q(".comment_info_date"),
+        deleted: !!li.querySelector(".comment_deleted, .comment_delete"),
+      };
+      const key = row.id || `${row.nickname}|${row.dateText}|${row.content}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        all.push(row);
+      }
+    }
+    const current = document.querySelector(".CommentBox .ArticlePaginate button[aria-pressed='true']");
+    if (current) visited.add(current.innerText.trim());
+    let next = null;
+    for (const btn of document.querySelectorAll(".CommentBox .ArticlePaginate button")) {
+      const label = btn.innerText.trim();
+      if (/^\d+$/.test(label) && !visited.has(label)) {
+        next = btn;
+        visited.add(label);
+        break;
+      }
+    }
+    if (!next) break;
+    next.click();
+    await randomWait();
+  }
+  return { found: true, rows: all.filter((r) => !r.deleted && r.content) };
+}
+
+// → [{ id, isReply, nickname, content, date(ms|null), dateText }] (댓글 영역이 없으면 [])
+async function readCommentsIn(where) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const answers = await runInFrames(where, readCommentsInFrame, [CAFE_PAGE_DELAY]);
+    const hit = answers.find((r) => r.found);
+    if (hit) {
+      return hit.rows.map((r) => {
+        const d = parseCafeDate(r.dateText);
+        return { id: r.id, isReply: r.isReply, nickname: r.nickname, content: r.content.slice(0, 2000), dateText: r.dateText, date: d ? d.date.getTime() : null };
+      });
+    }
+    await sleep(1000);
+  }
+  return [];
 }
 
 function articleUrl(item) {
@@ -777,7 +840,9 @@ async function readBodies() {
   // (다 읽은 뒤 한꺼번에 하면 그동안 요약 칸이 비어 있고, 중간에 멈추면 요약이 하나도 안 남음)
   // 예상 가격 언급 글을 놓치지 않도록: 목록에 가격 단어가 안 보였어도 페리·비교 차종 단어가 있던 글(candidate)은 본문까지 확인
   const toCheck = (x) => x.checked || (!x.touched && (x.candidate || readAllOn()));
-  const todo = sortedItems().filter((x) => toCheck(x) && !x.bodyRead);
+  // 이미 본문을 읽은 체크한 글도 댓글을 아직 안 읽었으면 댓글만 읽으러 다시 연다(본문 요약·AI 판단은 다시 하지 않음)
+  const todo = sortedItems().filter((x) => toCheck(x) && (!x.bodyRead || (x.checked && !x.commentsRead)));
+  const onlyComments = todo.filter((x) => x.bodyRead).length;
   const useAi = aiOn();
   const model = $("#aiModel").value;
   const usage = { input: 0, output: 0 };
@@ -800,7 +865,8 @@ async function readBodies() {
       : 0;
     if (
       (todo.length > 40 || useAi) &&
-      !(await askConfirm(`본문을 읽을 글이 ${todo.length.toLocaleString()}개입니다 (예상 소요 시간 약 ${minutes}).\n` +
+      !(await askConfirm(`본문·댓글을 읽을 글이 ${todo.length.toLocaleString()}개입니다 (예상 소요 시간 약 ${minutes}).\n` +
+        (onlyComments ? `그중 ${onlyComments.toLocaleString()}개는 이미 요약한 글이라 댓글만 읽습니다(본문 요약 비용 없음).\n` : "") +
         (useAi ? `읽는 대로 Claude AI 가 판단·요약합니다 (예상 비용 ${fmtWon(aiCost)} · ${AI_MODELS.find(([id]) => id === model)[1].split(" (")[0]}).\n` : "") +
         "많은 글을 한 번에 열면 네이버 보호조치가 걸릴 수 있습니다. 중간에 '중지'로 멈춰도 그때까지 읽은 글의 요약은 남고, 나중에 이어서 읽을 수 있습니다.\n\n계속할까요?"))
     ) return;
@@ -818,7 +884,21 @@ async function readBodies() {
       );
       setSummary(`본문 읽는 중… (${i + 1}/${todo.length}) ${item.title}`);
       if (i) await sleep(randomBetween(CAFE_ARTICLE_DELAY));
+      const commentsOnly = item.bodyRead; // 이미 요약한 글: 댓글만
       const res = await readPost(articleUrl(item));
+      if (res.found) {
+        item.commentList = res.commentList || [];
+        item.commentsRead = true;
+        if (res.nickname) item.nickname = res.nickname;
+        if (typeof res.views === "number") item.views = res.views;
+        if (typeof res.comments === "number") item.comments = res.comments;
+      }
+      if (commentsOnly && !res.login) {
+        if (!res.found) log(`· 댓글을 읽지 못함: ${item.title}`);
+        renderRow(item);
+        if (i % 5 === 4) await saveItems();
+        continue;
+      }
       if (res.login) {
         log("✖ 네이버 로그인이 필요합니다 - 로그인한 뒤 다시 누르면 이어서 읽습니다");
         break;
@@ -868,7 +948,8 @@ async function readBodies() {
     await flush(); // 중지했어도 읽은 글은 요약
     await saveItems();
     const spent = useAi ? ` · AI 비용 ${fmtWon(aiWonExact(usage.input, usage.output, model))}` : "";
-    log(`· 본문 ${ok}개를 읽었습니다 (${formatDuration((Date.now() - t0) / 1000)} 걸림${spent})`);
+    const nComments = todo.reduce((n, x) => n + (x.commentList?.length || 0), 0);
+    log(`· 본문 ${ok}개 · 댓글 ${nComments.toLocaleString()}개를 읽었습니다 (${formatDuration((Date.now() - t0) / 1000)} 걸림${spent})`);
     addTime("read", t0);
     endBusy();
     renderResults();
@@ -893,6 +974,7 @@ async function readBodies() {
   const left = sortedItems().filter((x) => x.checked && (!x.summary || x.by !== ($("#aiOn").checked ? "ai" : "rule")));
   if (left.length || !todo.length) await writeSummaries(false);
   stopRequested = false;
+  await analyzeComments();
 }
 
 // 요약 쓰기 (force: 이미 쓴 글도 다시)
@@ -1259,6 +1341,204 @@ async function aiWrite(targets, apiKey, model, { nested = false, usage = { input
 }
 
 // ---------------------------------------------------------------------------
+// 댓글 분석: 수집한(체크한) 게시글의 댓글마다 가격 관련 여부 · 구체적 금액 언급 · 인상액 언급 ·
+// 여론(긍정·중립·부정·단순비난) · 요지. AI 를 쓰면 AI, 아니면 아래 단어 규칙(어림)
+// ---------------------------------------------------------------------------
+
+const C_TONES = ["긍정", "중립", "부정", "단순비난"];
+const BLAME_WORDS = ["현기", "흉기", "호구", "양아치", "도둑", "날강도", "강도", "창렬", "사기꾼", "등신", "개같", "노답", "꺼져", "ㅉㅉ", "쯧쯧", "답없", "미친놈", "현대가 그렇지", "그럼 그렇지"];
+const COMMENT_BATCH = 40;
+const COMMENT_VERSION = 1; // 댓글 판단 기준 버전 (바뀌면 다시 판단)
+
+// 체크한 글의 댓글 → [{ x: 게시글, c: 댓글 }]
+function allComments(list = sortedItems().filter((x) => x.checked)) {
+  return list.flatMap((x) => (x.commentList || []).map((c) => ({ x, c })));
+}
+
+// 금액(차값 수준: 1천만 원 이상) 표현: "4,500만 원대" · "4천만" · "5천 중반" · "1.2억"
+const AMOUNT_RE = /(\d{1,2},\d{3}|\d{4})\s*만\s*원?\s*(?:대|초반|중반|후반)?|\d\s*천\s*(?:\d{1,3}\s*)?(?:만\s*원?)?\s*(?:대|초반|중반|후반)?|\d(?:\.\d)?\s*억/g;
+const RAISE_RE = /(\d{2,4})(?:\s*[~\-]\s*(\d{2,4}))?\s*(?:만\s*원?|만)?\s*(?:정도|가량|쯤|이상|넘게)?\s*(?:은|는|이|가|씩)?\s*(인상|오르|오를|올라|올랐|오른|올린|올려|비싸|인하|내려|싸지)[가-힣]*/; // 인상액 언급은 단어 끝까지("300 오르면")
+
+function ruleComment(c) {
+  const text = String(c.content || "");
+  const t = compactText(text);
+  const r = text.match(RAISE_RE);
+  let raise = null;
+  if (r) {
+    const v = Math.round((Number(r[1]) + Number(r[2] || r[1])) / 2);
+    if (v > 0 && v <= 3000) raise = /인하|내려|싸지/.test(r[3]) ? -v : v;
+  }
+  const amounts = [...text.matchAll(AMOUNT_RE)].map((m) => m[0].trim()).filter((a) => !r || !r[0].includes(a));
+  const priceW = wordList($("#priceWords").value).some((w) => hasWord(t, w));
+  const flW = wordList($("#flWords").value).some((w) => hasWord(t, w));
+  const count = (list) => list.filter((w) => t.includes(compactText(w))).length;
+  const blame = count(BLAME_WORDS);
+  // 가격 글에 달린 비난·조롱도 가격에 대한 반응이라 가격 관련으로 센다
+  const relevant = priceW || amounts.length > 0 || raise !== null || flW || blame > 0;
+  const neg = count(NEG_WORDS);
+  const pos = count(POS_WORDS);
+  // 단순비난: 금액·인상액 같은 근거 없이 비난·조롱만
+  const tone = blame && !amounts.length && raise === null ? "단순비난" : neg > pos || blame ? "부정" : pos > neg ? "긍정" : "중립";
+  return {
+    relevant, tone: relevant ? tone : blame ? "단순비난" : "중립", amount: amounts.join(", ").slice(0, 60),
+    raiseText: r && raise !== null ? r[0].trim().slice(0, 40) : "", raise, point: "", by: "rule", v: COMMENT_VERSION,
+  };
+}
+
+// 표·엑셀에 쓰는 댓글 판단 (AI 결과가 있으면 그것, 없으면 규칙)
+function commentOpinion(c) {
+  return c.a?.by === "ai" ? c.a : ruleComment(c);
+}
+
+const COMMENT_SYSTEM = `당신은 현대자동차 상품·가격 부문의 온라인 여론 모니터링 보고서를 쓰는 분석가입니다.
+보고서의 핵심: 출시 예정인 싼타페 페이스리프트(MX5 F/L)의 "예상 가격"에 대한 여론. 다른 차종(아반떼·투싼) 가격 공개 전후의 변화를 봅니다.
+{{events}}
+
+[입력] 싼타페 F/L 예상 가격 이야기가 있는 동호회 게시글에 달린 댓글들. 댓글마다 id, 게시글 제목, 게시글 요약(맥락), 댓글 작성일, 구분(댓글/답글), 댓글 내용.
+[출력] 받은 댓글마다 하나씩, 받은 순서대로, id 를 그대로 돌려줍니다.
+1. relevant: 댓글이 싼타페 F/L (예상) 가격·인상·가격 반응·가격 때문에 기다림/이탈 등을 이야기하면 true.
+   가격 글에 대고 회사·가격 정책을 비난·조롱하는 댓글도 가격에 대한 반응이므로 true(tone 은 "단순비난").
+   인사·축하·감사, 사양·디자인·출고 일정만, 현행 차량 가격·할인만 이야기하면 false.
+2. tone (댓글 여론):
+   "부정": 비싸다·인상이 과하다·부담된다·안 사겠다 등 가격에 대한 부정적 의견(이유나 내용이 있음)
+   "긍정": 적당하다·합리적이다·이 가격이면 산다 등
+   "중립": 가격 정보·예상·질문만, 평가가 없거나 엇갈림
+   "단순비난": 가격에 대한 구체적 내용·근거 없이 회사·브랜드·구매자를 비난·조롱·욕설만 하는 댓글 (예: "현기차가 그렇지 뭐", "호구들만 사겠지", "ㅋㅋ 또 올리네 양아치")
+   relevant=false 이면 "중립".
+3. amount (구체적 금액 언급): 댓글에 나온 싼타페 F/L 가격 관련 구체적 금액을 쓰인 그대로(예: "4,500만 원대", "하이브리드 풀옵 5천 중반"). 없으면 "". 현행 차량 가격은 쓰지 않습니다.
+4. raiseText (인상액 언급): 인상·인하 폭 언급을 쓰인 그대로(예: "300 오를 듯", "200~300만 원 인상"). 없으면 "".
+5. raise (인상액, 만 원 정수): raiseText 의 값(범위면 가운데 값, 인하는 음수). 없으면 null. 지어내거나 계산하지 않습니다.
+6. point (요지): 가격에 대한 핵심 의견 한 구절(10~30자). relevant=false 이면 "".
+[반드시] 댓글에 없는 금액·사실을 만들지 않습니다. 닉네임·개인정보는 쓰지 않습니다. 욕설은 그대로 옮기지 않고 요지에서 중립적으로 바꿉니다.`;
+
+function commentSchema() {
+  return {
+    type: "object",
+    properties: {
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" }, relevant: { type: "boolean" }, tone: { type: "string", enum: C_TONES },
+            amount: { type: "string" }, raiseText: { type: "string" }, raise: { anyOf: [{ type: "integer" }, { type: "null" }] }, point: { type: "string" },
+          },
+          required: ["id", "relevant", "tone", "amount", "raiseText", "raise", "point"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["items"],
+    additionalProperties: false,
+  };
+}
+
+async function aiCommentBatch(client, model, batch, usage) {
+  const input = batch.map(({ x, c }, i) => ({
+    id: String(i), 게시글제목: x.title, 게시글요약: x.summary || "", 댓글작성일: c.date ? formatDateTime(new Date(c.date)) : c.dateText || "",
+    구분: c.isReply ? "답글" : "댓글", 댓글: c.content.slice(0, 600),
+  }));
+  const params = {
+    model,
+    max_tokens: 16000,
+    system: COMMENT_SYSTEM.replace("{{events}}", eventLines()) + (String($("#aiRules")?.value || "").trim() ? `\n\n[담당자 추가 규칙 - 위 규칙보다 우선]\n${$("#aiRules").value.trim()}` : ""),
+    output_config: { effort: "low", format: { type: "json_schema", schema: commentSchema() } },
+    messages: [{ role: "user", content: `아래 댓글 ${batch.length}개를 판단해 items ${batch.length}개로 돌려주세요.\n\n${JSON.stringify(input)}` }],
+  };
+  const stream = model === "claude-haiku-5-5"
+    ? client.messages.stream(params)
+    : client.beta.messages.stream({ ...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" });
+  const msg = await stream.finalMessage();
+  usage.input += msg.usage?.input_tokens || 0;
+  usage.output += msg.usage?.output_tokens || 0;
+  // 비용은 그 댓글이 달린 게시글들에 나눠 붙인다 (데이터 DB 의 파일별 AI 비용에 들어감)
+  chargeAi(batch.map(({ x }) => x), msg, model);
+  if (msg.stop_reason === "refusal") throw new Error("Claude 가 댓글 판단을 거절했습니다");
+  if (msg.stop_reason === "max_tokens") throw new Error("결과가 너무 길어 잘렸습니다");
+  const parsed = JSON.parse(msg.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
+  const byId = new Map((parsed.items || []).map((r) => [r.id, r]));
+  const one = (v, n) => String(v || "").replace(/\s+/g, " ").replace(/[.。]\s*$/, "").trim().slice(0, n);
+  const bad = batch.filter((_, i) => { const r = byId.get(String(i)); return !r || typeof r.relevant !== "boolean" || !C_TONES.includes(r.tone); }).length;
+  if (bad) throw new Error(`결과 ${bad}건의 형식이 맞지 않습니다`);
+  batch.forEach(({ c }, i) => {
+    const r = byId.get(String(i));
+    c.a = {
+      relevant: r.relevant, tone: r.tone, amount: one(r.amount, 60), raiseText: one(r.raiseText, 40),
+      raise: Number.isFinite(r.raise) && Math.abs(r.raise) < 5000 ? Math.round(r.raise) : null, point: one(r.point, 60), by: "ai", v: COMMENT_VERSION,
+    };
+  });
+}
+
+// 체크한 글의 댓글 중 아직 판단하지 않은 것을 판단 (AI 를 켰으면 AI, 아니면 규칙)
+async function analyzeComments({ force = false } = {}) {
+  const useAi = aiOn();
+  const todo = allComments().filter(({ c }) => force || !c.a || c.a.v !== COMMENT_VERSION || (useAi && c.a.by !== "ai"));
+  if (!todo.length) return renderStages();
+  if (!useAi) {
+    for (const { c } of todo) c.a = ruleComment(c);
+    await saveItems();
+    renderResults();
+    log(`· 댓글 ${todo.length.toLocaleString()}개를 규칙으로 판단했습니다 (AI 를 켜면 더 정확하게 판단)`);
+    return;
+  }
+  const model = $("#aiModel").value;
+  const chars = todo.reduce((n, { x, c }) => n + Math.min(600, c.content.length) + (x.summary || "").length + x.title.length + 60, 0);
+  const batches = [];
+  for (let i = 0; i < todo.length; i += COMMENT_BATCH) batches.push(todo.slice(i, i + COMMENT_BATCH));
+  const est = aiCostWon(chars * 1.1 + 1200 * batches.length, todo.length * 45, model);
+  if (!(await askConfirm(`수집한 글의 댓글 ${todo.length.toLocaleString()}개를 Claude AI 로 판단합니다 (가격 관련 여부 · 금액 언급 · 인상액 언급 · 긍정/중립/부정/단순비난).\n예상 비용 ${fmtWon(est)} · 약 ${formatDuration(Math.ceil(batches.length / AI_PARALLEL) * 25)}\n\n· [확인]: AI 로 판단\n· [취소]: 규칙(단어)으로 어림`))) {
+    for (const { c } of todo) if (!c.a) c.a = ruleComment(c);
+    await saveItems();
+    renderResults();
+    return;
+  }
+  const client = new Anthropic({ apiKey: $("#aiKey").value.trim(), dangerouslyAllowBrowser: true, maxRetries: 4 });
+  const usage = { input: 0, output: 0 };
+  const t0 = Date.now();
+  let done = 0;
+  let failed = 0;
+  let fatal = null;
+  let next = 0;
+  startBusy();
+  const progress = () => showBusy(`댓글 AI 판단 중 ${done}/${batches.length}묶음${estimateRemaining(t0, done, batches.length, (batches.length - done) * 25)}`, done, batches.length, "댓글 판단 중");
+  progress();
+  const worker = async () => {
+    while (next < batches.length && !fatal && !stopRequested) {
+      const batch = batches[next++];
+      let ok = false;
+      for (let attempt = 1; attempt <= 3 && !ok && !fatal; attempt++) {
+        try {
+          await aiCommentBatch(client, model, batch, usage);
+          ok = true;
+        } catch (e) {
+          if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) fatal = e;
+        }
+      }
+      if (!ok) {
+        failed += batch.length;
+        for (const { c } of batch) c.a = ruleComment(c);
+      }
+      done++;
+      progress();
+    }
+  };
+  await Promise.all(Array.from({ length: AI_PARALLEL }, worker));
+  addTime("ai", t0);
+  endBusy();
+  await saveItems();
+  renderResults();
+  const line = fatal
+    ? `댓글 AI 판단을 하지 못했습니다: ${aiErrorMessage(fatal)} (규칙으로 대신 판단)`
+    : `✔ 댓글 ${todo.length.toLocaleString()}개를 AI 로 판단했습니다 · ${formatDuration((Date.now() - t0) / 1000)} · 비용 ${fmtWon(aiWonExact(usage.input, usage.output, model))}` +
+      (failed ? ` · ${failed}개는 실패해 규칙으로 판단` : "");
+  log(`· ${line}`);
+  // 본문 읽기 결과 문구 뒤에 이어 붙인다 (덮어쓰면 본문 결과가 안 보임)
+  const before = $("#summary").textContent.trim();
+  setSummary(before ? `${before} / ${line}` : line, fatal || failed || /err/.test($("#summary").className) ? "err" : "ok");
+  stopRequested = false;
+}
+
+// ---------------------------------------------------------------------------
 // 여론 변화: 구간(기준 사건 전후)별 · 주별로 체크한 글을 모아 본다
 // ---------------------------------------------------------------------------
 
@@ -1280,7 +1560,23 @@ function reportItems() {
 }
 
 // 글 묶음 → 숫자 모음
-function groupStats(list, days) {
+// 체크한 글의 가격 관련 댓글 중 작성일이 [from, to) 안인 것 (작성일을 모르면 게시글 작성일)
+function commentsIn(from, to) {
+  return allComments(reportItems())
+    .map(({ x, c }) => ({ x, c, a: commentOpinion(c), t: c.date ?? x.date }))
+    .filter((v) => v.a.relevant && v.t && v.t >= from.getTime() && v.t < to.getTime());
+}
+
+function commentStats(list) {
+  const ctone = Object.fromEntries(C_TONES.map((t) => [t, list.filter((v) => v.a.tone === t).length]));
+  const raises = list.map((v) => v.a.raise).filter((v) => typeof v === "number");
+  return {
+    cn: list.length, ctone, cNegRatio: pct(ctone["부정"] + ctone["단순비난"], list.length),
+    cAmountN: list.filter((v) => v.a.amount).length, cRaiseAvg: avg(raises), cList: list,
+  };
+}
+
+function groupStats(list, days, from, to) {
   const ops = list.map((x) => ({ x, o: opinion(x) }));
   const tone = Object.fromEntries(TONES.map((t) => [t, ops.filter((v) => v.o.tone === t).length]));
   const raises = ops.map((v) => v.o.raise).filter((v) => typeof v === "number");
@@ -1293,6 +1589,7 @@ function groupStats(list, days) {
     raiseAvg: avg(raises), raiseMed: median(raises), cars,
     wait: ops.filter((v) => v.o.impact === "대기·관망").length, leave: ops.filter((v) => v.o.impact === "타 차종 고려·이탈").length,
     views: avg(num("views")), comments: avg(num("comments")), ops,
+    ...commentStats(from && to ? commentsIn(from, to) : []),
   };
 }
 
@@ -1309,7 +1606,7 @@ function stageStats() {
     const to = new Date(Math.min(lastEnd, s.to || Infinity));
     if (to <= from) continue;
     const mine = list.filter((x) => stageOf(x.date, st)?.i === s.i);
-    out.push({ stage: s, from, to, ...groupStats(mine, Math.round((to - from) / DAY)) });
+    out.push({ stage: s, from, to, ...groupStats(mine, Math.round((to - from) / DAY), from, to) });
   }
   return out;
 }
@@ -1337,7 +1634,7 @@ function weekStats() {
     out.push({
       label: `${ymd(from)} ~ ${mmdd(last)}`, stage: a, stageText: a && b && a.i !== b.i ? `${a.name.split(" ")[0]}→${b.name}` : a?.name || "",
       events: evs.map((e) => `${mmdd(e.day)} ${e.name}`),
-      ...groupStats(mine, Math.round((to - from) / DAY)),
+      ...groupStats(mine, Math.round((to - from) / DAY), from, to),
     });
     w = next;
   }
@@ -1352,12 +1649,17 @@ function numberLines(stats = stageStats()) {
   const lines = [];
   stats.forEach((s, k) => {
     let line = `${s.stage.name} (${ymd(s.from)} ~ ${mmdd(new Date(s.to - DAY))}, ${s.days}일): 글 ${s.n}개(하루 ${s.perDay.toFixed(1)}개) · ` +
-      `긍정 ${fmtPct(s.posRatio)} · 부정 ${fmtPct(s.negRatio)} · 예상 인상 폭 평균 ${fmtMan(s.raiseAvg)}(언급 ${s.expectN}개)`;
+      `긍정 ${fmtPct(s.posRatio)} · 부정 ${fmtPct(s.negRatio)} · 예상 인상 폭 평균 ${fmtMan(s.raiseAvg)}(언급 ${s.expectN}개)` +
+      ` · 가격 관련 댓글 ${s.cn}개(부정·비난 ${fmtPct(s.cNegRatio)} · 단순비난 ${s.ctone["단순비난"]}개)`;
     const prev = stats[k - 1];
     if (prev && prev.n && s.n) {
       const dp = Math.round((s.negRatio - prev.negRatio) * 100);
       line += ` → 직전 구간 대비 하루 글 수 ${prev.perDay.toFixed(1)}→${s.perDay.toFixed(1)}개, 부정 비율 ${dp >= 0 ? "+" : ""}${dp}%p`;
       if (typeof prev.raiseAvg === "number" && typeof s.raiseAvg === "number") line += `, 예상 인상 폭 ${fmtMan(prev.raiseAvg)}→${fmtMan(s.raiseAvg)}`;
+      if (prev.cn && s.cn) {
+        const dc = Math.round((s.cNegRatio - prev.cNegRatio) * 100);
+        line += `, 댓글 부정·비난 비율 ${dc >= 0 ? "+" : ""}${dc}%p`;
+      }
     }
     lines.push(`- ${line}`);
   });
@@ -1380,7 +1682,7 @@ let report = null; // { overall: [문장], stages: { 구간 이름: 요지 }, si
 
 // 보고를 쓴 뒤 글·판단이 바뀌었는지 보는 표시
 function reportSig() {
-  return reportItems().map((x) => { const o = opinion(x); return `${x.key}:${o.tone}:${o.raise}`; }).join("|") + `#${$("#events").value}`;
+  return reportItems().map((x) => { const o = opinion(x); return `${x.key}:${o.tone}:${o.raise}:${(x.commentList || []).map((c) => commentOpinion(c).tone[0]).join("")}`; }).join("|") + `#${$("#events").value}`;
 }
 
 function reportFresh() {
@@ -1391,13 +1693,15 @@ const REPORT_SYSTEM = `당신은 현대자동차 상품·가격 부문에 올리
 보고서의 핵심: 출시 예정인 싼타페 페이스리프트(MX5 F/L)의 "예상 가격"에 대한 여론이 기준 사건(다른 차종의 가격 공개) 전후로 어떻게 바뀌었는지.
 {{events}}
 
-[입력] 구간별 숫자(글 수·하루 평균·긍정/부정 비율·예상 인상 폭 평균/중앙값·비교 차종 언급·구매 영향)와
+[입력] 구간별 숫자(글 수·하루 평균·긍정/부정 비율·예상 인상 폭 평균/중앙값·비교 차종 언급·구매 영향,
+가격 관련 댓글 수·댓글 여론(긍정/중립/부정/단순비난)·댓글 금액·인상액 언급)와 댓글 요지 일부,
 구간별 글 목록(작성일·예상 가격 여론·예상 가격 언급·예상 인상 폭·비교 차종·구매 영향·여론 요지·조회수)을 받습니다.
 
 [출력]
 - overall: 보고서 맨 위에 들어갈 핵심 요약 3~6개 항목. 각 항목은 한 문장의 개조식("~함", "~로 나타남" 처럼 끝냄).
   첫 항목은 기준 사건 전후 예상 가격 여론의 가장 큰 변화. 숫자는 입력에 있는 숫자만 인용(예: 부정 비율 40%→65%, 예상 인상 폭 평균 200만 원→300만 원).
-  아반떼·투싼 가격 공개가 싼타페 F/L 예상 가격 인식에 어떤 영향을 주었는지(예: 투싼 인상 폭을 근거로 F/L 인상 예상 확산), 구매 영향(대기·이탈) 변화를 담습니다.
+  아반떼·투싼 가격 공개가 싼타페 F/L 예상 가격 인식에 어떤 영향을 주었는지(예: 투싼 인상 폭을 근거로 F/L 인상 예상 확산), 구매 영향(대기·이탈) 변화,
+  게시글과 댓글 여론의 차이(예: 게시글은 중립 정보 공유가 많지만 댓글은 부정·단순비난이 많음)를 담습니다. 단순비난은 근거 있는 부정과 구분해 씁니다.
 - stages: 구간마다 그 구간의 예상 가격 여론 요지를 2~3문장(150자 안팎)으로. 대표적인 주장·예상 수치·반응을 글 목록에 있는 만큼만.
 [반드시] 입력에 없는 사실·숫자를 만들지 않습니다. 글이 적은 구간(5개 미만)은 "표본이 적어 해석에 유의" 를 붙입니다. 닉네임·개인정보는 쓰지 않습니다.`;
 
@@ -1426,6 +1730,11 @@ async function writeReport() {
       긍정: s.tone["긍정"], 중립: s.tone["중립"], 부정: s.tone["부정"], 부정비율: fmtPct(s.negRatio), 긍정비율: fmtPct(s.posRatio),
       예상가격언급글: s.expectN, 예상인상폭평균만원: s.raiseAvg === null ? null : Math.round(s.raiseAvg), 예상인상폭중앙값만원: s.raiseMed,
       비교차종언급: s.cars, 대기관망: s.wait, 타차종이탈: s.leave,
+      가격관련댓글: s.cn, 댓글여론: s.ctone, 댓글부정비난비율: fmtPct(s.cNegRatio), 댓글금액언급: s.cAmountN,
+      댓글인상액평균만원: s.cRaiseAvg === null ? null : Math.round(s.cRaiseAvg),
+      댓글요지: s.cList.filter((v) => v.a.point || v.a.amount || v.a.raiseText).slice(0, 60).map((v) => ({
+        여론: v.a.tone, 금액: v.a.amount, 인상액: v.a.raiseText, 요지: v.a.point || v.c.content.slice(0, 80),
+      })),
       글: [...s.ops].sort((a, b) => (b.x.views || 0) - (a.x.views || 0)).slice(0, 80).map(({ x, o }) => ({
         작성일: x.date ? ymd(new Date(x.date)) : "", 여론: o.tone, 예상: o.expect, 인상폭: o.raise, 비교: o.compare, 구매영향: o.impact,
         요지: o.point || x.summary || x.title, 조회수: x.views ?? null,
@@ -1483,7 +1792,7 @@ function renderStages() {
   tbody.innerHTML = "";
   for (const s of stats) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td class="nowrap"></td><td class="nowrap"></td><td></td><td></td><td><div class="tonebar"><span class="pos"></span><span class="neu"></span><span class="neg"></span></div><div class="hint"></div></td><td></td><td></td><td class="sum"></td>`;
+    tr.innerHTML = `<td class="nowrap"></td><td class="nowrap"></td><td></td><td></td><td><div class="tonebar"><span class="pos"></span><span class="neu"></span><span class="neg"></span></div><div class="hint"></div></td><td></td><td></td><td><div class="tonebar"><span class="pos"></span><span class="neu"></span><span class="neg"></span><span class="blame"></span></div><div class="hint chint"></div></td><td class="sum"></td>`;
     tr.children[0].textContent = s.stage.name;
     tr.children[1].textContent = `${ymd(s.from)} ~ ${mmdd(new Date(s.to - DAY))} (${s.days}일)`;
     tr.children[2].textContent = `${s.n.toLocaleString()}개`;
@@ -1496,7 +1805,12 @@ function renderStages() {
     tr.querySelector("td .hint").replaceChildren(...toneText(`긍정 ${Math.round(p)}% · 중립 ${Math.round(u)}% · 부정 ${Math.round(n)}%`));
     tr.children[5].textContent = `${fmtMan(s.raiseAvg)} (${s.expectN}개)`;
     tr.children[6].replaceChildren(...compareCars().map((c) => Object.assign(document.createElement("div"), { textContent: `${c} ${s.cars[c]}` })));
-    tr.children[7].textContent = stageNote(s, fresh);
+    const cbar = tr.children[7].querySelector(".tonebar");
+    C_TONES.forEach((t, k) => (cbar.children[k].style.width = `${pct(s.ctone[t], s.cn) * 100}%`));
+    tr.children[7].querySelector(".chint").replaceChildren(
+      `${s.cn}개 · `, ...toneText(`부정·비난 ${Math.round(s.cNegRatio * 100)}% · 단순비난 ${s.ctone["단순비난"]}개`),
+    );
+    tr.children[8].textContent = stageNote(s, fresh);
     tbody.appendChild(tr);
   }
   const text = [
@@ -1514,13 +1828,13 @@ function renderStages() {
 // 지금 숫자가 확정치인지: 체크한 글 중 본문을 아직 안 읽은 글 · 본문에서 확인할 글이 남아 있으면 잠정치
 function stageState() {
   const list = reportItems();
-  const unread = list.filter((x) => !x.bodyRead).length;
+  const unread = list.filter((x) => !x.bodyRead || !x.commentsRead).length;
   const pending = items.filter((x) => !x.checked && !x.touched && x.candidate && !x.bodyRead && inPeriod(x)).length;
   if (!list.length && !pending) return { final: false, unread, pending, text: "아직 수집된 글이 없습니다" };
-  if (!unread && !pending) return { final: true, unread, pending, text: `✔ 확정치 · 모든 글 본문 확인 완료${list.length && list.every((x) => x.by === "ai") ? " · AI 판단" : ""}` };
+  if (!unread && !pending) return { final: true, unread, pending, text: `✔ 확정치 · 모든 글 본문·댓글 확인 완료${list.length && list.every((x) => x.by === "ai") ? " · AI 판단" : ""}` };
   return {
     final: false, unread, pending,
-    text: `⚠ 잠정치 · 본문 확인 전 글 ${unread.toLocaleString()}개 포함` +
+    text: `⚠ 잠정치 · 본문·댓글 확인 전 글 ${unread.toLocaleString()}개 포함` +
       (pending ? ` · 본문에서 확인할 글 ${pending.toLocaleString()}개 남음` : "") + " — '본문 읽고 요약하기' 후 확정됩니다",
   };
 }
@@ -1528,12 +1842,12 @@ function stageState() {
 // "긍정 20%" · "부정 비율 +75%p" 처럼 여론 글자에 색(긍정 파랑 · 중립 녹색 · 부정 빨강)을 넣고 숫자는 굵게 → 노드 목록
 function toneText(text) {
   const out = [];
-  const re = /(긍정|중립|부정)(\s*비율)?\s*([+-]?\d+%p?)/g;
+  const re = /(긍정|중립|부정·비난|부정|단순비난)(\s*비율)?\s*([+-]?\d+(?:%p?|개))/g;
   let last = 0;
   for (const m of text.matchAll(re)) {
     if (m.index > last) out.push(document.createTextNode(text.slice(last, m.index)));
     const span = document.createElement("span");
-    span.className = `t-${{ 긍정: "pos", 중립: "neu", 부정: "neg" }[m[1]]}`;
+    span.className = `t-${{ 긍정: "pos", 중립: "neu", 부정: "neg", "부정·비난": "neg", 단순비난: "blame" }[m[1]]}`;
     span.append(`${m[1]}${m[2] || ""} `, Object.assign(document.createElement("b"), { textContent: m[3] }));
     out.push(span);
     last = m.index + m[0].length;
@@ -1638,6 +1952,11 @@ function fillRow(tr, item) {
   if (item.bodyRead && !item.bodyNote) notes.push("본문 읽음");
   if (item.by === "ai") notes.push(`AI 요약${item.aiRelevant === false ? " (MX5 F/L 가격 이야기가 없다고 판단 - 체크 해제)" : ""}`);
   else if (item.by) notes.push("규칙 요약");
+  if (item.commentsRead) {
+    const cs = (item.commentList || []).map(commentOpinion);
+    const rel = cs.filter((a) => a.relevant);
+    notes.push(`댓글 ${cs.length}개 읽음${cs.length ? ` (가격 관련 ${rel.length} · 부정 ${rel.filter((a) => a.tone === "부정").length} · 단순비난 ${cs.filter((a) => a.tone === "단순비난").length})` : ""}`);
+  } else if (item.checked && item.bodyRead) notes.push("댓글 아직 안 읽음 ('본문 읽고 요약하기'를 누르면 읽음)");
   notes.push(`검색어: ${item.queries.join(", ")}`);
   tr.children[8].replaceChildren(...notes.map((t) => Object.assign(document.createElement("div"), { textContent: t })));
   tr.children[8].title = notes.join("\n");
@@ -1695,7 +2014,7 @@ function saveItemsSoon() {
 async function buildExcel(selected) {
   const resp = await fetch(chrome.runtime.getURL("price-template.xlsx"));
   const wb = await XlsxTemplate.Workbook.open(new Uint8Array(await resp.arrayBuffer()));
-  const [postSheet, stageSheet, weekSheet] = wb.sheetNames();
+  const [postSheet, commentSheet, stageSheet, weekSheet] = wb.sheetNames();
   const st = stages();
   const nn = (v) => (typeof v === "number" && Number.isFinite(v) ? v : "");
   // ① 게시물
@@ -1711,6 +2030,24 @@ async function buildExcel(selected) {
   const links = {};
   values.forEach((v, i) => (links[`G${HEADER_ROW + 1 + i}`] = v[6]));
   await wb.addHyperlinks(postSheet, links);
+  // 댓글 시트: 게시글 순서대로, 게시글 안에서는 작성순 · 구간은 댓글 작성일 기준
+  const commentRows = [];
+  selected.forEach((x, i) => {
+    const list = [...(x.commentList || [])].sort((a, b) => (a.date ?? 0) - (b.date ?? 0));
+    for (const c of list) {
+      const a = commentOpinion(c);
+      const t = c.date ?? x.date;
+      commentRows.push([
+        null, commentRows.length + 1, x.cafeName, i + 1, x.title, articleUrl(x), stageOf(t, st)?.name || "",
+        c.date ? excelSerial(new Date(c.date)) : c.dateText || "", c.nickname || "", c.isReply ? "답글" : "댓글", c.content,
+        a.relevant ? "O" : "", a.tone, a.amount, a.raiseText, nn(a.raise), a.point,
+      ]);
+    }
+  });
+  await wb.replaceRowsAfter(commentSheet, HEADER_ROW, commentRows, STYLE_ROW);
+  const clinks = {};
+  commentRows.forEach((v, i) => (clinks[`F${HEADER_ROW + 1 + i}`] = v[5]));
+  if (commentRows.length) await wb.addHyperlinks(commentSheet, clinks);
   // ② 구간별 여론 (기준 사건 전후) · 맨 위에 숫자로 본 변화 + AI 보고 요지
   const stats = stageStats();
   const fresh = reportFresh();
@@ -1721,6 +2058,7 @@ async function buildExcel(selected) {
     s.tone["긍정"], s.tone["중립"], s.tone["부정"], s.n ? s.posRatio : "", s.n ? s.negRatio : "",
     s.expectN, s.raiseAvg === null ? "" : Math.round(s.raiseAvg), s.raiseMed === null ? "" : Math.round(s.raiseMed),
     carN(s, "아반떼"), carN(s, "투싼"), s.wait, s.leave, s.views === null ? "" : Math.round(s.views), s.comments === null ? "" : Math.round(s.comments * 10) / 10,
+    s.cn, ...C_TONES.map((t) => s.ctone[t]), s.cn ? s.cNegRatio : "", s.cAmountN, s.cRaiseAvg === null ? "" : Math.round(s.cRaiseAvg),
     stageNote(s, fresh),
   ]);
   await wb.replaceRowsAfter(stageSheet, STAGE_HEADER_ROW, stageRows, STAGE_HEADER_ROW + 1);
@@ -1730,7 +2068,7 @@ async function buildExcel(selected) {
   ].join("\n");
   const evText = events().map((e) => `${ymd(e.day)} ${e.name}`).join(" · ");
   const state = stageState();
-  const cond = `${state.final ? "" : `[잠정치 · 본문 확인 전 글 ${state.unread}개 포함] `}기간 ${periodText()} · 기준 사건 ${evText || "없음"} · 동호회 ${cafes().map((c) => c.name).join(" · ")} · 글 ${selected.length.toLocaleString()}개 · ${formatDateTime(new Date())} 받음`;
+  const cond = `${state.final ? "" : `[잠정치 · 본문·댓글 확인 전 글 ${state.unread}개 포함] `}기간 ${periodText()} · 기준 사건 ${evText || "없음"} · 동호회 ${cafes().map((c) => c.name).join(" · ")} · 글 ${selected.length.toLocaleString()}개 · 댓글 ${commentRows.length.toLocaleString()}개 · ${formatDateTime(new Date())} 받음`;
   await wb.setCellTexts(stageSheet, { B2: cond, B3: overall });
   // 3행(합친 칸)은 엑셀이 높이를 맞춰 주지 않아, 줄 수로 높이를 정한다 (한 줄 약 140자)
   const lines = overall.split("\n").reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 140)), 0);
@@ -1742,6 +2080,7 @@ async function buildExcel(selected) {
     null, w.label, w.stageText, w.events.join(", "), w.n, w.tone["긍정"], w.tone["중립"], w.tone["부정"], w.n ? w.negRatio : "",
     w.raiseAvg === null ? "" : Math.round(w.raiseAvg), carN(w, "아반떼"), carN(w, "투싼"),
     w.views === null ? "" : Math.round(w.views), w.comments === null ? "" : Math.round(w.comments * 10) / 10,
+    w.cn, w.cn ? w.cNegRatio : "", w.cRaiseAvg === null ? "" : Math.round(w.cRaiseAvg),
   ]);
   await wb.replaceRowsAfter(weekSheet, WEEK_HEADER_ROW, weekRows, WEEK_HEADER_ROW + 1);
   await wb.setCellTexts(weekSheet, { B2: cond });
@@ -1791,6 +2130,10 @@ async function saveExcel() {
       posts: selected.length, cafes: cafesN,
       pos: ops.filter((o) => o.tone === "긍정").length, neu: ops.filter((o) => o.tone === "중립").length, neg: ops.filter((o) => o.tone === "부정").length,
       raiseAvg: raises.length ? Math.round(raises.reduce((a, b) => a + b, 0) / raises.length) : null,
+      comments: allComments(selected).length,
+      cRel: allComments(selected).filter(({ c }) => commentOpinion(c).relevant).length,
+      cNeg: allComments(selected).filter(({ c }) => commentOpinion(c).tone === "부정").length,
+      cBlame: allComments(selected).filter(({ c }) => commentOpinion(c).tone === "단순비난").length,
       period: periodText(), aiCost: Math.round(selected.reduce((n, x) => n + (x.aiCost || 0), 0) + reportCost), aiTotal: Math.round(aiSpend.won),
       time: { ...timeLog },
     };

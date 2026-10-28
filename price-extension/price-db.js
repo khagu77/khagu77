@@ -7,7 +7,7 @@ const BACKUP_KEYS = ["priceItems", "priceClubIds", "priceSettings", "priceStart"
 let pickFor = null; // { kind, date|null }
 // 건수 칸: 항목마다 전 기록 대비 증감
 const COUNT_FIELDS = {
-  price: [["posts", "글"], ["neg", "부정"], ["pos", "긍정"]],
+  price: [["posts", "글"], ["neg", "부정"], ["pos", "긍정"], ["cRel", "가격 관련 댓글"], ["cBlame", "댓글 단순비난"]],
 };
 
 // "1시간 5분" · "40초"
@@ -50,6 +50,17 @@ async function summarize(kind, bytes) {
     if (typeof r.cells.N === "number") raises.push(r.cells.N);
   }
   stats.raiseAvg = raises.length ? Math.round(raises.reduce((a, b) => a + b, 0) / raises.length) : null;
+  if (wb.sheetNames().includes("댓글")) {
+    Object.assign(stats, { comments: 0, cRel: 0, cNeg: 0, cBlame: 0 });
+    for (const r of await wb.readRows("댓글")) {
+      if (r.r <= 3 || r.cells.K === undefined) continue;
+      stats.comments++;
+      if (String(r.cells.L || "").trim() === "O") stats.cRel++;
+      const t = String(r.cells.M || "").trim();
+      if (t === "부정") stats.cNeg++;
+      if (t === "단순비난") stats.cBlame++;
+    }
+  }
   return { summary: `글 ${stats.posts.toLocaleString()}개 · 긍정 ${stats.pos} · 중립 ${stats.neu} · 부정 ${stats.neg}`, stats };
 }
 
@@ -89,6 +100,10 @@ function fillChips(td, kind, rec) {
       [`긍정 ${(st.pos ?? 0).toLocaleString()}`, "ok"], [`중립 ${(st.neu ?? 0).toLocaleString()}`, ""], [`부정 ${(st.neg ?? 0).toLocaleString()}`, "warn"],
     ];
   if (st && typeof st.raiseAvg === "number") chips.push([`예상 인상 폭 평균 ${st.raiseAvg.toLocaleString()}만 원`, "main"]);
+  if (st && typeof st.comments === "number") {
+    chips.push([`댓글 ${st.comments.toLocaleString()} (가격 관련 ${(st.cRel ?? 0).toLocaleString()})`, "main"]);
+    chips.push([`댓글 부정 ${(st.cNeg ?? 0).toLocaleString()} · 단순비난 ${(st.cBlame ?? 0).toLocaleString()}`, "warn"]);
+  }
   if (st?.period) chips.push([`기간 ${st.period}`, ""]);
   // 이 파일에 든 글들에 쓴 AI 비용 (글마다 실제 사용량으로 나눠 붙인 것 + 여론 변화 보고)
   if (st && st.aiCost > 0) chips.push([`AI 비용 ${fmtWon(st.aiCost)}${st.posts ? ` · 글당 ${fmtWon(st.aiCost / st.posts)}` : ""}`, "cost"]);

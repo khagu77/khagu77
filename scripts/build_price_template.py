@@ -4,12 +4,13 @@
 현대산스 Text 11pt · 3행 머리글(가운데) · 얇은 테두리 · A4 틀 고정 · 머리글 필터. 머리글 행은 현대 블루 바탕에 흰색 굵은 글씨.
 양식 파일을 바탕으로 열어 그 셀 서식을 복사해 쓰므로, 기존 양식과 같은 글꼴·테마가 들어간다.
 
-시트 3개 (각 시트의 서식 견본 행은 받을 때 price.js 가 내용으로 바꾼다)
+시트 4개 (각 시트의 서식 견본 행은 받을 때 price.js 가 내용으로 바꾼다)
 1. 게시물: 3행 머리글 · 4행 서식 견본
    B 순번 · C 동호회명 · D 작성일 · E 제목 · F 내용 요약 · G URL · H 작성자 닉네임 · I 조회수 · J 댓글수
    · K 구간 · L 예상 가격 여론 · M 예상 가격·인상 폭 언급 · N 예상 인상 폭(만 원) · O 비교 차종 · P 구매 영향 · Q 여론 요지
-2. 구간별 여론: 1행 제목 · 2행 조건 · 3행 여론 변화 보고 · 5행 머리글 · 6행 서식 견본
-3. 주별 추이: 1행 제목 · 2행 조건 · 3행 머리글 · 4행 서식 견본
+2. 댓글: 3행 머리글 · 4행 서식 견본 (수집한 게시글의 댓글·답글과 댓글별 판단)
+3. 구간별 여론: 1행 제목 · 2행 조건 · 3행 여론 변화 보고 · 5행 머리글 · 6행 서식 견본
+4. 주별 추이: 1행 제목 · 2행 조건 · 3행 머리글 · 4행 서식 견본
 
     python scripts/build_price_template.py
 """
@@ -29,6 +30,7 @@ HYUNDAI_BLUE = "FF002C5F"  # 머리글 행: 현대 블루 바탕 · 흰색 굵�
 RED = "FFE00000"  # 기존 양식의 N 빨강
 BLUE = "FF0070C0"  # 기존 양식의 Y 파랑
 GREEN = "FF00B050"  # 중립 녹색
+PURPLE = "FF7030A0"  # 단순비난 보라
 
 # (머리글, 너비, 서식, 모양) 모양: c 가운데 · w 왼쪽 줄바꿈 · l 왼쪽 · u 링크
 POSTS = [
@@ -69,6 +71,14 @@ STAGES = [
     ("타 차종 고려·이탈", 11, "#,##0", "c"),
     ("평균 조회수", 11, "#,##0", "c"),
     ("평균 댓글수", 11, "#,##0.0", "c"),
+    ("가격 관련 댓글 수", 11, "#,##0", "c"),
+    ("댓글 긍정", 8, "#,##0", "c"),
+    ("댓글 중립", 8, "#,##0", "c"),
+    ("댓글 부정", 8, "#,##0", "c"),
+    ("댓글 단순비난", 9, "#,##0", "c"),
+    ("댓글 부정·비난 비율", 11, "0%", "c"),
+    ("댓글 금액 언급", 10, "#,##0", "c"),
+    ("댓글 인상액 평균(만 원)", 12, "#,##0", "c"),
     ("여론 요지", 70, "General", "w"),
 ]
 WEEKS = [
@@ -85,6 +95,28 @@ WEEKS = [
     ("투싼 비교 언급", 11, "#,##0", "c"),
     ("평균 조회수", 11, "#,##0", "c"),
     ("평균 댓글수", 11, "#,##0.0", "c"),
+    ("가격 관련 댓글 수", 11, "#,##0", "c"),
+    ("댓글 부정·비난 비율", 11, "0%", "c"),
+    ("댓글 인상액 평균(만 원)", 12, "#,##0", "c"),
+]
+# 댓글: 수집한 게시글의 댓글·답글 (삭제 댓글 제외) · 구간은 댓글 작성일 기준
+COMMENTS = [
+    ("순번", 5.5, "General", "c"),
+    ("동호회명", 16, "General", "c"),
+    ("게시글 순번", 8, "General", "c"),
+    ("게시글 제목", 34, "General", "w"),
+    ("게시글 URL", 34, "General", "u"),
+    ("구간", 20, "General", "c"),
+    ("댓글 작성일", 17.7, "yyyy-mm-dd hh:mm", "c"),
+    ("작성자 닉네임", 14, "General", "c"),
+    ("구분", 7, "General", "c"),
+    ("댓글 내용", 60, "General", "w"),
+    ("가격 관련", 8, "General", "c"),
+    ("댓글 여론", 10, "General", "c"),
+    ("금액 언급", 22, "General", "w"),
+    ("인상액 언급", 22, "General", "w"),
+    ("인상액(만 원)", 10, "#,##0", "c"),
+    ("요지", 40, "General", "w"),
 ]
 
 
@@ -137,10 +169,11 @@ def table(ws, columns, head_row, header, body):
 
 
 def tone_colors(ws, ref, first):
-    """예상 가격 여론 글자색: 부정 빨강 · 긍정 파랑 (기존 양식의 Y 파랑 · N 빨강과 같은 색) · 중립 녹색"""
+    """여론 글자색: 부정 빨강 · 긍정 파랑 (기존 양식의 Y 파랑 · N 빨강과 같은 색) · 중립 녹색 · 단순비난 보라"""
     ws.conditional_formatting.add(ref, FormulaRule(formula=[f'{first}="부정"'], font=Font(color=RED, bold=True)))
     ws.conditional_formatting.add(ref, FormulaRule(formula=[f'{first}="긍정"'], font=Font(color=BLUE, bold=True)))
     ws.conditional_formatting.add(ref, FormulaRule(formula=[f'{first}="중립"'], font=Font(color=GREEN, bold=True)))
+    ws.conditional_formatting.add(ref, FormulaRule(formula=[f'{first}="단순비난"'], font=Font(color=PURPLE, bold=True)))
 
 
 def build():
@@ -168,6 +201,15 @@ def build():
     ws["G4"] = "https://cafe.naver.com/"
     ws["G4"].hyperlink = "https://cafe.naver.com/"
     tone_colors(ws, "L4:L20000", "L4")
+
+    # 댓글 시트 (게시물 시트와 같은 모양: 3행 머리글)
+    cs = wb.create_sheet("댓글")
+    table(cs, COMMENTS, 3, header, body)
+    cs["F4"] = "https://cafe.naver.com/"
+    cs["F4"].hyperlink = "https://cafe.naver.com/"
+    tone_colors(cs, "M4:M50000", "M4")
+    # 금액 언급(N)이나 인상액 언급(O)이 있는 댓글: 댓글 내용(K)과 금액·인상액 칸(N~P)을 빨간 글씨로
+    cs.conditional_formatting.add("K4:K50000 N4:P50000", FormulaRule(formula=['OR($N4<>"",$O4<>"")'], font=Font(color=RED)))
 
     def titled(name, title, columns, head_row):
         s = wb.create_sheet(name)
