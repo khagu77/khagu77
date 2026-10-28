@@ -244,6 +244,9 @@ def test_price(tmp_path: Path):
         }, (got, page.inner_text("#log"))  # 기간 전(8.1)·뒤(10.25) 글은 넣지 않음
         assert page.evaluate("clubIds") == {"trailer": "60001", "iroid": "60002", "choids": "60003"}
         assert page.evaluate("items.find(x => x.key === 'iroid/2002').queries") == ["페리 가격", "신형 가격"]
+        # 찾기만 한 단계: 여론 변화 숫자는 잠정치
+        page.locator("#stageState", has_text="잠정치").wait_for()
+        assert "본문 확인 전 글 2개 포함" in page.inner_text("#stageState") and "본문에서 확인할 글 4개 남음" in page.inner_text("#stageState")
 
         # 본문 읽기 + 규칙 요약 (AI 없음): 작성자 닉네임·조회수·댓글수도 읽고, 본문에서 확인할 글도 연다
         page.click("#readBodies")
@@ -275,6 +278,11 @@ def test_price(tmp_path: Path):
         assert st.nth(0).locator("td").nth(2).inner_text() == "2개" and "250만 원" in st.nth(0).locator("td").nth(5).inner_text()
         assert "투싼 1" in st.nth(1).locator("td").nth(6).inner_text()
         assert "숫자로 본 변화" in page.inner_text("#reportText") and "부정 비율" in page.inner_text("#reportText")
+        # 본문을 모두 읽은 뒤: 확정치 · 여론 글자에 색(부정 빨강 · 긍정 파랑 · 중립 녹색), 숫자는 굵게
+        page.locator("#stageState", has_text="확정치").wait_for()
+        assert page.locator("#reportText .t-neg b").first.inner_text() == "50%"
+        assert page.evaluate("getComputedStyle(document.querySelector('#stageTable .t-neu')).color") == "rgb(0, 160, 70)"
+        assert page.evaluate("getComputedStyle(document.querySelector('#stageTable .t-pos b')).fontWeight") == "700"
 
         with page.expect_download() as dl:
             page.click("#saveExcel")

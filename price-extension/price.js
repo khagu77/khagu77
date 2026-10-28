@@ -1493,17 +1493,53 @@ function renderStages() {
     bar.children[0].style.width = `${p}%`;
     bar.children[1].style.width = `${u}%`;
     bar.children[2].style.width = `${n}%`;
-    tr.querySelector("td .hint").textContent = `긍정 ${Math.round(p)}% · 중립 ${Math.round(u)}% · 부정 ${Math.round(n)}%`;
+    tr.querySelector("td .hint").replaceChildren(...toneText(`긍정 ${Math.round(p)}% · 중립 ${Math.round(u)}% · 부정 ${Math.round(n)}%`));
     tr.children[5].textContent = `${fmtMan(s.raiseAvg)} (${s.expectN}개)`;
     tr.children[6].replaceChildren(...compareCars().map((c) => Object.assign(document.createElement("div"), { textContent: `${c} ${s.cars[c]}` })));
     tr.children[7].textContent = stageNote(s, fresh);
     tbody.appendChild(tr);
   }
-  $("#reportText").textContent = [
+  const text = [
     "숫자로 본 변화", ...numberLines(stats),
     ...(report?.overall?.length ? ["", `AI 보고 요지${fresh ? "" : " (보고를 쓴 뒤 글·판단이 바뀜 - 다시 쓰기 권장)"}`, ...report.overall.map((t) => `- ${t}`)] : []),
   ].join("\n");
+  $("#reportText").replaceChildren(...toneText(text));
   $("#writeReport").disabled = running || !stats.some((s) => s.n);
+  const st = stageState();
+  const badge = $("#stageState");
+  badge.className = `stage-state ${st.final ? "final" : "provisional"}`;
+  badge.textContent = st.text;
+}
+
+// 지금 숫자가 확정치인지: 체크한 글 중 본문을 아직 안 읽은 글 · 본문에서 확인할 글이 남아 있으면 잠정치
+function stageState() {
+  const list = reportItems();
+  const unread = list.filter((x) => !x.bodyRead).length;
+  const pending = items.filter((x) => !x.checked && !x.touched && x.candidate && !x.bodyRead && inPeriod(x)).length;
+  if (!list.length && !pending) return { final: false, unread, pending, text: "아직 수집된 글이 없습니다" };
+  if (!unread && !pending) return { final: true, unread, pending, text: `✔ 확정치 · 모든 글 본문 확인 완료${list.length && list.every((x) => x.by === "ai") ? " · AI 판단" : ""}` };
+  return {
+    final: false, unread, pending,
+    text: `⚠ 잠정치 · 본문 확인 전 글 ${unread.toLocaleString()}개 포함` +
+      (pending ? ` · 본문에서 확인할 글 ${pending.toLocaleString()}개 남음` : "") + " — '본문 읽고 요약하기' 후 확정됩니다",
+  };
+}
+
+// "긍정 20%" · "부정 비율 +75%p" 처럼 여론 글자에 색(긍정 파랑 · 중립 녹색 · 부정 빨강)을 넣고 숫자는 굵게 → 노드 목록
+function toneText(text) {
+  const out = [];
+  const re = /(긍정|중립|부정)(\s*비율)?\s*([+-]?\d+%p?)/g;
+  let last = 0;
+  for (const m of text.matchAll(re)) {
+    if (m.index > last) out.push(document.createTextNode(text.slice(last, m.index)));
+    const span = document.createElement("span");
+    span.className = `t-${{ 긍정: "pos", 중립: "neu", 부정: "neg" }[m[1]]}`;
+    span.append(`${m[1]}${m[2] || ""} `, Object.assign(document.createElement("b"), { textContent: m[3] }));
+    out.push(span);
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(document.createTextNode(text.slice(last)));
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -1693,7 +1729,8 @@ async function buildExcel(selected) {
     ...(fresh && report?.overall?.length ? ["", "[보고 요지]", ...report.overall.map((t) => `- ${t}`)] : []),
   ].join("\n");
   const evText = events().map((e) => `${ymd(e.day)} ${e.name}`).join(" · ");
-  const cond = `기간 ${periodText()} · 기준 사건 ${evText || "없음"} · 동호회 ${cafes().map((c) => c.name).join(" · ")} · 글 ${selected.length.toLocaleString()}개 · ${formatDateTime(new Date())} 받음`;
+  const state = stageState();
+  const cond = `${state.final ? "" : `[잠정치 · 본문 확인 전 글 ${state.unread}개 포함] `}기간 ${periodText()} · 기준 사건 ${evText || "없음"} · 동호회 ${cafes().map((c) => c.name).join(" · ")} · 글 ${selected.length.toLocaleString()}개 · ${formatDateTime(new Date())} 받음`;
   await wb.setCellTexts(stageSheet, { B2: cond, B3: overall });
   // 3행(합친 칸)은 엑셀이 높이를 맞춰 주지 않아, 줄 수로 높이를 정한다 (한 줄 약 140자)
   const lines = overall.split("\n").reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 140)), 0);

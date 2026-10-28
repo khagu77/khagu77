@@ -300,3 +300,13 @@ body.theme-price .tools a.tool.on { background: rgba(255, 255, 255, 0.18); }
 #stageTable { min-width: 980px; }
 #stageTable td:nth-child(-n+4), #stageTable td:nth-child(6), #stageTable td:nth-child(7), #stageTable th { white-space: nowrap; }
 #stageTable td:nth-child(5) { min-width: 210px; }
+/* 여론 글자색: 긍정 파랑 · 중립 녹색 · 부정 빨강 (숫자는 굵게) */
+.t-pos { color: #0070c0; }
+.t-neu { color: #00a046; }
+.t-neg { color: #e00000; }
+@media (prefers-color-scheme: dark) { .t-pos { color: #6cb6ff; } .t-neu { color: #4cd38a; } .t-neg { color: #ff6b5f; } }
+/* 여론 변화 표: 잠정치 / 확정치 */
+.stage-state { display: inline-block; margin: 8px 0; padding: 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; border: 1px solid var(--border); }
+.stage-state.provisional { color: #b3541e; border-color: #e8a06a; background: rgba(243, 112, 33, 0.08); }
+.stage-state.final { color: #fff; background: #002c5f; border-color: #002c5f; }
+#stageTable td:nth-child(5) .hint { white-space: nowrap; }
