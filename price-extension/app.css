@@ -282,8 +282,22 @@ body.theme-price #results tbody tr:hover td { background: rgba(107, 107, 69, 0.0
 .tonebar .neu { background: #00b050; }
 .tonebar .neg { background: #e00000; }
 #stageTable td { vertical-align: middle; }
-#stageTable td.sum { font-size: 12.5px; min-width: 260px; }
-pre.report { white-space: pre-wrap; font: 13px/1.6 inherit; font-family: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 10px 0 0; }
+/* 숫자로 본 변화: 구간마다 제목 + 게시글·댓글 배지 줄 */
+.report { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin: 10px 0 0; font-size: 12.5px; line-height: 1.55; }
+.report .ntitle { font-weight: 800; font-size: 13px; margin: 2px 0 6px; }
+.report .ntitle + .nstage { margin-top: 0; }
+.report .nstage { padding: 7px 0; border-top: 1px dashed var(--border); }
+.report .nstage:first-of-type { border-top: none; }
+.report .nhead { font-weight: 700; margin-bottom: 4px; }
+.report .nrow { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin: 3px 0 0 4px; }
+.report .pill-k { display: inline-block; min-width: 46px; text-align: center; padding: 1px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; color: #fff; }
+.report .pill-k.post { background: #002c5f; }
+.report .pill-k.cmt { background: #6b6b45; }
+.report .nchange { color: var(--muted); }
+.report .nchange::before { content: "→ "; }
+.report .nwarn { font-weight: 400; color: var(--red); font-size: 12px; }
+.report .noverall { margin: 0; padding-left: 18px; }
+.report .ntitle:not(:first-child) { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
 #results .opinion { font-size: 11.5px; color: var(--muted); margin-bottom: 3px; }
 .tone { padding: 0 6px; border-radius: 999px; color: #fff; font-size: 11px; }
 .tone-부정 { background: #e00000; }
@@ -297,9 +311,6 @@ body.theme-price .dbtable .chip.main { border-color: #6b6b45; color: #4f4f32; }
 @media (prefers-color-scheme: dark) { body.theme-price .dbtable .chip.main { color: #c9c99a; } }
 body.theme-price .tools a.tool.on { background: rgba(255, 255, 255, 0.18); }
 .diffs[hidden] { display: none; }
-#stageTable { min-width: 980px; }
-#stageTable td:nth-child(-n+4), #stageTable td:nth-child(6), #stageTable td:nth-child(7), #stageTable th { white-space: nowrap; }
-#stageTable td:nth-child(5) { min-width: 210px; }
 /* 여론 글자색: 긍정 파랑 · 중립 녹색 · 부정 빨강 (숫자는 굵게) */
 .t-pos { color: #0070c0; }
 .t-neu { color: #00a046; }
@@ -309,9 +320,21 @@ body.theme-price .tools a.tool.on { background: rgba(255, 255, 255, 0.18); }
 .stage-state { display: inline-block; margin: 8px 0; padding: 5px 12px; border-radius: 999px; font-size: 13px; font-weight: 700; border: 1px solid var(--border); }
 .stage-state.provisional { color: #b3541e; border-color: #e8a06a; background: rgba(243, 112, 33, 0.08); }
 .stage-state.final { color: #fff; background: #002c5f; border-color: #002c5f; }
-#stageTable td:nth-child(5) .hint { white-space: nowrap; }
-.tonebar .blame { background: #7030a0; }
-.t-blame { color: #7030a0; }
-@media (prefers-color-scheme: dark) { .t-blame { color: #c79bff; } }
-#stageTable td:nth-child(8) { min-width: 180px; }
-#stageTable td:nth-child(8) .hint { white-space: nowrap; }
+.tonebar .blame { background: #bf8f00; }
+.t-blame { color: #bf8f00; }
+@media (prefers-color-scheme: dark) { .t-blame { color: #ffcb3d; } }
+/* 여론 변화 표: 가로 스크롤 없이 한 화면에 (칸 너비 고정 · 작은 글씨) */
+#stageTable { table-layout: fixed; width: 100%; font-size: 12.5px; }
+#stageTable col.s-stage { width: 15%; }
+#stageTable col.s-n { width: 7%; }
+#stageTable col.s-tone { width: 19%; }
+#stageTable col.s-raise { width: 10%; }
+#stageTable col.s-cmp { width: 10%; }
+#stageTable col.s-ctone { width: 19%; }
+#stageTable th { font-size: 12px; white-space: normal; }
+#stageTable td { word-break: keep-all; overflow-wrap: anywhere; }
+#stageTable td .hint { font-size: 11px; line-height: 1.4; margin-top: 3px; }
+#stageTable td.sum { font-size: 12px; color: var(--text); }
+#stageTable td.sum .clamp { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+#stageTable .tonebar { min-width: 0; height: 8px; }
+

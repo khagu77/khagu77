@@ -142,11 +142,12 @@
         <div id="stageState" class="stage-state"></div>
         <div class="tablewrap">
           <table id="stageTable" class="compact">
-            <thead><tr><th>구간</th><th>기간</th><th>글 수</th><th>하루 평균</th><th>예상 가격 여론</th><th>예상 인상 폭 평균</th><th>비교 차종 언급</th><th>댓글 여론 <span class="hint">(가격 관련)</span></th><th>여론 요지</th></tr></thead>
+            <colgroup><col class="s-stage"><col class="s-n"><col class="s-tone"><col class="s-raise"><col class="s-cmp"><col class="s-ctone"><col></colgroup>
+            <thead><tr><th>구간 · 기간</th><th>글 수</th><th>예상 가격 여론</th><th>예상 인상 폭 평균</th><th>비교 차종</th><th>댓글 여론 <span class="hint">(가격 관련)</span></th><th>여론 요지</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
-        <pre id="reportText" class="report"></pre>
+        <div id="reportText" class="report"></div>
         <div class="buttons"><button id="writeReport" title="구간별 숫자와 글별 판단으로 예상 가격 여론 변화 보고 요지를 AI 가 씁니다">여론 변화 보고 쓰기</button></div>
       </div>
 

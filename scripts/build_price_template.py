@@ -30,7 +30,7 @@ HYUNDAI_BLUE = "FF002C5F"  # 머리글 행: 현대 블루 바탕 · 흰색 굵�
 RED = "FFE00000"  # 기존 양식의 N 빨강
 BLUE = "FF0070C0"  # 기존 양식의 Y 파랑
 GREEN = "FF00B050"  # 중립 녹색
-PURPLE = "FF7030A0"  # 단순비난 보라
+DARK_YELLOW = "FFBF8F00"  # 단순비난 진한 노랑
 
 # (머리글, 너비, 서식, 모양) 모양: c 가운데 · w 왼쪽 줄바꿈 · l 왼쪽 · u 링크
 POSTS = [
@@ -169,11 +169,11 @@ def table(ws, columns, head_row, header, body):
 
 
 def tone_colors(ws, ref, first):
-    """여론 글자색: 부정 빨강 · 긍정 파랑 (기존 양식의 Y 파랑 · N 빨강과 같은 색) · 중립 녹색 · 단순비난 보라"""
+    """여론 글자색: 부정 빨강 · 긍정 파랑 (기존 양식의 Y 파랑 · N 빨강과 같은 색) · 중립 녹색 · 단순비난 진한 노랑"""
     ws.conditional_formatting.add(ref, FormulaRule(formula=[f'{first}="부정"'], font=Font(color=RED, bold=True)))
     ws.conditional_formatting.add(ref, FormulaRule(formula=[f'{first}="긍정"'], font=Font(color=BLUE, bold=True)))
     ws.conditional_formatting.add(ref, FormulaRule(formula=[f'{first}="중립"'], font=Font(color=GREEN, bold=True)))
-    ws.conditional_formatting.add(ref, FormulaRule(formula=[f'{first}="단순비난"'], font=Font(color=PURPLE, bold=True)))
+    ws.conditional_formatting.add(ref, FormulaRule(formula=[f'{first}="단순비난"'], font=Font(color=DARK_YELLOW, bold=True)))
 
 
 def build():

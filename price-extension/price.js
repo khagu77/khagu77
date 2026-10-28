@@ -1645,25 +1645,57 @@ const fmtPct = (v) => `${Math.round(v * 100)}%`;
 const fmtMan = (v) => (typeof v === "number" ? `${Math.round(v).toLocaleString()}만 원` : "-");
 
 // 숫자로 본 변화 (AI 없이도 늘 씀): 구간마다 한 줄 + 바로 앞 구간 대비 변화
-function numberLines(stats = stageStats()) {
-  const lines = [];
-  stats.forEach((s, k) => {
-    let line = `${s.stage.name} (${ymd(s.from)} ~ ${mmdd(new Date(s.to - DAY))}, ${s.days}일): 글 ${s.n}개(하루 ${s.perDay.toFixed(1)}개) · ` +
-      `긍정 ${fmtPct(s.posRatio)} · 부정 ${fmtPct(s.negRatio)} · 예상 인상 폭 평균 ${fmtMan(s.raiseAvg)}(언급 ${s.expectN}개)` +
-      ` · 가격 관련 댓글 ${s.cn}개(부정·비난 ${fmtPct(s.cNegRatio)} · 단순비난 ${s.ctone["단순비난"]}개)`;
+// 구간마다 → { head, post, postChange, comment, commentChange } (게시글과 댓글을 나눠서)
+function numberParts(stats = stageStats()) {
+  const sign = (v) => `${v >= 0 ? "+" : ""}${v}`;
+  return stats.map((s, k) => {
     const prev = stats[k - 1];
+    const part = {
+      head: `${s.stage.name} (${ymd(s.from)} ~ ${mmdd(new Date(s.to - DAY))}, ${s.days}일)`,
+      post: `글 ${s.n}개(하루 ${s.perDay.toFixed(1)}개) · 긍정 ${fmtPct(s.posRatio)} · 부정 ${fmtPct(s.negRatio)} · 예상 인상 폭 평균 ${fmtMan(s.raiseAvg)}(언급 ${s.expectN}개)`,
+      comment: `가격 관련 댓글 ${s.cn}개 · 부정·비난 ${fmtPct(s.cNegRatio)} · 단순비난 ${s.ctone["단순비난"]}개 · 인상액 평균 ${fmtMan(s.cRaiseAvg)}`,
+      postChange: "", commentChange: "",
+    };
     if (prev && prev.n && s.n) {
-      const dp = Math.round((s.negRatio - prev.negRatio) * 100);
-      line += ` → 직전 구간 대비 하루 글 수 ${prev.perDay.toFixed(1)}→${s.perDay.toFixed(1)}개, 부정 비율 ${dp >= 0 ? "+" : ""}${dp}%p`;
-      if (typeof prev.raiseAvg === "number" && typeof s.raiseAvg === "number") line += `, 예상 인상 폭 ${fmtMan(prev.raiseAvg)}→${fmtMan(s.raiseAvg)}`;
-      if (prev.cn && s.cn) {
-        const dc = Math.round((s.cNegRatio - prev.cNegRatio) * 100);
-        line += `, 댓글 부정·비난 비율 ${dc >= 0 ? "+" : ""}${dc}%p`;
-      }
+      part.postChange = `하루 글 수 ${prev.perDay.toFixed(1)}→${s.perDay.toFixed(1)}개, 부정 비율 ${sign(Math.round((s.negRatio - prev.negRatio) * 100))}%p` +
+        (typeof prev.raiseAvg === "number" && typeof s.raiseAvg === "number" ? `, 예상 인상 폭 ${fmtMan(prev.raiseAvg)}→${fmtMan(s.raiseAvg)}` : "");
     }
-    lines.push(`- ${line}`);
+    if (prev && prev.cn && s.cn) {
+      part.commentChange = `댓글 수 ${prev.cn}→${s.cn}개, 부정·비난 비율 ${sign(Math.round((s.cNegRatio - prev.cNegRatio) * 100))}%p`;
+    }
+    return part;
   });
-  return lines;
+}
+
+// 엑셀·AI 용 글자: 구간마다 제목 한 줄 + [게시글] · [댓글] 줄
+function numberLines(stats = stageStats()) {
+  return numberParts(stats).flatMap((p) => [
+    `- ${p.head}`,
+    `   [게시글] ${p.post}${p.postChange ? ` → 직전 구간 대비 ${p.postChange}` : ""}`,
+    `   [댓글] ${p.comment}${p.commentChange ? ` → 직전 구간 대비 ${p.commentChange}` : ""}`,
+  ]);
+}
+
+// 화면용: 구간마다 제목 + '게시글'·'댓글' 둥근 배지 줄
+function renderNumbers(box, stats, fresh) {
+  const el = (tag, cls, ...kids) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    e.append(...kids);
+    return e;
+  };
+  const row = (kind, label, text, change) =>
+    el("div", "nrow", el("span", `pill-k ${kind}`, label), el("span", "ntext", ...toneText(text)),
+      ...(change ? [el("span", "nchange", "직전 구간 대비 ", ...toneText(change))] : []));
+  box.replaceChildren(
+    el("div", "ntitle", "숫자로 본 변화"),
+    ...numberParts(stats).map((p) => el("div", "nstage", el("div", "nhead", p.head),
+      row("post", "게시글", p.post, p.postChange), row("cmt", "댓글", p.comment, p.commentChange))),
+    ...(report?.overall?.length
+      ? [el("div", "ntitle", "AI 보고 요지", ...(fresh ? [] : [el("span", "nwarn", " (보고를 쓴 뒤 글·판단이 바뀜 - 다시 쓰기 권장)")])),
+        el("ul", "noverall", ...report.overall.map((t) => el("li", "", ...toneText(t))))]
+      : []),
+  );
 }
 
 // 구간 여론 요지: 지금 글로 쓴 AI 보고가 있으면 그것, 없으면 많이 본 글의 요지 3개
@@ -1792,32 +1824,36 @@ function renderStages() {
   tbody.innerHTML = "";
   for (const s of stats) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td class="nowrap"></td><td class="nowrap"></td><td></td><td></td><td><div class="tonebar"><span class="pos"></span><span class="neu"></span><span class="neg"></span></div><div class="hint"></div></td><td></td><td></td><td><div class="tonebar"><span class="pos"></span><span class="neu"></span><span class="neg"></span><span class="blame"></span></div><div class="hint chint"></div></td><td class="sum"></td>`;
-    tr.children[0].textContent = s.stage.name;
-    tr.children[1].textContent = `${ymd(s.from)} ~ ${mmdd(new Date(s.to - DAY))} (${s.days}일)`;
-    tr.children[2].textContent = `${s.n.toLocaleString()}개`;
-    tr.children[3].textContent = s.perDay.toFixed(1);
+    // 칸: 구간(+기간) · 글 수(+하루 평균) · 예상 가격 여론 · 예상 인상 폭 · 비교 차종 · 댓글 여론 · 여론 요지 (가로 스크롤 없이 한 화면에)
+    tr.innerHTML = `<td><b></b><div class="hint"></div></td><td><b></b><div class="hint"></div></td>` +
+      `<td><div class="tonebar"><span class="pos"></span><span class="neu"></span><span class="neg"></span></div><div class="hint"></div></td>` +
+      `<td><b></b><div class="hint"></div></td><td></td>` +
+      `<td><div class="tonebar"><span class="pos"></span><span class="neu"></span><span class="neg"></span><span class="blame"></span></div><div class="hint chint"></div></td>` +
+      `<td class="sum"><div class="clamp"></div></td>`;
+    tr.children[0].querySelector("b").textContent = s.stage.name;
+    tr.children[0].querySelector(".hint").textContent = `${ymd(s.from)} ~ ${mmdd(new Date(s.to - DAY))} (${s.days}일)`;
+    tr.children[1].querySelector("b").textContent = `${s.n.toLocaleString()}개`;
+    tr.children[1].querySelector(".hint").textContent = `하루 ${s.perDay.toFixed(1)}`;
     const [p, u, n] = TONES.map((t) => pct(s.tone[t], s.n) * 100);
-    const bar = tr.querySelector(".tonebar");
+    const bar = tr.children[2].querySelector(".tonebar");
     bar.children[0].style.width = `${p}%`;
     bar.children[1].style.width = `${u}%`;
     bar.children[2].style.width = `${n}%`;
-    tr.querySelector("td .hint").replaceChildren(...toneText(`긍정 ${Math.round(p)}% · 중립 ${Math.round(u)}% · 부정 ${Math.round(n)}%`));
-    tr.children[5].textContent = `${fmtMan(s.raiseAvg)} (${s.expectN}개)`;
-    tr.children[6].replaceChildren(...compareCars().map((c) => Object.assign(document.createElement("div"), { textContent: `${c} ${s.cars[c]}` })));
-    const cbar = tr.children[7].querySelector(".tonebar");
+    tr.children[2].querySelector(".hint").replaceChildren(...toneText(`긍정 ${Math.round(p)}% · 중립 ${Math.round(u)}% · 부정 ${Math.round(n)}%`));
+    tr.children[3].querySelector("b").textContent = fmtMan(s.raiseAvg);
+    tr.children[3].querySelector(".hint").textContent = `언급 ${s.expectN}개`;
+    tr.children[4].textContent = compareCars().map((c) => `${c} ${s.cars[c]}`).join(" · ");
+    const cbar = tr.children[5].querySelector(".tonebar");
     C_TONES.forEach((t, k) => (cbar.children[k].style.width = `${pct(s.ctone[t], s.cn) * 100}%`));
-    tr.children[7].querySelector(".chint").replaceChildren(
+    tr.children[5].querySelector(".chint").replaceChildren(
       `${s.cn}개 · `, ...toneText(`부정·비난 ${Math.round(s.cNegRatio * 100)}% · 단순비난 ${s.ctone["단순비난"]}개`),
     );
-    tr.children[8].textContent = stageNote(s, fresh);
+    const note = stageNote(s, fresh);
+    tr.children[6].querySelector(".clamp").textContent = note;
+    tr.children[6].title = note; // 4줄이 넘으면 마우스를 올려 전체
     tbody.appendChild(tr);
   }
-  const text = [
-    "숫자로 본 변화", ...numberLines(stats),
-    ...(report?.overall?.length ? ["", `AI 보고 요지${fresh ? "" : " (보고를 쓴 뒤 글·판단이 바뀜 - 다시 쓰기 권장)"}`, ...report.overall.map((t) => `- ${t}`)] : []),
-  ].join("\n");
-  $("#reportText").replaceChildren(...toneText(text));
+  renderNumbers($("#reportText"), stats, fresh);
   $("#writeReport").disabled = running || !stats.some((s) => s.n);
   const st = stageState();
   const badge = $("#stageState");

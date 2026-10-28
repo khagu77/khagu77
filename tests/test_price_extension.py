@@ -72,7 +72,7 @@ def test_template():
     assert ws["B3"].alignment.horizontal == "center" and ws.freeze_panes == "A4"
     assert [c.value for c in wb["구간별 여론"][5]][1:5] == ["구간", "기간", "일수", "글 수"]
     colors = {r.formula[0].split('"')[1]: r.dxf.font.color.rgb for cf in ws.conditional_formatting for r in cf.rules}
-    assert colors == {"부정": "FFE00000", "긍정": "FF0070C0", "중립": "FF00B050", "단순비난": "FF7030A0"}
+    assert colors == {"부정": "FFE00000", "긍정": "FF0070C0", "중립": "FF00B050", "단순비난": "FFBF8F00"}
     # 댓글: 금액·인상액 언급이 있으면 댓글 내용·금액·인상액 칸 빨강
     red = [(str(cf.sqref), r.formula[0], r.dxf.font.color.rgb) for cf in wb["댓글"].conditional_formatting for r in cf.rules if "OR" in r.formula[0]]
     assert red == [("K4:K50000 N4:P50000", 'OR($N4<>"",$O4<>"")', "FFE00000")], red
@@ -314,9 +314,12 @@ def test_price(tmp_path: Path):
         # 여론 변화 표 (화면)
         page.locator("#stageTable tbody tr").nth(2).wait_for()
         st = page.locator("#stageTable tbody tr")
-        assert [st.nth(i).locator("td").first.inner_text() for i in range(3)] == ["① 아반떼 가격 공개 전", "② 아반떼 가격 공개 후", "③ 투싼 가격 공개 후"]
-        assert st.nth(0).locator("td").nth(2).inner_text() == "2개" and "250만 원" in st.nth(0).locator("td").nth(5).inner_text()
-        assert "투싼 1" in st.nth(1).locator("td").nth(6).inner_text()
+        assert [st.nth(i).locator("td b").first.inner_text() for i in range(3)] == ["① 아반떼 가격 공개 전", "② 아반떼 가격 공개 후", "③ 투싼 가격 공개 후"]
+        assert "2026-09-01 ~ 10-11 (41일)" in st.nth(0).locator("td").first.inner_text()
+        assert st.nth(0).locator("td").nth(1).locator("b").inner_text() == "2개" and "250만 원" in st.nth(0).locator("td").nth(3).inner_text()
+        assert "투싼 1" in st.nth(1).locator("td").nth(4).inner_text()
+        # 가로 스크롤 없이 한 화면에
+        assert page.evaluate("(() => { const w = document.querySelector('#stageBox .tablewrap'); return w.scrollWidth <= w.clientWidth; })()")
         assert "숫자로 본 변화" in page.inner_text("#reportText") and "부정 비율" in page.inner_text("#reportText")
         # 본문을 모두 읽은 뒤: 확정치 · 여론 글자에 색(부정 빨강 · 긍정 파랑 · 중립 녹색), 숫자는 굵게
         page.locator("#stageState", has_text="확정치").wait_for()
