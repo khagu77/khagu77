@@ -112,3 +112,58 @@ function prettyDate(ymd8) {
   const d = new Date(Number(ymd8.slice(0, 4)), Number(ymd8.slice(4, 6)) - 1, Number(ymd8.slice(6, 8)));
   return `${ymd8.slice(0, 4)}-${ymd8.slice(4, 6)}-${ymd8.slice(6, 8)} (${"일월화수목금토"[d.getDay()]})`;
 }
+
+// 댓글 raw data 파일 → 시트별 마지막 연번 (최종 DB '내용' 칸, 한 줄에 한 채널)
+const RAW_SHEETS = ["언론", "유튜브", "동호회", "자동차 커뮤니티"];
+async function rawSummary(wb) {
+  const names = wb.sheetNames();
+  const lines = ["마지막 연번"];
+  for (const name of RAW_SHEETS) {
+    if (!names.includes(name)) continue;
+    let last = 0;
+    for (const r of await wb.readRows(name)) {
+      const n = Number(r.cells.A);
+      if (r.r > 1 && r.cells.A !== undefined && r.cells.A !== "" && Number.isFinite(n)) last = Math.max(last, n);
+    }
+    lines.push(`${name} ${last.toLocaleString()}`);
+  }
+  return lines.join("\n");
+}
+
+// 예전 모양('동호회 마지막 연번 …')으로 저장된 raw data 기록의 '내용'을 채널별로 다시 만든다 (한 번만)
+async function refreshRawSummaries() {
+  let changed = 0;
+  for (const rec of await dbList("raw")) {
+    if (!/^동호회 마지막 연번/.test(rec.summary || "")) continue;
+    try {
+      const summary = await rawSummary(await XlsxTemplate.Workbook.open(rec.bytes));
+      await dbTx("readwrite", (s) => s.put({ ...rec, summary }));
+      changed++;
+    } catch {
+      /* 못 읽는 파일은 그대로 둔다 */
+    }
+  }
+  return changed;
+}
+
+// 채널 이름 → 색깔 둥근 상자 (언론 현대차 블루 · 유튜브 빨강 · 동호회 네이버 녹색 · 자동차 커뮤니티 보라)
+const CHANNEL_CLASS = { 언론: "news", 유튜브: "yt", 동호회: "cafe", "자동차 커뮤니티": "comm" };
+function channelChip(name) {
+  const span = document.createElement("span");
+  span.className = `ch ch-${CHANNEL_CLASS[name] || "etc"}`;
+  span.textContent = name;
+  return span;
+}
+
+// 최종 DB '내용' 칸: "마지막 연번\n언론 1,355\n…" → 줄마다 채널 색깔 상자 + 번호
+function summaryNodes(summary) {
+  const lines = String(summary || "").split("\n");
+  if (lines.length < 2) return [String(summary || "")];
+  return lines.map((line, i) => {
+    const div = document.createElement("div");
+    const name = i > 0 && Object.keys(CHANNEL_CLASS).find((c) => line.startsWith(`${c} `));
+    if (name) div.append(channelChip(name), line.slice(name.length));
+    else div.textContent = line;
+    return div;
+  });
+}

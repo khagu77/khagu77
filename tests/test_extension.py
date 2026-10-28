@@ -767,8 +767,14 @@ def test_final_db(tmp_path: Path):
         # 6) 댓글 수집도 최종 DB 의 raw data 에 이어 씀
         page.goto(f"{ext}/db.html")
         db_upload("raw", "파일 등록", raw)
+        # '내용' 칸: 시트별 마지막 연번 (언론 → 유튜브 → 동호회 → 자동차 커뮤니티, 한 줄에 하나)
+        assert "마지막 연번\n언론 1\n유튜브 3\n동호회 2\n자동차 커뮤니티 1" in db_rows("raw")[0], db_rows("raw")
+        # 예전 버전이 저장한 모양('동호회 마지막 연번 …')은 화면을 열 때 채널별로 바뀐다
         page.evaluate("""async () => { const r = (await dbList('raw')).find((x) => x.date === '20261008');
-          r.stats = { comments: 10, youtube: 2 }; await dbTx('readwrite', (s) => s.put(r)); }""")
+          r.stats = { comments: 10, youtube: 2 }; r.summary = '동호회 마지막 연번 2'; await dbTx('readwrite', (s) => s.put(r)); }""")
+        page.reload()
+        page.locator("section[data-kind=raw] tbody tr", has_text="자동차 커뮤니티 1").wait_for(timeout=10000)
+        assert "동호회 마지막 연번" not in db_rows("raw")[0]
         page.goto(f"{ext}/app.html")
         page.locator("#templateInfo", has_text="최종 DB 파일(2026-10-08").wait_for()
         page.fill("#urls", "https://youtu.be/abcdefghijk")
@@ -786,6 +792,7 @@ def test_final_db(tmp_path: Path):
         assert [r[3] for r in list(wb["유튜브"].values)[1:]] == ["좋아요", "답글이에요", "멋져요", "마지막"]
         page.goto(f"{ext}/db.html")
         assert len(db_rows("raw")) == 2 and "최종" in db_rows("raw")[0]
+        assert "마지막 연번\n언론 1\n유튜브 4\n동호회 2\n자동차 커뮤니티 1" in db_rows("raw")[0], db_rows("raw")  # 유튜브는 오늘 수집으로 교체
         ctx.close()
     assert not any("첨부하지 않았고" in m or "고르지 않았고" in m for m in dialogs), dialogs
 

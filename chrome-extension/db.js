@@ -24,12 +24,7 @@ async function summarize(kind, bytes) {
   for (const need of ["동호회", "유튜브"]) {
     if (!names.includes(need)) throw new Error(`'${need}' 시트가 없습니다. 댓글 raw data 파일이 맞는지 확인해 주세요.`);
   }
-  let last = 0;
-  for (const r of await wb.readRows("동호회")) {
-    const n = Number(r.cells.A);
-    if (r.r > 1 && Number.isFinite(n) && r.cells.A !== undefined) last = Math.max(last, n);
-  }
-  return `동호회 마지막 연번 ${last.toLocaleString()}`;
+  return rawSummary(wb);
 }
 
 function setInfo(text, cls = "") {
@@ -41,8 +36,8 @@ function setInfo(text, cls = "") {
 function fillCounts(td, kind, rows, i) {
   const fields =
     kind === "buzz"
-      ? [["posts", "게시물"], ["news", "· 언론"], ["youtube", "· 유튜브"], ["cafe", "· 동호회"], ["community", "· 자동차 커뮤니티"]]
-      : [["news", "언론 댓글"], ["comments", "카페 댓글"], ["community", "커뮤니티 댓글"], ["youtube", "유튜브"]];
+      ? [["posts", "게시물"], ["news", "언론"], ["youtube", "유튜브"], ["cafe", "동호회"], ["community", "자동차 커뮤니티"]]
+      : [["news", "언론"], ["youtube", "유튜브"], ["comments", "동호회"], ["community", "자동차 커뮤니티"]];
   // 게시물: 채널을 둘 이상 기록한 날만 채널별 줄도 (하나뿐이면 합계와 같음)
   const channels = kind === "buzz" ? ["news", "youtube", "cafe", "community"].filter((f) => rows[i].stats?.[f] != null).length : 0;
   for (const [field, label] of fields) {
@@ -52,7 +47,9 @@ function fillCounts(td, kind, rows, i) {
     const prev = rows.slice(i + 1).find((r) => r.stats?.[field] !== undefined && r.stats?.[field] !== null);
     const d = { today: v, prev: prev ? prev.stats[field] : null, prevDate: prev?.date || null, diff: prev ? v - prev.stats[field] : null };
     const line = document.createElement("div");
-    line.append(`${label} ${v.toLocaleString()}건 `, diffBadge(d));
+    // 채널은 색깔 상자로 (게시물 합계만 글자)
+    if (CHANNEL_CLASS[label]) line.append(channelChip(label), ` ${v.toLocaleString()}건 `, diffBadge(d));
+    else line.append(`${label} ${v.toLocaleString()}건 `, diffBadge(d));
     td.append(line);
   }
   if (!td.childNodes.length) td.textContent = "-";
@@ -71,14 +68,20 @@ async function render() {
     rows.forEach((rec, i) => {
       const tr = document.createElement("tr");
       tr.innerHTML =
-        `<td class="nowrap"></td><td></td><td></td><td class="counts"></td><td class="nowrap"></td>` +
-        `<td class="nowrap"><button class="small get">받기</button> <button class="small up">수정본 올리기</button> <button class="small danger del">삭제</button></td>`;
+        `<td class="nowrap"></td><td></td><td></td><td class="counts"></td><td class="saved"></td>` +
+        `<td class="acts"><button class="small get">받기</button><button class="small up">수정본 올리기</button><button class="small danger del">삭제</button></td>`;
       tr.children[0].textContent = prettyDate(rec.date) + (i === 0 ? " · 최종" : "");
       if (i === 0) tr.className = "final";
       tr.children[1].textContent = rec.name;
-      tr.children[2].textContent = rec.summary || "";
+      tr.children[2].replaceChildren(...summaryNodes(rec.summary));
+      tr.children[2].className = "sum";
       fillCounts(tr.children[3], kind, rows, i);
-      tr.children[4].textContent = `${new Date(rec.savedAt).toLocaleString()} · ${rec.source === "upload" ? "직접 올림" : "자동 저장"}`;
+      // 저장: 날짜 / 시각 / 자동 저장·직접 올림 을 줄마다 (칸을 좁혀 수집 건수 칸을 넓게)
+      const at = new Date(rec.savedAt);
+      const h = at.getHours();
+      tr.children[4].textContent =
+        `${prettyDate(`${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}`)}\n` +
+        `${h < 12 ? "오전" : "오후"} ${h % 12 || 12}:${pad(at.getMinutes())}\n${rec.source === "upload" ? "직접 올림" : "자동 저장"}`;
       tr.querySelector(".get").addEventListener("click", () => downloadBytes(rec.bytes, rec.name));
       tr.querySelector(".up").addEventListener("click", () => {
         pickFor = { kind, date: rec.date };
@@ -129,3 +132,5 @@ for (const sec of document.querySelectorAll("section[data-kind]")) {
 }
 $("#picker").addEventListener("change", (e) => onPicked(e.target.files[0]));
 render();
+// 예전 모양('동호회 마지막 연번 …')의 댓글 raw data 기록은 채널별 마지막 연번으로 한 번 바꿔 둔다
+refreshRawSummaries().then((n) => n && render());

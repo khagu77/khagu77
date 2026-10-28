@@ -153,3 +153,21 @@ html.nav-guard, html.nav-guard body { overscroll-behavior-x: none; }
 .yt-new-label { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .yt-icon { width: 28px; height: 20px; flex: none; }
 .yt-badge { background: #ff0000; color: #fff; font-weight: 700; font-size: 13px; padding: 4px 12px; border-radius: 999px; }
+
+/* 최종 DB '내용' 칸: 채널별 마지막 연번을 줄마다 */
+.dbtable td.sum { white-space: pre; }
+
+/* 채널 색깔 상자 (최종 DB): 언론 현대차 블루 · 유튜브 빨강 · 동호회 네이버 녹색 · 자동차 커뮤니티 보라 */
+.ch { display: inline-block; padding: 1px 8px; margin: 1px 4px 1px 0; border-radius: 999px; color: #fff; font-weight: 700; font-size: 12px; line-height: 1.6; }
+.ch-news { background: #002c5f; }
+@media (prefers-color-scheme: dark) { .ch-news { background: #1f5fa8; } }
+.ch-yt { background: #ff0000; }
+.ch-cafe { background: #03c75a; }
+.ch-comm { background: #7b3fe4; }
+.ch-etc { background: #6b7280; }
+.dbtable td.counts div { white-space: nowrap; }
+.dbtable td.saved { white-space: pre; font-size: 12.5px; color: var(--muted); }
+.dbtable td.counts { min-width: 230px; }
+/* 받기 · 수정본 올리기 · 삭제 를 위아래로 (칸을 좁게) */
+.dbtable td.acts { width: 1%; }
+.dbtable td.acts button { display: block; width: 100%; margin: 2px 0; white-space: nowrap; }

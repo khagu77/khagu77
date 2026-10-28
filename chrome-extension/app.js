@@ -869,8 +869,9 @@ async function run(state) {
     let dbNote = "";
     if (!separateFile()) {
       // 오늘의 최종 파일로 최종 DB 에 저장하고, 다음 수집은 이 파일에 이어 쓴다
-      const last = out.rows.cafe.length ? out.rows.cafe[out.rows.cafe.length - 1][0] : out.info?.cafeLastSerial || 0;
-      await dbSaveDay("raw", today(), name, out.bytes, "auto", `동호회 마지막 연번 ${Number(last).toLocaleString()}`, {
+      // '내용' 칸: 시트별(언론·유튜브·동호회·자동차 커뮤니티) 마지막 연번
+      const summary = await rawSummary(await XlsxTemplate.Workbook.open(out.bytes)).catch(() => "");
+      await dbSaveDay("raw", today(), name, out.bytes, "auto", summary, {
         comments: out.rows.cafe.length,
         news: results.some((r) => r.platform === "news") ? out.rows.news.length : undefined,
         community: results.some((r) => r.platform === "community") ? out.rows.comm.length : undefined,
