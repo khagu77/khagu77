@@ -272,8 +272,15 @@ def test_price(tmp_path: Path):
         assert "본문·댓글 확인 전 글 2개 포함" in page.inner_text("#stageState") and "본문에서 확인할 글 4개 남음" in page.inner_text("#stageState")
 
         # 본문 읽기 + 규칙 요약 (AI 없음): 작성자 닉네임·조회수·댓글수도 읽고, 본문에서 확인할 글도 연다
+        # 버튼 이름: 읽을 글 수 (체크한 글 2 + 본문에서 확인할 글 4)
+        assert page.inner_text("#readBodies").startswith("본문·댓글 읽고 요약하기 (6개")
         page.click("#readBodies")
         page.locator("#summary", has_text="규칙으로 요약했습니다").wait_for(timeout=180000)
+        page.locator("#readBodies", has_text="모두 읽음").wait_for()
+        # 예전 버전에서 요약만 한 글(댓글 안 읽음): 댓글만 읽는다는 이름
+        page.evaluate("items.find(x => x.key === 'iroid/2001').commentsRead = false; updateCounts()")
+        assert page.inner_text("#readBodies").startswith("댓글 읽고 분석하기 (1개")
+        page.evaluate("items.find(x => x.key === 'iroid/2001').commentsRead = true; updateCounts()")
         assert not errors, errors
         checked = page.evaluate("items.filter(x => x.checked).map(x => x.key).sort()")
         assert checked == ["choids/3003", "iroid/2001", "trailer/1001", "trailer/1004"], checked
