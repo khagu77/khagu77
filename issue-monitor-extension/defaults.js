@@ -44,8 +44,8 @@ const DEFAULT_CAFES = [
   ["싼타페 MX5 패밀리", "trailer", "MX5"],
   ["클럽 싼타페", "iroid", "MX5"],
   ["싼타페 MX5 클럽", "choids", "MX5"],
-  ["클럽 투싼", "musiclord", "NX4 PE / NX4"],
-  ["올뉴투싼 매니아", "shiftouch", "NX4 PE / NX4"],
+  ["클럽 투싼", "musiclord", "NX4 PE / NX5 / NX4"],
+  ["올뉴투싼 매니아", "shiftouch", "NX4 PE / NX5 / NX4"],
   ["코나 패밀리", "jsmusic", "SX2"],
   ["클럽 베뉴", "krzr", "QX"],
   ["캐스퍼 매니아", "cafe2078", "AX PE / AX"],
@@ -132,7 +132,7 @@ SX2: 코나 (2세대, 2023~현재)
 OS PE: 코나 (1세대 F/L, 2020~2023)
 OS: 코나 (1세대, 2017~2020)
 # 현대 투싼
-NX4 PE: 투싼, 투산 (4세대 F/L, 2023~현재)
+NX4 PE: 투싼, 투산 (4세대 F/L, 2023~2026)
 NX4: 투싼, 투산 (4세대, 2020~2023)
 TL PE: 투싼, 투산 (3세대 F/L, 2018~2020)
 TL: 투싼, 투산 (3세대, 2015~2018)
@@ -242,10 +242,12 @@ JG: GV90 (대형 전기 SUV, 출시/양산 코드 확인 필요)
 
 # 지난 보고서에서 쓰였지만 정리표에 없는 코드
 CN8: 차세대 아반떼, 디 올 뉴 아반떼 (8세대, 신차)
-NX5: 차세대 투싼, 신형 투싼, 디 올 뉴 투싼 (5세대, 신차)
+NX5: 신형 투싼, 차세대 투싼, 5세대 투싼, 투싼 풀체인지 (5세대 '디 올 뉴 투싼', 2026~현재 · 2026-10-27 출고 시작, 집중 모니터링 신차)
 ST1: ST1, ST-1, 에스티원, 에스티1 (스타리아 기반 상용 전기 밴·카고·냉동탑차, 2024~현재)
 NX4 N: 투싼 N
 CN7 N: 아반떼 N (2021~현재)`;
+
+const NX5_LINE = "NX5: 신형 투싼, 차세대 투싼, 5세대 투싼, 투싼 풀체인지 (5세대 '디 올 뉴 투싼', 2026~현재 · 2026-10-27 출고 시작, 집중 모니터링 신차)";
 
 // 부정 이슈 키워드: "구분: 단어, 단어" 한 줄에 하나. 제외 = 이 말이 제목에 있으면 키워드 모드에서 뺀다.
 // 안전사고 경고성 글 (사고는 안 났지만 위험했다·조심하라는 글) — 품질 후보 키워드 (2026-10-22)
@@ -375,7 +377,7 @@ const MODELS = [
 ];
 
 // 예전 버전에서 저장한 설정에 새 기본값을 보태 준다
-const SETTINGS_VERSION = 13;
+const SETTINGS_VERSION = 14;
 function migrateSettings(s) {
   if ((s.settingsVersion || 1) < 2 && typeof s.keywords === "string") {
     const add = "출고 대기, 출고대기, 출고 기다, 검수 업체, 검수업체, 검수 대행, 검수대행, 광고, 홍보, 오일교환, 오일 교환".split(", ");
@@ -416,6 +418,16 @@ function migrateSettings(s) {
   if ((s.settingsVersion || 1) < 12) {
     // 용어 통일: 방지턱 주행 시 → 요철 등 주행 시
     if (s.terms && !/방지턱/.test(s.terms)) s.terms = `${s.terms.replace(/\s+$/, "")}\n과속방지턱, 방지턱 > 요철 등`;
+  }
+  if ((s.settingsVersion || 1) < 14) {
+    // 디 올 뉴 투싼(NX5) 2026-10-27 출고 시작 → 집중 모니터링 신차 (담당자 지정 2026-10-28)
+    if (typeof s.carCodes === "string") {
+      s.carCodes = /^NX5:/m.test(s.carCodes) ? s.carCodes.replace(/^NX5:.*$/m, () => NX5_LINE) : `${s.carCodes.replace(/\s+$/, "")}\n${NX5_LINE}`;
+      s.carCodes = s.carCodes.replace(/^(NX4 PE:.*\(4세대 F\/L, 2023)~현재\)/m, "$1~2026)");
+    }
+    for (const c of s.cafes || []) if (["musiclord", "shiftouch"].includes(c.id) && c.car && !/NX5/.test(c.car)) c.car = c.car.replace(/^NX4 PE/, "NX4 PE / NX5");
+    const pc = String(s.priorityCars || "").split(",").map((x) => x.trim()).filter(Boolean);
+    if (!pc.includes("NX5")) s.priorityCars = [...pc, "NX5"].join(", ");
   }
   if ((s.settingsVersion || 1) < 13 && typeof s.keywords === "string") {
     // 안전사고 경고성 글도 후보로 (담당자 지정 2026-10-22)

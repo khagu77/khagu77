@@ -1636,6 +1636,8 @@ function applyGenTags(src, items, judged) {
     if (!/디\s*올\s*뉴|디올뉴|all\s*new/i.test(`${it.title}\n${it.body || ""}`)) continue;
     const hints = String(it.carHint || "").split("/").map((x) => x.trim()).filter(Boolean);
     if (hints.length < 2) continue;
+    // 투싼은 4세대(NX4)도 '디 올 뉴 투싼'이라 세대 표시만으로 정하지 않는다 (담당자 지정 2026-10-28)
+    if (hints.includes("NX5")) continue;
     const newest = hints.slice().sort((a, b) => yr(b) - yr(a))[0];
     if (!yr(newest)) continue;
     j.car_code = newest;
