@@ -549,6 +549,16 @@ def test_lx3(tmp_path: Path):
         page.reload()
         rows.nth(3).wait_for()
         assert rows.count() == 4 and checks() == [False] * 4
+        # 체크만 바꿔도 바로 저장 → 다시 열어도 그대로
+        page.click("#selAll")
+        rows.nth(1).locator("input").uncheck()
+        for _ in range(50):
+            if page.evaluate("chrome.storage.local.get('lx3Last').then((x) => x.lx3Last.items.filter((i) => i.checked).length)") == 3:
+                break
+            page.wait_for_timeout(100)
+        page.reload()
+        rows.nth(3).wait_for()
+        assert checks() == [True, False, True, True], checks()
         page.click("#selAll")
         # 동호회 이름·영문 주소가 설정 표에 채워진다
         assert page.locator("#cafeInfo tbody tr").nth(1).locator("td").nth(2).text_content() == "BB 오너스 - 비비"

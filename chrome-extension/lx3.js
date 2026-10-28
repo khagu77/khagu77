@@ -865,6 +865,7 @@ function renderResults() {
       item.touched = true;
       tr.className = item.checked ? "" : "off";
       updateCounts();
+      saveLast(); // 체크만 바꿔도 바로 저장 (다시 열어도 그대로)
     });
     tr.children[1].textContent = item.date ? formatDateTime(item.date, item.hasTime) + (item.approx ? " 무렵" : "") : "날짜 모름";
     tr.children[2].textContent = isCafeItem(item) ? cafeNames[item.cafeId] || item.cafeId : `${item.channel} · ${item.media || hostName(item.url)}`;
@@ -1269,6 +1270,7 @@ async function init() {
           if (!x.touched && !x.dup) x.checked = x.related;
         }
         renderResults();
+        saveLast();
       }
     });
   }
@@ -1311,6 +1313,7 @@ async function init() {
       x.touched = true;
     }
     renderResults();
+    saveLast();
   };
   $("#selAll").addEventListener("click", () => setChecks(() => true));
   $("#selNone").addEventListener("click", () => setChecks(() => false));
@@ -1328,6 +1331,7 @@ async function init() {
       x.touched = true;
     }
     renderResults();
+    saveLast();
   });
   $("#listFile").addEventListener("change", (e) => loadListFile(e.target.files[0]));
   $("#saveList").addEventListener("click", saveList);
