@@ -982,6 +982,10 @@ PPOM_LIST = (
 )
 
 
+# 유튜브 영상 화면 (제목·채널·게시일 + 댓글 첫 토큰)
+YT_INFO_HTML = YT_HTML.replace('"author":"채널A"}};', '"author":"채널A"},"microformat":{"playerMicroformatRenderer":{"publishDate":"2026-10-22T09:30:00+09:00"}}};')
+
+
 def start_fake_sites(tmp_path: Path):
     """search.naver.com · n.news.naver.com · 보배드림 · 클리앙 · 뽐뿌 를 한 서버로 (Host 머리글로 나눔)."""
     from urllib.parse import parse_qs, urlparse
@@ -1054,6 +1058,10 @@ def test_lx3_news_community(tmp_path: Path):
         cbox_calls = []
         ctx.route("https://apis.naver.com/**", lambda route: (cbox_calls.append(route.request.url), route.fulfill(
             status=200, content_type="text/javascript; charset=utf-8", body=news_cbox(route.request.url))))
+        ctx.route("https://www.youtube.com/**", lambda route: route.fulfill(
+            status=200, content_type="application/json" if "/youtubei/" in route.request.url else "text/html",
+            body=json.dumps(YT_PAGES.get(json.loads(route.request.post_data or "{}").get("continuation"), {}))
+            if "/youtubei/" in route.request.url else YT_INFO_HTML))
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext = f"chrome-extension://{sw.url.split('/')[2]}"
         page = ctx.new_page()
@@ -1108,6 +1116,22 @@ def test_lx3_news_community(tmp_path: Path):
         assert not any("/cm_car/112" in r for r in server.requests)  # 키워드 없는 글은 열지 않음
         assert not errors, errors
 
+        # 유튜브 새 콘텐츠: 링크를 넣으면 제목·채널·게시일을 읽어 결과 표에 (언론 다음 자리) + 댓글 수집 목록에 자동 추가
+        page.evaluate("youtube.length = 0; saveYoutube()")
+        page.fill("#ytNew", "https://youtu.be/abcdefghijk 엉뚱한주소")
+        page.click("#ytNewAdd")
+        page.locator("#ytNewInfo", has_text="✔").wait_for(timeout=30000)
+        assert "유튜브 영상 1개를 결과 표에 넣고 댓글 수집 유튜브 목록에도 추가했습니다" in page.inner_text("#ytNewInfo")
+        assert page.input_value("#ytNew") == "엉뚱한주소"
+        assert page.locator("#ytList li a").all_inner_texts() == ["https://www.youtube.com/watch?v=abcdefghijk"]
+        r = rows.nth(2)
+        assert [r.locator("td").nth(i).inner_text() for i in (1, 2, 3, 4)] == [
+            "2026-10-22 09:30", "유튜브 · 채널A", "테스트 영상 {괄호}", "https://www.youtube.com/watch?v=abcdefghijk"] and r.locator("input").is_checked()
+        page.fill("#ytNew", "https://www.youtube.com/watch?v=abcdefghijk")
+        page.click("#ytNewAdd")  # 같은 영상은 한 번만
+        page.locator("#ytNewInfo", has_text="새로 넣은 영상이 없습니다").wait_for(timeout=10000)
+        assert rows.count() == 7 and page.locator("#ytList li").count() == 1
+
         # 엑셀: 채널·매체명·날짜·URL
         page.check("#separate")
         with page.expect_download() as dl:
@@ -1119,11 +1143,13 @@ def test_lx3_news_community(tmp_path: Path):
         assert [(v[0], v[1], v[2], v[3].date().isoformat(), v[5]) for v in vals] == [
             (1, "언론", "연합뉴스", "2026-10-21", "https://n.news.naver.com/mnews/article/001/0000000001"),
             (2, "언론", "컨슈머치", "2026-10-22", "https://www.consumuch.com/news/articleView.html?idxno=79352&iqfrm=naver"),
-            (3, "자동차 커뮤니티", "보배드림", "2026-10-21", "https://www.bobaedream.co.kr/view?code=national&No=2398545"),
-            (4, "자동차 커뮤니티", "클리앙", "2026-10-21", "https://www.clien.net/service/board/cm_car/111"),
-            (5, "자동차 커뮤니티", "뽐뿌", "2026-10-22", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980150"),
-            (6, "자동차 커뮤니티", "뽐뿌", "2026-10-22", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980149"),
+            (3, "유튜브", "채널A", "2026-10-22", "https://www.youtube.com/watch?v=abcdefghijk"),
+            (4, "자동차 커뮤니티", "보배드림", "2026-10-21", "https://www.bobaedream.co.kr/view?code=national&No=2398545"),
+            (5, "자동차 커뮤니티", "클리앙", "2026-10-21", "https://www.clien.net/service/board/cm_car/111"),
+            (6, "자동차 커뮤니티", "뽐뿌", "2026-10-22", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980150"),
+            (7, "자동차 커뮤니티", "뽐뿌", "2026-10-22", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980149"),
         ], vals
+        assert vals[2][4] == "테스트 영상 {괄호}"
 
         # 이미 파일에 있는 글: 같은 기사를 다른 주소 모양(sid·iqfrm 없음)으로 넣은 파일에 이어 쓰면 체크가 풀린다
         page.uncheck("#separate")
@@ -1133,14 +1159,15 @@ def test_lx3_news_community(tmp_path: Path):
         ws = wb.worksheets[0]
         ws.append([None, 99, "언론", "연합뉴스", None, "예전에 넣은 기사", "https://n.news.naver.com/mnews/article/001/0000000001?sid=103"])
         ws.append([None, 100, "언론", "컨슈머치", None, "예전에 넣은 기사", "https://www.consumuch.com/news/articleView.html?idxno=79352"])
+        ws.append([None, 101, "유튜브", "채널A", None, "예전에 넣은 영상", "https://youtu.be/abcdefghijk"])
         wb.save(old)
         page.set_input_files("#listFile", str(old))
         page.locator("#listFileInfo", has_text="✔").wait_for()
-        assert [rows.nth(i).locator("input").is_checked() for i in range(2)] == [False, False]
-        assert "이미 파일에 있음" in rows.nth(0).inner_text() and "이미 파일에 있음" in rows.nth(1).inner_text()
+        assert [rows.nth(i).locator("input").is_checked() for i in range(3)] == [False, False, False]
+        assert all("이미 파일에 있음" in rows.nth(i).inner_text() for i in range(3))
         page.set_input_files("#listFile", [])
         page.check("#separate")
-        for i in range(2):
+        for i in range(3):
             rows.nth(i).locator("input").check()
 
         # 댓글 수집으로: 언론은 네이버 뉴스 기사만 (언론사 사이트 기사는 댓글이 없어 뺌)
@@ -1148,13 +1175,14 @@ def test_lx3_news_community(tmp_path: Path):
         page.click("#toComments")
         page.wait_for_url("**/app.html")
         handoff = page.inner_text("#handoff")
-        assert "언론 기사 1개, 커뮤니티 글 4개" in handoff and "언론사 자체 사이트 기사 1개는" in handoff, handoff
+        assert "언론 기사 1개, 커뮤니티 글 4개, 유튜브 영상 1개" in handoff and "언론사 자체 사이트 기사 1개는" in handoff, handoff
         assert page.input_value("#urls").split("\n") == [
             "https://n.news.naver.com/mnews/article/001/0000000001",
             "https://www.bobaedream.co.kr/view?code=national&No=2398545",
             "https://www.clien.net/service/board/cm_car/111",
             "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980150",
             "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980149",
+            "https://www.youtube.com/watch?v=abcdefghijk",  # 체크한 유튜브 새 콘텐츠도 댓글 수집 ('목록도 함께'는 끔)
         ]
         page.check("#separate")
         with page.expect_download(timeout=240000) as dl:
@@ -1190,6 +1218,7 @@ def test_lx3_news_community(tmp_path: Path):
         assert any("parentCommentNo=1" in u for u in cbox_calls)  # 답글도 읽음
         summary = page.inner_text("#summary")
         assert "언론 3개 추가" in summary and "자동차 커뮤니티 11개 추가" in summary, summary
+        assert [r[3] for r in list(wb["유튜브"].values)[1:]] == ["좋아요", "답글이에요", "멋져요", "마지막"]
         assert not errors, errors
         ctx.close()
     server.shutdown()

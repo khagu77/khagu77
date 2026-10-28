@@ -31,6 +31,12 @@
         <label class="inline"><input type="checkbox" id="chCommunity" checked> 자동차 커뮤니티 <span class="hint">(보배드림 · 클리앙 · 뽐뿌)</span></label>
       </div>
       <div class="row">
+        <span class="hint">유튜브 새 콘텐츠</span>
+        <input type="text" id="ytNew" class="full" spellcheck="false" placeholder="게시물 엑셀에 넣을 유튜브 영상 주소 (여러 개는 줄바꿈·띄어쓰기로 구분)">
+        <button id="ytNewAdd" class="small" title="게시물 엑셀에 넣고, 아래 '유튜브 영상 목록'(매일 댓글 수집)에도 자동으로 추가합니다">게시물에 추가</button>
+      </div>
+      <div id="ytNewInfo" class="hint">넣은 영상은 게시물 엑셀에 '유튜브'로 들어가고, 아래 '유튜브 영상 목록'(매일 댓글 수집)에도 자동으로 추가됩니다.</div>
+      <div class="row">
         <label class="inline">시작 <input type="datetime-local" id="from"></label>
         <label class="inline">끝 <input type="datetime-local" id="to"></label>
         <label class="inline">동호회 검색어 <input type="text" id="query" class="short"></label>

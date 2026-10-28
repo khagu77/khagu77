@@ -528,7 +528,8 @@ async function search(resume = null) {
   $("#log").innerHTML = "";
   diagnostics = [];
   $("#diag").hidden = true;
-  items = resume ? resume.items.map((x) => ({ ...x, date: x.date ? new Date(x.date) : null })) : [];
+  // 새로 찾아도 직접 넣은 유튜브 새 콘텐츠는 남긴다
+  items = resume ? resume.items.map((x) => ({ ...x, date: x.date ? new Date(x.date) : null })) : items.filter((x) => x.channel === "유튜브");
   renderResults();
   const maxPages = Math.max(1, Number($("#maxPages").value) || DEFAULT_MAX_PAGES);
   const newsPages = Math.max(1, Number($("#newsPages").value) || DEFAULT_NEWS_PAGES);
@@ -786,7 +787,7 @@ async function search(resume = null) {
   lastKw = { mainKw, subKw };
   await saveLast();
   const checked = items.filter((x) => x.checked).length;
-  const byChannel = ["언론", "자동차 커뮤니티", "동호회"]
+  const byChannel = ["언론", "유튜브", "자동차 커뮤니티", "동호회"]
     .map((c) => [c, items.filter((x) => (x.channel || "동호회") === c).length])
     .filter(([, n]) => n)
     .map(([c, n]) => `${c} ${n}`);
@@ -835,8 +836,8 @@ function serializeItem(x) {
 // 결과 표
 // ---------------------------------------------------------------------------
 
-// 기존 '채널별 버즈량 현황'처럼 채널(언론 → 동호회 → 자동차 커뮤니티) → 날짜순(일) → 동호회 목록·게시판 순 → 시간순
-const CHANNEL_ORDER = { 언론: 0, 동호회: 1, "자동차 커뮤니티": 2 };
+// 기존 '채널별 버즈량 현황'처럼 채널(언론 → 유튜브 → 동호회 → 자동차 커뮤니티) → 날짜순(일) → 동호회 목록·게시판 순 → 시간순
+const CHANNEL_ORDER = { 언론: 0, 유튜브: 1, 동호회: 2, "자동차 커뮤니티": 3 };
 function sortedItems() {
   const day = (x) => (x.date ? new Date(x.date.getFullYear(), x.date.getMonth(), x.date.getDate()).getTime() : Infinity);
   const ch = (x) => CHANNEL_ORDER[x.channel || "동호회"] ?? 9;
@@ -1049,7 +1050,7 @@ async function saveList() {
       // 그 채널을 찾았을 때만 건수 기록 (찾지 않은 채널은 0이 아니라 '기록 없음')
       const count = (c) => (items.some((x) => (x.channel || "동호회") === c) ? selected.filter((x) => (x.channel || "동호회") === c).length : undefined);
       await dbSaveDay("buzz", today(), name, out.bytes, "auto", `마지막 순번 ${out.to.toLocaleString()}`, {
-        posts: selected.length, news: count("언론"), cafe: count("동호회"), community: count("자동차 커뮤니티"),
+        posts: selected.length, news: count("언론"), youtube: count("유튜브"), cafe: count("동호회"), community: count("자동차 커뮤니티"),
       });
       await showDiffs();
       listFile = null;
@@ -1092,7 +1093,8 @@ function toComments() {
   const noNaver = sel.filter((x) => x.channel === "언론" && !x.naverUrl).length;
   const cafe = sel.filter(isCafeItem).map(articleUrl);
   const comm = sel.filter((x) => x.channel === "자동차 커뮤니티").map((x) => x.url);
-  const yt = $("#withYoutube").checked ? youtube : [];
+  // 유튜브: 저장해 둔 목록(함께 수집 켰을 때) + 체크한 새 콘텐츠 (같은 영상은 한 번)
+  const yt = [...new Set([...($("#withYoutube").checked ? youtube : []), ...sel.filter((x) => x.channel === "유튜브").map((x) => x.url)])];
   const parts = [
     news.length ? `언론 기사 ${news.length}개` : "",
     cafe.length || (!news.length && !comm.length) ? `카페 글 ${cafe.length}개` : "",
@@ -1112,6 +1114,57 @@ function toComments() {
 // ---------------------------------------------------------------------------
 
 let youtube = [];
+
+// 유튜브 새 콘텐츠: 넣은 링크마다 영상 제목·채널·게시일을 읽어 결과 표에 (체크된 채로) 넣는다 → 게시물 엑셀 '유튜브'
+async function addNewYoutube() {
+  const info = $("#ytNewInfo");
+  const parts = $("#ytNew").value.split(/\s+/).filter(Boolean);
+  const bad = [];
+  const failed = [];
+  let added = 0;
+  $("#ytNewAdd").disabled = true;
+  for (const part of parts) {
+    const id = youtubeVideoId(part);
+    if (!id) {
+      bad.push(part);
+      continue;
+    }
+    const url = `https://www.youtube.com/watch?v=${id}`;
+    if (items.some((x) => x.key === `yt:${id}`)) continue;
+    info.className = "hint";
+    info.textContent = `영상 정보 읽는 중… (${url})`;
+    try {
+      const v = await readYoutubeInfo(url);
+      items.push({
+        key: `yt:${id}`, channel: "유튜브", media: v.channel, url, title: v.title, text: "",
+        date: v.date, hasTime: v.hasTime, ambiguous: false, related: true, checked: true, touched: true, note: "직접 넣은 영상", dup: false,
+      });
+      added++;
+      // 댓글 수집 유튜브 목록에도 자동으로 (매일 댓글 수집)
+      if (!youtube.includes(url)) {
+        youtube.push(url);
+        await saveYoutube();
+      }
+    } catch (e) {
+      failed.push(part);
+      info.className = "hint err";
+      info.textContent = `${url}: ${e.message}`;
+    }
+  }
+  $("#ytNewAdd").disabled = false;
+  $("#ytNew").value = [...bad, ...failed].join(" ");
+  markDuplicates();
+  renderResults();
+  await saveLast();
+  const dups = items.filter((x) => x.channel === "유튜브" && x.dup).length;
+  if (!failed.length) {
+    info.className = added ? "hint ok" : "hint";
+    info.textContent =
+      (added ? `✔ 유튜브 영상 ${added}개를 결과 표에 넣고 댓글 수집 유튜브 목록에도 추가했습니다 (엑셀 받기 때 '유튜브'로 들어감)` : "새로 넣은 영상이 없습니다") +
+      (dups ? ` · 이미 파일에 있는 영상 ${dups}개는 체크를 풀었습니다` : "") +
+      (bad.length ? ` · 유튜브 주소가 아닌 것 ${bad.length}개는 칸에 남겨 두었습니다` : "");
+  }
+}
 
 function youtubeIdOf(url) {
   const m = String(url).match(/(?:[?&]v=|youtu\.be\/|\/shorts\/|\/live\/|\/embed\/)([\w-]{11})/);
@@ -1211,6 +1264,7 @@ async function init() {
       if (id === "cafeList") renderCafeInfo();
       if (id === "include" || id === "exclude") {
         for (const x of items) {
+          if (x.channel === "유튜브") continue; // 직접 넣은 영상은 관련 글로 둠
           x.related = isRelated(x);
           if (!x.touched && !x.dup) x.checked = x.related;
         }
@@ -1280,6 +1334,8 @@ async function init() {
   $("#toComments").addEventListener("click", toComments);
   $("#withYoutube").addEventListener("change", updateCounts);
   $("#ytAdd").addEventListener("click", addYoutube);
+  $("#ytNewAdd").addEventListener("click", addNewYoutube);
+  $("#ytNew").addEventListener("keydown", (e) => e.key === "Enter" && addNewYoutube());
   $("#ytReset").addEventListener("click", () => {
     if (!confirm(`유튜브 목록을 기본 ${DEFAULT_YOUTUBE.length}개로 되돌릴까요? (지금 목록은 지워집니다)`)) return;
     youtube = [...DEFAULT_YOUTUBE];
@@ -1327,7 +1383,7 @@ async function showDiffs() {
   if (d) box.append(diffLine("오늘 게시물", d));
   // 채널을 둘 이상 찾았으면 채널별로도 (하나뿐이면 합계와 같으므로 생략)
   const lines = [];
-  for (const [field, label] of [["news", "언론"], ["cafe", "동호회"], ["community", "자동차 커뮤니티"]]) {
+  for (const [field, label] of [["news", "언론"], ["youtube", "유튜브"], ["cafe", "동호회"], ["community", "자동차 커뮤니티"]]) {
     const c = await dbStatDiff("buzz", today(), field).catch(() => null);
     if (c && d) lines.push(diffLine(label, c));
   }

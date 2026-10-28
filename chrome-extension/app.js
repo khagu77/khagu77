@@ -205,42 +205,6 @@ function isYoutubeUrl(url) {
   return parseYoutubeId(url) !== null;
 }
 
-// html 안에서 `marker = {...}` 형태의 JSON 객체를 괄호 짝을 맞춰 잘라낸다.
-function extractJsonAfter(html, marker) {
-  let idx = html.indexOf(marker);
-  while (idx !== -1) {
-    const start = html.indexOf("{", idx + marker.length);
-    if (start !== -1 && /^\s*=\s*$/.test(html.slice(idx + marker.length, start))) {
-      let depth = 0;
-      let inStr = false;
-      let quote = "";
-      for (let i = start; i < html.length; i++) {
-        const ch = html[i];
-        if (inStr) {
-          if (ch === "\\") i++;
-          else if (ch === quote) inStr = false;
-        } else if (ch === '"' || ch === "'") {
-          inStr = true;
-          quote = ch;
-        } else if (ch === "{") {
-          depth++;
-        } else if (ch === "}") {
-          depth--;
-          if (depth === 0) {
-            try {
-              return JSON.parse(html.slice(start, i + 1));
-            } catch {
-              break;
-            }
-          }
-        }
-      }
-    }
-    idx = html.indexOf(marker, idx + marker.length);
-  }
-  return null;
-}
-
 // 객체 트리를 돌며 fn(key, value, parentKey) 호출. fn 이 false 를 돌려주면 그 아래는 건너뛴다.
 function walk(node, fn, parentKey = "") {
   if (Array.isArray(node)) {

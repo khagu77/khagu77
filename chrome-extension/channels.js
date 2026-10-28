@@ -202,6 +202,8 @@ function channelKey(url) {
   const s = String(url || "").trim().replace(/&amp;/g, "&");
   const n = newsIds(s);
   if (n) return `news:${n.oid}/${n.aid}`;
+  const yt = youtubeVideoId(s);
+  if (yt) return `yt:${yt}`;
   const u = safeUrl(s);
   if (!u) return s.toLowerCase();
   const host = u.hostname.replace(/^(www|m)\./, "");
@@ -834,4 +836,73 @@ async function readCommentsLive(url, sel, expected, { isStopped, mode }) {
     }
     return best;
   }, { mode });
+}
+
+// ---------------------------------------------------------------------------
+// 유튜브 새 콘텐츠 (게시물 엑셀에 직접 넣는 영상): 제목·채널·게시일
+// ---------------------------------------------------------------------------
+
+// 유튜브 주소 → 영상 ID (watch·youtu.be·shorts·live·embed)
+function youtubeVideoId(url) {
+  const m = String(url || "").match(/(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|shorts\/|live\/|embed\/|v\/)|youtu\.be\/)([\w-]{11})(?![\w-])/);
+  return m ? m[1] : null;
+}
+
+// html 안에서 `marker = {...}` 형태의 JSON 객체를 괄호 짝을 맞춰 잘라낸다.
+function extractJsonAfter(html, marker) {
+  let idx = html.indexOf(marker);
+  while (idx !== -1) {
+    const start = html.indexOf("{", idx + marker.length);
+    if (start !== -1 && /^\s*=\s*$/.test(html.slice(idx + marker.length, start))) {
+      let depth = 0;
+      let inStr = false;
+      let quote = "";
+      for (let i = start; i < html.length; i++) {
+        const ch = html[i];
+        if (inStr) {
+          if (ch === "\\") i++;
+          else if (ch === quote) inStr = false;
+        } else if (ch === '"' || ch === "'") {
+          inStr = true;
+          quote = ch;
+        } else if (ch === "{") {
+          depth++;
+        } else if (ch === "}") {
+          depth--;
+          if (depth === 0) {
+            try {
+              return JSON.parse(html.slice(start, i + 1));
+            } catch {
+              break;
+            }
+          }
+        }
+      }
+    }
+    idx = html.indexOf(marker, idx + marker.length);
+  }
+  return null;
+}
+
+// 영상 화면에서 제목·채널 이름·게시일 → { id, url, title, channel, date, hasTime }
+async function readYoutubeInfo(url) {
+  const id = youtubeVideoId(url);
+  if (!id) throw new Error("유튜브 영상 주소가 아닙니다");
+  const res = await fetch(`https://www.youtube.com/watch?v=${id}&hl=ko&gl=KR`, { credentials: "omit", cache: "no-store" });
+  if (!res.ok) throw new Error(`유튜브 ${res.status} 응답`);
+  const player = extractJsonAfter(await res.text(), "ytInitialPlayerResponse");
+  const v = player?.videoDetails;
+  if (!v?.title) throw new Error("영상 정보를 읽지 못함 (삭제·비공개 영상일 수 있음)");
+  const mf = player.microformat?.playerMicroformatRenderer || {};
+  const when = String(mf.publishDate || mf.uploadDate || "");
+  let date = null;
+  let hasTime = false;
+  if (/T\d{2}:\d{2}/.test(when)) {
+    date = new Date(when); // 시간대가 붙은 시각 → 이 PC 시간
+    hasTime = !isNaN(date);
+  } else {
+    const m = when.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (m) date = new Date(+m[1], +m[2] - 1, +m[3]);
+  }
+  return { id, url: `https://www.youtube.com/watch?v=${id}`, title: v.title, channel: v.author || mf.ownerChannelName || "", date: date && !isNaN(date) ? date : null, hasTime };
 }
