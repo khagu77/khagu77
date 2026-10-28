@@ -427,6 +427,7 @@ function communityAdapter(url) {
       },
       articleUrl: (id) => `https://www.bobaedream.co.kr/view?code=${encodeURIComponent(code)}&No=${id}`,
       dateSelectors: [".writerProfile .countGroup", ".writerProfile", ".countGroup"],
+      bodySelectors: [".bodyCont", ".content02", "#print_area .article-body"],
       commentItems: [".commentlistbox li", "#cmt_list li", ".cmt_list li", "ul.basiclist li"],
       commentText: ["dd[id^='small_cmt']", ".cmt_txt", ".txt", "dd"],
       commentDate: [".date", "dt .date", "dt"],
@@ -445,6 +446,7 @@ function communityAdapter(url) {
       },
       articleUrl: (id) => `https://www.clien.net/service/board/${board}/${id}`,
       dateSelectors: [".post_author .view_count.date", ".post_author", ".post_information"],
+      bodySelectors: [".post_article", ".post_content", ".post_view"],
       commentItems: [".comment_row:not(.blocked)", ".comment .comment_row"],
       commentText: [".comment_view", ".comment_content"],
       commentDate: [".timestamp", ".comment_time", ".comment_info"],
@@ -465,6 +467,7 @@ function communityAdapter(url) {
       },
       articleUrl: (no) => `https://www.ppomppu.co.kr/zboard/view.php?id=${encodeURIComponent(id)}&no=${no}`,
       dateSelectors: [".sub-top-text-box", ".topTitle-mainbox", ".view_info", "td.han"],
+      bodySelectors: [".board-contents", "td.board-contents", ".view-contents"],
       commentItems: [".comment_wrapper", "div[id^='comment_'] .comment_line", ".comment_line", ".cmAr .sect-cmt"],
       commentText: ["div[id^='commentContent']", ".comment_template .han", ".mid-text-area", ".han", ".ov"],
       commentDate: [".eng-day", ".comment_date", ".date"],
@@ -546,15 +549,47 @@ async function readBoardPage(ad, page) {
   return [...items.values()].filter((it) => it.title.length >= 2 && !/^\[?\d+\]?$/.test(it.title));
 }
 
-// 게시글 화면에서 작성 시각
-async function readCommunityTime(url) {
+// 글자에 단어 목록 중 하나라도 있는지 (띄어쓰기 무시)
+function hasAnyWord(text, words) {
+  const t = String(text || "").replace(/\s+/g, "").toLowerCase();
+  return words.some((w) => w && t.includes(w.replace(/\s+/g, "").toLowerCase()));
+}
+
+// 게시글 화면: 본문 글자와 작성 시각 (제목엔 키워드 조합이 없지만 본문에 있는 글 찾기용)
+async function readCommunityPost(url) {
   const ad = communityAdapter(url);
   const doc = await fetchDocument(url);
+  let body = "";
+  for (const sel of ad?.bodySelectors || []) {
+    const t = textOf(doc.querySelector(sel));
+    if (t) {
+      body = t;
+      break;
+    }
+  }
+  if (!body) {
+    // 가장 글자가 많고 링크가 적은 덩어리
+    for (const el of doc.querySelectorAll("div, td, article, section")) {
+      const t = textOf(el);
+      if (t.length > body.length && t.length < 20000 && el.querySelectorAll("a").length < 15) body = t;
+    }
+  }
+  return { body: body.slice(0, 20000), parsed: timeInDoc(doc, ad) };
+}
+
+function timeInDoc(doc, ad) {
   for (const t of [...(ad?.dateSelectors || []).map((s) => textOf(doc.querySelector(s))).filter(Boolean), textOf(doc.body).slice(0, 6000)]) {
     const m = t.match(/(20\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2})[^\d]{0,12}(\d{1,2}):(\d{2})/);
     if (m) return { date: new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]), hasTime: true };
   }
   return null;
+}
+
+// 게시글 화면에서 작성 시각
+async function readCommunityTime(url) {
+  const ad = communityAdapter(url);
+  const doc = await fetchDocument(url);
+  return timeInDoc(doc, ad);
 }
 
 // ---------------------------------------------------------------------------

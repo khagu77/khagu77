@@ -606,7 +606,9 @@ async function search(resume = null) {
     }
   }
 
-  // 2) 자동차 커뮤니티: 게시판 목록을 최신 글부터 기간 끝까지 넘기며 제목에 메인+서브 키워드가 있는 글
+  // 2) 자동차 커뮤니티: 게시판 목록을 최신 글부터 기간 끝까지 넘기며 제목에 메인+서브 키워드가 있는 글.
+  //    제목엔 조합이 없어도 키워드·관련 단어(원터치·폴딩·끼임 등)가 하나라도 있으면 글을 열어 본문까지 확인한다
+  const clueWords = [...keywordList(mainKw), ...keywordList(subKw), ...keywordList($("#include").value)];
   for (; pos.board < boards.length && !stopRequested; pos.board++) {
     const boardUrl = boards[pos.board];
     const ad = communityAdapter(boardUrl);
@@ -614,6 +616,7 @@ async function search(resume = null) {
     let scanned = 0;
     let matched = 0;
     let readOk = false;
+    const bodyCheck = []; // 본문까지 볼 글 { r, place }
     for (let page = 1; page <= COMMUNITY_MAX_LIST_PAGES && !stopRequested; page++) {
       setSummary(`찾는 중… 자동차 커뮤니티 ${pos.board + 1}/${boards.length} (${ad.site}) · ${page}페이지`);
       showBusy(`게시물 찾는 중 · ${ad.site} 게시판 ${page}페이지 — 끝날 때까지 이 탭을 닫지 마세요`, doneSteps(), total, "게시물 찾는 중");
@@ -642,7 +645,10 @@ async function search(resume = null) {
         if (place === "older") older++;
         if (place === "older" || place === "newer" || r.notice) continue;
         scanned++;
-        if (!matchesCombo(r.title, mainKw, subKw)) continue;
+        if (!matchesCombo(r.title, mainKw, subKw)) {
+          if (hasAnyWord(r.title, clueWords) && !seen.has(channelKey(ad.articleUrl(r.id)))) bodyCheck.push({ r, place });
+          continue;
+        }
         const url = ad.articleUrl(r.id);
         const key = channelKey(url);
         if (seen.has(key)) continue;
@@ -658,8 +664,42 @@ async function search(resume = null) {
       if (older * 2 >= dated.length) break; // 이 페이지 글 대부분이 기간 이전 → 끝
       await sleep(randomBetween(COMMUNITY_DELAY));
     }
+    // 제목에 단서만 있는 글: 열어서 제목+본문에 메인+서브 키워드가 있으면 넣는다
+    let bodyMatched = 0;
+    for (let i = 0; i < bodyCheck.length && !stopRequested; i++) {
+      const { r, place } = bodyCheck[i];
+      const url = ad.articleUrl(r.id);
+      setSummary(`찾는 중… ${ad.site} 본문 확인 ${i + 1}/${bodyCheck.length}`);
+      showBusy(`게시물 찾는 중 · ${ad.site} 본문 확인 ${i + 1}/${bodyCheck.length} — 끝날 때까지 이 탭을 닫지 마세요`, doneSteps(), total, "게시물 찾는 중");
+      await sleep(randomBetween(COMMUNITY_DELAY));
+      let post;
+      try {
+        post = await readCommunityPost(url);
+      } catch (e) {
+        log(`  ↳ ${ad.site} 글을 열지 못함: ${r.title} (${e.message})`);
+        continue;
+      }
+      if (!matchesCombo(`${r.title} ${post.body}`, mainKw, subKw)) continue;
+      const key = channelKey(url);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const when = post.parsed && placeInRange(post.parsed, win) === "in" ? post.parsed : null;
+      if (post.parsed && !when && placeInRange(post.parsed, win) !== "ambiguous") continue; // 글을 열어 보니 기간 밖
+      addItem({
+        key, channel: "자동차 커뮤니티", media: ad.site, url, boardIndex: pos.board, title: r.title, text: post.body.slice(0, 1000),
+        date: (when || r.parsed).date, hasTime: !!(when || r.parsed).hasTime, approx: !when && !!r.parsed.approxMs,
+        ambiguous: !when && place === "ambiguous", checked: false, note: "본문에 키워드", dup: false,
+      });
+      matched++;
+      bodyMatched++;
+      renderResults();
+    }
     if (!readOk) failed.boards.push(boardUrl);
-    else log(`· ${ad.site} (${boardUrl.replace(/^https?:\/\/(www\.)?/, "")}): 기간 안 글 ${scanned}건 중 키워드 맞는 글 ${matched}건`);
+    else
+      log(
+        `· ${ad.site} (${boardUrl.replace(/^https?:\/\/(www\.)?/, "")}): 기간 안 글 ${scanned}건 중 키워드 맞는 글 ${matched}건` +
+          (bodyCheck.length ? ` (제목에 단서만 있어 본문까지 본 글 ${bodyCheck.length}건 중 ${bodyMatched}건)` : ""),
+      );
     if (!stopRequested) await checkpoint();
   }
 

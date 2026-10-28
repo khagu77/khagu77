@@ -968,7 +968,21 @@ def ppom_comment(i, text, when):
             f'<span class="eng-day">{when}</span></div>')
 
 
+# 제목엔 메인+서브 조합이 없고 본문에만 있는 글(사용자 제보 2026-10-28) / 제목에 '팰리세이드'만 있고 본문은 무관 / 제목에 단서 없음
+PPOM_BODY = {
+    "980170": ("2026-10-22 06:00", "1. 원터치 폴딩 삭제 유지 = 차주 겁나 불편하다고 합니다. 팰리세이드는 3열 쓰면 운전자가 내려서 "
+                                   "문열어주고 시트 당겨주고 시트 버튼을 10초이상 누르고 있어야 됩니다"),
+    "980171": ("2026-10-22 05:00", "출고 받았습니다. 디자인이 정말 멋지네요"),
+    "980172": ("2026-10-22 04:00", "팰리세이드 시트 이야기지만 제목엔 단서가 없음"),
+}
+
+
 def ppom_view(no, c_page):
+    if no in PPOM_BODY:
+        when, body = PPOM_BODY[no]
+        return ('<html><head><meta charset="euc-kr"></head><body>'
+                f'<div class="sub-top-text-box">등록일: {when}</div><div class="board-contents">{body}</div>'
+                "<span>댓글 [0]</span></body></html>")
     if no == "980149":  # 댓글 5개(삭제 1개 포함)가 두 쪽에 나뉘어 있음
         if c_page == "2":
             body = ppom_comment(4, "둘째 쪽 댓글 하나", "2026-10-22 10:10") + ppom_comment(5, "둘째 쪽 댓글 둘", "2026-10-22 10:20")
@@ -993,6 +1007,12 @@ PPOM_LIST = (
     '<span class="list_comment2"><span>5</span></span></td><td><time class="baseList-time">2026-10-22 08:00:00</time></td></tr>'
     '<tr class="baseList"><td><a href="view.php?id=car&amp;no=980150"><span class="baseList-title">팰리세이드 전동시트 리콜 후기</span></a>'
     '<span class="list_comment2"><span>3</span></span></td><td><time class="baseList-time">2026-10-22 07:00:00</time></td></tr>'
+    '<tr class="baseList"><td><a href="view.php?id=car&amp;page=1&amp;divpage=184&amp;no=980170"><span class="baseList-title">원터치 폴딩 삭제 유지 후기</span></a></td>'
+    '<td><time class="baseList-time">2026-10-22 06:00:00</time></td></tr>'
+    '<tr class="baseList"><td><a href="view.php?id=car&amp;no=980171"><span class="baseList-title">팰리세이드 출고 후기</span></a></td>'
+    '<td><time class="baseList-time">2026-10-22 05:00:00</time></td></tr>'
+    '<tr class="baseList"><td><a href="view.php?id=car&amp;no=980172"><span class="baseList-title">점심 메뉴 추천</span></a></td>'
+    '<td><time class="baseList-time">2026-10-22 04:00:00</time></td></tr>'
     '<tr class="baseList"><td><a href="view.php?id=car&amp;no=980100"><span class="baseList-title">팰리세이드 시트 옛날 글</span></a></td>'
     "<td>2026-10-01 08:00:00</td></tr>"
     "</table></body></html>"
@@ -1123,10 +1143,16 @@ def test_lx3_news_community(tmp_path: Path):
             # 커뮤니티: 게시판 순(보배드림 → 클리앙 → 뽐뿌) · 날짜순
             ("2026-10-21 16:20", "자동차 커뮤니티 · 보배드림", "싼타페 시트 결함 문의드립니다", "https://www.bobaedream.co.kr/view?code=national&No=2398545", True),
             ("2026-10-21 18:00", "자동차 커뮤니티 · 클리앙", "팰리세이드 전동시트 또 고장났네요", "https://www.clien.net/service/board/cm_car/111", True),
+            # 제목엔 조합이 없지만 본문에 '팰리세이드 … 시트' → 글을 열어 확인해 넣음
+            ("2026-10-22 06:00", "자동차 커뮤니티 · 뽐뿌", "원터치 폴딩 삭제 유지 후기", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980170", True),
             ("2026-10-22 07:00", "자동차 커뮤니티 · 뽐뿌", "팰리세이드 전동시트 리콜 후기", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980150", True),
             ("2026-10-22 08:00", "자동차 커뮤니티 · 뽐뿌", "[펠리세이드] 2열 시트 끼임 리콜 소식", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980149", True),
         ], (got, summary, page.inner_text("#log"))
-        assert "찾은 글 6개 (언론 2 · 자동차 커뮤니티 4 · 관련 글로 체크 6개)" in summary, summary
+        assert "찾은 글 7개 (언론 2 · 자동차 커뮤니티 5 · 관련 글로 체크 7개)" in summary, summary
+        assert "본문에 키워드" in rows.nth(4).inner_text()
+        assert any("no=980171" in r for r in server.requests)  # 제목에 '팰리세이드'만 → 열어 봤지만 본문에 서브 키워드 없음 → 뺌
+        assert not any("no=980172" in r for r in server.requests)  # 제목에 단서 없음 → 열지 않음
+        assert "본문까지 본 글 2건 중 1건" in page.inner_text("#log"), page.inner_text("#log")
         assert "언론사 사이트 기사(네이버 댓글 없음)" in rows.nth(1).inner_text()
         news_q = [r for r in server.requests if r.startswith("search.naver.com")]
         assert len(news_q) == 9 and all("ds=2026.10.21" in r and "de=2026.10.22" in r and "sort=1" in r for r in news_q), news_q
@@ -1147,7 +1173,7 @@ def test_lx3_news_community(tmp_path: Path):
         page.fill("#ytNew", "https://www.youtube.com/watch?v=abcdefghijk")
         page.click("#ytNewAdd")  # 같은 영상은 한 번만
         page.locator("#ytNewInfo", has_text="새로 넣은 영상이 없습니다").wait_for(timeout=10000)
-        assert rows.count() == 7 and page.locator("#ytList li").count() == 1
+        assert rows.count() == 8 and page.locator("#ytList li").count() == 1
 
         # 엑셀: 채널·매체명·날짜·URL
         page.check("#separate")
@@ -1163,8 +1189,9 @@ def test_lx3_news_community(tmp_path: Path):
             (3, "유튜브", "채널A", "2026-10-22", "https://www.youtube.com/watch?v=abcdefghijk"),
             (4, "자동차 커뮤니티", "보배드림", "2026-10-21", "https://www.bobaedream.co.kr/view?code=national&No=2398545"),
             (5, "자동차 커뮤니티", "클리앙", "2026-10-21", "https://www.clien.net/service/board/cm_car/111"),
-            (6, "자동차 커뮤니티", "뽐뿌", "2026-10-22", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980150"),
-            (7, "자동차 커뮤니티", "뽐뿌", "2026-10-22", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980149"),
+            (6, "자동차 커뮤니티", "뽐뿌", "2026-10-22", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980170"),
+            (7, "자동차 커뮤니티", "뽐뿌", "2026-10-22", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980150"),
+            (8, "자동차 커뮤니티", "뽐뿌", "2026-10-22", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980149"),
         ], vals
         assert vals[2][4] == "테스트 영상 {괄호}"
 
@@ -1192,11 +1219,12 @@ def test_lx3_news_community(tmp_path: Path):
         page.click("#toComments")
         page.wait_for_url("**/app.html")
         handoff = page.inner_text("#handoff")
-        assert "언론 기사 1개, 커뮤니티 글 4개, 유튜브 영상 1개" in handoff and "언론사 자체 사이트 기사 1개는" in handoff, handoff
+        assert "언론 기사 1개, 커뮤니티 글 5개, 유튜브 영상 1개" in handoff and "언론사 자체 사이트 기사 1개는" in handoff, handoff
         assert page.input_value("#urls").split("\n") == [
             "https://n.news.naver.com/mnews/article/001/0000000001",
             "https://www.bobaedream.co.kr/view?code=national&No=2398545",
             "https://www.clien.net/service/board/cm_car/111",
+            "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980170",
             "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980150",
             "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980149",
             "https://www.youtube.com/watch?v=abcdefghijk",  # 체크한 유튜브 새 콘텐츠도 댓글 수집 ('목록도 함께'는 끔)
