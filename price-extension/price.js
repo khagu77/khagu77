@@ -1980,7 +1980,15 @@ function updateCounts() {
   $("#selDelete").textContent = n ? `선택 삭제 (${n}개)` : "선택 삭제";
   // 💰 = AI 비용이 드는 버튼 (AI 를 켰을 때만)
   const coin = aiOn() ? "💰 " : "";
-  $("#readBodies").textContent = coin + (n - read > 0 ? `본문 읽고 요약하기 (${n - read}개 · 약 ${formatDuration((n - read) * SEC_PER_ARTICLE)})` : "요약하기");
+  // 버튼 이름: 이번에 읽을 글 (본문을 안 읽은 체크한 글 + 본문에서 확인할 글 · 댓글만 남은 글)
+  const bodyLeft = items.filter((x) => !x.bodyRead && (x.checked || (!x.touched && (x.candidate || readAllOn())))).length;
+  const commentLeft = items.filter((x) => x.checked && x.bodyRead && !x.commentsRead).length;
+  const left = bodyLeft + commentLeft;
+  $("#readBodies").textContent = coin + (bodyLeft
+    ? `본문·댓글 읽고 요약하기 (${left.toLocaleString()}개 · 약 ${formatDuration(left * SEC_PER_ARTICLE)})`
+    : commentLeft
+      ? `댓글 읽고 분석하기 (${commentLeft.toLocaleString()}개 · 약 ${formatDuration(commentLeft * SEC_PER_ARTICLE)})`
+      : "본문 읽고 요약하기 (모두 읽음)");
   for (const el of document.querySelectorAll(".cost-ico[data-when='ai']")) el.hidden = !aiOn();
   const unread = items.filter((x) => !x.bodyRead && !x.touched).length;
   $("#readAllInfo").textContent = `지금 읽을 글 ${unread.toLocaleString()}개 · 약 ${formatDuration(unread * SEC_PER_ARTICLE)}`;
