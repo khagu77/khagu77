@@ -293,7 +293,8 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
   const KW = /카페|게시판|등업|회칙|예의|공지|이용해\s*주세요|작성해\s*주세요|지켜\s*주세요|말머리|탈퇴|활동\s*정지|양식|규칙|운영진|매니저|필독|작성\s*요령|글쓰기|강퇴|친목/g;
   const hits = (t) => ((t || "").match(KW) || []).length;
   const text = (l) => (l.text || "").trim();
-  const isDivider = (l) => !!l.divider || /^[\s_\-─━=~—＿]{3,}$/.test(text(l));
+  // 구분선 글자: ⎯(U+23AF)·―·–·‒·▬·┄·┈·╌ 등도 (담당자 지적 2026-10-29: 아이오닉9 오너스 안내문 아래 "⎯⎯⎯" 줄)
+  const isDivider = (l) => !!l.divider || /^[\s_\-─━=~—＿⎯―–‒‐‑▬┄┈╌┅┉═·]{3,}$/.test(text(l));
   // 빈 질문 양식 줄: "1. 구동방식:", "색상 :" 처럼 항목 이름만 있고 값이 없는 줄
   const isEmptyFormLine = (t) => /^(\d+\s*[.)]\s*)?[^:：]{1,12}[:：]\s*$/.test(t);
   const isBoilerSegment = (seg) => {
@@ -456,6 +457,15 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     /^그\s*어떠한\s*부분도\s*어떠한\s*형태/,
     /^위반시\s*내보내기\s*처리/,
     /수소전담\s*서비스\s*조회/,
+    // 아이오닉9 오너스 카페(ioniq9owners) 고정 안내문 (담당자 지정 2026-10-29)
+    //   "📍 함께하는 [아이오닉9 오너스] 카페 / 질문은 질문 답변 게시판 이용해 주세요. / 글쓰기에서 해당 게시판이 안 보이면 등업이 필요합니다. (글 2개, 댓글 5개, 방문 5회, 좋아요 10회)
+    //    / 카페 활동 예의를 지켜주세요. / 경우에 따라 카페 운영 회칙에 의거 활동 정지 또는 탈퇴 처리될 수 있습니다. / ⎯⎯⎯"
+    /함께하는\s*\[?\s*아이오닉\s*9\s*오너스\s*\]?\s*카페/,
+    /^질문은\s*질문\s*답변\s*게시판\s*(을\s*)?이용해\s*주세요/,
+    /글쓰기에서\s*해당\s*게시판이\s*안\s*보이면\s*등업이\s*필요/,
+    /^\(?\s*글\s*\d+\s*개\s*,\s*댓글\s*\d+\s*개\s*,\s*방문\s*\d+\s*회/,
+    /^카페\s*활동\s*예의를\s*지켜\s*주세요/,
+    /카페\s*운영\s*회칙에\s*의거\s*활동\s*정지\s*또는\s*탈퇴/,
   ];
   const extraBoiler = new Set();
   lines.forEach((l, i) => {
@@ -463,6 +473,14 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     const t = text(l);
     if (!l.media && t && FORM_ANY.some((r) => r.test(t))) extraBoiler.add(i);
   });
+  // 고정 안내문 바로 뒤에 붙은 구분선·빈 줄도 같이 뺀다
+  for (const i of [...extraBoiler].sort((a, b) => a - b)) {
+    for (let j = i + 1; j < lines.length && !extraBoiler.has(j); j++) {
+      const l = lines[j];
+      if (l.media || (text(l) && !isDivider(l))) break;
+      extraBoiler.add(j);
+    }
+  }
   if (extraBoiler.size) {
     const hidden = new Set();
     for (const i of extraBoiler) {
