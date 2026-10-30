@@ -17,6 +17,7 @@ const LEVEL_RANK = { 심각: 3, 경고: 2, 주의: 1 };
 let settings = null;
 let week = null; // { start, end, days: [dateKey] }
 let cands = [];
+let basis = []; // 이번 주 작성에 쓰는 날짜별 일일 PPT 최종본 [{ day, id, at }]
 let working = false;
 
 function setSummary(text, cls = "") {
@@ -176,6 +177,7 @@ async function loadWeek() {
   const days = await DailyPpt.byDate();
   cands = [];
   const chips = [];
+  basis = []; // 이번 주 작성에 쓰는 날짜별 일일 PPT 최종본 (선택 저장 때 함께 기록)
   for (const k of week.days) {
     const day = days.find((x) => x.date === k);
     const isWork = week.workdays.includes(k);
@@ -191,6 +193,7 @@ async function loadWeek() {
     const off = excludedDays.has(k);
     chips.push(`<button type="button" class="day ${off ? "off" : f.partial ? "warn" : "ok"}" data-day="${k}" title="${off ? "눌러서 다시 넣기" : "눌러서 이 날 보고서를 이번 주 작성에서 빼기"}">${off ? "✕ " : "✓ "}${md(k)}(${dow(k)}) ${esc(DailyPpt.KIND_LABEL[f.kind])} ${details.length}건${off ? " · 뺌" : f.partial ? " · ⚠ 일부만 있는 PPT(전체 PPT 를 데일리 DB 에 올려 주세요)" : ""}</button>`);
     if (off) continue;
+    basis.push({ day: k, id: f.id, at: f.at || 0 });
     for (const x of details) {
       if (!x.title) continue;
       const issue = x.title.replace(/^.*?\([^)]*\)\s*/, "").trim() || x.short || x.title;
@@ -224,13 +227,29 @@ async function loadWeek() {
   $("#weekInfo").textContent = `${DailyPpt.dateKey(week.start)}(월) ~ ${DailyPpt.dateKey(week.end)}(${dow(DailyPpt.dateKey(week.end))}) · 근무일 ${week.workdays.length}일 · 게시글 ${cands.length}건`;
   recommend();
   // 담당자가 이 주에 고쳐 둔 선택이 있으면 그대로 (추천보다 우선)
-  const saved = await loadPicks();
+  // 단, 선택을 저장한 뒤 일일 보고서가 새로 붙었거나(예: 4일치로 고른 뒤 금요일 PPT 첨부) 최종본이 바뀌었거나 뺀 날이 달라졌으면
+  // 저장된 선택은 지우고 지금 날짜들 전체를 기준으로 다시 10건 추천 (담당자 지적 2026-10-30: 5번째 PPT 글이 체크되지 않음)
+  let saved = await loadPicks();
+  if (saved && pickBasisChanged(saved)) {
+    await savePicks(true);
+    saved = null;
+    $("#weekInfo").textContent += " · 일일 보고서가 바뀌어 전체 날짜 기준으로 다시 추천했습니다";
+  }
   if (saved) {
     const set = new Set(saved.keys);
     for (const c of cands) c.picked = set.has(c.key);
     $("#weekInfo").textContent += ` · 담당자가 고른 선택 불러옴 (${new Date(saved.at).toLocaleString("ko-KR")} 저장)`;
   }
   renderCands();
+}
+
+function pickBasisChanged(saved) {
+  if (Array.isArray(saved.basis)) {
+    const sig = (b) => b.map((x) => `${x.day}:${x.id}`).sort().join("|");
+    return sig(saved.basis) !== sig(basis);
+  }
+  // 예전 저장(기준 기록 없음): 선택을 저장한 뒤에 들어온 일일 보고서가 있으면 바뀐 것으로
+  return basis.some((x) => x.at > (saved.at || 0));
 }
 
 // 주간 보고 게시글 선택을 바꿀 때마다 그 주 선택을 바로 저장 (담당자 요청 2026-10-23)
@@ -244,7 +263,7 @@ async function savePicks(clear = false) {
   if (!week) return;
   const all = (await kvGet("weeklyPicks")) || {};
   if (clear) delete all[weekKey()];
-  else all[weekKey()] = { keys: cands.filter((c) => c.picked).map((c) => c.key), at: Date.now() };
+  else all[weekKey()] = { keys: cands.filter((c) => c.picked).map((c) => c.key), at: Date.now(), basis };
   // 최근 12주만 보관
   const keys = Object.keys(all).sort().reverse().slice(0, 12);
   await kvSet("weeklyPicks", Object.fromEntries(keys.map((k) => [k, all[k]])));
