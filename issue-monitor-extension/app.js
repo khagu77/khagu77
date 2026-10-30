@@ -2308,11 +2308,11 @@ window.addEventListener("beforeunload", (e) => {
 
 async function renderLearned() {
   const list = await loadLearned();
-  const { learnedUpdatedAt, pptLearnedUpdatedAt, pptLearned = [], pptExamples = [] } = await chrome.storage.local.get(["learnedUpdatedAt", "pptLearnedUpdatedAt", "pptLearned", "pptExamples"]);
+  const { learnedUpdatedAt, pptLearnedUpdatedAt, pptLearned = [], pptExamples = [], pptPickLearned = [] } = await chrome.storage.local.get(["learnedUpdatedAt", "pptLearnedUpdatedAt", "pptLearned", "pptExamples", "pptPickLearned"]);
   const last = Math.max(learnedUpdatedAt || 0, pptLearnedUpdatedAt || 0);
   $("#learnedInfo").textContent =
-    list.length || pptLearned.length || pptExamples.length
-      ? `수집 ${list.length}건 · PPT ${pptLearned.length}건 · PPT 확정 예시 ${pptExamples.length}건${last ? ` · 최종 업데이트 ${fmtDateTime(new Date(last))}` : ""}`
+    list.length || pptLearned.length || pptExamples.length || pptPickLearned.length
+      ? `수집 ${list.length}건 · PPT ${pptLearned.length}건 · PPT 확정 예시 ${pptExamples.length}건 · 댓글·사진 선택 ${pptPickLearned.length}건${last ? ` · 최종 업데이트 ${fmtDateTime(new Date(last))}` : ""}`
       : "아직 없습니다. 결과 표나 PPT 미리보기에서 고치면 여기에 쌓입니다.";
   const box = $("#learnedList");
   box.textContent = "";
@@ -2324,6 +2324,20 @@ async function renderLearned() {
         el("span", { class: "hint", text: `${fmtDateTime(new Date(x.at))} ` }),
         `📊 PPT [${x.cafe}] ${x.car}: ${ch}`,
         el("button", { class: "del", text: "삭제", title: "이 사례는 학습에서 뺍니다", onclick: async () => { const { pptLearned: all = [] } = await chrome.storage.local.get("pptLearned"); all.splice(i, 1); await chrome.storage.local.set({ pptLearned: all, pptLearnedUpdatedAt: Date.now() }); renderPrompt(); } })
+      )
+    );
+  });
+  // PPT 미리보기 카드 댓글·사진 선택 사례
+  const PICK_TYPE = { video: "동영상", small: "작은 이미지", banner: "가로 배너형", tall: "세로로 긴 이미지", photo: "일반 사진" };
+  pptPickLearned.forEach((x, i) => {
+    const parts = [];
+    if (x.comments) parts.push(`댓글 ${x.comments.ai.map((t) => `"${t}"`).join(", ") || "(없음)"} → ${x.comments.mine.map((t) => `"${t}"`).join(", ") || "(안 넣음)"}`);
+    if (x.images) parts.push(`사진 ${x.images.count}장${x.images.removed.length ? ` · 뺌: ${x.images.removed.map((t) => PICK_TYPE[t] || t).join(", ")}` : ""}${x.images.added.length ? ` · 넣음: ${x.images.added.map((t) => PICK_TYPE[t] || t).join(", ")}` : ""}`);
+    box.append(
+      el("div", { class: "item" },
+        el("span", { class: "hint", text: `${fmtDateTime(new Date(x.at))} ` }),
+        `🖼 PPT 선택 [${x.cafe}] ${x.car}: ${parts.join(" / ")}`,
+        el("button", { class: "del", text: "삭제", title: "이 사례는 학습에서 뺍니다", onclick: async () => { const { pptPickLearned: all = [] } = await chrome.storage.local.get("pptPickLearned"); all.splice(i, 1); await chrome.storage.local.set({ pptPickLearned: all, pptLearnedUpdatedAt: Date.now() }); renderPrompt(); } })
       )
     );
   });
@@ -2343,7 +2357,7 @@ async function renderLearned() {
 $("#clearLearned").addEventListener("click", async () => {
   if (!confirm("자동 학습 메모(수집·PPT)를 모두 지울까요? (다음 판정·작성부터 담당자 수정 사례가 빠집니다)")) return;
   await saveLearned([]);
-  await chrome.storage.local.set({ pptLearned: [], pptLearnedUpdatedAt: Date.now() });
+  await chrome.storage.local.set({ pptLearned: [], pptPickLearned: [], pptLearnedUpdatedAt: Date.now() });
   renderPrompt();
 });
 

@@ -575,8 +575,10 @@ async function processItem(it) {
     header: true,
     body: true,
     comments: new Set(ai.comment_picks || []),
-    images: new Set(it.visuals.images.map((_, i) => i).filter((i) => it.visuals.images[i]).slice(0, DEFAULT_IMAGES)),
+    // 처음 체크해 두는 사진: 담당자가 미리보기에서 고른 습관대로 (자주 빼는 종류는 빼고, 즐겨 쓰는 장수만큼)
+    images: new Set(typeof PickLearn !== "undefined" ? PickLearn.defaultImages(it.visuals.images, info && info.images, DEFAULT_IMAGES) : it.visuals.images.map((_, i) => i).filter((i) => it.visuals.images[i]).slice(0, DEFAULT_IMAGES)),
   };
+  it.aiSel = { comments: [...it.sel.comments], images: [...it.sel.images] }; // 선택 학습용: 처음 선택
   it.ready = true;
   renderItem(it);
   setItemStatus(it, it.error ? "완료(확인 필요)" : "완료", it.error ? "err" : "ok");
@@ -600,6 +602,7 @@ function savedItem(it) {
     info: it.info || null,
     cap,
     sel: it.sel ? { header: it.sel.header, body: it.sel.body, comments: [...it.sel.comments], images: [...it.sel.images] } : null,
+    aiSel: it.aiSel || null,
   };
 }
 
@@ -636,6 +639,7 @@ async function restoreItem(it, x) {
     it.visuals = await processCaptures(x.cap);
   } else it.visuals = { header: null, body: null, comments: [], images: [] };
   it.sel = x.sel ? { header: x.sel.header, body: x.sel.body, comments: new Set(x.sel.comments), images: new Set(x.sel.images) } : { header: true, body: true, comments: new Set(), images: new Set() };
+  it.aiSel = x.aiSel || null;
 }
 
 async function start() {
@@ -645,6 +649,7 @@ async function start() {
   }
   const chain = $("#autoChain").checked;
   await loadPptLearned(); // 담당자 수정 사례를 최신으로
+  if (typeof PickLearn !== "undefined") await PickLearn.load(); // 댓글·사진 선택 습관도 최신으로
   await loadPptExamples();
   // 끝나고 바로 저장할 때: 저장 폴더 허용은 버튼을 누른 지금 받아 둔다 (나중엔 물을 수 없음)
   const chainDir = chain ? await saveDirIfAllowed() : null;
@@ -831,6 +836,7 @@ function renderItem(it) {
       el.closest(".shot").classList.toggle("off", !el.checked);
       drawPreview(it);
       savePptProgress(2000);
+      if (kind === "comment" || kind === "image") learnPickItem(it);
     });
   }
   $('[data-act="retry"]', it.el).addEventListener("click", async () => {
@@ -862,6 +868,21 @@ function learnPptItem(it) {
   );
 }
 window.PptLearn = { load: async () => { await loadPptExamples(); return loadPptLearned(); }, save: savePptLearned, line: pptLearnLine, system: () => aiSystem(), fromPpt: (details) => learnFromPpt(details) };
+
+// 미리보기 카드에서 댓글·사진 체크를 바꾸면 선택 학습 (담당자 요청 2026-10-30)
+const pickLearnTimers = new Map();
+function learnPickItem(it) {
+  if (!it.aiSel || typeof PickLearn === "undefined") return;
+  const key = normUrl(it.row.url);
+  clearTimeout(pickLearnTimers.get(key));
+  pickLearnTimers.set(
+    key,
+    setTimeout(() => {
+      pickLearnTimers.delete(key);
+      PickLearn.record({ key, cafe: it.row.cafe, car: it.row.car, title: it.row.title, info: it.info, ai: it.aiSel, sel: it.sel }).catch(() => {});
+    }, 1500)
+  );
+}
 
 // 담당자가 고친 PPT 를 올리면: 기억해 둔 원본과 비교해 바뀐 칸을 학습 메모로, 원본이 없으면 '확정 예시'로 저장
 const PPT_DIFF_FIELDS = ["title", "spec", "level", "progress", "body", "reaction", "short", "duplicate", "region", "focus"];
@@ -1338,6 +1359,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderSource();
   await loadPptLearned();
   await loadPptExamples();
+  if (typeof PickLearn !== "undefined") await PickLearn.load();
   const now = new Date();
   $("#reportDate").value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   // 화면을 밤새 열어 둔 경우: 날짜가 바뀌면 보고서 날짜도 오늘로 (작업 중이면 그대로)

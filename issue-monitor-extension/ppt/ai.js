@@ -183,6 +183,7 @@ function aiSystem() {
   let s = AI_SYSTEM;
   if (examples.length)
     s += `\n\n[담당자가 최종 확정한 보고서 예시 (최근 순)]\n담당자가 PPT 에서 직접 다듬어 확정한 문구입니다. 문장 길이·시작/끝맺음·표현·제목과 요약표 맞춤·불만 구분·지역 표기 방식을 이 예시처럼 맞춥니다.\n${examples.join("\n")}`;
+  if (typeof PickLearn !== "undefined") s += PickLearn.commentSection(); // 미리보기 카드 댓글 선택 학습
   if (lines.length)
     s += `\n\n[담당자 수정 사례 (자동 학습, 최근 순)]\n담당자가 직접 고친 기록입니다. 같은 표현·판단 실수를 반복하지 말고, 비슷한 글은 담당자가 고친 쪽(표현·끝맺음·불만 구분·제원·지역 등)을 따릅니다.\n${lines.join("\n")}`;
   return s;
