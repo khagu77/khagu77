@@ -793,17 +793,18 @@ async function start(resume = null) {
   const urls = readUrls();
   if (!urls.length) {
     $("#summary").textContent = "URL을 입력하세요.";
+    if (AUTO_MODE) autoDone(true, `${await autoPostsText()} · 댓글을 모을 글·영상이 없습니다.`);
     return;
   }
   const cafeCount = urls.filter((u) => platformOf(u) === "cafe").length;
-  if (cafeCount > CAFE_WARN_COUNT) {
+  if (cafeCount > CAFE_WARN_COUNT && !AUTO_MODE) {
     const ok = confirm(
       `네이버 카페 글이 ${cafeCount}개입니다. 한 번에 많이 수집하면 네이버 계정 보호조치가 걸릴 수 있습니다.\n` +
         `${CAFE_WARN_COUNT}개 이하로 나눠서, 시간 간격을 두고 수집하는 것을 권장합니다.\n\n그래도 계속할까요?`
     );
     if (!ok) return;
   }
-  if (!baseTemplate() && !separateFile()) {
+  if (!baseTemplate() && !separateFile() && !AUTO_MODE) {
     const go = confirm(
       "기존 raw data 엑셀 파일을 고르지 않았고 최종 DB에도 파일이 없습니다.\n\n" +
         "· [확인]: 파일 없이 진행 (그날 수집한 댓글만 담은 새 파일로 저장)\n" +
@@ -827,6 +828,7 @@ async function start(resume = null) {
 async function run(state) {
   const { urls } = state;
   stopRequested = false;
+  markRunning(true);
   $("#start").disabled = true;
   $("#stop").disabled = false;
   $("#download").disabled = true;
@@ -908,6 +910,7 @@ async function run(state) {
     $("#summary").textContent = `엑셀 저장 실패: ${e.message}`;
   }
   hideBusy();
+  markRunning(false);
   // 실패한 글·영상 → 다시 수집 버튼 (다시 수집하면 오늘 파일에 이어 쓰고, 이미 들어간 댓글은 빠짐)
   lastFailedUrls = stopRequested ? [] : results.filter((r) => r.error).map((r) => r.url);
   $("#retryFailed").hidden = !lastFailedUrls.length;
@@ -915,6 +918,20 @@ async function run(state) {
   $("#start").disabled = false;
   $("#stop").disabled = true;
   $("#download").disabled = false;
+  if (AUTO_MODE) {
+    const failedN = results.filter((r) => r.error).length;
+    autoDone(!stopRequested && !failedN, `${await autoPostsText()} · ${$("#summary").textContent}${failedN ? " · 실패한 글은 화면의 '다시 수집'으로" : ""}`);
+  }
+}
+
+// 자동 수집이 끝났음을 알림으로 (백그라운드)
+function autoDone(ok, message) {
+  chrome.runtime.sendMessage({ type: "lx3AutoDone", ok, message: message.slice(0, 300) }).catch(() => {});
+}
+
+async function autoPostsText() {
+  const { lx3AutoPosts = 0 } = await chrome.storage.local.get("lx3AutoPosts").catch(() => ({}));
+  return `게시물 ${lx3AutoPosts}건 엑셀 저장`;
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -966,10 +983,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // 중단된 수집이 있으면 이어서 할지 묻는다
 async function offerResume() {
-  const r = await loadResume("comments");
-  if (!r) return;
+  let r = await loadResume("comments");
+  if (AUTO_MODE) {
+    history.replaceState(null, "", "app.html"); // 새로고침해도 자동 수집이 다시 시작되지 않게
+    // 오늘 넘겨받은 목록과 같은 수집이 멈춰 있던 것만 이어서, 다른(예전) 수집은 버리고 새로
+    if (r && r.urls.join("\n") !== readUrls().join("\n")) {
+      await clearResume("comments");
+      r = null;
+    }
+  }
+  if (!r) {
+    if (AUTO_MODE) start(); // LX3 화면이 넘겨준 글·영상 댓글을 바로 수집
+    return;
+  }
   const when = new Date(r.at).toLocaleString();
-  const go = confirm(
+  const go = AUTO_MODE || confirm(
     `중단된 댓글 수집이 있습니다 (${r.urls.length}개 중 ${r.done}개 완료 · ${when}).\n\n` +
       "· [확인]: 이어서 수집 (남은 것부터, 끝나면 엑셀 저장)\n· [취소]: 버리기",
   );

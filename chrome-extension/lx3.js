@@ -258,34 +258,12 @@ function toLocalInput(d) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// 우리나라 공휴일(대체공휴일·선거일 포함). 임시공휴일·회사 휴무는 설정의 '추가 휴일'에 넣는다.
-const KR_HOLIDAYS = new Set([
-  // 2026
-  "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18", "2026-03-01", "2026-03-02", "2026-05-05", "2026-05-24",
-  "2026-05-25", "2026-06-03", "2026-06-06", "2026-08-15", "2026-08-17", "2026-09-24", "2026-09-25", "2026-09-26",
-  "2026-10-03", "2026-10-05", "2026-10-09", "2026-12-25",
-  // 2027
-  "2027-01-01", "2027-02-05", "2027-02-06", "2027-02-07", "2027-02-08", "2027-03-01", "2027-05-05", "2027-05-13",
-  "2027-06-06", "2027-08-15", "2027-08-16", "2027-09-14", "2027-09-15", "2027-09-16", "2027-10-03", "2027-10-04",
-  "2027-10-09", "2027-10-11", "2027-12-25", "2027-12-27",
-  // 2028
-  "2028-01-01", "2028-01-25", "2028-01-26", "2028-01-27", "2028-03-01", "2028-04-12", "2028-05-02", "2028-05-05",
-  "2028-06-06", "2028-08-15", "2028-10-02", "2028-10-03", "2028-10-04", "2028-10-05", "2028-10-09", "2028-12-25",
-]);
-
-function ymd(d) {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
 function extraHolidays() {
-  return new Set((($("#holidays")?.value || "").match(/\d{4}-\d{1,2}-\d{1,2}/g) || []).map((s) => {
-    const [y, m, d] = s.split("-").map(Number);
-    return ymd(new Date(y, m - 1, d));
-  }));
+  return parseExtraHolidays($("#holidays")?.value || "");
 }
 
 function isOffDay(d, extra = extraHolidays()) {
-  return d.getDay() === 0 || d.getDay() === 6 || KR_HOLIDAYS.has(ymd(d)) || extra.has(ymd(d));
+  return isHoliday(d, extra);
 }
 
 // 기본 시각 (시작·끝, "HH:MM"). '이 시각을 기본으로 저장'으로 바꿀 수 있다
@@ -522,6 +500,7 @@ async function search(resume = null) {
   await saveSettings();
   if (ids.length) await checkLogin();
   running = true;
+  markRunning(true);
   stopRequested = false;
   $("#search").disabled = true;
   $("#stop").disabled = false;
@@ -838,6 +817,7 @@ async function search(resume = null) {
     loginNeeded ? "err" : "ok",
   );
   running = false;
+  markRunning(false);
   hideBusy();
   // 못 읽은 곳(동호회·언론 검색어·커뮤니티 게시판) · 시간 확인 못 한 글 → 다시 찾기 버튼
   lastFailed = stopRequested ? { ids: [], queries: [], boards: [] } : failed;
@@ -1061,10 +1041,10 @@ async function buildList(selected) {
   return { bytes: await wb.save(), from: info.lastSerial + 1, to: serial };
 }
 
-async function saveList() {
+async function saveList({ auto = false } = {}) {
   const selected = sortedItems().filter((x) => x.checked);
   if (!selected.length) return;
-  if (!baseFile() && !separateFile()) {
+  if (!baseFile() && !separateFile() && !auto) {
     const go = confirm(
       "기존 '채널별 버즈량 현황' 엑셀 파일을 첨부하지 않았고 최종 DB에도 파일이 없습니다.\n\n" +
         "· [확인]: 첨부 없이 진행 (이번에 고른 글만 담은 새 파일, 순번 1부터)\n" +
@@ -1099,6 +1079,11 @@ async function saveList() {
       await loadDbBase();
       showBaseInfo();
       dbNote = " · 최종 DB에 오늘 파일로 저장했습니다";
+      // 자동 수집은 다음에 이 시각부터 이어서 모은다 (휴일·못 돌린 날 포함)
+      const end = new Date(lastRange.to || $("#to").value).getTime();
+      const { lx3LastRangeEnd = 0 } = await chrome.storage.local.get("lx3LastRangeEnd").catch(() => ({}));
+      if (end && end <= Date.now() && end > lx3LastRangeEnd) await chrome.storage.local.set({ lx3LastRangeEnd: end }).catch(() => {});
+      updateAutoInfo();
     }
     $("#saveInfo").className = "hint ok";
     $("#saveInfo").textContent = `✔ ${saveWhereText(await saveOptions())}에 ${name} - ${selected.length}개 추가 (순번 ${out.from}~${out.to})${dbNote}. '체크한 글 댓글 수집하기'로 바로 댓글을 모을 수 있습니다.`;
@@ -1117,18 +1102,18 @@ async function saveList() {
 // 댓글 수집 화면으로 넘기기
 // ---------------------------------------------------------------------------
 
-function handOff(urls, message) {
+function handOff(urls, message, auto = false) {
   try {
     localStorage.setItem("urls", urls.join("\n"));
     sessionStorage.setItem("handoff", message);
   } catch {
     /* 무시 */
   }
-  location.href = "app.html";
+  location.href = auto ? "app.html?auto=1" : "app.html";
 }
 
 // 언론은 네이버 뉴스 기사만(댓글은 네이버 뉴스에만 있음), 동호회·커뮤니티 글, 유튜브 목록
-function toComments() {
+function toComments(auto = false) {
   const sel = sortedItems().filter((x) => x.checked);
   const news = sel.filter((x) => x.channel === "언론" && x.naverUrl).map((x) => x.naverUrl);
   const noNaver = sel.filter((x) => x.channel === "언론" && !x.naverUrl).length;
@@ -1146,7 +1131,8 @@ function toComments() {
     [...news, ...cafe, ...comm, ...yt],
     `LX3 메뉴에서 ${parts.join(", ")}를 가져왔습니다` +
       (noNaver ? ` (언론사 자체 사이트 기사 ${noNaver}개는 네이버 뉴스 댓글이 없어 뺐습니다)` : "") +
-      `. 기존 raw data 엑셀 파일을 고른 뒤 '수집 시작'을 누르세요.`,
+      (auto ? ". 자동 수집: 이어서 댓글을 수집합니다." : `. 기존 raw data 엑셀 파일을 고른 뒤 '수집 시작'을 누르세요.`),
+    auto,
   );
 }
 
@@ -1374,8 +1360,8 @@ async function init() {
     saveLast();
   });
   $("#listFile").addEventListener("change", (e) => loadListFile(e.target.files[0]));
-  $("#saveList").addEventListener("click", saveList);
-  $("#toComments").addEventListener("click", toComments);
+  $("#saveList").addEventListener("click", () => saveList());
+  $("#toComments").addEventListener("click", () => toComments()); // 클릭 정보가 '자동 수집' 자리에 들어가지 않게
   $("#withYoutube").addEventListener("change", updateCounts);
   $("#ytAdd").addEventListener("click", addYoutube);
   $("#ytNewAdd").addEventListener("click", addNewYoutube);
@@ -1396,9 +1382,13 @@ async function init() {
   window.addEventListener("focus", checkLogin);
   checkLogin();
   await restoreLast();
-  // 중단된 찾기가 있으면 이어서 할지 묻는다
+  updateAutoInfo();
+  // 중단된 찾기가 있으면 이어서 할지 묻는다 (자동 수집이면 묻지 않고 자동 수집 흐름으로)
   const r = await loadResume("lx3");
-  if (r) {
+  if (AUTO_MODE) {
+    history.replaceState(null, "", "lx3.html"); // 새로고침해도 자동 수집이 다시 시작되지 않게
+    runAuto(r);
+  } else if (r) {
     const ids = r.ids || [];
     const queries = r.queries || [];
     const boards = r.boards || [];
@@ -1442,3 +1432,78 @@ function openSettingsFromHash() {
 }
 window.addEventListener("hashchange", openSettingsFromHash);
 openSettingsFromHash();
+
+// ---------------------------------------------------------------------------
+// 자동 수집 ('온라인 오전 일일동향'과 같은 방식, 백그라운드가 평일 정해진 시각에 lx3.html?auto=1 로 연다)
+// 게시물 찾기 → 관련 단어로 체크된 글을 게시물 엑셀·최종 DB 에 저장 → 그 글들과 유튜브 목록의 댓글 수집(app.html?auto=1)
+// ---------------------------------------------------------------------------
+
+// 자동 수집 기간: 지난번 게시물 리스트를 저장한 끝 시각부터 오늘 기준 시각까지
+// (주말·공휴일이 끼었거나 PC 가 꺼져 못 돌린 날도 이어서 모음. 7일 넘게 비었으면 기본 기간 = 직전 근무일부터)
+function autoRange(now = new Date(), lastEnd = 0) {
+  const def = defaultRange(now);
+  const to = def.to.getTime();
+  const from = lastEnd && lastEnd < to && to - lastEnd <= 7 * 86400000 ? new Date(lastEnd) : def.from;
+  return { from, to: def.to };
+}
+
+async function runAuto(resume) {
+  const fail = (message) => {
+    setSummary(`자동 수집: ${message}`, "err");
+    chrome.runtime.sendMessage({ type: "lx3AutoDone", ok: false, message }).catch(() => {});
+  };
+  try {
+    if (resume && Date.now() - resume.at < 12 * 3600000) {
+      log("· 지난 자동 수집이 중간에 멈춰서, 끝난 곳은 건너뛰고 남은 곳부터 이어서 찾습니다");
+      await search(resume);
+    } else {
+      if (resume) await clearResume("lx3");
+      const { lx3LastRangeEnd = 0 } = await chrome.storage.local.get("lx3LastRangeEnd").catch(() => ({}));
+      const r = autoRange(new Date(), lx3LastRangeEnd);
+      $("#from").value = toLocalInput(r.from);
+      $("#to").value = toLocalInput(r.to);
+      log(`· 자동 수집을 시작합니다 (${formatDateTime(r.from)} ~ ${formatDateTime(r.to)}${r.from.getTime() === lx3LastRangeEnd ? " · 지난번 저장 이후 이어서" : ""})`);
+      await search();
+    }
+  } catch (e) {
+    return fail(`게시물 찾기 중 오류가 났습니다 (${e.message})`);
+  }
+  if (stopRequested) return fail("게시물 찾기를 중지했습니다. 결과를 확인해 주세요.");
+  const n = items.filter((x) => x.checked && !x.dup).length;
+  if (n) await saveList({ auto: true });
+  // 찾은 글이 없어도 이 기간은 모은 것으로 (다음 자동 수집은 여기부터)
+  const end = new Date($("#to").value).getTime();
+  const { lx3LastRangeEnd = 0 } = await chrome.storage.local.get("lx3LastRangeEnd").catch(() => ({}));
+  await chrome.storage.local.set({ lx3AutoPosts: n, ...(end > lx3LastRangeEnd ? { lx3LastRangeEnd: end } : {}) }).catch(() => {});
+  $("#withYoutube").checked = true;
+  toComments(true);
+}
+
+// 위쪽 안내: 자동 수집 설정·오늘 근무일 여부·다음 수집이 어디부터인지
+async function updateAutoInfo() {
+  const box = $("#autoInfo");
+  if (!box) return;
+  const { lx3Auto, lx3LastRangeEnd = 0 } = await chrome.storage.local.get(["lx3Auto", "lx3LastRangeEnd"]).catch(() => ({}));
+  const on = lx3Auto?.on ?? true;
+  const time = lx3Auto?.time || "11:30";
+  $("#autoOn").checked = on;
+  $("#autoTime").value = time;
+  if (!on) {
+    box.textContent = "⏰ 자동 수집: 꺼짐 (설정에서 켤 수 있음)";
+    return;
+  }
+  const now = new Date();
+  const r = autoRange(now, lx3LastRangeEnd);
+  box.textContent =
+    `⏰ 자동 수집: 평일 ${timeLabel(time)} (주말·공휴일·추가 휴일엔 쉬고 다음 근무일에 이어서) · 오늘은 ${isOffDay(now) ? "휴일" : "근무일"}` +
+    ` · 다음 수집 기간: ${md(r.from)} ${timeLabel(toLocalInput(r.from).slice(11))}부터` +
+    (lx3LastRangeEnd && r.from.getTime() === lx3LastRangeEnd ? " (지난번 저장 이후 이어서)" : "");
+}
+
+async function saveAutoSettings() {
+  const time = /^\d{2}:\d{2}$/.test($("#autoTime").value) ? $("#autoTime").value : "11:30";
+  await chrome.storage.local.set({ lx3Auto: { on: $("#autoOn").checked, time } }).catch(() => {});
+  updateAutoInfo();
+}
+$("#autoOn").addEventListener("change", saveAutoSettings);
+$("#autoTime").addEventListener("change", saveAutoSettings);

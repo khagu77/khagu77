@@ -21,6 +21,7 @@
   <main>
 
     <div id="login" class="login">로그인 상태 확인 중…</div>
+    <div id="autoInfo" class="hint autoinfo"></div>
 
     <section>
       <h2>1. 게시물 찾기</h2>
@@ -48,6 +49,12 @@
 
       <details id="settings">
         <summary>설정 (동호회 목록 · 언론·커뮤니티 키워드 · 관련 단어 · 저장 위치)</summary>
+        <label>자동 수집 <span class="hint">('온라인 오전 일일동향'처럼 평일 정해진 시각에 게시물 찾기 → 게시물 엑셀 → 댓글 수집 → 댓글 엑셀까지 자동. 크롬이 켜져 있어야 함)</span></label>
+        <div class="row">
+          <label class="inline"><input type="checkbox" id="autoOn" checked> 평일 자동 수집</label>
+          <label class="inline">시작 시각 <input type="time" id="autoTime" value="11:30"></label>
+          <span class="hint">주말·공휴일·추가 휴일엔 쉬고, 다음 근무일에 지난번 저장 이후(휴일·못 돌린 날 포함)를 이어서 모읍니다. 그 시각에 PC가 꺼져 있었으면 그날 크롬을 켤 때(오후 8시 전) 시작합니다.</span>
+        </div>
         <label for="saveFolder">엑셀 저장 위치 <span class="hint">(이 화면과 댓글 수집 화면에서 받는 엑셀 모두)</span></label>
         <div class="row"><span class="hint">크롬 다운로드 폴더 /</span><input type="text" id="saveFolder" class="full" spellcheck="false" placeholder="비우면 다운로드 폴더에 바로 저장 (예: 팰리세이드 모니터링/일일보고)"></div>
         <label class="inline"><input type="checkbox" id="saveAsk"> 받을 때마다 저장 위치 묻기 (원하는 폴더를 직접 고름 · 크롬이 마지막 폴더를 기억)</label>
@@ -137,6 +144,7 @@
   <script src="cafe-common.js"></script>
   <script src="channels.js"></script>
   <script src="db-store.js"></script>
+  <script src="holidays.js"></script>
   <script src="lx3.js"></script>
 </body>
 </html>

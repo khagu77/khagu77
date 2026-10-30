@@ -1267,3 +1267,95 @@ def test_lx3_news_community(tmp_path: Path):
         assert not errors, errors
         ctx.close()
     server.shutdown()
+
+
+def test_lx3_auto(tmp_path: Path):
+    """자동 수집 ('온라인 오전 일일동향'과 같은 방식): 평일 정해진 시각 예약(휴일 건너뜀), 지난번 저장 이후를 이어서 모으는 기간,
+    lx3.html?auto=1 → 게시물 찾기 → 게시물 엑셀 → 댓글 수집 → 댓글 엑셀 → 완료 알림까지 사람 손 없이."""
+    from datetime import timedelta
+    now = datetime.now(ZoneInfo("Asia/Seoul"))
+    end = now.replace(hour=11, minute=30, second=0, microsecond=0)
+    post_at = (end - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:00")  # 오늘 기간 안
+    clien_list = ('<html><body><div class="list_item"><a href="/service/board/cm_car/777">팰리세이드 시트 리콜 받았어요</a>'
+                  f'<span class="timestamp">{post_at}</span></div></body></html>')
+    clien_view = (f'<html><body><div class="post_author"><span class="view_count date">{post_at}</span></div>'
+                  f'<div class="comment_row"><div class="comment_view">저도 받았습니다</div><span class="timestamp">{post_at}</span></div></body></html>')
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True, timezone_id="Asia/Seoul",
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}", "--no-proxy-server"],
+            accept_downloads=True)
+        ctx.route("https://www.clien.net/**", lambda route: route.fulfill(
+            status=200, content_type="text/html; charset=utf-8",
+            body=clien_view if "/cm_car/777" in route.request.url else (clien_list if "po=0" in route.request.url else "<html></html>")))
+        ctx.route("https://www.youtube.com/**", lambda route: route.fulfill(
+            status=200, content_type="application/json" if "/youtubei/" in route.request.url else "text/html",
+            body=json.dumps(YT_PAGES.get(json.loads(route.request.post_data or "{}").get("continuation"), {}))
+            if "/youtubei/" in route.request.url else YT_INFO_HTML))
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        ext = f"chrome-extension://{sw.url.split('/')[2]}"
+
+        # 예약: 평일 11:30, 주말·공휴일은 건너뜀 (금요일 오후 → 월요일, 한글날(금) 전날 오후 → 그다음 월요일)
+        # (백그라운드는 이 PC 시간대로 계산: 테스트 브라우저의 백그라운드 시간대 그대로 넣음)
+        nxt = lambda when: sw.evaluate(f"nextAutoRun({{ time: '11:30', extra: new Set() }}, new Date('{when}')).toString()")
+        assert "Nov 02 2026 11:30" in nxt("2026-10-30T12:00:00")
+        assert "Oct 12 2026 11:30" in nxt("2026-10-08T15:00:00")
+        assert "Oct 29 2026 11:30" in nxt("2026-10-29T08:00:00")
+        assert "Oct 22 2026 11:30" in sw.evaluate("nextAutoRun({ time: '11:30', extra: parseExtraHolidays('2026-10-21') }, new Date('2026-10-20T12:00:00')).toString()")
+        assert sw.evaluate("chrome.alarms.get('lx3-auto').then((a) => !!a)")
+        # 오늘 이미 했으면(게시물 리스트를 오늘 기준 시각까지 저장) 다시 하지 않음 · 수집 중이면 미룸
+        assert not sw.evaluate("autoDoneToday({ endTime: '11:30' }, new Date())")
+        sw.evaluate("chrome.storage.local.set({ lx3LastRangeEnd: atTime(new Date(), '11:30').getTime() })")
+        assert sw.evaluate("autoDoneToday({ endTime: '11:30' }, new Date())")
+        sw.evaluate("chrome.storage.local.remove(['lx3LastRangeEnd', 'lx3LastAutoRun'])")
+        assert not sw.evaluate("lx3Busy()")
+        sw.evaluate("self.__notes = []; chrome.notifications.create = (o) => { self.__notes.push(o); }")
+
+        page = ctx.new_page()
+        downloads = []
+        page.on("download", lambda d: downloads.append(d))
+        dialogs = []
+        page.on("dialog", lambda d: (dialogs.append(d.message), d.accept()))
+        page.goto(f"{ext}/lx3.html")
+        page.evaluate("chrome.storage.local.set({ lx3RunBeat: Date.now() })")
+        assert sw.evaluate("lx3Busy()")  # LX3 화면이 수집 중 신호를 남기고 있으면 자동 수집을 미룸
+        page.evaluate("chrome.storage.local.remove('lx3RunBeat')")
+        # 기간: 지난번 저장 이후 이어서 (휴일·못 돌린 날 포함), 7일 넘게 비었으면 기본(직전 근무일부터)
+        rng = lambda now_s, last_s: page.evaluate(
+            f"(() => {{ const r = autoRange(new Date('{now_s}'), {('new Date(%r).getTime()' % last_s) if last_s else 0}); return [toLocalInput(r.from), toLocalInput(r.to)]; }})()")
+        assert rng("2026-10-19T09:00:00+09:00", "2026-10-16T11:30:00+09:00") == ["2026-10-16T11:30", "2026-10-19T11:30"]  # 월: 금 11:30부터
+        assert rng("2026-10-21T11:30:00+09:00", "2026-10-19T11:30:00+09:00") == ["2026-10-19T11:30", "2026-10-21T11:30"]  # 화요일 못 돌림 → 월부터
+        assert rng("2026-10-21T11:30:00+09:00", "2026-10-01T11:30:00+09:00") == ["2026-10-20T11:30", "2026-10-21T11:30"]  # 7일 넘게 → 기본
+        assert rng("2026-10-21T11:30:00+09:00", None) == ["2026-10-20T11:30", "2026-10-21T11:30"]
+        assert "자동 수집: 평일 오전 11:30" in page.inner_text("#autoInfo")
+
+        # 커뮤니티(클리앙 자동차당)만, 유튜브 목록 1개로 자동 수집 → 사람 손 없이 끝까지
+        page.evaluate("""chrome.storage.local.set({ lx3Channels: { cafe: false, news: false, community: true },
+          lx3Boards: ['https://www.clien.net/service/board/cm_car'], lx3MainKw: '팰리세이드', lx3SubKw: '시트',
+          lx3Youtube: ['https://www.youtube.com/watch?v=abcdefghijk'] })""")
+        page.goto(f"{ext}/lx3.html?auto=1")
+        page.wait_for_url("**/app.html*", timeout=180000)
+        for _ in range(240):
+            if len(downloads) >= 2:
+                break
+            page.wait_for_timeout(500)
+        assert len(downloads) == 2, (len(downloads), dialogs)
+        buzz, raw = tmp_path / "auto_buzz.xlsx", tmp_path / "auto_raw.xlsx"
+        downloads[0].save_as(buzz)
+        downloads[1].save_as(raw)
+        vals = [r[1:7] for r in load_workbook(buzz).worksheets[0].iter_rows(min_row=4, values_only=True) if r[1]]
+        assert [(v[1], v[2], v[5]) for v in vals] == [("자동차 커뮤니티", "클리앙", "https://www.clien.net/service/board/cm_car/777")], vals
+        wb = load_workbook(raw)
+        assert [r[3] for r in list(wb["자동차 커뮤니티"].values)[1:]] == ["저도 받았습니다"]
+        assert [r[3] for r in list(wb["유튜브"].values)[1:]] == ["좋아요", "답글이에요", "멋져요", "마지막"]
+        assert not dialogs, dialogs  # 확인 창 없이
+        assert page.url.endswith("/app.html")  # 새로고침해도 다시 자동 수집되지 않게 주소에서 auto 를 뺌
+        # 다음 자동 수집은 이번 기간 끝(오늘 11:30)부터
+        assert page.evaluate("chrome.storage.local.get('lx3LastRangeEnd').then((x) => x.lx3LastRangeEnd)") == int(end.timestamp() * 1000)
+        for _ in range(20):
+            notes = [n for n in sw.evaluate("self.__notes") if isinstance(n, dict) and "LX3" in n.get("title", "")]
+            if notes:
+                break
+            page.wait_for_timeout(300)
+        assert notes and notes[0]["title"] == "LX3 자동 수집 완료" and "게시물 1건 엑셀 저장" in notes[0]["message"], notes
+        ctx.close()

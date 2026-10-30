@@ -941,3 +941,22 @@ async function readYoutubeInfo(url) {
   }
   return { id, url: `https://www.youtube.com/watch?v=${id}`, title: v.title, channel: v.author || mf.ownerChannelName || "", date: date && !isNaN(date) ? date : null, hasTime };
 }
+
+// ---------------------------------------------------------------------------
+// 자동 수집과 함께 쓰기: 찾기·댓글 수집 중이라는 신호 (백그라운드가 보고 자동 수집을 미룸)
+// ---------------------------------------------------------------------------
+
+let runBeatTimer = null;
+function markRunning(on) {
+  if (on) {
+    chrome.storage.local.set({ lx3RunBeat: Date.now() }).catch(() => {});
+    runBeatTimer = runBeatTimer || setInterval(() => chrome.storage.local.set({ lx3RunBeat: Date.now() }).catch(() => {}), 30000);
+  } else {
+    clearInterval(runBeatTimer);
+    runBeatTimer = null;
+    chrome.storage.local.remove("lx3RunBeat").catch(() => {});
+  }
+}
+
+// 이 화면이 자동 수집으로 열렸는지 (lx3.html?auto=1 · app.html?auto=1)
+const AUTO_MODE = new URLSearchParams(location.search).has("auto");
