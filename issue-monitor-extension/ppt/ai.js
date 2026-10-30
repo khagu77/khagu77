@@ -173,6 +173,94 @@ function pptExampleLine(x) {
   return `- [${x.car || "-"}] 제목 "${x.title}" / 요약표 "${x.short || ""}"${x.spec && x.spec !== "-" ? ` / 제원 ${x.spec}` : ""} / 불만 구분 ${x.level || "주의"}${x.kind && x.kind !== "품질" ? ` / 유형 ${x.kind}` : ""} / 지역 ${x.region || "-"}\n  본문 요약: ${x.body}\n  댓글 반응: ${x.reaction || "댓글 반응 없음"}`;
 }
 
+// ---------------------------------------------------------------------------
+// 미리보기 카드 '수정 요청' (담당자 요청 2026-10-30): 카드마다 적은 요청을 그 글에 바로 반영하고,
+// 다른 글에도 적용할 만한 요청은 '담당자 규칙'으로 저장해 다음 작성부터 반드시 지키게 한다 (같은 실수 반복 방지)
+// 저장: chrome.storage.local "pptRules" [{ at, rule, request, car, cafe, url }] · 명령 프롬프트 화면에서 보기·지우기·.md 받기
+// ---------------------------------------------------------------------------
+const PPT_RULE_MAX = 100;
+let pptRules = [];
+async function loadPptRules() {
+  const { pptRules: list = [] } = await chrome.storage.local.get("pptRules").catch(() => ({}));
+  pptRules = Array.isArray(list) ? list : [];
+  return pptRules;
+}
+async function addPptRule(rule) {
+  const list = (await loadPptRules()).filter((x) => x.rule !== rule.rule);
+  list.unshift({ at: Date.now(), ...rule });
+  pptRules = list.slice(0, PPT_RULE_MAX);
+  await chrome.storage.local.set({ pptRules, pptLearnedUpdatedAt: Date.now() });
+}
+function rulesSection() {
+  if (!pptRules.length) return "";
+  return `\n\n[담당자 규칙 (미리보기 카드 수정 요청에서 저장, 최근 순 — 위 규칙·예시보다 우선, 반드시 지킴)]\n${pptRules.map((x) => `- ${x.rule}${x.car ? ` (사례: ${x.car})` : ""}`).join("\n")}`;
+}
+
+const REVISE_SCHEMA = {
+  type: "object",
+  properties: {
+    fields: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        code: { type: "string" },
+        spec: { type: "string" },
+        level: { type: "string", enum: ["주의", "경고", "심각"] },
+        progress: { type: "string", enum: ["초기", "진행", "타결"] },
+        short: { type: "string" },
+        body: { type: "string" },
+        reaction: { type: "string" },
+        duplicate: { type: "string" },
+        region: { type: "string" },
+        focus: { type: "string" },
+      },
+      required: ["title", "code", "spec", "level", "progress", "short", "body", "reaction", "duplicate", "region", "focus"],
+      additionalProperties: false,
+    },
+    comment_picks: { type: "array", items: { type: "integer" } },
+    capture_exclude: { type: "array", items: { type: "string" } },
+    rule: { type: "string" },
+    reply: { type: "string" },
+  },
+  required: ["fields", "comment_picks", "capture_exclude", "rule", "reply"],
+  additionalProperties: false,
+};
+
+// 카드 하나에 담당자 수정 요청 반영 → { fields, comment_picks, capture_exclude, rule, reply }
+async function aiRevise({ apiKey, model, row, info, fields, selComments, request }) {
+  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 4 });
+  const input = {
+    request,
+    current: fields,
+    currentCommentPicks: selComments,
+    post: {
+      cafe: row.cafe,
+      excelCar: row.car,
+      boardName: info?.boardName || "",
+      title: info?.title || row.title || "",
+      author: info?.author || "",
+      body: String(info?.bodyText || "").slice(0, 3000),
+      comments: (info?.comments || []).map((c) => ({ index: c.index, text: String(c.text || "").slice(0, 300) })),
+    },
+  };
+  const system = `${aiSystem()}
+
+[지금 할 일: 담당자 수정 요청 반영]
+담당자가 이 글의 미리보기 카드에 수정 요청(request)을 적었습니다. 지금 값(current)을 요청대로 고쳐 fields 로 돌려줍니다.
+- 요청과 관계없는 칸은 current 값을 그대로 돌려줍니다. 위 작성 규칙(글자 수, 끝맺음, 표기법)은 그대로 지킵니다.
+- comment_picks: 캡처할 댓글을 바꾸라는 요청이면 post.comments 의 index 로 새로 고른 번호, 아니면 currentCommentPicks 그대로.
+- capture_exclude: 본문 캡처에서 빼라는 문구(카페 안내문·양식 등)가 있으면 그 문구를 줄 단위로 그대로 적습니다. 없으면 빈 배열.
+- rule: 다른 글에도 똑같이 적용해야 할 일반 규칙이면, 다음부터 같은 실수를 하지 않도록 짧고 분명한 한 문장 규칙으로 적습니다 (예: "아이오닉9(ME1) 테일게이트 글은 ~로 쓴다"). 이 글에만 해당하는 일회성 수정이면 빈 문자열.
+- reply: 무엇을 고쳤고 무엇을 규칙으로 저장했는지 담당자에게 한두 문장으로 알립니다. 그림 배치·크기·자르기처럼 여기서 바꿀 수 없는 요청이면 그렇다고 알려 줍니다.`;
+  return askJson(client, model, {
+    model,
+    max_tokens: 3000,
+    system,
+    output_config: { effort: "low", format: { type: "json_schema", schema: REVISE_SCHEMA } },
+    messages: [{ role: "user", content: JSON.stringify(input) }],
+  });
+}
+
 function aiSystem() {
   const lines = pptLearned.slice(0, PPT_LEARN_PROMPT_MAX).map(pptLearnLine).filter(Boolean);
   const seen = new Set();
@@ -184,6 +272,7 @@ function aiSystem() {
   if (examples.length)
     s += `\n\n[담당자가 최종 확정한 보고서 예시 (최근 순)]\n담당자가 PPT 에서 직접 다듬어 확정한 문구입니다. 문장 길이·시작/끝맺음·표현·제목과 요약표 맞춤·불만 구분·지역 표기 방식을 이 예시처럼 맞춥니다.\n${examples.join("\n")}`;
   if (typeof PickLearn !== "undefined") s += PickLearn.commentSection(); // 미리보기 카드 댓글 선택 학습
+  s += rulesSection(); // 미리보기 카드 수정 요청에서 저장한 담당자 규칙 (가장 우선)
   if (lines.length)
     s += `\n\n[담당자 수정 사례 (자동 학습, 최근 순)]\n담당자가 직접 고친 기록입니다. 같은 표현·판단 실수를 반복하지 말고, 비슷한 글은 담당자가 고친 쪽(표현·끝맺음·불만 구분·제원·지역 등)을 따릅니다.\n${lines.join("\n")}`;
   return s;

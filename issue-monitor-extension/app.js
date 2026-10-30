@@ -2354,6 +2354,53 @@ async function renderLearned() {
   });
 }
 
+// 담당자 규칙 (PPT 미리보기 카드 '수정 요청'에서 저장) · 본문 캡처 제외 문구
+async function renderRules() {
+  const { pptRules = [], captureExcludes = [] } = await chrome.storage.local.get(["pptRules", "captureExcludes"]);
+  $("#rulesInfo").textContent = pptRules.length || captureExcludes.length ? `규칙 ${pptRules.length}개 · 캡처 제외 문구 ${captureExcludes.length}줄` : "아직 없습니다. PPT 미리보기 카드의 '✍ 수정 요청'에 적으면 여기에 쌓입니다.";
+  const box = $("#rulesList");
+  box.textContent = "";
+  pptRules.forEach((x, i) => {
+    box.append(
+      el("div", { class: "item" },
+        el("span", { class: "hint", text: `${fmtDateTime(new Date(x.at))} ` }),
+        `📌 ${x.rule}`,
+        el("span", { class: "hint", text: `  (요청: ${x.request}${x.car ? ` · ${x.car}` : ""})` }),
+        el("button", { class: "del", text: "삭제", title: "이 규칙을 지웁니다", onclick: async () => { const { pptRules: all = [] } = await chrome.storage.local.get("pptRules"); all.splice(i, 1); await chrome.storage.local.set({ pptRules: all, pptLearnedUpdatedAt: Date.now() }); renderRules(); } })
+      )
+    );
+  });
+  captureExcludes.forEach((x, i) => {
+    box.append(
+      el("div", { class: "item" },
+        el("span", { class: "hint", text: `${x.at ? fmtDateTime(new Date(x.at)) : ""} ` }),
+        `✂ 본문 캡처 제외: "${x.text || x}"`,
+        el("span", { class: "hint", text: x.url ? `  (${x.url.replace(/^https?:\/\//, "")})` : "" }),
+        el("button", { class: "del", text: "삭제", title: "이 문구를 다시 캡처에 넣습니다", onclick: async () => { const { captureExcludes: all = [] } = await chrome.storage.local.get("captureExcludes"); all.splice(i, 1); await chrome.storage.local.set({ captureExcludes: all }); renderRules(); } })
+      )
+    );
+  });
+}
+$("#rulesMd").addEventListener("click", async () => {
+  const { pptRules = [], captureExcludes = [] } = await chrome.storage.local.get(["pptRules", "captureExcludes"]);
+  const d = new Date();
+  const md = [
+    `# 담당자 규칙 메모 (${fmtDateTime(d)} 받음)`,
+    "",
+    "PPT 미리보기 카드 '✍ 수정 요청'에서 저장한 규칙입니다. 다음 작성부터 AI 가 반드시 지킵니다.",
+    "",
+    "## 규칙",
+    ...(pptRules.length ? pptRules.map((x) => `- ${x.rule}  \n  (${fmtDateTime(new Date(x.at))} · 요청: ${x.request}${x.car ? ` · ${x.car}` : ""}${x.url ? ` · ${x.url}` : ""})`) : ["- (없음)"]),
+    "",
+    "## 본문 캡처 제외 문구",
+    ...(captureExcludes.length ? captureExcludes.map((x) => `- "${x.text || x}"${x.url ? ` (${x.url})` : ""}`) : ["- (없음)"]),
+    "",
+  ].join("\n");
+  const name = `담당자규칙_${String(d.getFullYear()).slice(2)}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}.md`;
+  const where = await saveBytesFile(name, new TextEncoder().encode(md), "text/markdown");
+  alert(`✅ 규칙 메모 저장 완료\n\n저장 위치: ${where}`);
+});
+
 $("#clearLearned").addEventListener("click", async () => {
   if (!confirm("자동 학습 메모(수집·PPT)를 모두 지울까요? (다음 판정·작성부터 담당자 수정 사례가 빠집니다)")) return;
   await saveLearned([]);
@@ -2362,6 +2409,7 @@ $("#clearLearned").addEventListener("click", async () => {
 });
 
 function renderPrompt() {
+  renderRules();
   renderLearned().then(() => {
     $("#promptTriage").textContent = triageSystem(state.settings);
     $("#promptClassify").textContent = classifySystem(state.settings);

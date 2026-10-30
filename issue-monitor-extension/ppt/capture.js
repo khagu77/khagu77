@@ -19,7 +19,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 게시글 화면 안에서 실행되는 함수 (확장 바깥 변수는 쓸 수 없음)
 // mode: "info" → 글 정보 + 요소 표시, "rect" → 요소 위치(문서 좌표), "restore" → 숨김 해제
 // ---------------------------------------------------------------------------
-async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerplates) {
+async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerplates, userExcludes) {
   const SEL = {
     header: [".article_header", ".ArticleContentBox .ArticleTitle", ".ArticleTitle", ".tit-box"],
     title: [".title_text", ".ArticleTitle h3", ".tit-box .b"],
@@ -473,11 +473,17 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     /타\s*차량\s*비하\s*분쟁\s*,?\s*욕설\s*,?\s*명예\s*훼손/,
     /카페\s*규정\s*위반\s*회원은\s*영구\s*강퇴/,
   ];
+  // 담당자가 미리보기 카드 '수정 요청'으로 빼 달라고 한 문구 (본문 어디에 있든, 글자·숫자만 비교)
+  const userEx = (userExcludes || []).map(norm).filter((k) => k.length >= 4);
+  const userHit = (t) => {
+    const n = norm(t);
+    return n.length >= 4 && userEx.some((k) => k.includes(n) || n.includes(k));
+  };
   const extraBoiler = new Set();
   lines.forEach((l, i) => {
     if (i <= cut && boilerplateText) return;
     const t = text(l);
-    if (!l.media && t && FORM_ANY.some((r) => r.test(t))) extraBoiler.add(i);
+    if (!l.media && t && (FORM_ANY.some((r) => r.test(t)) || userHit(t))) extraBoiler.add(i);
   });
   // 고정 안내문 바로 뒤에 붙은 구분선·빈 줄도 같이 뺀다
   for (const i of [...extraBoiler].sort((a, b) => a - b)) {
@@ -1142,12 +1148,14 @@ const SEED_BOILERPLATES = [
 ];
 // 전에 찾아 둔 카페 안내 문구 (다음 글에서도 바로 빼기 위해 기억)
 let knownBoilerplates = [];
+// 담당자가 미리보기 카드 '수정 요청'으로 본문 캡처에서 빼 달라고 한 문구 (chrome.storage "captureExcludes")
+let userCaptureExcludes = [];
 
 async function probe(tabId, mode, target) {
   const [res] = await chrome.scripting.executeScript({
     target: { tabId },
     func: cafePageProbe,
-    args: [mode, target || null, MAX_COMMENTS, MAX_IMAGES, knownBoilerplates],
+    args: [mode, target || null, MAX_COMMENTS, MAX_IMAGES, knownBoilerplates, userCaptureExcludes],
   });
   return res ? res.result : null;
 }
@@ -1242,6 +1250,7 @@ async function readPostCounts(url, known = {}) {
 async function captureCafePostOnce(url, onStep = () => {}, known = {}) {
   const saved = await chrome.storage.local.get(["boilerplates"]).catch(() => ({}));
   knownBoilerplates = [...SEED_BOILERPLATES, ...(saved.boilerplates || []).filter((k) => !SEED_BOILERPLATES.includes(k))];
+  userCaptureExcludes = ((await chrome.storage.local.get("captureExcludes").catch(() => ({}))).captureExcludes || []).map((x) => x.text || x).filter(Boolean);
   onStep("게시글 여는 중");
   // 영운모·넥쏘카페: 글 주소로 바로 열지 않고 처음부터 네이버 검색으로 들어간다
   const searchFirst = needsSearchEntry(url, known.cafe);

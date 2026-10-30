@@ -650,6 +650,7 @@ async function start() {
   const chain = $("#autoChain").checked;
   await loadPptLearned(); // 담당자 수정 사례를 최신으로
   if (typeof PickLearn !== "undefined") await PickLearn.load(); // 댓글·사진 선택 습관도 최신으로
+  await loadPptRules(); // 카드 수정 요청에서 저장한 담당자 규칙
   await loadPptExamples();
   // 끝나고 바로 저장할 때: 저장 폴더 허용은 버튼을 누른 지금 받아 둔다 (나중엔 물을 수 없음)
   const chainDir = chain ? await saveDirIfAllowed() : null;
@@ -806,7 +807,13 @@ function renderItem(it) {
   </div>`;
 
   it.el.innerHTML = head + `<div class="item-body"><div class="fields">${fields}</div>
-    <div class="preview"><canvas width="600" height="415"></canvas><div class="buttons"><button data-act="retry" title="AI 요약에 비용이 듭니다">💰 다시 캡처·요약</button></div></div></div>` + shots;
+    <div class="preview"><canvas width="600" height="415"></canvas><div class="buttons"><button data-act="retry" title="AI 요약에 비용이 듭니다">💰 다시 캡처·요약</button></div>
+      <div class="revise">
+        <label>✍ 수정 요청 <span class="hint">채팅으로 요청하듯 적으면 이 글에 바로 반영하고, 다른 글에도 해당하면 규칙으로 저장해 같은 실수를 반복하지 않습니다.</span></label>
+        <textarea data-revise rows="3" placeholder="예) 제원은 2.5T 야 / 댓글은 '리콜감' 댓글로 바꿔 줘 / 본문 맨 위 '[ 경 고 ]' 안내문은 캡처에서 빼 줘 / 이런 글은 불만 구분 주의로">${esc(it.reviseDraft || "")}</textarea>
+        <div class="buttons"><button data-act="revise" title="AI 비용이 듭니다 (요청 한 번에 한 번)">💰 요청 반영</button><span class="revise-reply ${it.reviseErr ? "err" : "ok"}">${esc(it.reviseReply || "")}</span></div>
+      </div>
+    </div></div>` + shots;
 
   // 내용 요약은 2줄 엄수: 본문 요약·댓글 반응 글자 수를 보여 주고 넘으면 빨갛게
   const updateCount = (k) => {
@@ -839,6 +846,8 @@ function renderItem(it) {
       if (kind === "comment" || kind === "image") learnPickItem(it);
     });
   }
+  $("[data-revise]", it.el).addEventListener("input", (e) => (it.reviseDraft = e.target.value));
+  $('[data-act="revise"]', it.el).addEventListener("click", () => reviseItem(it));
   $('[data-act="retry"]', it.el).addEventListener("click", async () => {
     refreshButtons(true);
     await processItem(it);
@@ -867,7 +876,77 @@ function learnPptItem(it) {
     }, 1500)
   );
 }
-window.PptLearn = { load: async () => { await loadPptExamples(); return loadPptLearned(); }, save: savePptLearned, line: pptLearnLine, system: () => aiSystem(), fromPpt: (details) => learnFromPpt(details) };
+window.PptLearn = { load: async () => { await loadPptExamples(); await loadPptRules(); if (typeof PickLearn !== "undefined") await PickLearn.load(); return loadPptLearned(); }, save: savePptLearned, line: pptLearnLine, system: () => aiSystem(), fromPpt: (details) => learnFromPpt(details) };
+
+// 미리보기 카드 '수정 요청' 반영 (담당자 요청 2026-10-30)
+// 글자 칸·캡처할 댓글은 이 글에 바로 반영, 본문 캡처에서 뺄 문구는 저장 후 이 글만 다시 캡처(AI 없이),
+// 다른 글에도 해당하는 요청은 '담당자 규칙'(pptRules)으로 저장해 다음 작성부터 AI 가 반드시 지키게 한다
+async function reviseItem(it) {
+  const request = String(it.reviseDraft || "").trim();
+  if (!request) return;
+  const apiKey = $("#aiKey").value.trim();
+  if (!apiKey) {
+    it.reviseReply = "설정에서 Claude API 키를 먼저 넣어 주세요.";
+    it.reviseErr = true;
+    renderItem(it);
+    return;
+  }
+  const btn = $('[data-act="revise"]', it.el);
+  if (btn) btn.disabled = true;
+  setItemStatus(it, "수정 요청 반영 중");
+  pptWorking++;
+  try {
+    const out = await aiRevise({ apiKey, model: $("#aiModel").value, row: it.row, info: it.info, fields: Object.fromEntries(Object.keys(PPT_LEARN_FIELDS).map((k) => [k, it.fields[k] ?? ""])), selComments: [...it.sel.comments], request });
+    for (const [k, v] of Object.entries(out.fields || {})) if (k in PPT_LEARN_FIELDS && typeof v === "string") it.fields[k] = v.trim();
+    const valid = new Set((it.info?.comments || []).map((c) => c.index));
+    const picks = [...new Set((out.comment_picks || []).filter((i) => valid.has(i)))].sort((a, b) => a - b);
+    if (picks.join(",") !== [...it.sel.comments].sort((a, b) => a - b).join(",") && (picks.length || !valid.size)) {
+      it.sel.comments = new Set(picks);
+      learnPickItem(it);
+    }
+    const notes = [];
+    const ex = (out.capture_exclude || []).map((t) => String(t).trim()).filter((t) => t.replace(/[^\p{L}\p{N}]/gu, "").length >= 4);
+    if (ex.length) {
+      const { captureExcludes = [] } = await chrome.storage.local.get("captureExcludes");
+      const have = new Set(captureExcludes.map((x) => x.text || x));
+      const add = ex.filter((t) => !have.has(t)).map((t) => ({ text: t, at: Date.now(), cafe: it.row.cafe || "", url: it.row.url }));
+      await chrome.storage.local.set({ captureExcludes: [...add, ...captureExcludes].slice(0, 200), pptLearnedUpdatedAt: Date.now() });
+      // 이 글만 다시 캡처 (AI 요약은 다시 하지 않음 · 고친 글자 칸은 그대로)
+      if (isCafeUrl(it.row.url)) {
+        setItemStatus(it, "본문 다시 캡처 중");
+        try {
+          const cap = await captureCafePost(it.row.url, (step) => setItemStatus(it, step), { cafe: it.row.cafe, title: it.row.title });
+          it.cap = cap;
+          it.info = { ...cap.info };
+          it.visuals = await processCaptures(cap);
+          const n = it.visuals.images.length;
+          it.sel.images = new Set([...it.sel.images].filter((i) => i < n));
+          notes.push(`본문 캡처에서 뺄 문구 ${ex.length}줄 저장 후 다시 캡처`);
+        } catch (e) {
+          notes.push(`뺄 문구는 저장했지만 다시 캡처 실패: ${e.message || e} ([💰 다시 캡처·요약]으로 다시 해 주세요)`);
+        }
+      }
+    }
+    if (out.rule && out.rule.trim()) {
+      await addPptRule({ rule: out.rule.trim(), request, car: it.row.car || "", cafe: it.row.cafe || "", url: it.row.url });
+      notes.push(`규칙 저장: "${out.rule.trim()}"`);
+    }
+    it.revisions = [...(it.revisions || []), { at: Date.now(), request, reply: out.reply || "" }];
+    it.reviseDraft = "";
+    it.reviseReply = [`✅ ${out.reply || "반영했습니다."}`, ...notes].join(" · ");
+    it.reviseErr = false;
+    renderItem(it);
+    setItemStatus(it, "수정 요청 반영됨", "ok");
+    learnPptItem(it);
+    savePptProgress();
+  } catch (e) {
+    it.reviseReply = `반영하지 못했습니다: ${aiErrorMessage(e)}`;
+    it.reviseErr = true;
+    renderItem(it);
+  } finally {
+    pptWorking--;
+  }
+}
 
 // 미리보기 카드에서 댓글·사진 체크를 바꾸면 선택 학습 (담당자 요청 2026-10-30)
 const pickLearnTimers = new Map();
@@ -1360,6 +1439,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadPptLearned();
   await loadPptExamples();
   if (typeof PickLearn !== "undefined") await PickLearn.load();
+  await loadPptRules();
   const now = new Date();
   $("#reportDate").value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   // 화면을 밤새 열어 둔 경우: 날짜가 바뀌면 보고서 날짜도 오늘로 (작업 중이면 그대로)
