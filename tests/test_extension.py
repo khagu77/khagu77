@@ -695,6 +695,7 @@ def test_final_db(tmp_path: Path):
 
         def lx3_save(aids):
             page.goto(f"{ext}/lx3.html")
+            page.evaluate("lx3Init")  # 화면 준비(지난 결과 불러오기)가 끝난 뒤에 글을 넣음
             page.locator("#listFileInfo", has_text="✔").wait_for(state="attached")
             page.evaluate("""(aids) => {
               cafeNames['111'] = 'AA 동호회'; cafeSlugs['111'] = 'aacafe';
@@ -738,6 +739,7 @@ def test_final_db(tmp_path: Path):
         assert "게시물 3건 ▼ 2 건" in db_rows("buzz")[0] and "게시물 5건 전일 기록 없음" in db_rows("buzz")[1], db_rows("buzz")
         # 4) 별도 파일로 작성: 새 파일(순번 1부터), 최종 DB 는 그대로
         page.goto(f"{ext}/lx3.html")
+        page.evaluate("lx3Init")
         page.evaluate("""() => { cafeNames['111'] = 'AA 동호회'; cafeSlugs['111'] = 'aacafe';
           items = [{ key: '111/1009', cafeId: '111', cafeIndex: 0, articleId: '1009', slug: '', title: '따로', text: '',
             date: new Date(2026, 9, 12, 9, 0), hasTime: true, ambiguous: false, checked: true, related: true, note: '', dup: false }];
@@ -769,6 +771,7 @@ def test_final_db(tmp_path: Path):
         page.evaluate("""async () => { const r = (await dbList('buzz')).find((x) => x.date === '20261011');
           r.rangeEnd = new Date(2026, 9, 11, 11, 30).getTime(); await dbTx('readwrite', (s) => s.put(r)); }""")
         page.reload()
+        page.evaluate("lx3Init")
         page.locator("#listFileInfo", has_text="✔").wait_for(state="attached")
         opts = page.locator("#baseSelect option").all_inner_texts()
         assert "· 최종" in opts[0] and today[:4] in opts[0] and any("2026-10-11" in o for o in opts), opts
@@ -1387,7 +1390,8 @@ def test_lx3_auto(tmp_path: Path):
 
 
 def test_lx3_accumulate(tmp_path: Path):
-    """휴일에 미리 찾아 둔 글에 이어서: 엑셀을 받지 않고 토·일·월 사흘을 이어 찾아 근무일에 한 파일로 저장하고, 그 전체를 댓글 수집으로."""
+    """수집 기록에 이어서 ('온라인 오전 일일동향'처럼): 찾기 결과는 끝날 때마다 '이어서 작성' 목록에 수집 기록으로 자동 저장.
+    엑셀을 받지 않고 토·일·월 사흘을 이어 찾아 근무일에 한 파일로 저장하고, 그 전체를 댓글 수집으로."""
     posts = [("901", "팰리세이드 시트 토요일 글", "2026-10-31 10:00:00"),
              ("902", "팰리세이드 시트 일요일 글", "2026-11-01 15:00:00"),
              ("903", "팰리세이드 시트 월요일 글", "2026-11-02 09:00:00")]
@@ -1407,6 +1411,7 @@ def test_lx3_accumulate(tmp_path: Path):
         page.evaluate("""chrome.storage.local.set({ lx3Channels: { cafe: false, news: false, community: true },
           lx3Boards: ['https://www.clien.net/service/board/cm_car'], lx3MainKw: '팰리세이드', lx3SubKw: '시트', lx3Youtube: [] })""")
         page.reload()
+        page.evaluate("lx3Init")
         rows = page.locator("#results tbody tr")
         titles = lambda: [rows.nth(i).locator("td").nth(3).inner_text() for i in range(rows.count())]
 
@@ -1416,21 +1421,26 @@ def test_lx3_accumulate(tmp_path: Path):
             page.click("#search")
             page.locator("#summary", has_text="찾은 글").wait_for(timeout=60000)
 
-        # 토요일: 찾기만 (엑셀 안 받음)
-        assert page.is_hidden("#accumBox")
+        sel_text = lambda: page.locator("#runSelect option:checked").inner_text()
+        # 토요일: 찾기만 (엑셀 안 받음) → '이어서 작성' 목록에 수집 기록으로 자동 저장
+        assert page.locator("#runSelect option").count() == 1 and sel_text().startswith("없음")
         find("2026-10-30T11:30", "2026-10-31T11:30")
         assert titles() == ["팰리세이드 시트 토요일 글"]
-        # 일요일: 화면을 다시 열면 '미리 찾아 둔 글에 이어서', 시작은 토요일 찾기 끝부터
+        assert "수집 기록:" in sel_text() and "2026-10-30 11:30~2026-10-31 11:30 · 1건" in sel_text(), sel_text()
+        # 일요일: 화면을 다시 열면 그 기록이 미리 골라져 있고, 시작은 토요일 찾기 끝부터
         page.reload()
-        page.locator("#accumBox").wait_for()
-        assert "미리 찾아 둔 글 1개" in page.inner_text("#accumInfo")
+        page.evaluate("lx3Init")
+        assert "1건" in sel_text() and "기존 1건 뒤에 이어서 작성합니다" in page.inner_text("#runInfo")
         assert page.input_value("#from") == "2026-10-31T11:30"
         find("2026-10-31T11:30", "2026-11-01T23:00")
         assert titles() == ["팰리세이드 시트 토요일 글", "팰리세이드 시트 일요일 글"]
-        assert "미리 찾아 둔 글 1개에 이어서 찾습니다" in page.inner_text("#log")
+        assert "고른 수집 기록(1건)에 이어서 찾습니다" in page.inner_text("#log")
+        assert "2026-10-30 11:30~2026-11-01 23:00 · 2건" in sel_text(), sel_text()  # 합본 기록
+        assert page.locator("#runSelect option").count() == 3  # 없음 + 토요일 기록 + 합본
         # 월요일(근무일): 이어서 찾고 → 사흘치를 한 파일로
         page.reload()  # (테스트는 미래 날짜라 시작 칸 자동 맞춤 대신 직접 넣음 — 실제로는 지난 찾기 끝이 늘 지금보다 앞)
-        assert "미리 찾아 둔 글 2개" in page.inner_text("#accumInfo")
+        page.evaluate("lx3Init")
+        assert "2건" in sel_text()
         find("2026-11-01T23:00", "2026-11-02T11:30")
         assert titles() == ["팰리세이드 시트 토요일 글", "팰리세이드 시트 일요일 글", "팰리세이드 시트 월요일 글"]
         page.click("#selAll")  # (테스트 제목엔 관련 단어가 없어 체크가 풀려 있음)
@@ -1441,13 +1451,15 @@ def test_lx3_accumulate(tmp_path: Path):
         page.locator("#saveInfo", has_text="✔").wait_for()
         vals = [r[6] for r in load_workbook(out).worksheets[0].iter_rows(min_row=4, values_only=True) if r[1]]
         assert vals == [f"https://www.clien.net/service/board/cm_car/{no}" for no, _, _ in posts], vals
-        assert page.is_hidden("#accumBox")  # 최종 저장하면 이어 붙이기 끝
+        assert sel_text().startswith("없음")  # 최종 저장하면 다음 찾기는 새로
+        assert any("3건 · 엑셀 저장함" in t for t in page.locator("#runSelect option").all_inner_texts())
         # 그 전체를 댓글 수집으로
         page.click("#toComments")
         page.wait_for_url("**/app.html")
         assert page.input_value("#urls").split("\n") == [f"https://www.clien.net/service/board/cm_car/{no}" for no, _, _ in posts]
         # 최종 저장 뒤 다음 찾기는 새로 시작 (사흘치는 다시 안 붙음)
         page.goto(f"{ext}/lx3.html")
+        page.evaluate("lx3Init")
         find("2026-11-02T11:30", "2026-11-03T11:30")
         assert rows.count() == 0
         ctx.close()

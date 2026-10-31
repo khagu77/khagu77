@@ -47,13 +47,14 @@
       <div class="hint">화면을 새로 열면(새로고침) 시간은 <b id="baseText">직전 근무일 오전 11:30 ~ 오늘 오전 11:30</b>으로 돌아갑니다
         (평일은 전일부터, 월요일·연휴 다음 날은 주말·공휴일·대체공휴일을 건너뛴 마지막 근무일 <span id="baseFrom">오전 11:30</span>부터 · 시각을 바꾸고 <b>이 시각을 기본으로 저장</b>을 누르면 다음부터 그 시각으로). <span id="rangeInfo"></span></div>
 
-      <div id="accumBox" class="accumbox" hidden>
-        <label class="inline"><input type="checkbox" id="continueAccum" checked> 미리 찾아 둔 글에 이어서 찾기</label>
-        <div id="accumInfo" class="hint"></div>
+      <div class="basebox runbox">
+        <label for="runSelect">이어서 작성 <span class="hint">(찾기 결과는 끝날 때마다 수집 기록으로 자동 저장 · 고르면 그 기록 뒤에 이번 찾기 결과를 붙여 합본으로, 같은 글은 처음 것만 · 휴일에 찾아 둔 것을 근무일에 한 파일로)</span></label>
+        <select id="runSelect" class="basesel"><option value="">없음 (이번 찾기만 새로 작성)</option></select>
+        <div id="runInfo" class="hint"></div>
       </div>
 
       <div class="basebox">
-        <label for="baseSelect">이어서 작성 <span class="hint">(고른 엑셀 뒤에 이번 결과를 붙여 저장 · 이미 있는 글은 체크 해제 · 최종 DB의 날짜를 고르면 찾기 시작을 그 파일의 수집 끝 시각으로)</span></label>
+        <label for="baseSelect">엑셀 이어 쓸 파일 <span class="hint">('엑셀 받기' 때 이 파일의 마지막 순번 뒤에 붙여 저장 · 이미 있는 글은 체크 해제 · 최종 DB의 날짜를 고르면 찾기 시작을 그 파일의 수집 끝 시각으로)</span></label>
         <div class="row">
           <select id="baseSelect" class="basesel"></select>
           <span class="hint">또는 기존 엑셀 파일:</span>
