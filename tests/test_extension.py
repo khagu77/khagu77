@@ -764,6 +764,31 @@ def test_final_db(tmp_path: Path):
         out3, _ = lx3_save(["1004"])
         assert serials(out3)[-2:] == [(10, "https://n.news.naver.com/y"), (11, "https://cafe.naver.com/aacafe/1004")]
 
+        # 5-2) '이어서 작성'에서 예전 날짜(10-11) 파일을 고르면 그 파일 뒤에 이어 쓰고, 찾기 시작을 그 파일의 수집 끝으로
+        page.goto(f"{ext}/lx3.html")
+        page.evaluate("""async () => { const r = (await dbList('buzz')).find((x) => x.date === '20261011');
+          r.rangeEnd = new Date(2026, 9, 11, 11, 30).getTime(); await dbTx('readwrite', (s) => s.put(r)); }""")
+        page.reload()
+        page.locator("#listFileInfo", has_text="✔").wait_for(state="attached")
+        opts = page.locator("#baseSelect option").all_inner_texts()
+        assert "· 최종" in opts[0] and today[:4] in opts[0] and any("2026-10-11" in o for o in opts), opts
+        old_opt = [o for o in page.locator("#baseSelect option").all() if "2026-10-11" in o.inner_text()][0].get_attribute("value")
+        page.select_option("#baseSelect", old_opt)
+        page.locator("#listFileInfo", has_text="최종 DB 파일(2026-10-11").wait_for(state="attached")
+        assert page.input_value("#from") == "2026-10-11T11:30" and "그 파일의 수집 끝" in page.inner_text("#rangeInfo")
+        page.evaluate("""() => { cafeNames['111'] = 'AA 동호회'; cafeSlugs['111'] = 'aacafe';
+          items = [{ key: '111/1005', cafeId: '111', cafeIndex: 0, articleId: '1005', slug: '', title: '예전 파일에 이어', text: '',
+            date: new Date(2026, 9, 12, 9, 0), hasTime: true, ambiguous: false, checked: true, related: true, note: '', dup: false }];
+          markDuplicates(); renderResults(); }""")
+        with page.expect_download() as dl:
+            page.click("#saveList")
+        out4 = tmp_path / "buzz_from_old.xlsx"
+        dl.value.save_as(out4)
+        assert serials(out4)[-1] == (3, "https://cafe.naver.com/aacafe/1005"), serials(out4)  # 10-11 파일(순번 2까지) 뒤에
+        # 저장하면 다시 '최종 DB 가장 최근'(오늘 파일)으로
+        page.locator("#saveInfo", has_text="✔").wait_for()
+        assert "· 최종" in page.locator("#baseSelect option:checked").inner_text()
+
         # 6) 댓글 수집도 최종 DB 의 raw data 에 이어 씀
         page.goto(f"{ext}/db.html")
         db_upload("raw", "파일 등록", raw)

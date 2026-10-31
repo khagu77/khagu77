@@ -172,3 +172,6 @@ html.nav-guard, html.nav-guard body { overscroll-behavior-x: none; }
 .dbtable td.acts { width: 1%; }
 .dbtable td.acts button { display: block; width: 100%; margin: 2px 0; white-space: nowrap; }
 .autoinfo { margin-top: 6px; }
+select.basesel { min-width: 320px; max-width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 13px; }
+.basebox { margin: 10px 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.basebox label { margin-top: 0; }

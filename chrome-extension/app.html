@@ -23,8 +23,13 @@
 
     <div id="login" class="login">로그인 상태 확인 중…</div>
 
-    <label for="templateFile">기존 엑셀 파일 <span class="hint">(가장 최근에 받은 raw data 파일)</span></label>
-    <input type="file" id="templateFile" accept=".xlsx">
+    <label for="baseSelect">이어서 작성 <span class="hint">(고른 raw data 엑셀의 시트마다 마지막 연번 뒤에 이번 댓글을 붙여 저장 · 이미 있는 댓글은 뺌)</span></label>
+    <div class="row">
+      <select id="baseSelect" class="basesel"></select>
+      <span class="hint">또는 기존 엑셀 파일:</span>
+      <input type="file" id="templateFile" accept=".xlsx">
+      <button id="clearTemplate" class="small danger" hidden>✕ 첨부 해제</button>
+    </div>
     <label class="inline"><input type="checkbox" id="separate"> 별도 파일로 작성 <span class="hint">(최종 DB에 이어 쓰지 않고 새 파일로 · 최종 DB에 저장 안 함)</span></label>
     <div id="templateInfo" class="hint"></div>
 

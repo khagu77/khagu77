@@ -43,7 +43,8 @@ async function dbLatest(kind) {
 
 // stats: 그날 수집 건수 { posts } / { comments, youtube }. 같은 날 다시 저장하면 게시물·카페 댓글은 더하고
 // 유튜브(매일 전체 다시 수집)는 바꾼다. stats 없이 저장(수정본 올리기 등)하면 그날 건수는 그대로 둔다.
-async function dbSaveDay(kind, date, name, bytes, source, summary = "", stats = null) {
+// extra: { rangeEnd } — 그 파일의 수집 기간 끝 시각 (이어서 작성할 때 찾기 시작 시각으로 씀)
+async function dbSaveDay(kind, date, name, bytes, source, summary = "", stats = null, extra = {}) {
   const key = `${kind}:${date}`;
   const old = await dbTx("readonly", (s) => s.get(key)).catch(() => null);
   let merged = old?.stats || null;
@@ -54,7 +55,7 @@ async function dbSaveDay(kind, date, name, bytes, source, summary = "", stats = 
       merged[k] = k === "youtube" ? v : (merged[k] || 0) + v;
     }
   }
-  const rec = { key, kind, date, name, bytes, savedAt: Date.now(), source, summary, stats: merged };
+  const rec = { key, kind, date, name, bytes, savedAt: Date.now(), source, summary, stats: merged, rangeEnd: extra.rangeEnd ?? old?.rangeEnd ?? null };
   await dbTx("readwrite", (s) => s.put(rec));
   return rec;
 }
@@ -166,4 +167,16 @@ function summaryNodes(summary) {
     else div.textContent = line;
     return div;
   });
+}
+
+// '이어서 작성' 목록: 최종 DB 의 날짜별 파일 (+ 직접 고른 엑셀 파일) → <select> 채우기
+async function fillBaseSelect(sel, kind, value, fileName) {
+  const rows = await dbList(kind);
+  sel.replaceChildren();
+  if (fileName) sel.add(new Option(`엑셀 파일: ${fileName}`, "file"));
+  rows.forEach((r, i) => sel.add(new Option(`최종 DB · ${prettyDate(r.date)}${i === 0 ? " · 최종" : ""} · ${r.name}`, `db:${r.key}`)));
+  if (!sel.options.length) sel.add(new Option("최종 DB에 파일 없음 (아래 '기존 엑셀 파일'을 고르거나 새 파일로)", ""));
+  sel.value = [...sel.options].some((o) => o.value === value) ? value : sel.options[0].value;
+  sel.disabled = sel.options.length < 2 && !sel.value;
+  return sel.value;
 }

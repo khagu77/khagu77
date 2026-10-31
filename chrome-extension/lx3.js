@@ -46,7 +46,8 @@ let items = []; // { key, cafeId, cafeIndex, articleId, slug, title, text, date,
 let stopRequested = false;
 let running = false;
 let listFile = null; // 직접 고른 파일 { name, bytes, urls:Set, info }
-let dbBase = null; // 최종 DB 의 가장 최근 게시물 리스트 { name, bytes, urls, info, date }
+let dbBase = null; // 최종 DB 의 게시물 리스트 (기본: 가장 최근, '이어서 작성'에서 고른 날짜) { name, bytes, urls, info, date, rangeEnd }
+let baseChoice = ""; // '이어서 작성' 선택: "" = 최종 DB 가장 최근 · "db:<key>" = 그 날짜 · "file" = 직접 고른 엑셀
 
 // 이어 쓸 파일: 직접 고른 파일 > 최종 DB 파일 ('별도 파일로 작성'이면 없음 → 새 파일)
 function separateFile() {
@@ -54,20 +55,46 @@ function separateFile() {
 }
 
 function baseFile() {
-  return separateFile() ? null : listFile || dbBase;
+  if (separateFile()) return null;
+  return baseChoice === "file" && listFile ? listFile : dbBase;
 }
 
-async function loadDbBase() {
+// 최종 DB 의 게시물 리스트 불러오기 (key 없으면 가장 최근)
+async function loadDbBase(key = null) {
   dbBase = null;
   try {
-    const rec = await dbLatest("buzz");
+    const rec = key ? (await dbList("buzz")).find((r) => r.key === key) : await dbLatest("buzz");
     if (rec) {
       const info = await analyzeList(await XlsxTemplate.Workbook.open(rec.bytes));
-      dbBase = { name: rec.name, bytes: rec.bytes, info, urls: info.urls, date: rec.date };
+      dbBase = { name: rec.name, bytes: rec.bytes, info, urls: info.urls, date: rec.date, key: rec.key, rangeEnd: rec.rangeEnd || null };
     }
   } catch {
     dbBase = null;
   }
+}
+
+// '이어서 작성' 목록 다시 채우기
+async function refreshBaseSelect() {
+  const v = await fillBaseSelect($("#baseSelect"), "buzz", baseChoice === "" && dbBase ? `db:${dbBase.key}` : baseChoice, listFile?.name);
+  baseChoice = v === "file" ? "file" : baseChoice === "" ? "" : v;
+  $("#clearListFile").hidden = !listFile;
+}
+
+// '이어서 작성'에서 고름: 그 엑셀 뒤에 이어 쓰고, 최종 DB 기록이면 찾기 시작을 그 기록이 끝난 시각으로
+async function onBaseSelect() {
+  const v = $("#baseSelect").value;
+  baseChoice = v;
+  if (v.startsWith("db:")) await loadDbBase(v.slice(3));
+  if (v.startsWith("db:") && dbBase?.rangeEnd && !running) {
+    const start = new Date(dbBase.rangeEnd);
+    if (start < new Date($("#to").value)) {
+      $("#from").value = toLocalInput(start);
+      $("#rangeInfo").textContent = `이어서 작성: 찾기 시작을 그 파일의 수집 끝 ${formatDateTime(start)}로 맞췄습니다.`;
+    }
+  }
+  showBaseInfo();
+  markDuplicates();
+  renderResults();
 }
 
 // 기존 파일 칸 아래 안내: 무엇에 이어 쓰는지
@@ -981,6 +1008,11 @@ async function loadListFile(file) {
   const box = $("#listFileInfo");
   listFile = null;
   if (!file) {
+    if (baseChoice === "file") {
+      baseChoice = "";
+      await loadDbBase();
+    }
+    await refreshBaseSelect();
     showBaseInfo();
     markDuplicates();
     renderResults();
@@ -993,11 +1025,13 @@ async function loadListFile(file) {
     const wb = await XlsxTemplate.Workbook.open(bytes);
     const info = await analyzeList(wb);
     listFile = { name: file.name, bytes, info, urls: info.urls };
+    baseChoice = "file";
     try {
       localStorage.setItem("lx3FileName", file.name);
     } catch {
       /* 무시 */
     }
+    await refreshBaseSelect();
     showBaseInfo();
   } catch (e) {
     box.className = "hint err";
@@ -1070,17 +1104,19 @@ async function saveList({ auto = false } = {}) {
       // 오늘의 최종 파일로 최종 DB 에 저장하고, 다음 저장은 이 파일에 이어 쓴다
       // 그 채널을 찾았을 때만 건수 기록 (찾지 않은 채널은 0이 아니라 '기록 없음')
       const count = (c) => (items.some((x) => (x.channel || "동호회") === c) ? selected.filter((x) => (x.channel || "동호회") === c).length : undefined);
+      const end = new Date(lastRange.to || $("#to").value).getTime(); // 이 파일의 수집 끝 (이어서 작성·자동 수집이 여기부터)
       await dbSaveDay("buzz", today(), name, out.bytes, "auto", `마지막 순번 ${out.to.toLocaleString()}`, {
         posts: selected.length, news: count("언론"), youtube: count("유튜브"), cafe: count("동호회"), community: count("자동차 커뮤니티"),
-      });
+      }, { rangeEnd: end && end <= Date.now() ? end : null });
       await showDiffs();
       listFile = null;
       $("#listFile").value = "";
+      baseChoice = "";
       await loadDbBase();
+      await refreshBaseSelect();
       showBaseInfo();
       dbNote = " · 최종 DB에 오늘 파일로 저장했습니다";
       // 자동 수집은 다음에 이 시각부터 이어서 모은다 (휴일·못 돌린 날 포함)
-      const end = new Date(lastRange.to || $("#to").value).getTime();
       const { lx3LastRangeEnd = 0 } = await chrome.storage.local.get("lx3LastRangeEnd").catch(() => ({}));
       if (end && end <= Date.now() && end > lx3LastRangeEnd) await chrome.storage.local.set({ lx3LastRangeEnd: end }).catch(() => {});
       updateAutoInfo();
@@ -1275,7 +1311,12 @@ async function init() {
   renderCafeInfo();
   renderYoutube();
   await loadDbBase();
-  loadListFile(null);
+  await loadListFile(null);
+  $("#baseSelect").addEventListener("change", onBaseSelect);
+  $("#clearListFile").addEventListener("click", () => {
+    $("#listFile").value = "";
+    loadListFile(null);
+  });
   $("#separate").addEventListener("change", () => {
     showBaseInfo();
     markDuplicates();

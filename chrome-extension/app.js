@@ -600,7 +600,8 @@ let stopRequested = false;
 let lastFailedUrls = [];
 let lastWorkbook = null; // { bytes, name }
 let template = null; // 직접 고른 파일 { name, bytes, info }
-let dbBase = null; // 최종 DB 의 가장 최근 댓글 raw data { name, bytes, info, date }
+let dbBase = null; // 최종 DB 의 댓글 raw data (기본: 가장 최근, '이어서 작성'에서 고른 날짜) { name, bytes, info, date, key }
+let baseChoice = ""; // '이어서 작성' 선택: "" = 최종 DB 가장 최근 · "db:<key>" = 그 날짜 · "file" = 직접 고른 엑셀
 
 // 이어 쓸 파일: 직접 고른 파일 > 최종 DB 파일 ('별도 파일로 작성'이면 없음 → 새 파일)
 function separateFile() {
@@ -608,17 +609,33 @@ function separateFile() {
 }
 
 function baseTemplate() {
-  return separateFile() ? null : template || dbBase;
+  if (separateFile()) return null;
+  return baseChoice === "file" && template ? template : dbBase;
 }
 
-async function loadDbBase() {
+// 최종 DB 의 댓글 raw data 불러오기 (key 없으면 가장 최근)
+async function loadDbBase(key = null) {
   dbBase = null;
   try {
-    const rec = await dbLatest("raw");
-    if (rec) dbBase = { name: rec.name, bytes: rec.bytes, info: await analyzeTemplate(await XlsxTemplate.Workbook.open(rec.bytes)), date: rec.date };
+    const rec = key ? (await dbList("raw")).find((r) => r.key === key) : await dbLatest("raw");
+    if (rec) dbBase = { name: rec.name, bytes: rec.bytes, info: await analyzeTemplate(await XlsxTemplate.Workbook.open(rec.bytes)), date: rec.date, key: rec.key };
   } catch {
     dbBase = null;
   }
+}
+
+// '이어서 작성' 목록 다시 채우기
+async function refreshBaseSelect() {
+  const v = await fillBaseSelect($("#baseSelect"), "raw", baseChoice === "" && dbBase ? `db:${dbBase.key}` : baseChoice, template?.name);
+  baseChoice = v === "file" ? "file" : baseChoice === "" ? "" : v;
+  $("#clearTemplate").hidden = !template;
+}
+
+async function onBaseSelect() {
+  const v = $("#baseSelect").value;
+  baseChoice = v;
+  if (v.startsWith("db:")) await loadDbBase(v.slice(3));
+  showBaseInfo();
 }
 
 function showBaseInfo() {
@@ -652,6 +669,11 @@ async function loadTemplate(file) {
   const box = $("#templateInfo");
   if (!file) {
     template = null;
+    if (baseChoice === "file") {
+      baseChoice = "";
+      await loadDbBase();
+    }
+    await refreshBaseSelect();
     showBaseInfo();
     return;
   }
@@ -662,11 +684,13 @@ async function loadTemplate(file) {
     const wb = await XlsxTemplate.Workbook.open(bytes);
     const info = await analyzeTemplate(wb);
     template = { name: file.name, bytes, info };
+    baseChoice = "file";
     try {
       localStorage.setItem("templateName", file.name);
     } catch {
       /* 무시 */
     }
+    await refreshBaseSelect();
     showBaseInfo();
   } catch (e) {
     template = null;
@@ -818,10 +842,10 @@ async function start(resume = null) {
   }
   if (cafeCount) await checkLogin();
   // 직접 고른 파일에 이어 쓰는 경우, 중단됐다가 이어 할 때를 위해 그 파일도 보관
-  if (template && !separateFile()) {
+  if (baseChoice === "file" && template && !separateFile()) {
     await dbTx("readwrite", (s) => s.put({ key: "resume:raw", kind: "resume", name: template.name, bytes: template.bytes })).catch(() => {});
   }
-  return run({ urls, done: 0, results: [], separate: separateFile(), attached: !!template && !separateFile() });
+  return run({ urls, done: 0, results: [], separate: separateFile(), attached: baseChoice === "file" && !!template && !separateFile() });
 }
 
 // 수집 실행 (처음 또는 이어하기). state: { urls, done, results, separate, attached }
@@ -882,7 +906,9 @@ async function run(state) {
       await showDiffs();
       template = null;
       $("#templateFile").value = "";
+      baseChoice = "";
       await loadDbBase();
+      await refreshBaseSelect();
       showBaseInfo();
       dbNote = " · 최종 DB에 오늘 파일로 저장했습니다";
     }
@@ -976,6 +1002,11 @@ document.addEventListener("DOMContentLoaded", () => {
     .then(() => loadTemplate(null))
     .then(offerResume);
   $("#separate").addEventListener("change", showBaseInfo);
+  $("#baseSelect").addEventListener("change", onBaseSelect);
+  $("#clearTemplate").addEventListener("click", () => {
+    $("#templateFile").value = "";
+    loadTemplate(null);
+  });
   saveOptions().then((o) => ($("#saveWhere").textContent = `저장 위치: ${saveWhereText(o)} (LX3 화면의 설정에서 바꿀 수 있음)`));
   window.addEventListener("focus", checkLogin);
   checkLogin();
@@ -1005,7 +1036,11 @@ async function offerResume() {
   $("#separate").checked = !!r.separate;
   if (r.attached) {
     const rec = await dbTx("readonly", (s) => s.get("resume:raw")).catch(() => null);
-    if (rec) template = { name: rec.name, bytes: rec.bytes, info: await analyzeTemplate(await XlsxTemplate.Workbook.open(rec.bytes)) };
+    if (rec) {
+      template = { name: rec.name, bytes: rec.bytes, info: await analyzeTemplate(await XlsxTemplate.Workbook.open(rec.bytes)) };
+      baseChoice = "file";
+      await refreshBaseSelect();
+    }
   }
   showBaseInfo();
   $("#urls").value = r.urls.join("\n");
