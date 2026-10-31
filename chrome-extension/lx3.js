@@ -47,6 +47,7 @@ let stopRequested = false;
 let running = false;
 let listFile = null; // 직접 고른 파일 { name, bytes, urls:Set, info }
 let dbBase = null; // 최종 DB 의 게시물 리스트 (기본: 가장 최근, '이어서 작성'에서 고른 날짜) { name, bytes, urls, info, date, rangeEnd }
+let accum = null; // 아직 최종 저장('엑셀 받기') 안 한 찾기 결과의 기간 { from, to } (ms) — 휴일 등에 미리 찾아 둔 것
 let baseChoice = ""; // '이어서 작성' 선택: "" = 최종 DB 가장 최근 · "db:<key>" = 그 날짜 · "file" = 직접 고른 엑셀
 
 // 이어 쓸 파일: 직접 고른 파일 > 최종 DB 파일 ('별도 파일로 작성'이면 없음 → 새 파일)
@@ -334,6 +335,40 @@ function resetRange(now = new Date()) {
   showBaseTimes();
   $("#rangeInfo").textContent =
     `기본 시간: ${md(from)} ${timeLabel(baseTimes.from)} ~ ${md(to)} ${timeLabel(baseTimes.to)}` + (skipped.length ? ` (휴일 ${skipped.map(md).join(", ")} 포함)` : "");
+  // 미리 찾아 둔 결과에 이어서: 찾기 시작을 그 결과의 끝 시각으로
+  if (continuing()) {
+    const start = new Date(accum.to);
+    let end = to;
+    // 같은 날 다시 이어 찾으면(기본 끝 시각까지 이미 찾아 둠) 지금까지
+    if (accum.to >= to.getTime()) {
+      end = new Date(now);
+      end.setSeconds(0, 0);
+    }
+    if (start < end) {
+      $("#from").value = toLocalInput(start);
+      $("#to").value = toLocalInput(end);
+      $("#rangeInfo").textContent += ` → 미리 찾아 둔 결과에 이어서 ${md(start)} ${timeLabel(toLocalInput(start).slice(11))}부터`;
+    }
+  }
+}
+
+// 미리 찾아 둔(아직 최종 저장 안 한) 결과에 이어서 찾는지
+function continuing() {
+  return !!accum && $("#continueAccum")?.checked !== false && items.some((x) => !x.saved);
+}
+
+// 위 안내: 미리 찾아 둔 결과
+function updateAccumInfo() {
+  const box = $("#accumBox");
+  if (!box) return;
+  const pending = items.filter((x) => !x.saved).length;
+  box.hidden = !accum || !pending;
+  if (box.hidden) return;
+  const f = new Date(accum.from);
+  const t = new Date(accum.to);
+  $("#accumInfo").textContent =
+    `미리 찾아 둔 글 ${pending}개 (${md(f)} ${timeLabel(toLocalInput(f).slice(11))} ~ ${md(t)} ${timeLabel(toLocalInput(t).slice(11))})가 있습니다. ` +
+    `이어서 찾으면 그 뒤부터 찾아 결과 표에 붙고, 근무일에 '엑셀 받기'로 한 파일에 저장한 뒤 '댓글 수집하기'로 전체 댓글을 모읍니다.`;
 }
 
 // 안내 문구에 지금 기본 시각
@@ -535,7 +570,14 @@ async function search(resume = null) {
   diagnostics = [];
   $("#diag").hidden = true;
   // 새로 찾아도 직접 넣은 유튜브 새 콘텐츠는 남긴다
-  items = resume ? resume.items.map((x) => ({ ...x, date: x.date ? new Date(x.date) : null })) : items.filter((x) => x.channel === "유튜브");
+  // 미리 찾아 둔(최종 저장 안 한) 결과에 이어서면 결과 표를 비우지 않고 이어 붙인다. 아니면 새로 (직접 넣은 유튜브 새 콘텐츠만 남김)
+  const cont = !resume && continuing();
+  items = resume
+    ? resume.items.map((x) => ({ ...x, date: x.date ? new Date(x.date) : null }))
+    : cont
+      ? items.filter((x) => !x.saved)
+      : items.filter((x) => x.channel === "유튜브" && !x.saved);
+  if (!cont && !resume) accum = null;
   renderResults();
   const maxPages = Math.max(1, Number($("#maxPages").value) || DEFAULT_MAX_PAGES);
   const newsPages = Math.max(1, Number($("#newsPages").value) || DEFAULT_NEWS_PAGES);
@@ -551,6 +593,7 @@ async function search(resume = null) {
   const failed = { ids: [], queries: [], boards: [] };
   const total = ids.length + queries.length + boards.length;
   const doneSteps = () => pos.query + pos.board + pos.cafe;
+  if (cont) log(`· 미리 찾아 둔 글 ${items.length}개에 이어서 찾습니다 (같은 글은 한 번만)`);
   if (resume?.retry) log(`· 못 읽은 곳을 다시 찾습니다 (${whereText({ ids, queries, boards })} · 이미 찾은 글 ${items.length}개는 그대로)`);
   else if (resume) log(`· 중단된 곳부터 이어서 찾습니다 (이미 찾은 글 ${items.length}개)`);
   $("#retryCafes").hidden = true;
@@ -831,6 +874,14 @@ async function search(resume = null) {
   lastSearchAt = Date.now();
   lastRange = { from: $("#from").value, to: $("#to").value };
   lastKw = { mainKw, subKw };
+  // 이번에 찾은 기간까지 '미리 찾아 둔 결과'로 (최종 저장 전까지 다음 찾기는 여기에 이어 붙음)
+  if (!stopRequested) {
+    accum = accum
+      ? { from: Math.min(accum.from, win.from.getTime()), to: Math.max(accum.to, win.to.getTime()) }
+      : { from: win.from.getTime(), to: win.to.getTime() };
+    await chrome.storage.local.set({ lx3Accum: accum }).catch(() => {});
+  }
+  updateAccumInfo();
   await saveLast();
   const checked = items.filter((x) => x.checked).length;
   const byChannel = ["언론", "유튜브", "자동차 커뮤니티", "동호회"]
@@ -1099,6 +1150,14 @@ async function saveList({ auto = false } = {}) {
     const name = datedFileName(base ? base.name : rememberedListName());
     await downloadBytes(out.bytes, name);
     lastSaved = selected;
+    if (!separateFile()) {
+      // 최종 저장: 쌓아 둔 결과는 저장된 것으로 (다음 찾기는 새로 시작)
+      for (const x of items) x.saved = true;
+      accum = null;
+      await chrome.storage.local.remove("lx3Accum").catch(() => {});
+      await saveLast();
+      updateAccumInfo();
+    }
     let dbNote = "";
     if (!separateFile()) {
       // 오늘의 최종 파일로 최종 DB 에 저장하고, 다음 저장은 이 파일에 이어 쓴다
@@ -1293,11 +1352,22 @@ async function checkLogin() {
 }
 
 async function restoreLast() {
-  const { lx3Last } = await chrome.storage.local.get("lx3Last").catch(() => ({}));
+  const { lx3Last, lx3Accum } = await chrome.storage.local.get(["lx3Last", "lx3Accum"]).catch(() => ({}));
   if (!lx3Last?.items?.length) return;
   items = lx3Last.items.map((x) => ({ ...x, date: x.date ? new Date(x.date) : null }));
   lastSearchAt = lx3Last.at;
   lastRange = { from: lx3Last.from, to: lx3Last.to };
+  accum = lx3Accum || null;
+  if (!accum && !items.some((x) => x.saved)) {
+    // 이전 버전에서 찾아 두고 최종 DB 에 저장하지 않은 결과 → 미리 찾아 둔 결과로 (지난 결과보다 나중에 저장한 게시물 리스트가 없으면)
+    const latest = await dbLatest("buzz").catch(() => null);
+    const from = new Date(lx3Last.from).getTime();
+    const to = new Date(lx3Last.to).getTime();
+    if ((!latest || latest.savedAt < lx3Last.at) && from && to) {
+      accum = { from, to };
+      await chrome.storage.local.set({ lx3Accum: accum }).catch(() => {});
+    }
+  }
   markDuplicates();
   renderResults();
   setSummary(
@@ -1359,6 +1429,7 @@ async function init() {
     renderCafeInfo();
   });
   $("#resetRange").addEventListener("click", () => resetRange());
+  $("#continueAccum").addEventListener("change", () => resetRange());
   $("#saveRange").addEventListener("click", saveBaseTimes);
   $("#search").addEventListener("click", () => search());
   // 못 읽은 곳만 다시 찾고(날짜만 보이는 글의 시간 확인도 다시), 이미 찾은 글에 더한다
@@ -1423,6 +1494,8 @@ async function init() {
   window.addEventListener("focus", checkLogin);
   checkLogin();
   await restoreLast();
+  updateAccumInfo();
+  resetRange(); // 미리 찾아 둔 결과가 있으면 그 끝부터
   updateAutoInfo();
   // 중단된 찾기가 있으면 이어서 할지 묻는다 (자동 수집이면 묻지 않고 자동 수집 흐름으로)
   const r = await loadResume("lx3");
@@ -1501,6 +1574,7 @@ async function runAuto(resume) {
       if (resume) await clearResume("lx3");
       const { lx3LastRangeEnd = 0 } = await chrome.storage.local.get("lx3LastRangeEnd").catch(() => ({}));
       const r = autoRange(new Date(), lx3LastRangeEnd);
+      if (continuing() && accum.to > r.from.getTime() && accum.to < r.to.getTime()) r.from = new Date(accum.to); // 휴일에 미리 찾아 둔 결과 뒤부터
       $("#from").value = toLocalInput(r.from);
       $("#to").value = toLocalInput(r.to);
       log(`· 자동 수집을 시작합니다 (${formatDateTime(r.from)} ~ ${formatDateTime(r.to)}${r.from.getTime() === lx3LastRangeEnd ? " · 지난번 저장 이후 이어서" : ""})`);
