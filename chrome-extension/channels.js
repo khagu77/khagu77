@@ -960,3 +960,9 @@ function markRunning(on) {
 
 // 이 화면이 자동 수집으로 열렸는지 (lx3.html?auto=1 · app.html?auto=1)
 const AUTO_MODE = new URLSearchParams(location.search).has("auto");
+
+// 한 번도 클릭하지 않은 화면(자동 수집 탭 등)에서는 '나가시겠습니까?' 창을 띄우려 하지 않는다
+// (크롬이 막고 확장 '오류'에 기록을 남김). 이 듣기는 진행 중 확인(busyGuard)보다 먼저 등록되어 그것을 건너뛰게 한다
+window.addEventListener("beforeunload", (e) => {
+  if (!navigator.userActivation?.hasBeenActive) e.stopImmediatePropagation();
+});
