@@ -1,81 +1,16 @@
-// 카페·유튜브 댓글 수집기 - 수집 화면
+// 카페·유튜브 댓글 수집기 - 댓글 수집 화면 (언론·카페·자동차 커뮤니티·유튜브 · 최종 DB에 날짜별 보관)
 // 네이버 카페: 사람이 글을 보는 것과 같이 게시글을 탭으로 열어 화면에 보이는 댓글을 읽는다.
 //   (네이버 API 를 직접 반복 호출하면 계정 보호조치가 걸릴 수 있어 사용하지 않는다)
 // 유튜브: 로그인 없이 유튜브 웹페이지가 쓰는 내부 API 로 댓글을 가져온다.
 
-// 네이버 카페는 사람처럼 천천히: 글과 글 사이, 댓글 페이지 사이를 무작위로 기다린다.
-const CAFE_ARTICLE_DELAY = [4000, 8000];
-const CAFE_PAGE_DELAY = [2000, 4000];
 const CAFE_WARN_COUNT = 30; // 한 번에 이보다 많은 카페 글을 넣으면 확인을 받는다
 const MAX_PAGES = 1000;
-
-const $ = (sel) => document.querySelector(sel);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const randomBetween = ([min, max]) => min + Math.floor(Math.random() * (max - min));
 
 class CollectError extends Error {}
 
 // ---------------------------------------------------------------------------
-// URL 해석
-// ---------------------------------------------------------------------------
-
-const CAFES_ARTICLES_RE = /\/cafes\/(\d+)\/articles\/(\d+)/;
-const CLUBID_RE = /clubid=(\d+)/i;
-const ARTICLEID_RE = /articleid=(\d+)/i;
-const SHORT_RE = /^https?:\/\/(?:m\.)?cafe\.naver\.com\/([A-Za-z0-9_\-]+)\/(\d+)(?:[/?#]|$)/;
-
-function safeDecode(s) {
-  try {
-    return decodeURIComponent(s);
-  } catch {
-    return s;
-  }
-}
-
-// → { cafeId, articleId, cafeUrl } (모르는 값은 null)
-function parseArticleUrl(url) {
-  url = url.trim();
-  let decoded = url;
-  for (let i = 0; i < 3; i++) decoded = safeDecode(decoded);
-
-  let m = decoded.match(CAFES_ARTICLES_RE);
-  if (m) return { cafeId: m[1], articleId: m[2], cafeUrl: null };
-
-  const club = decoded.match(CLUBID_RE);
-  const art = decoded.match(ARTICLEID_RE);
-  if (club && art) return { cafeId: club[1], articleId: art[1], cafeUrl: null };
-
-  m = url.match(SHORT_RE);
-  if (m) return { cafeId: null, articleId: m[2], cafeUrl: m[1] };
-
-  return { cafeId: club ? club[1] : null, articleId: art ? art[1] : null, cafeUrl: null };
-}
-
-// ---------------------------------------------------------------------------
 // 네이버 카페 수집 (게시글 화면을 열어서 읽기)
 // ---------------------------------------------------------------------------
-
-async function withTab(url, fn) {
-  const tab = await chrome.tabs.create({ url, active: false });
-  try {
-    await new Promise((resolve) => {
-      const timer = setTimeout(done, 30000);
-      function done() {
-        clearTimeout(timer);
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }
-      function listener(id, info) {
-        if (id === tab.id && info.status === "complete") done();
-      }
-      chrome.tabs.onUpdated.addListener(listener);
-    });
-    await sleep(3000); // 카페 화면(iframe/스크립트)이 그려질 시간
-    return await fn(tab.id);
-  } finally {
-    chrome.tabs.remove(tab.id).catch(() => {});
-  }
-}
 
 // 각 프레임 안에서 실행: 화면의 댓글을 읽고, 댓글 페이지 버튼을 사람처럼 천천히 눌러 가며 모두 모은다.
 // (확장 바깥 함수는 쓸 수 없으므로 필요한 값은 인자로 받는다)
@@ -144,36 +79,47 @@ function pageCanonicalUrls() {
   return urls;
 }
 
-async function collectCafe(result) {
-  const found = await withTab(result.url, async (tabId) => {
-    let hrefs = [];
-    for (let attempt = 0; attempt < 8; attempt++) {
-      const results = await chrome.scripting.executeScript({
-        target: { tabId, allFrames: true },
-        func: scrapeCommentsInFrame,
-        args: [CAFE_PAGE_DELAY],
-      });
-      const answers = results.map((r) => r.result).filter(Boolean);
-      const hit = answers.find((r) => r.found);
-      if (hit) {
-        const canon = await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: pageCanonicalUrls });
-        hit.canonical = canon.flatMap((r) => r.result || []);
-        return hit;
-      }
-      hrefs = answers.map((r) => r.href);
-      if (hrefs.some((h) => h.includes("nid.naver.com"))) break; // 로그인 화면으로 넘어감
-      await sleep(1500);
+// 게시글 화면에서 댓글 읽기 (where: 보이지 않는 틀 또는 탭)
+async function readComments(where) {
+  let hrefs = [];
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const answers = await runInFrames(where, scrapeCommentsInFrame, [CAFE_PAGE_DELAY]);
+    const hit = answers.find((r) => r.found);
+    if (hit) {
+      hit.canonical = (await runInFrames(where, pageCanonicalUrls)).flat();
+      hit.hints = await runInFrames(where, cafeSlugHintsInFrame);
+      return hit;
     }
-    return { found: false, hrefs };
-  });
+    hrefs = answers.map((r) => r.href);
+    if (hrefs.some((h) => h.includes("nid.naver.com"))) break; // 로그인 화면으로 넘어감
+    await sleep(1500);
+  }
+  return { found: false, hrefs };
+}
+
+async function collectCafe(result, row) {
+  // 창·탭을 띄우지 않고 수집 화면 안의 보이지 않는 틀에서 읽는다. 못 읽으면(설정 시) 뒤쪽 탭으로 한 번 더.
+  let found = await withTab(result.url, readComments).catch(() => ({ found: false, hrefs: [] }));
+  const login = (found.hrefs || []).some((h) => h.includes("nid.naver.com"));
+  if (!found.found && !login && (await tabFallbackOn())) {
+    row?.status("숨긴 화면에서 못 읽어 뒤쪽 탭으로 다시 읽는 중…");
+    found = await withTab(result.url, readComments, { mode: "tab" });
+    if (found.found) result.method = "탭";
+  }
   if (!found.found) {
     if ((found.hrefs || []).some((h) => h.includes("nid.naver.com"))) {
       throw new CollectError("네이버 로그인이 필요합니다");
     }
     throw new CollectError("댓글 영역을 찾지 못함 (카페 가입이 필요하거나, 삭제됐거나, 댓글을 막은 글일 수 있음)");
   }
-  if (!result.articleId) result.articleId = parseArticleUrl(found.href).articleId || "";
-  // 엑셀 url 칸을 기존처럼 짧은 주소로 쓰기 위해 카페주소(영문)를 알아낸다.
+  // 짧은 주소(naver.me 등)로 넣은 글도 열린 화면 주소에서 카페 번호·글 번호를 알아낸다
+  for (const u of [found.href, ...(found.hints || []).map((h) => h.href)]) {
+    const ids = parseArticleUrl(u);
+    if (!result.articleId && ids.articleId) result.articleId = ids.articleId;
+    if (!result.cafeId && ids.cafeId && (!ids.articleId || ids.articleId === result.articleId)) result.cafeId = ids.cafeId;
+    if (!result.cafeUrl && ids.cafeUrl && (!ids.articleId || ids.articleId === result.articleId)) result.cafeUrl = ids.cafeUrl;
+  }
+  // 엑셀 url 칸을 https://cafe.naver.com/카페주소/글번호 로 쓰기 위해 카페주소(영문)를 알아낸다.
   for (const u of found.canonical || []) {
     const ids = parseArticleUrl(u);
     if (ids.cafeUrl && (!result.articleId || ids.articleId === result.articleId)) {
@@ -182,6 +128,10 @@ async function collectCafe(result) {
       break;
     }
   }
+  const slugs = await loadCafeSlugs();
+  if (!result.cafeUrl && result.cafeId && slugs[result.cafeId]) result.cafeUrl = slugs[result.cafeId];
+  if (!result.cafeUrl) result.cafeUrl = pickSlug(found.hints || []);
+  if (result.cafeId && result.cafeUrl) await saveCafeSlug(result.cafeId, result.cafeUrl);
   result.title = found.title;
   result.author = found.author;
   result.comments = found.rows.map((r) => ({
@@ -193,16 +143,40 @@ async function collectCafe(result) {
     writtenAt: r.date,
     isDeleted: r.deleted,
   }));
-  result.method = "화면";
-}
-
-function pad(n) {
-  return String(n).padStart(2, "0");
+  result.method = result.method || "화면";
 }
 
 // ---------------------------------------------------------------------------
-// 유튜브 수집 (로그인 불필요 - 유튜브 웹페이지가 쓰는 내부 API 사용)
+// 언론(네이버 뉴스 댓글 상자) · 자동차 커뮤니티(게시글 화면) 수집 (channels.js)
 // ---------------------------------------------------------------------------
+
+async function collectNews(result, row) {
+  const ids = newsIds(result.url);
+  result.articleId = `${ids.oid}/${ids.aid}`;
+  result.sheetUrl = newsUrl(ids);
+  const got = await readNewsComments(result.url, {
+    isStopped: () => stopRequested,
+    onProgress: (n) => row.status(`네이버 뉴스 댓글 읽는 중… ${n}개`),
+  });
+  result.title = got.title;
+  result.comments = got.comments.map((c) => ({ ...c, isDeleted: false }));
+  result.method = "네이버 뉴스";
+}
+
+async function collectCommunity(result, row) {
+  result.sheetUrl = communityArticleUrl(result.url);
+  result.site = communityAdapter(result.url).site;
+  const got = await readCommunityComments(result.sheetUrl, {
+    isStopped: () => stopRequested,
+    onStatus: (t) => row.status(t),
+    tabFallback: await tabFallbackOn(),
+  });
+  result.title = got.title;
+  result.comments = got.comments.map((c) => ({ ...c, isDeleted: false }));
+  result.expected = got.expected;
+  result.method = got.how || "화면";
+  if (got.diag) result.diag = got.diag;
+}
 
 const YT_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 
@@ -229,42 +203,6 @@ function parseYoutubeId(url) {
 
 function isYoutubeUrl(url) {
   return parseYoutubeId(url) !== null;
-}
-
-// html 안에서 `marker = {...}` 형태의 JSON 객체를 괄호 짝을 맞춰 잘라낸다.
-function extractJsonAfter(html, marker) {
-  let idx = html.indexOf(marker);
-  while (idx !== -1) {
-    const start = html.indexOf("{", idx + marker.length);
-    if (start !== -1 && /^\s*=\s*$/.test(html.slice(idx + marker.length, start))) {
-      let depth = 0;
-      let inStr = false;
-      let quote = "";
-      for (let i = start; i < html.length; i++) {
-        const ch = html[i];
-        if (inStr) {
-          if (ch === "\\") i++;
-          else if (ch === quote) inStr = false;
-        } else if (ch === '"' || ch === "'") {
-          inStr = true;
-          quote = ch;
-        } else if (ch === "{") {
-          depth++;
-        } else if (ch === "}") {
-          depth--;
-          if (depth === 0) {
-            try {
-              return JSON.parse(html.slice(start, i + 1));
-            } catch {
-              break;
-            }
-          }
-        }
-      }
-    }
-    idx = html.indexOf(marker, idx + marker.length);
-  }
-  return null;
 }
 
 // 객체 트리를 돌며 fn(key, value, parentKey) 호출. fn 이 false 를 돌려주면 그 아래는 건너뛴다.
@@ -461,6 +399,8 @@ async function collectYoutube(result, isStopped, onProgress) {
 
 const SHEET_CAFE = "동호회";
 const SHEET_YT = "유튜브";
+const SHEET_NEWS = "언론";
+const SHEET_COMM = "자동차 커뮤니티";
 const BLANK_SHEETS = ["언론", "동호회", "유튜브", "자동차 커뮤니티"];
 const HEADERS = ["연번", "채널", "작성일", "댓글", "url"];
 const DEFAULT_FILE_NAME = "raw_data.xlsx";
@@ -471,6 +411,43 @@ const compact = (s) => String(s ?? "").replace(/\s+/g, "");
 function cafeKey(url, date, content) {
   const { articleId } = parseArticleUrl(String(url || ""));
   return `${articleId || compact(url)}|${compact(date)}|${compact(content)}`;
+}
+
+// 작성일 칸 값(엑셀 날짜 값·날짜 글자) → "2026.10.23" (같은 날인지만 비교: 기존 커뮤니티 시트는 날짜만 있음)
+function dayOf(v) {
+  let d = null;
+  if (v instanceof Date) d = v;
+  else if (typeof v === "number" || /^\d+(\.\d+)?$/.test(String(v ?? "").trim())) {
+    const t = new Date(Date.UTC(1899, 11, 30) + Number(v) * 86400000);
+    d = new Date(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate());
+  } else d = parseKoreanDate(v)?.date || null;
+  return d ? `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())}` : compact(v);
+}
+
+// 언론·커뮤니티 댓글: 글(기사) 열쇠 + 작성일(날짜) + 내용
+function channelCommentKey(url, date, content) {
+  return `${channelKey(url)}|${dayOf(date)}|${compact(content)}`;
+}
+
+// 기존 '자동차 커뮤니티' 시트처럼 작성일을 엑셀 날짜 값(날짜만)으로
+function sheetDay(writtenAt) {
+  const p = parseKoreanDate(writtenAt);
+  return p ? excelSerial(new Date(p.date.getFullYear(), p.date.getMonth(), p.date.getDate())) : writtenAt;
+}
+
+// 언론·자동차 커뮤니티 시트: 이어 쓸 줄·마지막 연번·이미 있는 댓글 (시트가 없으면 null)
+async function analyzeExtraSheet(wb, name) {
+  if (!wb.sheetNames().includes(name)) return null;
+  const rows = (await wb.readRows(name)).filter((r) => r.r > 1 && rowHasData(r));
+  const lastRow = rows.reduce((m, r) => Math.max(m, r.r), 1);
+  let lastSerial = 0;
+  const keys = new Set();
+  for (const r of rows) {
+    const n = parseInt(r.cells.A, 10);
+    if (!isNaN(n)) lastSerial = Math.max(lastSerial, n);
+    keys.add(channelCommentKey(r.cells.E, r.cells.C, r.cells.D));
+  }
+  return { lastRow, lastSerial, keys, count: rows.length };
 }
 
 function rowHasData(row) {
@@ -501,7 +478,10 @@ async function analyzeTemplate(wb) {
     if (!ytVideos.has(id)) ytVideos.set(id, []);
     ytVideos.get(id).push([r.cells.B ?? "유튜브", r.cells.C ?? "", r.cells.D ?? "", r.cells.E ?? ""]);
   }
-  return { cafeLastRow, cafeLastSerial, cafeKeys, cafeCount: cafeRows.length, ytVideos, ytCount: ytRows.length };
+  return {
+    cafeLastRow, cafeLastSerial, cafeKeys, cafeCount: cafeRows.length, ytVideos, ytCount: ytRows.length,
+    news: await analyzeExtraSheet(wb, SHEET_NEWS), comm: await analyzeExtraSheet(wb, SHEET_COMM),
+  };
 }
 
 function youtubeWatchUrl(id) {
@@ -527,6 +507,29 @@ function buildRows(results, info) {
     }
   }
 
+  // 언론(네이버 뉴스)·자동차 커뮤니티: 이어 쓰기 (이미 있는 댓글은 뺌)
+  const extra = (platform, sheetInfo, channelOf, dateOf = (w) => w) => {
+    const keys2 = new Set(sheetInfo ? sheetInfo.keys : []);
+    let n = sheetInfo ? sheetInfo.lastSerial : 0;
+    const out = [];
+    for (const r of results.filter((x) => x.platform === platform && !x.error)) {
+      for (const c of r.comments) {
+        if (c.isDeleted || !c.content) continue;
+        const key = channelCommentKey(r.sheetUrl, c.writtenAt, c.content);
+        if (keys2.has(key)) {
+          duplicates++;
+          continue;
+        }
+        keys2.add(key);
+        out.push([++n, channelOf(r), dateOf(c.writtenAt), c.content, r.sheetUrl]);
+      }
+    }
+    return out;
+  };
+  const news = extra("news", info?.news, () => "언론");
+  // 커뮤니티: 기존 파일에 이어 쓸 때는 작성일을 기존처럼 날짜 값으로 (새 파일은 글자 그대로)
+  const comm = extra("community", info?.comm, (r) => r.site || "자동차 커뮤니티", info ? sheetDay : undefined);
+
   // 유튜브: 오늘 입력한 영상들의 댓글로 시트 전체를 교체한다(입력 순서대로).
   // 수집에 실패한 영상이 파일에 있던 영상이면 그 영상의 기존 행만 남긴다.
   const ytResults = results.filter((x) => x.platform === "youtube");
@@ -542,6 +545,8 @@ function buildRows(results, info) {
   }
   return {
     cafe,
+    news,
+    comm,
     duplicates,
     yt: yt.map((row, i) => [i + 1, ...row]),
     ytTouched: ytResults.length > 0,
@@ -549,16 +554,9 @@ function buildRows(results, info) {
   };
 }
 
-function today() {
-  const d = new Date();
-  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
-}
-
 // 파일명 맨 앞 날짜(YYYYMMDD)를 오늘 날짜로 바꾼다.
 function outputFileName(baseName) {
-  let name = (baseName || DEFAULT_FILE_NAME).replace(/\s*\(\d+\)(?=\.xlsx$)/i, ""); // "파일 (1).xlsx" 정리
-  if (!/\.xlsx$/i.test(name)) name += ".xlsx";
-  return /^\d{8}/.test(name) ? today() + name.slice(8) : `${today()}_${name}`;
+  return datedFileName(baseName || DEFAULT_FILE_NAME);
 }
 
 async function buildOutput(results, tpl) {
@@ -570,6 +568,12 @@ async function buildOutput(results, tpl) {
       await wb.replaceRowsAfter(SHEET_CAFE, info.cafeLastRow, rows.cafe, info.cafeLastRow, { focusFirstNew: true });
     }
     if (rows.ytTouched) await wb.replaceRowsAfter(SHEET_YT, 1, rows.yt, 2);
+    // 언론·자동차 커뮤니티 시트: 마지막 줄 다음에 (서식은 마지막 줄, 빈 시트면 머리글 아래 기본 서식)
+    for (const [name, sheetInfo, list] of [[SHEET_NEWS, info.news, rows.news], [SHEET_COMM, info.comm, rows.comm]]) {
+      if (!list.length) continue;
+      if (!sheetInfo) throw new Error(`'${name}' 시트가 없어 ${name} 댓글 ${list.length}개를 쓰지 못했습니다`);
+      await wb.replaceRowsAfter(name, sheetInfo.lastRow, list, sheetInfo.lastRow > 1 ? sheetInfo.lastRow : null, { focusFirstNew: true });
+    }
     return { bytes: await wb.save(), rows, info };
   }
   const rows = buildRows(results, null);
@@ -577,7 +581,7 @@ async function buildOutput(results, tpl) {
   const bytes = XlsxWriter.build(
     BLANK_SHEETS.map((name) => ({
       name,
-      rows: [HEADERS, ...(name === SHEET_CAFE ? rows.cafe : name === SHEET_YT ? rows.yt : [])],
+      rows: [HEADERS, ...({ [SHEET_CAFE]: rows.cafe, [SHEET_YT]: rows.yt, [SHEET_NEWS]: rows.news, [SHEET_COMM]: rows.comm }[name] || [])],
       widths,
     }))
   );
@@ -585,14 +589,7 @@ async function buildOutput(results, tpl) {
 }
 
 function downloadWorkbook(bytes, name) {
-  const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  return downloadBytes(bytes, name);
 }
 
 // ---------------------------------------------------------------------------
@@ -600,8 +597,65 @@ function downloadWorkbook(bytes, name) {
 // ---------------------------------------------------------------------------
 
 let stopRequested = false;
+let lastFailedUrls = [];
 let lastWorkbook = null; // { bytes, name }
-let template = null; // { name, bytes, info }
+let template = null; // 직접 고른 파일 { name, bytes, info }
+let dbBase = null; // 최종 DB 의 댓글 raw data (기본: 가장 최근, '이어서 작성'에서 고른 날짜) { name, bytes, info, date, key }
+let baseChoice = ""; // '이어서 작성' 선택: "" = 최종 DB 가장 최근 · "db:<key>" = 그 날짜 · "file" = 직접 고른 엑셀
+
+// 이어 쓸 파일: 직접 고른 파일 > 최종 DB 파일 ('별도 파일로 작성'이면 없음 → 새 파일)
+function separateFile() {
+  return !!$("#separate")?.checked;
+}
+
+function baseTemplate() {
+  if (separateFile()) return null;
+  return baseChoice === "file" && template ? template : dbBase;
+}
+
+// 최종 DB 의 댓글 raw data 불러오기 (key 없으면 가장 최근)
+async function loadDbBase(key = null) {
+  dbBase = null;
+  try {
+    const rec = key ? (await dbList("raw")).find((r) => r.key === key) : await dbLatest("raw");
+    if (rec) dbBase = { name: rec.name, bytes: rec.bytes, info: await analyzeTemplate(await XlsxTemplate.Workbook.open(rec.bytes)), date: rec.date, key: rec.key };
+  } catch {
+    dbBase = null;
+  }
+}
+
+// '이어서 작성' 목록 다시 채우기
+async function refreshBaseSelect() {
+  const v = await fillBaseSelect($("#baseSelect"), "raw", baseChoice === "" && dbBase ? `db:${dbBase.key}` : baseChoice, template?.name);
+  baseChoice = v === "file" ? "file" : baseChoice === "" ? "" : v;
+  $("#clearTemplate").hidden = !template;
+}
+
+async function onBaseSelect() {
+  const v = $("#baseSelect").value;
+  baseChoice = v;
+  if (v.startsWith("db:")) await loadDbBase(v.slice(3));
+  showBaseInfo();
+}
+
+function showBaseInfo() {
+  const box = $("#templateInfo");
+  const base = baseTemplate();
+  if (separateFile()) {
+    box.className = "hint";
+    box.textContent = "'별도 파일로 작성': 그날 수집한 댓글만 담은 새 파일(4개 시트)로 받고, 최종 DB에는 넣지 않습니다.";
+  } else if (base) {
+    const info = base.info;
+    box.className = "hint ok";
+    box.textContent =
+      `✔ ${base === dbBase ? `최종 DB 파일(${prettyDate(base.date)} · ${base.name})` : base.name} — 동호회 ${info.cafeCount.toLocaleString()}행(마지막 연번 ${info.cafeLastSerial.toLocaleString()}) 다음부터 이어 씁니다. ` +
+      `유튜브 시트(현재 ${info.ytCount.toLocaleString()}행)는 오늘 수집한 영상 댓글로 교체됩니다. 저장 파일명: ${outputFileName(base.name)}` +
+      (base === dbBase ? " (엑셀에서 고친 파일이 있으면 '최종 DB' 메뉴에서 그 날짜에 수정본을 올리세요)" : "");
+  } else {
+    box.className = "hint";
+    box.textContent = "최종 DB에 파일이 없습니다. 지금까지의 최종 raw data 파일을 고르면 이어 쓰고(최종 DB에도 저장), 고르지 않으면 그날 수집한 댓글만 담은 새 파일로 저장됩니다.";
+  }
+}
 
 function rememberedName() {
   try {
@@ -615,8 +669,12 @@ async function loadTemplate(file) {
   const box = $("#templateInfo");
   if (!file) {
     template = null;
-    box.className = "hint";
-    box.textContent = "파일을 선택하지 않으면 같은 양식의 새 파일(그날 수집한 댓글만)로 저장됩니다.";
+    if (baseChoice === "file") {
+      baseChoice = "";
+      await loadDbBase();
+    }
+    await refreshBaseSelect();
+    showBaseInfo();
     return;
   }
   box.className = "hint";
@@ -626,16 +684,14 @@ async function loadTemplate(file) {
     const wb = await XlsxTemplate.Workbook.open(bytes);
     const info = await analyzeTemplate(wb);
     template = { name: file.name, bytes, info };
+    baseChoice = "file";
     try {
       localStorage.setItem("templateName", file.name);
     } catch {
       /* 무시 */
     }
-    box.className = "hint ok";
-    box.textContent =
-      `✔ ${file.name} — 동호회 ${info.cafeCount.toLocaleString()}행(마지막 연번 ${info.cafeLastSerial.toLocaleString()}) 다음부터 이어 씁니다. ` +
-      `유튜브 시트(현재 ${info.ytCount.toLocaleString()}행)는 오늘 수집한 영상 댓글로 교체됩니다. ` +
-      `저장 파일명: ${outputFileName(file.name)}`;
+    await refreshBaseSelect();
+    showBaseInfo();
   } catch (e) {
     template = null;
     box.className = "hint err";
@@ -654,7 +710,7 @@ async function checkLogin() {
   }
   if (ok) {
     box.className = "login ok";
-    box.textContent = "✔ 네이버에 로그인되어 있습니다. (유튜브는 로그인 없이 수집됩니다)";
+    box.textContent = "네이버 로그인됨 ✓";
   } else {
     box.className = "login bad";
     box.innerHTML =
@@ -694,8 +750,15 @@ function addProgressRow(index, url) {
   };
 }
 
+function platformOf(url) {
+  if (isYoutubeUrl(url)) return "youtube";
+  if (isNewsUrl(url)) return "news";
+  if (isCommunityUrl(url)) return "community";
+  return "cafe";
+}
+
 async function collectOne(url, row) {
-  const platform = isYoutubeUrl(url) ? "youtube" : "cafe";
+  const platform = platformOf(url);
   const result = {
     platform, url, sheetUrl: url, cafeId: "", cafeUrl: "", articleId: "",
     title: "", author: "", comments: [], method: "", error: "",
@@ -714,13 +777,30 @@ async function collectOne(url, row) {
     row.done(result);
     return result;
   }
+  if (platform === "news" || platform === "community") {
+    try {
+      row.status(platform === "news" ? "네이버 뉴스 댓글 읽는 중…" : "게시글 열어서 댓글 읽는 중…");
+      if (platform === "news") await collectNews(result, row);
+      else await collectCommunity(result, row);
+      const short = result.expected && result.comments.length < result.expected * 0.8;
+      row.status(
+        short ? `완료 · 화면의 댓글 수 ${result.expected}개 중 ${result.comments.length}개 읽음 (삭제·블라인드 제외)` : `완료 (${result.method})`,
+        short ? "err" : "ok",
+      );
+    } catch (e) {
+      result.error = e.message || String(e);
+      row.status(`실패: ${result.error}`, "err");
+    }
+    row.done(result);
+    return result;
+  }
   try {
     const ids = parseArticleUrl(url);
     result.cafeId = ids.cafeId || "";
     result.articleId = ids.articleId || "";
     result.cafeUrl = ids.cafeUrl || "";
     row.status("게시글 열어서 댓글 읽는 중…");
-    await collectCafe(result);
+    await collectCafe(result, row);
     row.status("완료", "ok");
   } catch (e) {
     result.error = e.message || String(e);
@@ -732,13 +812,14 @@ async function collectOne(url, row) {
   return result;
 }
 
-async function start() {
+async function start(resume = null) {
+  if (resume) return run(resume);
   const urls = readUrls();
   if (!urls.length) {
     $("#summary").textContent = "URL을 입력하세요.";
     return;
   }
-  const cafeCount = urls.filter((u) => !isYoutubeUrl(u)).length;
+  const cafeCount = urls.filter((u) => platformOf(u) === "cafe").length;
   if (cafeCount > CAFE_WARN_COUNT) {
     const ok = confirm(
       `네이버 카페 글이 ${cafeCount}개입니다. 한 번에 많이 수집하면 네이버 계정 보호조치가 걸릴 수 있습니다.\n` +
@@ -746,24 +827,56 @@ async function start() {
     );
     if (!ok) return;
   }
+  if (!baseTemplate() && !separateFile()) {
+    const go = confirm(
+      "기존 raw data 엑셀 파일을 고르지 않았고 최종 DB에도 파일이 없습니다.\n\n" +
+        "· [확인]: 파일 없이 진행 (그날 수집한 댓글만 담은 새 파일로 저장)\n" +
+        "· [취소]: 기존 파일을 먼저 고르기 (이어 쓰기·중복 제외)",
+    );
+    if (!go) {
+      $("#templateFile").scrollIntoView({ block: "center" });
+      $("#templateFile").click();
+      return;
+    }
+  }
   if (cafeCount) await checkLogin();
+  // 직접 고른 파일에 이어 쓰는 경우, 중단됐다가 이어 할 때를 위해 그 파일도 보관
+  if (baseChoice === "file" && template && !separateFile()) {
+    await dbTx("readwrite", (s) => s.put({ key: "resume:raw", kind: "resume", name: template.name, bytes: template.bytes })).catch(() => {});
+  }
+  return run({ urls, done: 0, results: [], separate: separateFile(), attached: baseChoice === "file" && !!template && !separateFile() });
+}
+
+// 수집 실행 (처음 또는 이어하기). state: { urls, done, results, separate, attached }
+async function run(state) {
+  const { urls } = state;
   stopRequested = false;
+  markRunning(true);
   $("#start").disabled = true;
   $("#stop").disabled = false;
   $("#download").disabled = true;
   $("#progress").hidden = false;
   $("#progress tbody").innerHTML = "";
 
-  const results = [];
-  for (let i = 0; i < urls.length && !stopRequested; i++) {
+  const results = state.results;
+  results.forEach((r, i) => {
+    const row = addProgressRow(i + 1, urls[i]);
+    row.status(r.error ? `실패: ${r.error}` : "완료 (중단 전에 수집)", r.error ? "err" : "ok");
+    row.done(r);
+  });
+  for (let i = state.done; i < urls.length && !stopRequested; i++) {
     $("#summary").textContent = `수집 중… (${i + 1}/${urls.length})`;
+    showBusy(`댓글 수집 중 ${i + 1}/${urls.length} — 끝날 때까지 이 탭을 닫지 마세요`, i, urls.length, "댓글 수집 중");
     const row = addProgressRow(i + 1, urls[i]);
     const result = await collectOne(urls[i], row);
     results.push(result);
-    const nextIsCafe = i + 1 < urls.length && !isYoutubeUrl(urls[i + 1]);
-    if (nextIsCafe) {
+    await saveResume("comments", { urls, done: i + 1, results, separate: state.separate, attached: state.attached });
+    const next = i + 1 < urls.length ? platformOf(urls[i + 1]) : "";
+    if (next === "cafe" || next === "community") {
       $("#summary").textContent = `다음 글을 열기 전에 잠시 기다리는 중… (${i + 1}/${urls.length} 완료)`;
-      await sleep(randomBetween(CAFE_ARTICLE_DELAY));
+      await sleep(randomBetween(next === "cafe" ? CAFE_ARTICLE_DELAY : COMMUNITY_DELAY));
+    } else if (next === "news") {
+      await sleep(randomBetween(NEWS_DELAY));
     } else {
       await sleep(300);
     }
@@ -772,12 +885,36 @@ async function start() {
   const failed = results.filter((r) => r.error).length;
   try {
     $("#summary").textContent = "엑셀 만드는 중…";
-    const out = await buildOutput(results, template);
-    const name = outputFileName(template ? template.name : rememberedName());
+    showBusy("엑셀 만드는 중", 0, 0, "엑셀 만드는 중");
+    const base = baseTemplate();
+    const out = await buildOutput(results, base);
+    const name = outputFileName(base ? base.name : rememberedName());
     lastWorkbook = { bytes: out.bytes, name };
-    downloadWorkbook(out.bytes, name);
+    await downloadWorkbook(out.bytes, name);
+    let dbNote = "";
+    if (!separateFile()) {
+      // 오늘의 최종 파일로 최종 DB 에 저장하고, 다음 수집은 이 파일에 이어 쓴다
+      // '내용' 칸: 시트별(언론·유튜브·동호회·자동차 커뮤니티) 마지막 연번
+      const summary = await rawSummary(await XlsxTemplate.Workbook.open(out.bytes)).catch(() => "");
+      await dbSaveDay("raw", today(), name, out.bytes, "auto", summary, {
+        comments: out.rows.cafe.length,
+        news: results.some((r) => r.platform === "news") ? out.rows.news.length : undefined,
+        community: results.some((r) => r.platform === "community") ? out.rows.comm.length : undefined,
+        youtube: out.rows.ytTouched ? out.rows.yt.length : undefined,
+      });
+      await showDiffs();
+      template = null;
+      $("#templateFile").value = "";
+      baseChoice = "";
+      await loadDbBase();
+      await refreshBaseSelect();
+      showBaseInfo();
+      dbNote = " · 최종 DB에 오늘 파일로 저장했습니다";
+    }
     const { rows, info } = out;
     const parts = [];
+    if (rows.news.length) parts.push(`언론 ${rows.news.length.toLocaleString()}개 추가`);
+    else if (results.some((r) => r.platform === "news")) parts.push("언론 추가된 댓글 없음");
     if (rows.cafe.length) {
       const from = rows.cafe[0][0];
       const to = rows.cafe[rows.cafe.length - 1][0];
@@ -785,15 +922,24 @@ async function start() {
     } else if (results.some((r) => r.platform === "cafe")) {
       parts.push("동호회 추가된 댓글 없음");
     }
+    if (rows.comm.length) parts.push(`자동차 커뮤니티 ${rows.comm.length.toLocaleString()}개 추가`);
+    else if (results.some((r) => r.platform === "community")) parts.push("자동차 커뮤니티 추가된 댓글 없음");
     if (rows.duplicates) parts.push(`이미 있던 댓글 ${rows.duplicates.toLocaleString()}개 제외`);
     if (rows.ytTouched || !info) parts.push(`유튜브 ${rows.yt.length.toLocaleString()}개로 교체`);
     if (rows.keptOld.length) parts.push(`수집 실패한 유튜브 영상 ${rows.keptOld.length}개는 기존 댓글 유지`);
     $("#summary").textContent =
       `${stopRequested ? "중지됨 - " : ""}${parts.join(", ")}` +
-      `${failed ? ` (실패 ${failed}건)` : ""} · ${name} 파일이 다운로드 폴더에 저장되었습니다.`;
+      `${failed ? ` (실패 ${failed}건)` : ""} · ${name} 파일이 다운로드 폴더에 저장되었습니다${dbNote}.`;
+    await clearResume("comments");
   } catch (e) {
     $("#summary").textContent = `엑셀 저장 실패: ${e.message}`;
   }
+  hideBusy();
+  markRunning(false);
+  // 실패한 글·영상 → 다시 수집 버튼 (다시 수집하면 오늘 파일에 이어 쓰고, 이미 들어간 댓글은 빠짐)
+  lastFailedUrls = stopRequested ? [] : results.filter((r) => r.error).map((r) => r.url);
+  $("#retryFailed").hidden = !lastFailedUrls.length;
+  $("#retryFailed").textContent = `실패한 ${lastFailedUrls.length}개 다시 수집`;
   $("#start").disabled = false;
   $("#stop").disabled = true;
   $("#download").disabled = false;
@@ -812,7 +958,12 @@ document.addEventListener("DOMContentLoaded", () => {
       /* 무시 */
     }
   });
-  $("#start").addEventListener("click", start);
+  $("#start").addEventListener("click", () => start());
+  $("#retryFailed").addEventListener("click", () => {
+    $("#urls").value = lastFailedUrls.join("\n");
+    $("#retryFailed").hidden = true;
+    start();
+  });
   $("#stop").addEventListener("click", () => {
     stopRequested = true;
     $("#stop").disabled = true;
@@ -820,7 +971,50 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#download").addEventListener("click", () => lastWorkbook && downloadWorkbook(lastWorkbook.bytes, lastWorkbook.name));
   $("#templateFile").addEventListener("change", (e) => loadTemplate(e.target.files[0]));
-  loadTemplate(null);
+  loadDbBase()
+    .then(() => loadTemplate(null))
+    .then(offerResume);
+  $("#separate").addEventListener("change", showBaseInfo);
+  $("#baseSelect").addEventListener("change", onBaseSelect);
+  $("#clearTemplate").addEventListener("click", () => {
+    $("#templateFile").value = "";
+    loadTemplate(null);
+  });
   window.addEventListener("focus", checkLogin);
   checkLogin();
 });
+
+// 중단된 수집이 있으면 이어서 할지 묻는다
+async function offerResume() {
+  const r = await loadResume("comments");
+  if (!r) return;
+  const when = new Date(r.at).toLocaleString();
+  const go = confirm(
+    `중단된 댓글 수집이 있습니다 (${r.urls.length}개 중 ${r.done}개 완료 · ${when}).\n\n` +
+      "· [확인]: 이어서 수집 (남은 것부터, 끝나면 엑셀 저장)\n· [취소]: 버리기",
+  );
+  if (!go) return clearResume("comments");
+  $("#separate").checked = !!r.separate;
+  if (r.attached) {
+    const rec = await dbTx("readonly", (s) => s.get("resume:raw")).catch(() => null);
+    if (rec) {
+      template = { name: rec.name, bytes: rec.bytes, info: await analyzeTemplate(await XlsxTemplate.Workbook.open(rec.bytes)) };
+      baseChoice = "file";
+      await refreshBaseSelect();
+    }
+  }
+  showBaseInfo();
+  $("#urls").value = r.urls.join("\n");
+  start(r);
+}
+
+// 오늘 수집한 카페 댓글·유튜브 댓글 수 · 전일(직전 기록일) 대비 증감
+async function showDiffs() {
+  const box = $("#diffs");
+  box.replaceChildren();
+  for (const [field, label] of [["news", "오늘 언론 댓글"], ["comments", "오늘 카페 댓글"], ["community", "오늘 커뮤니티 댓글"], ["youtube", "유튜브 댓글"]]) {
+    const d = await dbStatDiff("raw", today(), field).catch(() => null);
+    if (d) box.append(diffLine(label, d));
+  }
+  box.hidden = !box.childNodes.length;
+}

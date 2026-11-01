@@ -131,6 +131,24 @@
       .replace(/"/g, "&quot;");
   }
 
+  // 한 셀 안에서 글자마다 색을 달리 쓰기: runs = [{ text, color: "FF0070C0", bold, font: "글꼴 이름" }]
+  // 글꼴은 run.font → 견본 셀 글자에 직접 준 서식 → 맑은 고딕 11 순 (rPr 순서는 엑셀 규격대로)
+  // (scheme 을 붙이면 엑셀이 테마 글꼴로 바꿔 보여주므로 글꼴 이름을 정한 경우엔 붙이지 않는다)
+  function richRuns(runs, baseProps) {
+    const base = baseProps
+      ? baseProps.replace(/<(?:b|color)\b[^>]*\/>/g, "")
+      : '<rFont val="맑은 고딕"/><charset val="129"/><family val="2"/><sz val="11"/><scheme val="minor"/>';
+    return runs
+      .filter((run) => run && run.text)
+      .map((run) => {
+        let props = run.font ? `<rFont val="${esc(run.font)}"/><charset val="129"/><family val="2"/><sz val="11"/>` : base;
+        if (run.color) props = props.replace(/(<sz\b|<u\b|<vertAlign\b|<scheme\b|$)/, `<color rgb="${run.color}"/>$1`);
+        if (run.bold) props = props.replace(/(<i\b|<strike\b|<color\b|<sz\b|<u\b|<vertAlign\b|<scheme\b|$)/, "<b/>$1");
+        return `<r><rPr>${props}</rPr><t xml:space="preserve">${esc(run.text)}</t></r>`;
+      })
+      .join("");
+  }
+
   function colLetter(n) {
     let s = "";
     while (n > 0) {
@@ -208,9 +226,11 @@
       const sstRel = Object.values(relMap).find((r) => r.type.endsWith("/sharedStrings"));
       this.sstPath = sstRel ? resolvePath("xl/workbook.xml", sstRel.target) : null;
       this.sst = [];
+      this.sstRaw = []; // 공유 문자열 원본 XML (글자에 직접 준 글꼴 등 서식을 따라 하기 위해)
       if (this.sstPath) {
         const sst = parseXml(await this.text(this.sstPath));
         for (const si of sst.getElementsByTagName("si")) this.sst.push(siText(si));
+        this.sstRaw = (await this.text(this.sstPath)).match(/<si\b[^>]*?(?:\/>|>[\s\S]*?<\/si>)/g) || [];
       }
     }
 
@@ -272,12 +292,27 @@
       // 서식 견본: 행 속성(높이 등)과 열별 셀 서식 번호
       let rowAttrs = "";
       const cellStyles = {};
+      const runProps = {}; // 열 → 견본 셀 글자에 직접 준 서식(<rPr>, 예: 셀 글꼴과 다른 글꼴)
+      const sameShared = {}; // 열 → 견본 셀의 공유 문자열 { idx, text } (같은 글자면 그대로 재사용)
       if (styleXml) {
         const open = styleXml.match(/^<row\b([^>]*?)\/?>/)[1];
         rowAttrs = open.replace(/\s*\br="\d+"/, "").replace(/\s*\bspans="[^"]*"/, "");
-        for (const c of styleXml.matchAll(/<c\b[^>]*\br="([A-Z]+)\d+"[^>]*>/g)) {
-          const s = c[0].match(/\bs="(\d+)"/);
-          if (s) cellStyles[c[1]] = s[1];
+        for (const c of styleXml.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+          const col = (c[1].match(/\br="([A-Z]+)\d+"/) || [])[1];
+          if (!col) continue;
+          const s = c[1].match(/\bs="(\d+)"/);
+          if (s) cellStyles[col] = s[1];
+          const t = (c[1].match(/\bt="([^"]*)"/) || [])[1];
+          let raw = "";
+          if (t === "s") {
+            const idx = Number((c[2] || "").match(/<v>(\d+)<\/v>/)?.[1]);
+            if (Number.isFinite(idx)) {
+              raw = this.sstRaw[idx] || "";
+              sameShared[col] = { idx, text: this.sst[idx] };
+            }
+          } else if (t === "inlineStr") raw = c[2] || "";
+          const rPr = raw.match(/<r>\s*<rPr>([\s\S]*?)<\/rPr>/);
+          if (rPr) runProps[col] = rPr[1];
         }
       }
 
@@ -293,7 +328,11 @@
             return;
           }
           maxCol = Math.max(maxCol, ci + 1);
-          if (typeof v === "number" && isFinite(v)) cells += `<c r="${col}${r}"${s}><v>${v}</v></c>`;
+          if (v && Array.isArray(v.runs)) cells += `<c r="${col}${r}"${s} t="inlineStr"><is>${richRuns(v.runs, runProps[col])}</is></c>`;
+          else if (typeof v === "number" && isFinite(v)) cells += `<c r="${col}${r}"${s}><v>${v}</v></c>`;
+          else if (sameShared[col] && sameShared[col].text === String(v)) cells += `<c r="${col}${r}"${s} t="s"><v>${sameShared[col].idx}</v></c>`;
+          else if (runProps[col])
+            cells += `<c r="${col}${r}"${s} t="inlineStr"><is><r><rPr>${runProps[col]}</rPr><t xml:space="preserve">${esc(v)}</t></r></is></c>`;
           else cells += `<c r="${col}${r}"${s} t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
         });
         return `<row r="${r}"${rowAttrs ? " " + rowAttrs.trim() : ""}>${cells}</row>`;
@@ -314,18 +353,103 @@
         return `<dimension ref="A1:${endCol}${Math.max(1, lastRow)}"/>`;
       });
 
+      // 필터 범위(머리글부터)도 마지막 행까지 늘리거나 줄인다 - 시트와 통합문서의 숨은 이름 둘 다
+      let filterRef = null;
+      xml = xml.replace(/(<autoFilter\b[^>]*\bref=")([A-Z]+)(\d+):([A-Z]+)\d+(")/, (m, pre, c1, r1, c2, post) => {
+        if (Number(r1) > keepUntil) return m;
+        filterRef = [c1, Number(r1), c2, Math.max(Number(r1) + 1, lastRow)];
+        return `${pre}${c1}${r1}:${c2}${filterRef[3]}${post}`;
+      });
+      if (filterRef) await this._setFilterName(name, filterRef);
+
       // 지운 행을 가리키던 하이퍼링크 제거
       xml = xml.replace(/<hyperlink\b[^>]*\bref="[A-Z]+(\d+)(?::[A-Z]+\d+)?"[^>]*\/>/g, (m, r) =>
         Number(r) > keepUntil ? "" : m
       );
       xml = xml.replace(/<hyperlinks>\s*<\/hyperlinks>/, "");
 
-      // 파일을 열었을 때 보이는 위치: 새 데이터 첫 행(또는 맨 위)
-      const focus = focusFirstNew && newRows.length ? keepUntil + 1 : 2;
-      xml = xml.replace(/(<pane\b[^>]*\btopLeftCell=")[A-Z]+\d+(")/, `$1A${Math.max(2, focus - 3)}$2`);
-      xml = xml.replace(/(<selection\b[^>]*\bactiveCell=")[A-Z]+\d+("[^>]*\bsqref=")[^"]*(")/g, `$1A${focus}$2A${focus}$3`);
+      // 틀 고정(ySplit)이 있으면 스크롤 시작·선택 칸은 고정된 행 아래여야 한다(아니면 엑셀이 '복구' 경고를 띄움)
+      const pane = xml.match(/<pane\b[^>]*>/)?.[0] || "";
+      const firstFree = Math.floor(Number(pane.match(/\bySplit="([\d.]+)"/)?.[1] || 0)) + 1;
+      const minRow = Math.max(2, firstFree);
+      // 열었을 때: 커서는 마지막 행 바로 아래 빈 칸(A열), 화면은 그 위 행들이 최대한 보이게(약 50행)
+      const focus = Math.max(minRow, lastRow + 1);
+      const top = Math.max(minRow, focus - 50);
+      xml = xml.replace(/(<pane\b[^>]*\btopLeftCell=")[A-Z]+\d+(")/, `$1A${top}$2`);
+      if (!/<pane\b/.test(xml)) {
+        // 틀 고정이 없는 시트: 보기 시작 위치를 sheetView 에 직접 (있던 값은 바꿈)
+        xml = xml.replace(/<sheetView\b[^>]*?(\/?)>/, (m, selfClose) => {
+          const attrs = m.slice("<sheetView".length, m.length - (selfClose ? 2 : 1)).replace(/\s+topLeftCell="[^"]*"/, "");
+          return `<sheetView${attrs} topLeftCell="A${top}"${selfClose ? "/" : ""}>`;
+        });
+      }
+      // 선택 칸(커서): 첫 sheetView 의 선택 정보를 새로 쓴다 (없던 파일도 있음)
+      xml = xml.replace(/<sheetView\b[^>]*?(?:\/>|>[\s\S]*?<\/sheetView>)/, (view) => {
+        const pane = view.match(/<pane\b[^>]*\/>/)?.[0] || "";
+        const activePane = pane.match(/\bactivePane="([^"]+)"/)?.[1];
+        const sel = `<selection${activePane ? ` pane="${activePane}"` : ""} activeCell="A${focus}" sqref="A${focus}"/>`;
+        const open = view.match(/^<sheetView\b[^>]*?(\/?)>/);
+        const head = open[1] ? open[0].replace(/\/>$/, ">") : open[0];
+        const inner = open[1] ? "" : view.slice(open[0].length, view.length - "</sheetView>".length);
+        const rest = inner.replace(/<pane\b[^>]*\/>/, "").replace(/<selection\b[^>]*\/>/g, "");
+        return `${head}${pane}${sel}${rest}</sheetView>`;
+      });
 
       this.texts.set(path, xml);
+    }
+
+    async _setFilterName(name, [c1, r1, c2, r2]) {
+      const path = "xl/workbook.xml";
+      const xml = await this.text(path);
+      const idx = this.sheetNames().indexOf(name);
+      const re = new RegExp(`(<definedName\\b[^>]*name="_xlnm\\._FilterDatabase"[^>]*localSheetId="${idx}"[^>]*>)[^<]*(</definedName>)`);
+      const quoted = `'${name.replace(/'/g, "''")}'`;
+      this.texts.set(path, xml.replace(re, (m, open, close) => `${open}${esc(quoted)}!$${c1}$${r1}:$${c2}$${r2}${close}`));
+    }
+
+    // 셀에 바깥 링크를 건다. links: { "A2": "https://…", ... } (양식에 시트 관계 파일이 있어야 함)
+    async addHyperlinks(name, links) {
+      const path = this._sheetPath(name);
+      const relsPath = path.replace(/([^/]+)$/, "_rels/$1.rels");
+      let rels = await this.text(relsPath);
+      if (rels === null) throw new Error(`'${name}' 시트에 링크를 넣을 수 없는 양식입니다.`);
+      let xml = await this.text(path);
+      const used = new Set([...rels.matchAll(/\bId="([^"]+)"/g)].map((m) => m[1]));
+      let n = 0;
+      let tags = "";
+      let relXml = "";
+      for (const [ref, url] of Object.entries(links)) {
+        let id;
+        do id = `rIdL${++n}`;
+        while (used.has(id));
+        relXml += `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${esc(url)}" TargetMode="External"/>`;
+        tags += `<hyperlink ref="${ref}" r:id="${id}"/>`;
+      }
+      if (!tags) return;
+      rels = rels.replace(/<Relationships\b([^>]*?)\s*\/>/, "<Relationships$1></Relationships>").replace("</Relationships>", relXml + "</Relationships>");
+      if (/<hyperlinks>/.test(xml)) xml = xml.replace("</hyperlinks>", tags + "</hyperlinks>");
+      else xml = xml.replace(/(<printOptions\b|<pageMargins\b|<pageSetup\b|<\/worksheet>)/, `<hyperlinks>${tags}</hyperlinks>$1`);
+      if (!/\bxmlns:r=/.test(xml.slice(0, xml.indexOf(">", xml.indexOf("<worksheet")))))
+        xml = xml.replace(/<worksheet\b/, '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"');
+      this.texts.set(relsPath, rels);
+      this.texts.set(path, xml);
+    }
+
+    // 시트의 셀 글자를 바꾼다. updates: { "F12": "새 글자", ... } (셀 서식은 그대로, 없는 셀은 건너뜀)
+    async setCellTexts(name, updates) {
+      const path = this._sheetPath(name);
+      let xml = await this.text(path);
+      let changed = 0;
+      for (const [ref, value] of Object.entries(updates)) {
+        const re = new RegExp(`<c r="${ref}"(\\s[^>]*?)?(?:/>|>[\\s\\S]*?</c>)`);
+        xml = xml.replace(re, (m, attrs) => {
+          changed++;
+          const keep = (attrs || "").replace(/\s+t="[^"]*"/, "");
+          return `<c r="${ref}"${keep} t="inlineStr"><is><t xml:space="preserve">${esc(value)}</t></is></c>`;
+        });
+      }
+      this.texts.set(path, xml);
+      return changed;
     }
 
     async save() {

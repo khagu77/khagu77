@@ -8,26 +8,42 @@
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
+  <header class="topbar">
+    <div class="topbar-in">
+      <div class="brand">
+        <img src="icons/icon128.png" alt="" class="logo">
+        <h1>카페·유튜브 댓글 수집기</h1>
+        <span class="ver" id="ver"></span>
+      </div>
+      <nav class="menu"><a href="app.html" class="on"><span class="num">1</span>💬 댓글 수집</a><a href="db.html"><span class="num">2</span>🗄 최종 DB</a></nav>
+    </div>
+  </header>
   <main>
-    <h1>카페·유튜브 댓글 수집기</h1>
-
     <div id="login" class="login">로그인 상태 확인 중…</div>
 
-    <label for="templateFile">기존 엑셀 파일 <span class="hint">(가장 최근에 받은 raw data 파일)</span></label>
-    <input type="file" id="templateFile" accept=".xlsx">
+    <label for="baseSelect">이어서 작성 <span class="hint">(고른 raw data 엑셀의 시트마다 마지막 연번 뒤에 이번 댓글을 붙여 저장 · 이미 있는 댓글은 뺌)</span></label>
+    <div class="row">
+      <select id="baseSelect" class="basesel"></select>
+      <span class="hint">또는 기존 엑셀 파일:</span>
+      <input type="file" id="templateFile" accept=".xlsx">
+      <button id="clearTemplate" class="small danger" hidden>✕ 첨부 해제</button>
+    </div>
+    <label class="inline"><input type="checkbox" id="separate"> 별도 파일로 작성 <span class="hint">(최종 DB에 이어 쓰지 않고 새 파일로 · 최종 DB에 저장 안 함)</span></label>
     <div id="templateInfo" class="hint"></div>
 
-    <label for="urls">네이버 카페 게시글 / 유튜브 영상 URL <span class="hint">(한 줄에 하나씩, 섞어서 넣어도 됩니다)</span></label>
+    <label for="urls">네이버 뉴스 기사 / 네이버 카페 게시글 / 자동차 커뮤니티(보배드림·클리앙·뽐뿌) 게시글 / 유튜브 영상 URL <span class="hint">(한 줄에 하나씩, 섞어서 넣어도 됩니다)</span></label>
     <textarea id="urls" rows="8" spellcheck="false"
-      placeholder="https://cafe.naver.com/카페주소/12345&#10;https://www.youtube.com/watch?v=xxxxxxxxxxx"></textarea>
+      placeholder="https://n.news.naver.com/mnews/article/001/0012345678&#10;https://cafe.naver.com/카페주소/12345&#10;https://www.ppomppu.co.kr/zboard/view.php?id=car&amp;no=123456&#10;https://www.youtube.com/watch?v=xxxxxxxxxxx"></textarea>
 
     <div class="buttons">
       <button id="start" class="primary">수집 시작</button>
       <button id="stop" disabled>중지</button>
       <button id="download" disabled>엑셀 다시 받기</button>
+      <button id="retryFailed" hidden></button>
     </div>
 
     <div id="summary" class="summary"></div>
+    <div id="diffs" class="diffs" hidden></div>
 
     <table id="progress" hidden>
       <thead><tr><th>#</th><th>게시글</th><th>상태</th><th>댓글 수</th></tr></thead>
@@ -35,14 +51,18 @@
     </table>
 
     <p class="note">
-      네이버 카페는 계정 보호를 위해 게시글을 탭으로 열어 천천히 읽습니다(글 하나에 10~20초, 수집 중 탭이 잠깐 열렸다 닫힘).
+      언론은 네이버 뉴스 기사의 댓글(답글 포함)을, 자동차 커뮤니티는 게시글 화면의 댓글을 모두 읽습니다(삭제·블라인드 댓글 제외 · 댓글이 많아 여러 쪽이거나 '더보기'로 나오는 글은 끝까지 펼쳐 읽음).
+      네이버 카페는 계정 보호를 위해 게시글을 하나씩 열어 천천히 읽습니다(글 하나에 10~20초). 창·탭은 띄우지 않고 이 화면 안의 보이지 않는 곳에서 읽습니다.
       내가 열람할 수 있는 글만 수집됩니다(로그인 필요). 유튜브는 로그인 없이 공개 댓글을 수집하며,
-      작성일은 유튜브가 보여주는 그대로(예: 3일 전) 저장됩니다. 수집한 닉네임·댓글은 개인정보일 수 있으니
-      네이버 이용약관과 개인정보보호법을 지켜 사용하세요.
+      작성일은 유튜브가 보여주는 그대로(예: 3일 전) 저장됩니다. 수집하다 중단되면 다음에 이 화면을 열 때 이어서 할 수 있습니다.
+      수집한 닉네임·댓글은 개인정보일 수 있으니 각 사이트 이용약관과 개인정보보호법을 지켜 사용하세요.
     </p>
   </main>
   <script src="xlsx.js"></script>
   <script src="template.js"></script>
+  <script src="cafe-common.js"></script>
+  <script src="channels.js"></script>
+  <script src="db-store.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
