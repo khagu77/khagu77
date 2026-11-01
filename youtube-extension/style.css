@@ -6,6 +6,9 @@
   --border: #d9dde3;
   --green: #03c75a;
   --red: #d93025;
+  --yt: #ff0000; /* 유튜브 레드: 버튼 */
+  --yt-dark: #cc0000;
+  --top: #dcd6ce; /* 위쪽 띠 배경: 밝은 베이지 */
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -24,15 +27,32 @@ body {
   color: var(--text);
   font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 }
+/* 위쪽 띠: 아이콘·제목·버전 · 번호 탭 */
+.topbar { background: var(--top); color: #1b1d21; }
+.topbar-in { max-width: 860px; margin: 0 auto; padding: 16px 0 0; }
+.brand { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 0 4px; }
+.brand .logo { height: 44px; width: 44px; display: block; }
+.brand h1 { margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.3px; color: #1b1d21; }
+.brand .ver { color: rgba(0, 0, 0, 0.5); font-size: 13px; }
+nav.menu { display: flex; gap: 6px; margin-top: 16px; flex-wrap: wrap; }
+nav.menu a { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; color: rgba(0, 0, 0, 0.55);
+  text-decoration: none; font-weight: 800; font-size: 15px; border-radius: 12px 12px 0 0; }
+nav.menu a:hover { color: var(--yt-dark); }
+nav.menu a .num { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  border: 1.5px solid currentColor; font-size: 12px; font-weight: 700; }
+nav.menu a.active { background: var(--card); color: var(--text); }
+nav.menu a.active .num { background: var(--text); border-color: var(--text); color: var(--card); }
+
 main {
   max-width: 860px;
-  margin: 20px auto;
+  margin: 0 auto 24px;
   padding: 18px 20px;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-top: none;
+  border-radius: 0 0 12px 12px;
 }
-h1 { margin: 0 0 10px; font-size: 18px; }
+@media (max-width: 880px) { .topbar-in { padding: 16px 10px 0; } }
 label { display: block; font-weight: 600; margin: 10px 0 4px; font-size: 13px; }
 .hint { font-weight: 400; color: var(--muted); font-size: 12px; }
 p.hint, div.hint { margin: 6px 0; line-height: 1.5; }
@@ -51,14 +71,18 @@ textarea {
 .buttons { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 button {
   padding: 5px 12px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--yt);
   border-radius: 6px;
   background: var(--card);
-  color: var(--text);
+  color: var(--yt);
   font-size: 12.5px;
+  font-weight: 600;
   cursor: pointer;
 }
-button.primary { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+button:hover:not(:disabled) { background: rgba(255, 0, 0, 0.07); }
+button.primary { background: var(--yt); border-color: var(--yt); color: #fff; }
+button.primary:hover:not(:disabled) { background: var(--yt-dark); border-color: var(--yt-dark); }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--yt); }
 button:disabled { opacity: 0.45; cursor: default; }
 .summary { margin: 10px 0 4px; font-weight: 600; font-size: 12.5px; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
@@ -70,17 +94,6 @@ td.url a:hover { color: var(--green, #2b7de9); }
 .ok { color: var(--green); }
 .err { color: var(--red); }
 .note { margin-top: 12px; color: var(--muted); font-size: 11px; line-height: 1.5; }
-.menu { display: flex; gap: 4px; margin: 0 0 12px; border-bottom: 1px solid var(--border); }
-.menu a {
-  padding: 6px 12px;
-  font-size: 13px;
-  color: var(--muted);
-  text-decoration: none;
-  font-weight: 600;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-}
-.menu a.active { color: var(--text); border-bottom-color: var(--green); }
 .options { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
 .options label { margin-bottom: 0; }
 .options label.check { font-weight: 400; display: flex; gap: 6px; align-items: center; padding-bottom: 6px; }

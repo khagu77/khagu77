@@ -279,7 +279,7 @@ def test_script(tmp_path: Path):
     with sync_playwright() as p:
         ctx = launch(p, tmp_path, ext, server.server_address[1])
         page = ext_page(ctx, "script.html")
-        assert page.locator(".menu a.active").inner_text() == "스크립트 추출"
+        assert "스크립트 추출" in page.locator(".menu a.active").inner_text()
         assert page.input_value("#mode") == "transcript"  # 기본은 유튜브 스크립트 가져오기
         page.select_option("#mode", "speech")
         page.fill("#urls", "https://youtu.be/scriptvid01")
@@ -828,7 +828,7 @@ def test_audio(tmp_path: Path):
     with sync_playwright() as p:
         ctx = launch(p, tmp_path, EXT_DIR, server.server_address[1])
         page = ext_page(ctx, "video.html")
-        assert page.locator(".menu a.active").inner_text() == "영상·음성 파일 다운로드"
+        assert "영상·음성 파일 다운로드" in page.locator(".menu a.active").inner_text()
         page.select_option("#kind", "audio")
         page.fill("#urls", "https://www.youtube.com/watch?v=audiovid001")
         with ctx.expect_event("download", timeout=60000) as dl:

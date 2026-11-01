@@ -4,11 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>스크립트 AI 검열 - YouTube 스크립트 및 영상 파일 추출</title>
+  <link rel="icon" href="icons/icon32.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <header class="topbar">
+    <div class="topbar-in">
+      <div class="brand">
+        <img src="icons/icon128.png" alt="" class="logo">
+        <h1>YouTube 스크립트 및 영상 파일 추출</h1>
+        <span class="ver" id="ver"></span>
+      </div>
+      <nav class="menu"><a href="script.html"><span class="num">1</span>📝 스크립트 추출</a><a href="video.html"><span class="num">2</span>🎬 영상·음성 파일 다운로드</a><a href="review.html" class="active"><span class="num">3</span>🤖 스크립트 AI 검열</a></nav>
+    </div>
+  </header>
   <main>
-    <h1>YouTube 스크립트 및 영상 파일 추출</h1>
     <p class="hint">
       스크립트 분석 엑셀 파일을 넣으면 <b>G열이 '해당없음'이 아닌 행</b>의 <b>F열 스크립트</b>를 AI(Claude)가 검토해
       띄어쓰기·오탈자·잘못 받아쓴 차량명/용어를 문맥에 맞게 고칩니다(<code>[0:00]</code> 시간과 줄 구분은 그대로).

@@ -4,11 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>스크립트 추출 - YouTube 스크립트 및 영상 파일 추출</title>
+  <link rel="icon" href="icons/icon32.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <header class="topbar">
+    <div class="topbar-in">
+      <div class="brand">
+        <img src="icons/icon128.png" alt="" class="logo">
+        <h1>YouTube 스크립트 및 영상 파일 추출</h1>
+        <span class="ver" id="ver"></span>
+      </div>
+      <nav class="menu"><a href="script.html" class="active"><span class="num">1</span>📝 스크립트 추출</a><a href="video.html"><span class="num">2</span>🎬 영상·음성 파일 다운로드</a><a href="review.html"><span class="num">3</span>🤖 스크립트 AI 검열</a></nav>
+    </div>
+  </header>
   <main>
-    <h1>YouTube 스크립트 및 영상 파일 추출</h1>
     <p class="hint">
       유튜브에 있는 스크립트를 그대로 가져오거나, 영상을 재생하면서 스크립트를 새로 만듭니다.
       결과는 <code>00:00 스크립트 내용</code> 형식으로 아래 출력칸에 나옵니다. 수집이 끝나면 <b>전체 스크립트 받기</b>로

@@ -149,21 +149,10 @@ async function runInYoutubeTab({ videoId, files, portName, start, mute, highQual
 }
 runInYoutubeTab.abort = null;
 
-function menu(active) {
-  const nav = document.createElement("nav");
-  nav.className = "menu";
-  for (const [href, label] of [
-    ["script.html", "스크립트 추출"],
-    ["video.html", "영상·음성 파일 다운로드"],
-    ["review.html", "스크립트 AI 검열"],
-  ]) {
-    const a = document.createElement("a");
-    a.href = href;
-    a.textContent = label;
-    if (href === active) a.className = "active";
-    nav.appendChild(a);
-  }
-  $("h1").after(nav);
+// 위쪽 띠(아이콘·제목·번호 탭)는 각 화면 HTML 에 있고, 여기서는 버전만 채운다.
+function menu() {
+  const ver = document.getElementById("ver");
+  if (ver) ver.textContent = "v" + chrome.runtime.getManifest().version;
 }
 
 // 파일 받기: blob: 주소 대신 data: 주소로 받는다.
