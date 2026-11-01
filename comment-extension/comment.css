@@ -1,0 +1,7 @@
+/* 카페·유튜브 댓글 수집기 전용 (app.css 는 LX3 수집기와 같은 파일이라 여기서 덮어씀) */
+:root { --top: #dcd6ce; } /* 위쪽 띠 배경: 밝은 베이지 */
+.topbar { color: #1b1d21; }
+.brand h1 { color: #002c5f; }
+.brand .ver { color: rgba(0, 0, 0, 0.5); }
+nav.menu a { color: rgba(0, 0, 0, 0.55); }
+nav.menu a:hover { color: #002c5f; }
