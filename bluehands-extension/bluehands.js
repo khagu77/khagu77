@@ -520,30 +520,60 @@ function pendingItems() {
   return items.filter((x) => x.state === "new" && !clean(x.author) && x.status !== "pass");
 }
 
-// 전주 대비: 보고서는 매주 새 글을 아래에 쌓으므로, 지난주 파일의 누적 행 수 → 이번 주 누적 행 수
+// 전주 대비: 이번 주 새로 넣은 글 수 ↔ 전주에 새로 넣은 글 수의 증감
+const weekOf = (t) => ymd(reportDayOfWeek(new Date(t)).monday);
+
+// 그 시각(at) 이전, 다른 주에 받은 보고서 중 가장 최근 기록의 '새로 넣은 글' 수 (같은 주에 다시 받은 기록은 건너뜀)
+function prevWeekAdded(at, list = history) {
+  const week = weekOf(at);
+  const h = [...list].sort((x, y) => y.at - x.at).find((x) => x.at < at && weekOf(x.at) !== week && Number.isFinite(x.added));
+  return h ? h.added : null;
+}
+
 function weekCompare() {
   const added = items.filter((x) => x.state === "new" && clean(x.author));
   const addedKeys = added.map((x) => x.key);
-  const source = report ? report.info.records.map((r) => articleKey(r.url)) : Object.keys(db);
-  // (엑셀을 받은 뒤에는 이번 글이 DB 에 들어가 있으므로 빼고 센다)
-  const prev = source.filter((k) => !addedKeys.some((a) => sameArticle(a, k))).length;
-  return { prev, now: prev + added.length, diff: added.length };
+  const notAdded = (k) => !addedKeys.some((a) => sameArticle(a, k));
+  const source = report ? report.info.records : dbRecords();
+  // 누적: 지난 보고서(없으면 DB) 행 + 이번 글 (엑셀을 받은 뒤에는 이번 글이 DB 에 들어가 있으므로 빼고 셈)
+  const before = source.filter((r) => notAdded(articleKey(r.url))).length;
+  // 전주 신규: 받은 보고서 기록에서, 없으면 이번 기사목록 첫 글 직전 7일 동안의 글 수
+  let prev = prevWeekAdded(Date.now());
+  if (prev === null) {
+    const times = items.filter((x) => x.date && x.state !== "notcafe").map((x) => x.date.getTime());
+    if (times.length) {
+      const start = Math.min(...times);
+      prev = source.filter((r) => {
+        const d = toDate(r.date);
+        return d && d.getTime() >= start - 7 * 86400e3 && d.getTime() < start && notAdded(articleKey(r.url));
+      }).length;
+    }
+  }
+  return { total: before + added.length, now: added.length, prev, diff: prev === null ? null : added.length - prev };
+}
+
+function diffHtml(diff) {
+  if (diff === null || diff === undefined) return '<span class="same">전주 기록 없음</span>';
+  return diff > 0
+    ? `<span class="up">▲ ${diff.toLocaleString()} 건</span>`
+    : diff < 0
+      ? `<span class="down">▼ ${(-diff).toLocaleString()} 건</span>`
+      : `<span class="same">– 0 건</span>`;
 }
 
 function compareHtml(c) {
-  const mark =
-    c.diff > 0
-      ? `<span class="up">▲ ${c.diff.toLocaleString()} 건</span>`
-      : c.diff < 0
-        ? `<span class="down">▼ ${(-c.diff).toLocaleString()} 건</span>`
-        : `<span class="same">– 0 건</span>`;
-  return `누적 <b>${c.now.toLocaleString()}건</b> · 전주 ${c.prev.toLocaleString()}건 대비 ${mark}`;
+  return (
+    `이번 주 신규 <b>${c.now.toLocaleString()}건</b>` +
+    (c.prev === null ? "" : ` · 전주 신규 ${c.prev.toLocaleString()}건 대비 `) +
+    diffHtml(c.diff) +
+    ` <span class="hint">(누적 ${c.total.toLocaleString()}건)</span>`
+  );
 }
 
 function renderWeekCompare() {
   const box = $("#weekCompare");
   const c = weekCompare();
-  box.hidden = !items.length || (!c.prev && !c.diff);
+  box.hidden = !items.length || !items.some((x) => x.state === "new" || x.state === "dup");
   box.innerHTML = compareHtml(c) + (pendingItems().length ? ' <span class="hint">(작성자 확인된 글 기준 · 확인 중)</span>' : "");
 }
 
@@ -1187,7 +1217,7 @@ async function saveReport() {
     const name = datedFileName(report ? report.name : rememberedReportName());
     downloadBytes(bytes, name);
     await addToDb(all, name);
-    history.unshift({ at: Date.now(), file: name, added: fresh.length, passed, deleted: removed, total: all.length, prev: compare.prev });
+    history.unshift({ at: Date.now(), file: name, added: fresh.length, passed, deleted: removed, total: all.length, prevAdded: compare.prev });
     await chrome.storage.local.set({ bhHistory: history.slice(0, 200), bhLastReportDay: ymd(new Date()) }).catch(() => {});
     renderSchedule();
     renderDb();
@@ -1272,7 +1302,10 @@ function renderDb() {
     tr.children[3].textContent = h.passed ?? "";
     tr.children[4].textContent = h.deleted ?? "";
     tr.children[5].textContent = h.total ?? "";
-    if (h.prev !== undefined) tr.children[6].innerHTML = compareHtml({ prev: h.prev, now: h.total, diff: h.total - h.prev }).replace(/^누적 <b>[^<]*<\/b> · 전주 [^ ]* 대비 /, "");
+    // 전주 대비: 이 기록의 '새로 넣은 글' − 전주(다른 주에 받은 바로 앞 기록)의 '새로 넣은 글'
+    const prevAdded = h.prevAdded ?? prevWeekAdded(h.at);
+    tr.children[6].innerHTML = diffHtml(prevAdded === null || !Number.isFinite(h.added) ? null : h.added - prevAdded);
+    if (prevAdded !== null) tr.children[6].title = `전주 새로 넣은 글 ${prevAdded}건 → 이번 ${h.added}건`;
     hb.appendChild(tr);
   }
   if (!report) renderReportInfo();

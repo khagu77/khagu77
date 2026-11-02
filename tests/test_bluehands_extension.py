@@ -276,7 +276,7 @@ def test_bluehands(tmp_path: Path):
         # 알림창은 화면에 뜨지 않는다(확장이 연 탭에서만 막고 기록)
         assert dialogs == [], dialogs
         assert "이어서 진행" in page.inner_text("#log")
-        assert "누적 5건 · 전주 2건 대비 ▲ 3 건" in page.inner_text("#weekCompare")
+        assert "이번 주 신규 3건 · 전주 신규 1건 대비 ▲ 2 건 (누적 5건)" in page.inner_text("#weekCompare")
         assert page.locator("#weekCompare .up").evaluate("e => getComputedStyle(e).color") == "rgb(224, 36, 36)"
         assert "확인 2개 · 패스 1개 · 삭제된 게시물 2개(엑셀에서 뺌)" in page.inner_text("#summary")
 
@@ -296,7 +296,7 @@ def test_bluehands(tmp_path: Path):
         today = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y%m%d")
         assert out.name == f"{today}_정비 예약 관련 테스트 보고서.xlsx"
         assert "3개 추가 (연번 6~9), 패스 1개는 넣지 않았습니다, 삭제된 게시물 2개는 넣지 않았습니다" in page.inner_text("#saveInfo")
-        assert "누적 5건 · 전주 2건 대비 ▲ 3 건" in page.inner_text("#saveInfo .compare")
+        assert "이번 주 신규 3건 · 전주 신규 1건 대비 ▲ 2 건" in page.inner_text("#saveInfo .compare")
 
         # DB 목록: 지난 보고서 2행 + 새 글 3행
         page.click("nav.menu a[data-tab=db]")
@@ -309,6 +309,19 @@ def test_bluehands(tmp_path: Path):
         db_file = tmp_path / dl.value.suggested_filename
         dl.value.save_as(db_file)
         assert db_file.name == f"{today}_정비 예약 관련 DB 목록_검색결과.xlsx"
+        # 받은 보고서 기록의 전주 대비: 새로 넣은 글 수끼리 비교 (같은 주에 다시 받은 기록은 건너뜀)
+        week_cells = page.evaluate("""() => {
+            const day = 86400e3, t = new Date(2026, 10, 2, 10).getTime();  // 11/2(월)
+            history = [
+                { at: t, added: 54, total: 300, file: 'c' },
+                { at: t - 7 * day + 3600e3, added: 70, total: 246, file: 'b2' },  // 10/26 주에 다시 받음
+                { at: t - 7 * day, added: 83, total: 246, file: 'b' },
+                { at: t - 14 * day, added: 40, total: 163, file: 'a' },
+            ];
+            renderDb();
+            return [...document.querySelectorAll('#history tbody tr')].map(tr => tr.children[6].innerText);
+        }""")
+        assert week_cells == ["▼ 16 건", "▲ 30 건", "▲ 43 건", "전주 기록 없음"], week_cells
         ctx.close()
     server.shutdown()
     assert api_calls == []
