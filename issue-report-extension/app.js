@@ -45,8 +45,17 @@ function newJob() {
   };
 }
 
+// 아무것도 적지 않은 새 보고서 (DB 에 넣지 않는다 — 'DB 에서 지워도 빈 보고서가 다시 생기는' 일이 없게)
+function isBlankJob(j) {
+  return !j.final && !String(j.issueName || "").trim() && !String(j.purpose || "").trim() && !String(j.keywords || "").trim() && !(j.posts || []).length;
+}
+
 async function saveJob() {
   if (!job) return;
+  if (isBlankJob(job)) {
+    await chrome.storage.local.set({ imrCurrentJob: job.id }).catch(() => {});
+    return renderJobBar();
+  }
   await DB.putJob(job);
   await chrome.storage.local.set({ imrCurrentJob: job.id }).catch(() => {});
   renderJobBar();
@@ -1831,9 +1840,12 @@ async function renderDb() {
               if (!confirm(`'${j.issueName || j.id}' 보고서와 보관한 파일을 모두 지울까요? 되돌릴 수 없습니다.`)) return;
               await DB.deleteJob(j.id);
               if (j.id === job.id) {
-                job = newJob();
+                // 지금 보고서를 지웠으면 남은 보고서 중 가장 최근 것을 열고, 없으면 빈 새 보고서 (DB 에는 안 넣음)
+                const rest = await DB.listJobs();
+                job = rest[0] || newJob();
+                await chrome.storage.local.set({ imrCurrentJob: job.id }).catch(() => {});
                 renderSetup();
-                await saveJob();
+                renderJobBar();
               }
               renderDb();
             },

@@ -530,6 +530,21 @@ def test_issue_report(tmp_path: Path):
         assert up.inner_text().startswith("▲") and "(+100%)" in up.inner_text(), up.inner_text()
         assert page.evaluate("getComputedStyle(document.querySelector('#dbTable .cost-up')).color") == "rgb(217, 48, 37)"
         page.evaluate("async () => { await DB.deleteJob('job_old'); await renderDb(); }")
+        # 빈 새 보고서는 DB 에 안 생기고, 지금 작업 중인 보고서를 지우면 정말 지워진다 (빈 보고서가 다시 생기지 않음)
+        main_id = page.evaluate("job.id")
+        page.click("#newJob")
+        page.click('nav .tab[data-tab="db"]')
+        wait_js(page, "document.querySelectorAll('#dbTable tbody tr').length === 1")
+        assert "(이름 없음)" not in page.inner_text("#dbTable")
+        page.evaluate("async () => { await DB.putJob({ ...newJob(), id: 'job_tmp', issueName: '임시 보고서', updatedAt: Date.now() + 1000 }); await renderDb(); }")
+        page.locator("#dbTable tr", has_text="임시 보고서").locator("button", has_text="열기").click()
+        page.click('nav .tab[data-tab="db"]')
+        tmp_row = page.locator("#dbTable tr", has_text="임시 보고서")
+        assert "(지금)" in tmp_row.inner_text()
+        tmp_row.locator("button", has_text="삭제").click()
+        wait_js(page, "!document.querySelector('#dbTable').textContent.includes('임시 보고서')")
+        assert page.evaluate("job.id") == main_id  # 남은 보고서 중 가장 최근 것이 열림
+        assert page.locator("#dbTable tbody tr").count() == 1 and "(이름 없음)" not in page.inner_text("#dbTable")
         backup = save_download("#dbExport")
 
         # 예전 버전으로 읽은 언론 글이 있으면 '언론만 다시 수집' 안내
