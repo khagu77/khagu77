@@ -856,6 +856,12 @@ def test_resume(tmp_path: Path):
         with page.expect_download(timeout=60000):
             page.click("#start")
         page.locator("#retryFailed", has_text="실패한 1개 다시 수집").wait_for(timeout=10000)
+        assert page.locator("#progress tbody tr").nth(0).locator("button", has_text="다시 수집").count() == 1  # 실패한 줄마다
+        assert "댓글 수집 실패 1개" in page.inner_text("#failBox") and "youtu.be/abcdefghijk" in page.inner_text("#failList")
+        # 화면을 다시 열어도 실패 목록·다시 수집 버튼이 남아 있음
+        page.reload()
+        page.locator("#retryFailed", has_text="실패한 1개 다시 수집").wait_for(timeout=10000)
+        page.check("#separate")
         yt_down["on"] = False
         with page.expect_download(timeout=60000) as dl:
             page.click("#retryFailed")

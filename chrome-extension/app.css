@@ -176,3 +176,9 @@ select.basesel { min-width: 320px; max-width: 100%; padding: 6px 8px; border: 1p
 .basebox { margin: 10px 0; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; }
 .basebox label { margin-top: 0; }
 .accumbox { margin: 10px 0; padding: 8px 12px; border: 1px solid var(--naver); border-radius: 8px; background: color-mix(in srgb, var(--naver) 8%, transparent); }
+/* 댓글 수집 실패한 글 */
+.failbox { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--red); border-radius: 8px; }
+.failbox b { color: var(--red); }
+button.danger-fill { background: var(--red); border-color: var(--red); color: #fff; }
+.faillist { margin: 6px 0 0; padding-left: 20px; font-size: 13px; }
+.faillist li { margin: 4px 0; word-break: break-all; }

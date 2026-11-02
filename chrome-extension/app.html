@@ -41,11 +41,15 @@
       <button id="start" class="primary">수집 시작</button>
       <button id="stop" disabled>중지</button>
       <button id="download" disabled>엑셀 다시 받기</button>
-      <button id="retryFailed" hidden></button>
     </div>
 
     <div id="saveWhere" class="hint"></div>
     <div id="summary" class="summary"></div>
+    <div id="failBox" class="failbox" hidden>
+      <div class="row"><b id="failTitle"></b><button id="retryFailed" class="primary danger-fill"></button></div>
+      <div class="hint">다시 수집하면 오늘 파일(최종 DB)에 이어 쓰고 이미 들어간 댓글은 뺍니다. 성공한 글은 이 목록에서 빠집니다.</div>
+      <ul id="failList" class="faillist"></ul>
+    </div>
     <div id="diffs" class="diffs" hidden></div>
 
     <table id="progress" hidden>

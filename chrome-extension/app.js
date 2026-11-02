@@ -597,7 +597,7 @@ function downloadWorkbook(bytes, name) {
 // ---------------------------------------------------------------------------
 
 let stopRequested = false;
-let lastFailedUrls = [];
+let failedPosts = []; // 댓글 수집에 실패한 글 [{ url, error, at }] (화면을 다시 열어도 남음: lx3FailedComments)
 let lastWorkbook = null; // { bytes, name }
 let template = null; // 직접 고른 파일 { name, bytes, info }
 let dbBase = null; // 최종 DB 의 댓글 raw data (기본: 가장 최근, '이어서 작성'에서 고른 날짜) { name, bytes, info, date, key }
@@ -740,6 +740,14 @@ function addProgressRow(index, url) {
     },
     done(result) {
       tr.querySelector(".count").textContent = result.error ? "" : String(result.comments.length);
+      // 실패한 줄: 이 글만 다시 수집
+      if (result.error) {
+        const b = document.createElement("button");
+        b.className = "small danger";
+        b.textContent = "다시 수집";
+        b.addEventListener("click", () => retry([result.url]));
+        tr.querySelector(".status").append(" ", b);
+      }
       if (result.title) {
         const t = document.createElement("span");
         t.className = "title";
@@ -937,10 +945,14 @@ async function run(state) {
   }
   hideBusy();
   markRunning(false);
-  // 실패한 글·영상 → 다시 수집 버튼 (다시 수집하면 오늘 파일에 이어 쓰고, 이미 들어간 댓글은 빠짐)
-  lastFailedUrls = stopRequested ? [] : results.filter((r) => r.error).map((r) => r.url);
-  $("#retryFailed").hidden = !lastFailedUrls.length;
-  $("#retryFailed").textContent = `실패한 ${lastFailedUrls.length}개 다시 수집`;
+  // 실패한 글·영상 기억 → 다시 수집 (이번에 성공한 글은 빼고, 이번에 실패한 글은 더함)
+  const tried = new Set(results.map((r) => r.url));
+  failedPosts = [
+    ...failedPosts.filter((f) => !tried.has(f.url)),
+    ...results.filter((r) => r.error).map((r) => ({ url: r.url, error: r.error, at: Date.now() })),
+  ];
+  await chrome.storage.local.set({ lx3FailedComments: failedPosts }).catch(() => {});
+  renderFailBox();
   $("#start").disabled = false;
   $("#stop").disabled = true;
   $("#download").disabled = false;
@@ -986,11 +998,11 @@ document.addEventListener("DOMContentLoaded", () => {
     $("#handoff").textContent = handoff;
   }
   $("#start").addEventListener("click", () => start());
-  $("#retryFailed").addEventListener("click", () => {
-    $("#urls").value = lastFailedUrls.join("\n");
-    $("#retryFailed").hidden = true;
-    start();
-  });
+  $("#retryFailed").addEventListener("click", () => retry(failedPosts.map((f) => f.url)));
+  chrome.storage.local.get("lx3FailedComments").then(({ lx3FailedComments }) => {
+    failedPosts = lx3FailedComments || [];
+    renderFailBox();
+  }).catch(() => {});
   $("#stop").addEventListener("click", () => {
     stopRequested = true;
     $("#stop").disabled = true;
@@ -1056,4 +1068,42 @@ async function showDiffs() {
     if (d) box.append(diffLine(label, d));
   }
   box.hidden = !box.childNodes.length;
+}
+
+// 댓글 수집 실패한 글: 빨간 상자에 목록과 '다시 수집' (화면을 다시 열어도 남음)
+function renderFailBox() {
+  $("#failBox").hidden = !failedPosts.length;
+  $("#failTitle").textContent = `댓글 수집 실패 ${failedPosts.length}개`;
+  $("#retryFailed").textContent = `실패한 ${failedPosts.length}개 다시 수집`;
+  const ul = $("#failList");
+  ul.replaceChildren();
+  for (const f of failedPosts) {
+    const li = document.createElement("li");
+    const a = document.createElement("a");
+    a.href = f.url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.textContent = f.url;
+    const again = document.createElement("button");
+    again.className = "small";
+    again.textContent = "다시 수집";
+    again.addEventListener("click", () => retry([f.url]));
+    const drop = document.createElement("button");
+    drop.className = "small";
+    drop.textContent = "목록에서 빼기";
+    drop.addEventListener("click", async () => {
+      failedPosts = failedPosts.filter((x) => x !== f);
+      await chrome.storage.local.set({ lx3FailedComments: failedPosts }).catch(() => {});
+      renderFailBox();
+    });
+    li.append(a, ` — ${f.error} `, again, " ", drop);
+    ul.append(li);
+  }
+}
+
+// 실패한 글만 다시 수집 (오늘 파일에 이어 쓰고 이미 들어간 댓글은 뺌)
+function retry(urls) {
+  if (!urls.length || $("#start").disabled) return;
+  $("#urls").value = urls.join("\n");
+  start();
 }
