@@ -243,6 +243,10 @@ def test_bluehands(tmp_path: Path):
         page.click("#resume")
         page.locator("#summary", has_text="작성자 확인을 마쳤습니다").wait_for(timeout=300000)
         assert page.locator("#busy").is_hidden() and not page.title().startswith("⏳")
+        # 끝나면 받기 버튼 축하 효과(무지개·커졌다 작아짐·'✔ 완료!') - 받으면 멈춤
+        assert "celebrate" in page.get_attribute("#save", "class")
+        assert page.evaluate("getComputedStyle(document.querySelector('#save'), '::after').content") == '"✔ 완료!"'
+        assert "bh-rainbow" in page.evaluate("getComputedStyle(document.querySelector('#save')).animationName")
         # 이미 끝난 글은 다시 열지 않는다
         assert len([h for h in server.hits if h[1].startswith("/aacafe/101")]) == 1
         # 탭·창을 하나도 띄우지 않는다
@@ -288,11 +292,12 @@ def test_bluehands(tmp_path: Path):
 
         try:
             with page.expect_download(timeout=15000) as dl:
-                page.click("#save")
+                page.click("#save", force=True)  # 축하 효과로 움직이는 중에도 누름
         except Exception:
             raise AssertionError(page.inner_text("#saveInfo"))
         out = tmp_path / dl.value.suggested_filename
         dl.value.save_as(out)
+        assert "celebrate" not in (page.get_attribute("#save", "class") or "")
         today = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y%m%d")
         assert out.name == f"{today}_정비 예약 관련 테스트 보고서.xlsx"
         assert "3개 추가 (연번 6~9), 패스 1개는 넣지 않았습니다, 삭제된 게시물 2개는 넣지 않았습니다" in page.inner_text("#saveInfo")

@@ -1062,9 +1062,46 @@ function guardOff() {
   window.removeEventListener("mousedown", onMouseBack, true);
 }
 
+// ---------------------------------------------------------------------------
+// 끝났을 때: '엑셀 받기' 버튼 축하 효과 + '딩동댕'
+// ---------------------------------------------------------------------------
+
+function celebrate(on = true) {
+  $("#save").classList.toggle("celebrate", on && !$("#save").disabled);
+}
+
+// 딩동댕: 실로폰 같은 세 음(도-미-솔)을 크롬 안에서 바로 만든다(소리 파일 없음)
+function playDingDongDang() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const notes = [523.25, 659.25, 783.99]; // C5 E5 G5
+    notes.forEach((freq, i) => {
+      const t = ctx.currentTime + i * 0.32;
+      const len = i === notes.length - 1 ? 1.4 : 0.6;
+      for (const [mult, vol] of [[1, 0.32], [2, 0.08], [3, 0.04]]) {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq * mult;
+        gain.gain.setValueAtTime(0.0001, t);
+        gain.gain.exponentialRampToValueAtTime(vol, t + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t + len);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + len + 0.05);
+      }
+    });
+    setTimeout(() => ctx.close().catch(() => {}), 2600);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // 남은 글(처음 · 중지 · 오류로 남은 글)부터 확인한다. 남은 글이 없으면 패스한 글을 다시 확인한다.
 async function run() {
   if (running) return;
+  celebrate(false);
   let targets = pendingItems();
   if (!targets.length) targets = items.filter((x) => x.state === "new" && !clean(x.author) && x.status === "pass");
   if (!targets.length) return;
@@ -1138,6 +1175,11 @@ async function run() {
     persist();
   }
   const left = pendingItems().length;
+  // 중지하지 않고 끝까지 마쳤으면: 받기 버튼 축하 효과 + 딩동댕
+  if (!stopRequested) {
+    celebrate();
+    playDingDongDang();
+  }
   setSummary(
     `${stopRequested ? "중지했습니다" : "작성자 확인을 마쳤습니다"} - 확인 ${ok}개 · 패스 ${pass}개` +
       (removed ? ` · 삭제된 게시물 ${removed}개(엑셀에서 뺌)` : "") +
@@ -1394,7 +1436,10 @@ async function init() {
     $("#stop").disabled = true;
     setSummary("중지하는 중… (지금 보는 글까지 마칩니다)");
   });
-  $("#save").addEventListener("click", saveReport);
+  $("#save").addEventListener("click", () => {
+    celebrate(false); // 받으면 효과는 멈춘다
+    saveReport();
+  });
   for (const id of ["dbQuery", "dbFrom", "dbTo"]) $(`#${id}`).addEventListener("input", renderDb);
   $("#dbExport").addEventListener("click", exportDb);
   $("#dbImport").addEventListener("change", (e) => importDb(e.target.files[0]));
