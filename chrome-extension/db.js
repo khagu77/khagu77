@@ -71,6 +71,7 @@ async function render() {
         `<td class="nowrap"></td><td></td><td></td><td class="counts"></td><td class="saved"></td>` +
         `<td class="acts"><button class="small get">받기</button><button class="small up">수정본 올리기</button><button class="small danger del">삭제</button></td>`;
       tr.children[0].textContent = prettyDate(rec.date) + (i === 0 ? " · 최종" : "");
+      tr.dataset.date = rec.date;
       if (i === 0) tr.className = "final";
       tr.children[1].textContent = rec.name;
       tr.children[2].replaceChildren(...summaryNodes(rec.summary));
@@ -114,13 +115,45 @@ async function onPicked(file) {
     const summary = await summarize(kind, bytes);
     const existing = (await dbList(kind)).find((r) => r.date === date);
     if (!pickFor.date && existing && !confirm(`${prettyDate(date)}에 이미 파일(${existing.name})이 있습니다. 이 파일로 바꿀까요?`)) return;
-    await dbSaveDay(kind, date, file.name, bytes, "upload", summary);
-    setInfo(`✔ ${prettyDate(date)} ${DB_KINDS[kind].short}을(를) ${file.name}(으)로 ${pickFor.date ? "바꿨습니다" : "등록했습니다"} (${summary}).`, "ok");
+    // 댓글 raw data: 유튜브 건수는 시트 전체라 올린 파일에서 다시 셈 (다른 채널 건수는 그날 수집한 그대로)
+    const stats = kind === "raw" ? { youtube: await youtubeRowCount(bytes) } : null;
+    await dbSaveDay(kind, date, file.name, bytes, "upload", summary, stats && stats.youtube != null ? stats : null);
+    const msg = `✔ ${prettyDate(date)} ${DB_KINDS[kind].short}을(를) ${file.name}(으)로 ${pickFor.date ? "바꿨습니다" : "등록했습니다"}`;
+    setInfo(`${msg} (${summary.replace(/\n/g, " ")}).`, "ok");
+    pickFor = null;
+    await render();
+    flashRow(kind, date, msg);
+    return;
   } catch (e) {
     setInfo(`파일을 올리지 못했습니다: ${e.message}`, "err");
+    $("#dbInfo").scrollIntoView({ block: "center" });
   }
   pickFor = null;
   render();
+}
+
+// 올린 댓글 raw data 의 유튜브 시트 줄 수 (머리글 빼고)
+async function youtubeRowCount(bytes) {
+  try {
+    const wb = await XlsxTemplate.Workbook.open(bytes);
+    if (!wb.sheetNames().includes("유튜브")) return null;
+    return (await wb.readRows("유튜브")).filter((r) => r.r > 1 && Object.values(r.cells).some((v) => v !== undefined && v !== "")).length;
+  } catch {
+    return null;
+  }
+}
+
+// 방금 올린 줄을 화면 가운데로 가져와 잠깐 강조하고, 파일 이름 아래에 안내
+function flashRow(kind, date, msg) {
+  const tr = [...document.querySelectorAll(`section[data-kind=${kind}] tbody tr`)].find((x) => x.dataset.date === date);
+  if (!tr) return;
+  const note = document.createElement("div");
+  note.className = "hint ok";
+  note.textContent = msg;
+  tr.children[1].append(note);
+  tr.classList.add("flash");
+  tr.scrollIntoView({ block: "center" });
+  setTimeout(() => tr.classList.remove("flash"), 2500);
 }
 
 for (const sec of document.querySelectorAll("section[data-kind]")) {

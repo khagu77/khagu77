@@ -182,3 +182,4 @@ select.basesel { min-width: 320px; max-width: 100%; padding: 6px 8px; border: 1p
 button.danger-fill { background: var(--red); border-color: var(--red); color: #fff; }
 .faillist { margin: 6px 0 0; padding-left: 20px; font-size: 13px; }
 .faillist li { margin: 4px 0; word-break: break-all; }
+.dbtable tr.flash td { background: color-mix(in srgb, var(--naver) 18%, transparent); transition: background 0.4s; }
