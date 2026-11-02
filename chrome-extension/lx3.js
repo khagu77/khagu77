@@ -52,7 +52,8 @@ let dbBase = null; // 최종 DB 의 게시물 리스트 (기본: 가장 최근, 
 // { id, finishedAt, from, to, items(저장 모양), saved(엑셀로 최종 저장함) }
 const MAX_RUNS = 30;
 let runs = [];
-let runId = null; // '이어서 작성'에서 고른 수집 기록 (없으면 새로)
+let runId = null;
+let tableCleared = false; // 결과 표를 비웠음 (이때는 결과 표를 수집 기록에 옮겨 적지 않음) // '이어서 작성'에서 고른 수집 기록 (없으면 새로)
 const curRun = () => runs.find((r) => r.id === runId) || null;
 let baseChoice = ""; // '이어서 작성' 선택: "" = 최종 DB 가장 최근 · "db:<key>" = 그 날짜 · "file" = 직접 고른 엑셀
 
@@ -398,6 +399,7 @@ async function onRunSelect() {
   const r = curRun();
   if (r) {
     items = r.items.map((x) => ({ ...x, date: x.date ? new Date(x.date) : null, saved: false }));
+    tableCleared = false;
     lastRange = { from: toLocalInput(new Date(r.from)), to: toLocalInput(new Date(r.to)) };
     markDuplicates();
     renderResults();
@@ -608,11 +610,13 @@ async function search(resume = null) {
   // '이어서 작성'에서 수집 기록을 골랐으면 결과 표(그 기록)를 비우지 않고 이어 붙인다. 아니면 새로 (직접 넣은 유튜브 새 콘텐츠만 남김)
   const base = resume ? runs.find((r) => r.id === resume.runId) || null : curRun();
   const cont = !resume && !!base;
+  // 이어서 찾기: 결과 표를 비웠어도 고른 수집 기록의 글로 시작 (기록에는 결과 표에서 고친 것이 반영돼 있음)
   items = resume
     ? resume.items.map((x) => ({ ...x, date: x.date ? new Date(x.date) : null }))
     : cont
-      ? items.filter((x) => !x.saved)
+      ? (tableCleared ? base.items : items.filter((x) => !x.saved)).map((x) => ({ ...x, date: x.date ? new Date(x.date) : null, saved: false }))
       : items.filter((x) => x.channel === "유튜브" && !x.saved);
+  tableCleared = false;
   renderResults();
   const maxPages = Math.max(1, Number($("#maxPages").value) || DEFAULT_MAX_PAGES);
   const newsPages = Math.max(1, Number($("#newsPages").value) || DEFAULT_NEWS_PAGES);
@@ -962,7 +966,7 @@ function whereText({ ids = [], queries = [], boards = [] }) {
 // 결과 표(삭제 반영)를 저장해 두어 화면을 다시 열어도 그대로 보이게
 function saveLast() {
   const r = curRun();
-  if (r && !running) {
+  if (r && !running && !tableCleared) {
     r.items = items.map(serializeItem); // 결과 표에서 고친 것(지우기·체크)은 고른 수집 기록에도
     saveRuns();
   }
@@ -1040,6 +1044,10 @@ function updateCounts() {
   $("#saveList").disabled = !n || running;
   $("#selDelete").disabled = !n || running;
   $("#selDelete").textContent = n ? `선택 삭제 (${n}개)` : "선택 삭제";
+  const un = items.length - n;
+  $("#invertDelete").disabled = !un || running;
+  $("#invertDelete").textContent = un ? `선택 반전 삭제 (${un}개)` : "선택 반전 삭제";
+  $("#clearResults").disabled = !items.length || running;
   $("#toComments").disabled = (!n && !($("#withYoutube").checked && youtube.length)) || running;
   $("#checkAll").checked = !!items.length && n === items.length;
 }
@@ -1425,12 +1433,35 @@ async function restoreLast() {
   // 엑셀로 최종 저장하지 않은 가장 최근 기록이 지금 결과 표면 미리 골라 둔다 (휴일에 찾아 둔 것에 이어서)
   const last = [...runs].sort((a, b) => b.finishedAt - a.finishedAt)[0];
   if (last && !last.saved && !items.some((x) => x.saved)) runId = last.id;
+  // 날짜가 바뀌었으면 지난 결과 표는 비운다 (찾아 둔 결과는 '이어서 작성'의 수집 기록에 그대로 있음)
+  if (ymd(new Date(lx3Last.at)) !== ymd(new Date())) {
+    items = [];
+    tableCleared = true;
+    renderRunSelect();
+    renderResults();
+    setSummary(
+      `날짜가 바뀌어 지난 결과 표(${new Date(lx3Last.at).toLocaleString()} 찾음)를 비웠습니다.` +
+        (curRun() ? " 엑셀로 저장하지 않은 수집 기록은 '이어서 작성'에 골라 두었으니, 찾기를 누르면 그 뒤에 이어 붙습니다." : ""),
+    );
+    return;
+  }
   renderRunSelect();
   markDuplicates();
   renderResults();
   setSummary(
     `지난번에 찾은 결과입니다 (${lx3Last.from.replace("T", " ")} ~ ${lx3Last.to.replace("T", " ")}, ${new Date(lx3Last.at).toLocaleString()} 찾음). 새로 찾으려면 '게시물 찾기'를 누르세요.`,
   );
+}
+
+// '결과 비우기': 결과 표만 비움 (수집 기록·최종 DB 는 그대로)
+async function clearResults() {
+  if (running || !items.length) return;
+  if (!confirm(`결과 표의 글 ${items.length}개를 비울까요? (수집 기록과 최종 DB 파일은 그대로 남습니다)`)) return;
+  items = [];
+  tableCleared = true;
+  renderResults();
+  await chrome.storage.local.set({ lx3Last: { at: Date.now(), from: $("#from").value, to: $("#to").value, items: [] } }).catch(() => {});
+  setSummary("결과 표를 비웠습니다. 새로 찾으려면 '게시물 찾기'를 누르세요.");
 }
 
 async function init() {
@@ -1514,6 +1545,15 @@ async function init() {
   $("#selAll").addEventListener("click", () => setChecks(() => true));
   $("#selNone").addEventListener("click", () => setChecks(() => false));
   $("#selInvert").addEventListener("click", () => setChecks((x) => !x.checked));
+  // '선택 반전 삭제': 체크하지 않은 글을 모두 지워 체크한 글만 남김
+  $("#invertDelete").addEventListener("click", async () => {
+    const n = items.filter((x) => !x.checked).length;
+    if (!n || !confirm(`체크하지 않은 글 ${n}개를 목록에서 삭제할까요? (체크한 글 ${items.length - n}개만 남습니다)`)) return;
+    items = items.filter((x) => x.checked);
+    renderResults();
+    await saveLast();
+  });
+  $("#clearResults").addEventListener("click", clearResults);
   $("#selDelete").addEventListener("click", async () => {
     const n = items.filter((x) => x.checked).length;
     if (!n || !confirm(`체크한 게시물 ${n}개를 목록에서 삭제할까요?`)) return;

@@ -1480,9 +1480,11 @@ def test_lx3_accumulate(tmp_path: Path):
         find("2026-10-30T11:30", "2026-10-31T11:30")
         assert titles() == ["팰리세이드 시트 토요일 글"]
         assert "수집 기록:" in sel_text() and "2026-10-30 11:30~2026-10-31 11:30 · 1건" in sel_text(), sel_text()
-        # 일요일: 화면을 다시 열면 그 기록이 미리 골라져 있고, 시작은 토요일 찾기 끝부터
+        # 일요일: 날짜가 바뀌어 다시 열면 결과 표는 비지만, 토요일 기록이 미리 골라져 있고 시작은 토요일 찾기 끝부터
+        page.evaluate("chrome.storage.local.get('lx3Last').then(({ lx3Last }) => chrome.storage.local.set({ lx3Last: { ...lx3Last, at: Date.now() - 86400000 } }))")
         page.reload()
         page.evaluate("lx3Init")
+        assert rows.count() == 0 and "날짜가 바뀌어" in page.inner_text("#summary")
         assert "1건" in sel_text() and "기존 1건 뒤에 이어서 작성합니다" in page.inner_text("#runInfo")
         assert page.input_value("#from") == "2026-10-31T11:30"
         find("2026-10-31T11:30", "2026-11-01T23:00")
@@ -1516,6 +1518,22 @@ def test_lx3_accumulate(tmp_path: Path):
         page.evaluate("lx3Init")
         find("2026-11-02T11:30", "2026-11-03T11:30")
         assert rows.count() == 0
+
+        # '선택 반전 삭제': 체크하지 않은 글을 지워 체크한 글만 남김 / '결과 비우기' / 날짜가 바뀌면 지난 결과 표를 비움
+        put = """() => { items = [1, 2, 3].map((n) => ({ key: 'k' + n, channel: '자동차 커뮤니티', media: '클리앙', url: 'https://www.clien.net/service/board/cm_car/80' + n,
+          title: '글 ' + n, text: '', date: new Date(2026, 10, 2, 9, n), hasTime: true, checked: n !== 2, related: true, note: '', dup: false }));
+          renderResults(); return saveLast(); }"""
+        page.evaluate(put)
+        assert page.inner_text("#invertDelete") == "선택 반전 삭제 (1개)"
+        page.click("#invertDelete")
+        assert titles() == ["글 1", "글 3"]
+        page.click("#clearResults")
+        assert rows.count() == 0 and page.is_hidden("#resultBox")
+        page.evaluate(put)
+        page.evaluate("chrome.storage.local.get('lx3Last').then(({ lx3Last }) => chrome.storage.local.set({ lx3Last: { ...lx3Last, at: Date.now() - 86400000 } }))")
+        page.reload()
+        page.evaluate("lx3Init")
+        assert rows.count() == 0 and "날짜가 바뀌어 지난 결과 표" in page.inner_text("#summary")
         ctx.close()
 
 
