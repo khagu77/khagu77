@@ -498,6 +498,12 @@ function isSafetyRow(r) {
   return SAFETY_RE.test(`${r.title || ""}\n${r.excerpt || ""}\n${r.summary || ""}`);
 }
 
+// 신차 이미지 유출 글 → 결과 표에서 민트색 (담당자 지정 2026-11-03, 보고 필요 대상 아님)
+function isLeakRow(r) {
+  if (typeof r.leak === "boolean") return r.leak;
+  return LEAK_RE.test(`${r.title || ""}\n${r.summary || ""}`);
+}
+
 function renderResults() {
   const tbody = $("#results tbody");
   tbody.textContent = "";
@@ -508,7 +514,7 @@ function renderResults() {
     const sum = el("input", { type: "text", value: r.summary, title: r.summary, oninput: (e) => (r.summary = e.target.value, e.target.title = e.target.value, saveLastResult(), learnRow(r)) });
     const tr = el(
       "tr",
-      { class: `${r.highlight ? "yellow" : ""} ${isSafetyRow(r) ? "safety" : ""} ${r.report ? "report" : ""} ${r.selected ? "selected" : ""}`, title: isSafetyRow(r) ? "안전사고 우려 글 (연보라색)" : "" },
+      { class: `${r.highlight ? "yellow" : ""} ${isSafetyRow(r) ? "safety" : ""} ${isLeakRow(r) ? "leak" : ""} ${r.report ? "report" : ""} ${r.selected ? "selected" : ""}`, title: isLeakRow(r) ? "신차 이미지 유출 글 (민트색 · 보고 필요 대상 아님)" : isSafetyRow(r) ? "안전사고 우려 글 (연보라색)" : "" },
       el(
         "td",
         { class: "sel" },
@@ -1811,7 +1817,7 @@ async function processSource(src, posts, readBody, ctx) {
       let row;
       if (j) {
         if (!j.relevant) continue;
-        row = { car: j.car_code || (it.needCar ? "" : firstHint(it.carHint)) || "-", category: j.category, summary: j.summary, highlight: !!j.highlight, harsh: !!j.harsh, safety: !!j.safety, year: j.model_year || findModelYear(`${it.title}\n${it.body}\n${it.comments || ""}`) };
+        row = { car: j.car_code || (it.needCar ? "" : firstHint(it.carHint)) || "-", category: j.category, summary: j.summary, highlight: !!j.highlight, harsh: !!j.harsh, safety: !!j.safety, leak: !!j.leak, year: j.model_year || findModelYear(`${it.title}\n${it.body}\n${it.comments || ""}`) };
       } else {
         const text = `${it.title}\n${it.body}`;
         const cat = keywordCategory(text);
@@ -1884,7 +1890,7 @@ async function pickReports(cafeRows, ai, settings) {
     picked = keywordReportPick(cafeRows, settings.priorityCars);
   }
   cafeRows.forEach((r) => (r.report = false));
-  picked.forEach((i) => (cafeRows[i].report = true));
+  picked.forEach((i) => (cafeRows[i].report = !isLeakRow(cafeRows[i]))); // 신차 이미지 유출은 보고 필요 아님
   cafeRows.forEach((r) => (r.aiReport = !!r.report)); // 자동 학습용: AI 가 고른 보고 필요
   log(`보고 필요 ${picked.size}건 선정`);
   return picked.size;

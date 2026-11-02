@@ -210,6 +210,8 @@ function isAttendancePost(text) {
 }
 
 // AI 없이 '보고 필요' 고르기: 신차 + 심각한 증상 점수, 단순 정보 공유·문의는 제외 → 행 번호 Set (최대 5개)
+// 신차 이미지 유출 글 (액체 유출 '냉각수·오일 유출'과 구분: 이미지·사진·광고 촬영 등과 함께 쓰인 '유출')
+const LEAK_RE = /(이미지|사진|실물|실내|외관|디자인|렌더링|카탈로그|광고)\s*(이|가|컷)?\s*유출|유출\s*(된|됐|되었|사진|이미지|샷|컷)|광고\s*촬영\s*(중|현장)/;
 const SEVERE_RE = /시동\s?꺼짐|시동 불가|가속 불가|출력 제한|브레이크|제동|조향|화재|연기|과열|ICCU|고전압|배터리 (이상|불량)|연료\s?전지|누수|도어 열림|에어백|안전벨트|급발진|견인|결품|재발/;
 function keywordReportPick(rows, priorityCars) {
   const pri = String(priorityCars || "").split(",").map((x) => x.trim()).filter(Boolean);
@@ -217,6 +219,7 @@ function keywordReportPick(rows, priorityCars) {
     .map((r, i) => {
       const text = `${r.summary} ${r.title || ""} ${r.excerpt || ""}`;
       if (/정보 공유|정보 문의|공유$|의견$/.test(r.summary)) return null;
+      if (r.leak || LEAK_RE.test(text)) return null; // 신차 이미지 유출은 보고 필요 대상 아님 (담당자 지정 2026-11-03)
       if (/각종 경고등|운전자 보조|전방 (충돌|안전)|ADAS|경고등 일시|일시적 (점등|경고)/.test(r.summary)) return null;
       let score = (text.match(new RegExp(SEVERE_RE.source, "g")) || []).length * 2;
       if (r.harsh || /[시씨]발|ㅅㅂ|개같|좆|미친|빡치|열받|최악|쓰레기|사기/.test(text)) score += 2;

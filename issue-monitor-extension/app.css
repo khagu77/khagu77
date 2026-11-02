@@ -113,6 +113,9 @@ table.edit td:first-child { width: 40px; text-align: center; }
 /* 안전사고 우려 글: 연보라색 (담당자 요청 2026-10-24) — 노란색 항목이기도 하면 노란색이 먼저 */
 #results tr.safety:not(.yellow) td.sum input { background: #e4d7fb; color: #111; }
 #results tr.safety td.comm { box-shadow: inset 4px 0 0 #9b7fd4; }
+/* 신차 이미지 유출 글: 민트색 (담당자 지정 2026-11-03, 보고 필요 대상 아님) */
+#results tr.leak:not(.yellow) td.sum input { background: #c9f2e4; color: #111; }
+#results tr.leak td.comm { box-shadow: inset 4px 0 0 #1aa57a; }
 #sources td.err, .err { color: var(--red); }
 pre#log { white-space: pre-wrap; font-size: 12px; max-height: 360px; overflow: auto; background: var(--bg); padding: 10px; border-radius: 8px; }
 textarea#carCodes { font-size: 12px; }
@@ -229,6 +232,7 @@ button.btn-sys { background: transparent; color: var(--muted); border: 1px dashe
 #results tbody tr.selected td input[type="text"], #results tbody tr.selected td select { background: #fff1f2; border-color: #ef4444; }
 #results tbody tr.selected.yellow td.sum input { background: #fde047; }
 #results tbody tr.selected.safety:not(.yellow) td.sum input { background: #d3bff7; }
+#results tbody tr.selected.leak:not(.yellow) td.sum input { background: #a8e8d2; }
 @media (prefers-color-scheme: dark) {
   #results tbody tr:hover td { background: #1e40af; }
   #results tbody tr.selected td { background: #991b1b; color: #fff; }
