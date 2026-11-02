@@ -73,7 +73,14 @@
           <label class="inline">시작 시각 <input type="time" id="autoTime" value="11:30"></label>
           <span class="hint">주말·공휴일·추가 휴일엔 쉬고, 다음 근무일에 지난번 저장 이후(휴일·못 돌린 날 포함)를 이어서 모읍니다. 그 시각에 PC가 꺼져 있었으면 그날 크롬을 켤 때(오후 8시 전) 시작합니다.</span>
         </div>
-        <label for="saveFolder">엑셀 저장 위치 <span class="hint">(이 화면과 댓글 수집 화면에서 받는 엑셀 모두)</span></label>
+        <label>저장 폴더 <span class="hint">(게시물·댓글 엑셀을 받을 폴더 · 폴더 선택 창에서 고르면 그 폴더에 바로 저장 · 고르지 않으면 크롬 다운로드 폴더)</span></label>
+        <div class="row">
+          <button id="saveDirPick" class="small">📁 저장 폴더 고르기</button>
+          <button id="saveDirClear" class="small" hidden>기본(다운로드 폴더)으로</button>
+          <span id="saveDirName" class="hint"></span>
+        </div>
+        <label class="inline"><input type="checkbox" id="soundOn" checked> 끝나면 알림음 (게시물 찾기·엑셀 만들기·댓글 수집)</label>
+        <label for="saveFolder">다운로드 폴더 안 하위 폴더 <span class="hint">(저장 폴더를 고르지 않았을 때 · 이 화면과 댓글 수집 화면 모두)</span></label>
         <div class="row"><span class="hint">크롬 다운로드 폴더 /</span><input type="text" id="saveFolder" class="full" spellcheck="false" placeholder="비우면 다운로드 폴더에 바로 저장 (예: 팰리세이드 모니터링/일일보고)"></div>
         <label class="inline"><input type="checkbox" id="saveAsk"> 받을 때마다 저장 위치 묻기 (원하는 폴더를 직접 고름 · 크롬이 마지막 폴더를 기억)</label>
         <label for="cafeList">동호회 목록 <span class="hint">(한 줄에 하나, 이 순서대로 엑셀에 씁니다)</span></label>
@@ -128,7 +135,8 @@
       <div id="resultCount" class="hint"></div>
 
       <div class="buttons">
-        <button id="saveList" class="primary" disabled>엑셀 받기</button>
+        <button id="saveList" class="primary" disabled>엑셀 만들기 (최종 DB 저장)</button>
+        <button id="getList" class="getbtn" disabled>📥 게시물 엑셀 받기</button>
         <button id="toComments" disabled>체크한 글 댓글 수집하기 →</button>
         <label class="inline"><input type="checkbox" id="withYoutube" checked> 아래 유튜브 목록도 함께</label>
       </div>

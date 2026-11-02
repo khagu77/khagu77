@@ -126,6 +126,7 @@ function showBaseInfo() {
 let cafeSlugs = {};
 let cafeNames = {};
 let lastSaved = null;
+let pendingList = null; // 만들어 둔 게시물 엑셀 { bytes, name } ('📥 게시물 엑셀 받기'로 받음)
 let lastFailed = { ids: [], queries: [], boards: [] }; // 지난 찾기에서 못 읽은 동호회·언론 검색어·커뮤니티 게시판 (다시 찾기용)
 let lastKw = {}; // 지난 찾기의 언론·커뮤니티 키워드
 let lastSearchAt = 0;
@@ -935,6 +936,7 @@ async function search(resume = null) {
   running = false;
   markRunning(false);
   hideBusy();
+  if (!stopRequested) playChime();
   // 못 읽은 곳(동호회·언론 검색어·커뮤니티 게시판) · 시간 확인 못 한 글 → 다시 찾기 버튼
   lastFailed = stopRequested ? { ids: [], queries: [], boards: [] } : failed;
   const unchecked = items.filter((x) => x.ambiguous && !(x.channel === "언론" && !x.naverUrl)).length;
@@ -1022,7 +1024,7 @@ function renderResults() {
     if (isCafeItem(item) && !(cafeSlugs[item.cafeId] || item.slug)) notes.push("영문 카페 주소 모름(설정에서 입력)");
     if (item.channel === "언론" && !item.naverUrl) notes.push("언론사 사이트 기사(네이버 댓글 없음)");
     tr.children[5].textContent = notes.join(" · ");
-    tr.querySelector(".del").addEventListener("click", () => {
+    tr.querySelector("button.del").addEventListener("click", () => {
       items = items.filter((x) => x !== item);
       renderResults();
       saveLast();
@@ -1184,6 +1186,7 @@ async function saveList({ auto = false } = {}) {
       return;
     }
   }
+  readyButton($("#getList"), false);
   $("#saveInfo").className = "hint";
   $("#saveInfo").textContent = "엑셀 만드는 중…";
   $("#diffs").hidden = true;
@@ -1191,7 +1194,8 @@ async function saveList({ auto = false } = {}) {
     const out = await buildList(selected);
     const base = baseFile();
     const name = datedFileName(base ? base.name : rememberedListName());
-    await downloadBytes(out.bytes, name);
+    // 바로 받지 않고 '📥 게시물 엑셀 받기'를 누르면 받음 (버튼이 반짝이고 알림음)
+    pendingList = { bytes: out.bytes, name };
     lastSaved = selected;
     if (!separateFile()) {
       // 최종 저장: 고른(이어 쓴) 수집 기록은 '엑셀 저장함'으로, 다음 찾기는 새로 시작
@@ -1226,7 +1230,9 @@ async function saveList({ auto = false } = {}) {
       updateAutoInfo();
     }
     $("#saveInfo").className = "hint ok";
-    $("#saveInfo").textContent = `✔ ${saveWhereText(await saveOptions())}에 ${name} - ${selected.length}개 추가 (순번 ${out.from}~${out.to})${dbNote}. '체크한 글 댓글 수집하기'로 바로 댓글을 모을 수 있습니다.`;
+    $("#saveInfo").textContent = `✔ ${name} - ${selected.length}개 추가 (순번 ${out.from}~${out.to})${dbNote}. '📥 게시물 엑셀 받기'를 눌러 받으세요. 그다음 '체크한 글 댓글 수집하기'로 댓글을 모으세요.`;
+    readyButton($("#getList"), true);
+    playChime();
     const noSlug = selected.filter((x) => isCafeItem(x) && !(cafeSlugs[x.cafeId] || x.slug));
     if (noSlug.length) {
       $("#saveInfo").className = "hint err";
@@ -1525,6 +1531,14 @@ async function init() {
   });
   $("#listFile").addEventListener("change", (e) => loadListFile(e.target.files[0]));
   $("#saveList").addEventListener("click", () => saveList());
+  $("#getList").addEventListener("click", async () => {
+    if (!pendingList) return;
+    readyButton($("#getList"), false);
+    const where = await saveFile(pendingList.bytes, pendingList.name);
+    $("#saveInfo").className = "hint ok";
+    $("#saveInfo").textContent = `✔ ${where} 저장했습니다. '체크한 글 댓글 수집하기'로 댓글을 모으세요.`;
+  });
+  setupSaveSettings();
   $("#toComments").addEventListener("click", () => toComments()); // 클릭 정보가 '자동 수집' 자리에 들어가지 않게
   $("#withYoutube").addEventListener("change", updateCounts);
   $("#ytAdd").addEventListener("click", addYoutube);
@@ -1580,13 +1594,13 @@ async function showDiffs() {
   box.hidden = !d;
   box.replaceChildren();
   if (d) box.append(diffLine("오늘 게시물", d));
-  // 채널을 둘 이상 찾았으면 채널별로도 (하나뿐이면 합계와 같으므로 생략)
+  // 합계 아래에 채널별로도
   const lines = [];
   for (const [field, label] of [["news", "언론"], ["youtube", "유튜브"], ["cafe", "동호회"], ["community", "자동차 커뮤니티"]]) {
     const c = await dbStatDiff("buzz", today(), field).catch(() => null);
     if (c && d) lines.push(diffLine(label, c));
   }
-  if (lines.length > 1) box.append(...lines);
+  box.append(...lines);
 }
 
 // 위쪽 '⚙ 설정' 버튼(lx3.html#settings): 설정을 펼치고 그 위치로

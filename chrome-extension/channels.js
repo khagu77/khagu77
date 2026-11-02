@@ -966,3 +966,118 @@ const AUTO_MODE = new URLSearchParams(location.search).has("auto");
 window.addEventListener("beforeunload", (e) => {
   if (!navigator.userActivation?.hasBeenActive) e.stopImmediatePropagation();
 });
+
+// ---------------------------------------------------------------------------
+// 받기 버튼 완료 효과 · 알림음 · 저장 폴더 (폴더 선택 창으로 고른 폴더에 바로 저장)
+// ---------------------------------------------------------------------------
+
+// 파일이 준비되면 받기 버튼을 반짝이게 (누르면 멈춤)
+function readyButton(btn, on) {
+  if (!btn) return;
+  btn.classList.toggle("ready", !!on);
+  if (on) btn.disabled = false;
+}
+
+// 완료 알림음 '딩동댕' (설정에서 끌 수 있음)
+async function playChime() {
+  const { lx3Sound } = await chrome.storage.local.get("lx3Sound").catch(() => ({}));
+  if (lx3Sound === false) return;
+  try {
+    const ac = new AudioContext();
+    const t0 = ac.currentTime + 0.05;
+    [784, 988, 1319].forEach((f, i) => {
+      const o = ac.createOscillator();
+      const g = ac.createGain();
+      o.type = "sine";
+      o.frequency.value = f;
+      const t = t0 + i * 0.22;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.35, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+      o.connect(g).connect(ac.destination);
+      o.start(t);
+      o.stop(t + 0.65);
+    });
+    setTimeout(() => ac.close(), 1500);
+  } catch {
+    /* 소리를 못 내도 넘어감 */
+  }
+}
+
+// 저장 폴더: 폴더 선택 창으로 고른 폴더 (IndexedDB 에 보관, 크롬을 다시 켜면 처음 저장 때 허락을 한 번 물을 수 있음)
+async function getSaveDir() {
+  const rec = await dbTx("readonly", (s) => s.get("setting:saveDir")).catch(() => null);
+  return rec?.handle || null;
+}
+
+async function pickSaveDir() {
+  const handle = await window.showDirectoryPicker({ id: "lx3-save", mode: "readwrite" });
+  await dbTx("readwrite", (s) => s.put({ key: "setting:saveDir", kind: "setting", handle }));
+  return handle;
+}
+
+async function clearSaveDir() {
+  await dbTx("readwrite", (s) => s.delete("setting:saveDir")).catch(() => {});
+}
+
+// 고른 폴더가 있으면 그 폴더에 바로 저장(같은 이름이 있으면 이름 뒤에 (1)…), 없거나 허락을 못 받으면 다운로드로
+// → 저장한 곳 설명 글자
+async function saveFile(bytes, name) {
+  const dir = await getSaveDir();
+  if (dir) {
+    try {
+      let perm = await dir.queryPermission({ mode: "readwrite" });
+      if (perm !== "granted") perm = await dir.requestPermission({ mode: "readwrite" });
+      if (perm === "granted") {
+        let target = name;
+        for (let i = 1; i < 100; i++) {
+          try {
+            await dir.getFileHandle(target);
+            target = name.replace(/(\.xlsx)?$/i, ` (${i})$1`);
+          } catch {
+            break; // 없는 이름
+          }
+        }
+        const fh = await dir.getFileHandle(target, { create: true });
+        const w = await fh.createWritable();
+        await w.write(bytes);
+        await w.close();
+        return `'${dir.name}' 폴더에 ${target}`;
+      }
+    } catch {
+      /* 아래 다운로드로 */
+    }
+  }
+  await downloadBytes(bytes, name);
+  return `${saveWhereText(await saveOptions())}에 ${name}`;
+}
+
+// 설정 칸: [📁 저장 폴더 고르기] [기본(다운로드)으로] · 지금 폴더 · 완료 알림음
+async function setupSaveSettings() {
+  const show = async () => {
+    const dir = await getSaveDir();
+    $("#saveDirName").textContent = dir ? `📁 ${dir.name} (고른 폴더에 바로 저장)` : "고른 폴더 없음 → 크롬 다운로드 폴더에 저장";
+    $("#saveDirClear").hidden = !dir;
+  };
+  $("#saveDirPick")?.addEventListener("click", async () => {
+    try {
+      await pickSaveDir();
+    } catch {
+      /* 취소 */
+    }
+    show();
+  });
+  $("#saveDirClear")?.addEventListener("click", async () => {
+    await clearSaveDir();
+    show();
+  });
+  const { lx3Sound } = await chrome.storage.local.get("lx3Sound").catch(() => ({}));
+  if ($("#soundOn")) {
+    $("#soundOn").checked = lx3Sound !== false;
+    $("#soundOn").addEventListener("change", () => {
+      chrome.storage.local.set({ lx3Sound: $("#soundOn").checked }).catch(() => {});
+      if ($("#soundOn").checked) playChime();
+    });
+  }
+  if ($("#saveDirName")) show();
+}

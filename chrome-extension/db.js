@@ -38,10 +38,8 @@ function fillCounts(td, kind, rows, i) {
     kind === "buzz"
       ? [["posts", "게시물"], ["news", "언론"], ["youtube", "유튜브"], ["cafe", "동호회"], ["community", "자동차 커뮤니티"]]
       : [["news", "언론"], ["youtube", "유튜브"], ["comments", "동호회"], ["community", "자동차 커뮤니티"]];
-  // 게시물: 채널을 둘 이상 기록한 날만 채널별 줄도 (하나뿐이면 합계와 같음)
-  const channels = kind === "buzz" ? ["news", "youtube", "cafe", "community"].filter((f) => rows[i].stats?.[f] != null).length : 0;
+  // 게시물: 합계 아래에 그날 기록된 채널별 줄을 늘 보여 줌 (채널별 기록이 없는 예전 날짜는 합계만)
   for (const [field, label] of fields) {
-    if (kind === "buzz" && field !== "posts" && channels < 2) continue;
     const v = rows[i].stats?.[field];
     if (v === undefined || v === null) continue;
     const prev = rows.slice(i + 1).find((r) => r.stats?.[field] !== undefined && r.stats?.[field] !== null);
@@ -83,13 +81,14 @@ async function render() {
       tr.children[4].textContent =
         `${prettyDate(`${at.getFullYear()}${pad(at.getMonth() + 1)}${pad(at.getDate())}`)}\n` +
         `${h < 12 ? "오전" : "오후"} ${h % 12 || 12}:${pad(at.getMinutes())}\n${rec.source === "upload" ? "직접 올림" : "자동 저장"}`;
-      tr.querySelector(".get").addEventListener("click", () => downloadBytes(rec.bytes, rec.name));
-      tr.querySelector(".up").addEventListener("click", () => {
+      // 버튼만 고른다 (전일 대비 ▲ 표시도 'up' 이름을 써서 '.up' 만 쓰면 그 표시에 붙어 버튼이 안 눌렸음)
+      tr.querySelector("button.get").addEventListener("click", () => downloadBytes(rec.bytes, rec.name));
+      tr.querySelector("button.up").addEventListener("click", () => {
         pickFor = { kind, date: rec.date };
         $("#picker").value = "";
         $("#picker").click();
       });
-      tr.querySelector(".del").addEventListener("click", async () => {
+      tr.querySelector("button.del").addEventListener("click", async () => {
         if (!confirm(`${prettyDate(rec.date)} ${DB_KINDS[kind].short} 파일(${rec.name})을 최종 DB에서 지울까요?`)) return;
         await dbDelete(rec.key);
         setInfo(`${prettyDate(rec.date)} 파일을 지웠습니다.`);

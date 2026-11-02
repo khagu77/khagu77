@@ -183,3 +183,24 @@ button.danger-fill { background: var(--red); border-color: var(--red); color: #f
 .faillist { margin: 6px 0 0; padding-left: 20px; font-size: 13px; }
 .faillist li { margin: 4px 0; word-break: break-all; }
 .dbtable tr.flash td { background: color-mix(in srgb, var(--naver) 18%, transparent); transition: background 0.4s; }
+
+/* 받기 버튼: 파일이 준비되면 무지개빛으로 반짝이며 커졌다 작아지고 '✔ 완료!' 표시 (누르면 멈춤) */
+button.getbtn { font-weight: 700; }
+button.getbtn.ready {
+  position: relative; color: #fff; font-size: 16px; font-weight: 800; padding: 11px 22px; border: none;
+  background: linear-gradient(90deg, #ff3d77, #ff9a00, #ffd400, #00c853, #00b0ff, #7b3fe4, #ff3d77);
+  background-size: 300% 100%; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  animation: getbtn-rainbow 1.6s linear infinite, getbtn-pop 0.9s ease-in-out infinite;
+}
+button.getbtn.ready::after {
+  content: "✔ 완료!"; position: absolute; top: -13px; right: -16px; padding: 2px 8px; border-radius: 999px;
+  background: #e11d48; color: #fff; font-size: 11px; font-weight: 800; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  animation: getbtn-badge 0.5s ease-in-out infinite alternate;
+}
+@keyframes getbtn-rainbow { to { background-position: 300% 0; } }
+@keyframes getbtn-pop {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 140, 0, 0.6); }
+  50% { transform: scale(1.12); box-shadow: 0 0 24px 10px rgba(255, 120, 0, 0.55); }
+}
+@keyframes getbtn-badge { from { transform: translateY(0) rotate(-6deg); } to { transform: translateY(-4px) rotate(6deg); } }
+.savebox { margin: 8px 0; }

@@ -874,6 +874,7 @@ async function run(state) {
   const { urls } = state;
   stopRequested = false;
   markRunning(true);
+  readyButton($("#download"), false); // 새로 수집하는 동안은 받기 효과를 끔
   $("#start").disabled = true;
   $("#stop").disabled = false;
   $("#download").disabled = true;
@@ -913,8 +914,8 @@ async function run(state) {
     const merge = !!base && (base.date || (String(base.name).match(/^(\d{8})/) || [])[1]) === today();
     const out = await buildOutput(results, base, { merge });
     const name = outputFileName(base ? base.name : rememberedName());
+    // 바로 받지 않고 '📥 댓글 엑셀 받기'를 누르면 받음 (버튼이 반짝이고 알림음)
     lastWorkbook = { bytes: out.bytes, name };
-    await downloadWorkbook(out.bytes, name);
     let dbNote = "";
     if (!separateFile()) {
       // 오늘의 최종 파일로 최종 DB 에 저장하고, 다음 수집은 이 파일에 이어 쓴다
@@ -954,7 +955,7 @@ async function run(state) {
     if (rows.keptOld.length) parts.push(`수집 실패한 유튜브 영상 ${rows.keptOld.length}개는 기존 댓글 유지`);
     $("#summary").textContent =
       `${stopRequested ? "중지됨 - " : ""}${parts.join(", ")}` +
-      `${failed ? ` (실패 ${failed}건)` : ""} · ${name} 파일이 다운로드 폴더에 저장되었습니다${dbNote}.`;
+      `${failed ? ` (실패 ${failed}건)` : ""} · ${name} 준비 완료${dbNote}. '📥 댓글 엑셀 받기'를 눌러 받으세요.`;
     await clearResume("comments");
   } catch (e) {
     $("#summary").textContent = `엑셀 저장 실패: ${e.message}`;
@@ -971,7 +972,9 @@ async function run(state) {
   renderFailBox();
   $("#start").disabled = false;
   $("#stop").disabled = true;
-  $("#download").disabled = false;
+  $("#download").disabled = !lastWorkbook;
+  if (lastWorkbook && !stopRequested) readyButton($("#download"), true);
+  playChime();
   if (AUTO_MODE) {
     const failedN = results.filter((r) => r.error).length;
     autoDone(!stopRequested && !failedN, `${await autoPostsText()} · ${$("#summary").textContent}${failedN ? " · 실패한 글은 화면의 '다시 수집'으로" : ""}`);
@@ -1024,7 +1027,13 @@ document.addEventListener("DOMContentLoaded", () => {
     $("#stop").disabled = true;
     $("#summary").textContent = "중지하는 중… (현재 글까지 저장합니다)";
   });
-  $("#download").addEventListener("click", () => lastWorkbook && downloadWorkbook(lastWorkbook.bytes, lastWorkbook.name));
+  $("#download").addEventListener("click", async () => {
+    if (!lastWorkbook) return;
+    readyButton($("#download"), false);
+    const where = await saveFile(lastWorkbook.bytes, lastWorkbook.name);
+    $("#saveWhere").textContent = `✔ ${where} 저장했습니다.`;
+  });
+  setupSaveSettings();
   $("#templateFile").addEventListener("change", (e) => loadTemplate(e.target.files[0]));
   loadDbBase()
     .then(() => loadTemplate(null))
@@ -1035,7 +1044,9 @@ document.addEventListener("DOMContentLoaded", () => {
     $("#templateFile").value = "";
     loadTemplate(null);
   });
-  saveOptions().then((o) => ($("#saveWhere").textContent = `저장 위치: ${saveWhereText(o)} (LX3 화면의 설정에서 바꿀 수 있음)`));
+  Promise.all([saveOptions(), getSaveDir()]).then(([o, dir]) => {
+    $("#saveWhere").textContent = `저장 위치: ${dir ? `📁 ${dir.name} (고른 폴더)` : saveWhereText(o)} (아래 '저장 폴더 · 알림음'에서 바꿀 수 있음)`;
+  });
   window.addEventListener("focus", checkLogin);
   checkLogin();
 });

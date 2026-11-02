@@ -30,6 +30,12 @@ CAFE_PAGES = {
 
 
 
+def take(page, sel, timeout=240000):
+    """엑셀은 저절로 받지 않고, 준비되면 반짝이는(.ready) 받기 버튼을 눌러 받는다."""
+    page.locator(f"{sel}.ready").wait_for(timeout=timeout)
+    page.click(sel, force=True)  # 반짝이며 움직이는 버튼이라 움직임과 상관없이 누름
+
+
 def seoul_today() -> date:
     """브라우저를 Asia/Seoul 로 띄우므로 파일 이름 날짜도 서울 기준."""
     return datetime.now(ZoneInfo("Asia/Seoul")).date()
@@ -224,11 +230,12 @@ def run_extension(tmp_path: Path, urls, template=None, fail_video=None):
             page.set_input_files("#templateFile", str(template))
             page.locator("#templateInfo", has_text="✔").wait_for()
         page.fill("#urls", "\n".join(urls))
+        page.click("#start")
         with page.expect_download(timeout=120000) as dl:
-            page.click("#start")
+            take(page, "#download")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         path = tmp_path / dl.value.suggested_filename
         dl.value.save_as(path)
-        page.locator("#summary", has_text="저장되었습니다").wait_for()
+        page.locator("#summary", has_text="준비 완료").wait_for()
         summary = page.inner_text("#summary")
         ctx.close()
     server.shutdown()
@@ -565,8 +572,9 @@ def test_lx3(tmp_path: Path):
         assert page.locator("#cafeInfo tbody tr").nth(0).locator("input").input_value() == "aacafe"
 
         # 새 파일로 받기
+        page.click("#saveList")
         with page.expect_download() as dl:
-            page.click("#saveList")
+            take(page, "#getList")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         new_file = tmp_path / ("new_" + dl.value.suggested_filename)
         dl.value.save_as(new_file)
         assert dl.value.suggested_filename == f"{seoul_today():%Y%m%d}_팰리세이드 전동시트 관련 채널별 버즈량 현황.xlsx"
@@ -584,8 +592,9 @@ def test_lx3(tmp_path: Path):
         assert page.input_value("#saveFolder") == "팰리세이드 모니터링/일일보고"
         # 크롬 다운로드 기능에 넘기는 저장 경로 확인 (Playwright 는 받은 파일 이름을 임의로 바꾸므로)
         page.evaluate("const _dl = chrome.downloads.download.bind(chrome.downloads); chrome.downloads.download = (o) => { window.__dl = o; return _dl(o); }; 0")
+        page.click("#saveList")
         with page.expect_download() as dl:
-            page.click("#saveList")
+            take(page, "#getList")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         appended = tmp_path / "appended.xlsx"
         dl.value.save_as(appended)
         assert page.evaluate("window.__dl.url.slice(0, 5)") == "data:"  # blob: 이 아니어야 맥 파일 정보 '출처'가 남지 않음
@@ -601,8 +610,9 @@ def test_lx3(tmp_path: Path):
 
         # naver.me 짧은 주소도 엑셀에는 https://cafe.naver.com/카페주소/글번호 로
         page.fill("#urls", "https://naver.me/xSBkYEbW")
+        page.click("#start")
         with page.expect_download(timeout=120000) as dl:
-            page.click("#start")
+            take(page, "#download")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         raw = tmp_path / dl.value.suggested_filename
         dl.value.save_as(raw)
         assert "댓글 수집" in page.locator("nav.menu a.on").inner_text()
@@ -702,8 +712,9 @@ def test_final_db(tmp_path: Path):
               items = aids.map((a, i) => ({ key: '111/' + a, cafeId: '111', cafeIndex: 0, articleId: a, slug: '', title: '시트 리콜 ' + a,
                 text: '', date: new Date(2026, 9, 12, 9, i), hasTime: true, ambiguous: false, checked: true, related: true, note: '', dup: false }));
               markDuplicates(); renderResults(); }""", aids)
+            page.click("#saveList")
             with page.expect_download() as dl:
-                page.click("#saveList")
+                take(page, "#getList")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
             out = tmp_path / f"buzz_{len(list(tmp_path.glob('buzz_*')))}.xlsx"
             dl.value.save_as(out)
             page.locator("#saveInfo", has_text="✔").wait_for()
@@ -724,7 +735,8 @@ def test_final_db(tmp_path: Path):
         # 3) 같은 날 다시 받으면 방금 저장한 오늘 파일에 이어 씀
         out2, _ = lx3_save(["1003"])
         assert serials(out2)[-1] == (4, "https://cafe.naver.com/aacafe/1003")
-        assert page.inner_text("#diffs") == "오늘 게시물 2건 (전일 대비 전일 기록 없음)"  # 같은 날 1건 + 1건
+        d = page.inner_text("#diffs")
+        assert d.startswith("오늘 게시물 2건 (전일 대비 전일 기록 없음)") and "동호회 2건" in d, d  # 같은 날 1건 + 1건 · 채널별 줄도
         page.goto(f"{ext}/db.html")
         rows = db_rows("buzz")
         assert len(rows) == 2 and f"{today[:4]}-{today[4:6]}-{today[6:]}" in rows[0] and "마지막 순번 4" in rows[0], rows
@@ -733,8 +745,9 @@ def test_final_db(tmp_path: Path):
         page.evaluate("""async () => { const r = (await dbList('buzz')).find((x) => x.date === '20261011');
           r.stats = { posts: 5 }; await dbTx('readwrite', (s) => s.put(r)); }""")
         lx3_save(["1005"])
-        assert page.inner_text("#diffs") == "오늘 게시물 3건 (10-11 (일) 대비 ▼ 2 건)", page.inner_text("#diffs")
-        assert page.locator("#diffs .diff").get_attribute("class") == "diff down"
+        d = page.inner_text("#diffs")
+        assert d.startswith("오늘 게시물 3건 (10-11 (일) 대비 ▼ 2 건)") and "동호회 3건" in d, d
+        assert page.locator("#diffs .diff").first.get_attribute("class") == "diff down"
         page.goto(f"{ext}/db.html")
         assert "게시물 3건 ▼ 2 건" in db_rows("buzz")[0] and "게시물 5건 전일 기록 없음" in db_rows("buzz")[1], db_rows("buzz")
         # 4) 별도 파일로 작성: 새 파일(순번 1부터), 최종 DB 는 그대로
@@ -746,8 +759,9 @@ def test_final_db(tmp_path: Path):
           renderResults(); }""")
         page.check("#separate")
         assert "별도 파일로 작성" in page.locator("#listFileInfo").text_content()
+        page.click("#saveList")
         with page.expect_download() as dl:
-            page.click("#saveList")
+            take(page, "#getList")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         sep = tmp_path / "separate.xlsx"
         dl.value.save_as(sep)
         assert serials(sep) == [(1, "https://cafe.naver.com/aacafe/1009")]
@@ -783,8 +797,9 @@ def test_final_db(tmp_path: Path):
           items = [{ key: '111/1005', cafeId: '111', cafeIndex: 0, articleId: '1005', slug: '', title: '예전 파일에 이어', text: '',
             date: new Date(2026, 9, 12, 9, 0), hasTime: true, ambiguous: false, checked: true, related: true, note: '', dup: false }];
           markDuplicates(); renderResults(); }""")
+        page.click("#saveList")
         with page.expect_download() as dl:
-            page.click("#saveList")
+            take(page, "#getList")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         out4 = tmp_path / "buzz_from_old.xlsx"
         dl.value.save_as(out4)
         assert serials(out4)[-1] == (3, "https://cafe.naver.com/aacafe/1005"), serials(out4)  # 10-11 파일(순번 2까지) 뒤에
@@ -806,8 +821,9 @@ def test_final_db(tmp_path: Path):
         page.goto(f"{ext}/app.html")
         page.locator("#templateInfo", has_text="최종 DB 파일(2026-10-08").wait_for()
         page.fill("#urls", "https://youtu.be/abcdefghijk")
+        page.click("#start")
         with page.expect_download(timeout=60000) as dl:
-            page.click("#start")
+            take(page, "#download")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         rawout = tmp_path / "rawout.xlsx"
         dl.value.save_as(rawout)
         assert dl.value.suggested_filename == f"{today}_raw_data.xlsx"
@@ -821,6 +837,12 @@ def test_final_db(tmp_path: Path):
         page.goto(f"{ext}/db.html")
         assert len(db_rows("raw")) == 2 and "최종" in db_rows("raw")[0]
         assert "마지막 연번\n언론 1\n유튜브 4\n동호회 2\n자동차 커뮤니티 1" in db_rows("raw")[0], db_rows("raw")  # 유튜브는 오늘 수집으로 교체
+        # ▲ 표시(전일 대비 증가)가 있는 줄에서도 '수정본 올리기'가 눌림 (▲ 표시도 'up' 이름이라 버튼 대신 거기에 붙던 문제)
+        assert page.locator("section[data-kind=raw] tbody tr").nth(0).locator(".diff.up").count() >= 1
+        db_upload("raw", 0, rawout)
+        assert "직접 올림" in db_rows("raw")[0] and "수정본" not in db_rows("raw")[0].split("\n")[0]
+        assert "바꿨습니다" in page.locator("section[data-kind=raw] tbody tr").nth(0).inner_text()  # 그 줄에 안내
+        assert "유튜브 4건" in db_rows("raw")[0]  # 유튜브 건수는 올린 파일에서 다시 셈
         ctx.close()
     assert not any("첨부하지 않았고" in m or "고르지 않았고" in m for m in dialogs), dialogs
 
@@ -853,8 +875,9 @@ def test_resume(tmp_path: Path):
         page.check("#separate")
         page.fill("#urls", "https://youtu.be/abcdefghijk")
         yt_down["on"] = True
+        page.click("#start")
         with page.expect_download(timeout=60000):
-            page.click("#start")
+            take(page, "#download")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         page.locator("#retryFailed", has_text="실패한 1개 다시 수집").wait_for(timeout=10000)
         assert page.locator("#progress tbody tr").nth(0).locator("button", has_text="다시 수집").count() == 1  # 실패한 줄마다
         assert "댓글 수집 실패 1개" in page.inner_text("#failBox") and "youtu.be/abcdefghijk" in page.inner_text("#failList")
@@ -863,8 +886,9 @@ def test_resume(tmp_path: Path):
         page.locator("#retryFailed", has_text="실패한 1개 다시 수집").wait_for(timeout=10000)
         page.check("#separate")
         yt_down["on"] = False
+        page.click("#retryFailed")
         with page.expect_download(timeout=60000) as dl:
-            page.click("#retryFailed")
+            take(page, "#download")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         retried = tmp_path / "retried.xlsx"
         dl.value.save_as(retried)
         assert [r[3] for r in list(load_workbook(retried)["유튜브"].values)[1:]] == ["좋아요", "답글이에요", "멋져요", "마지막"]
@@ -879,8 +903,9 @@ def test_resume(tmp_path: Path):
             articleId: '789', title: '', author: '', method: '화면', error: '',
             comments: [{ commentId: 'x', isReply: false, parentId: '', nickname: 'a', content: '중단 전 댓글', writtenAt: '2026.10.19. 10:00', isDeleted: false }] }] })""")
         before = len(server.requests)
+        page.reload()
         with page.expect_download(timeout=60000) as dl:
-            page.reload()
+            take(page, "#download")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         out = tmp_path / "resumed.xlsx"
         dl.value.save_as(out)
         assert any("중단된 댓글 수집이 있습니다 (2개 중 1개 완료" in m for m in dialogs), dialogs
@@ -1211,8 +1236,9 @@ def test_lx3_news_community(tmp_path: Path):
 
         # 엑셀: 채널·매체명·날짜·URL
         page.check("#separate")
+        page.click("#saveList")
         with page.expect_download() as dl:
-            page.click("#saveList")
+            take(page, "#getList")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         buzz = tmp_path / "buzz.xlsx"
         dl.value.save_as(buzz)
         ws = load_workbook(buzz).worksheets[0]
@@ -1264,8 +1290,9 @@ def test_lx3_news_community(tmp_path: Path):
             "https://www.youtube.com/watch?v=abcdefghijk",  # 체크한 유튜브 새 콘텐츠도 댓글 수집 ('목록도 함께'는 끔)
         ]
         page.check("#separate")
+        page.click("#start")
         with page.expect_download(timeout=240000) as dl:
-            page.click("#start")
+            take(page, "#download")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         raw = tmp_path / "raw.xlsx"
         dl.value.save_as(raw)
         progress = page.inner_text("#progress")
@@ -1381,8 +1408,9 @@ def test_lx3_auto(tmp_path: Path):
             page.wait_for_timeout(300)
         assert notes and notes[0]["title"] == "LX3 자동 수집: 게시물 찾기 완료" and "엑셀 받기" in notes[0]["message"], notes
         # 담당자가 확인 → 엑셀 받기 → 댓글 수집
+        page.click("#saveList")
         with page.expect_download() as dl:
-            page.click("#saveList")
+            take(page, "#getList")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         buzz = tmp_path / "auto_buzz.xlsx"
         dl.value.save_as(buzz)
         vals = [r[1:7] for r in load_workbook(buzz).worksheets[0].iter_rows(min_row=4, values_only=True) if r[1]]
@@ -1393,8 +1421,9 @@ def test_lx3_auto(tmp_path: Path):
         assert got_end == (int(end.timestamp() * 1000) if datetime.now(ZoneInfo("Asia/Seoul")) >= end else None), got_end
         page.click("#toComments")
         page.wait_for_url("**/app.html")
+        page.click("#start")
         with page.expect_download(timeout=120000) as dl:
-            page.click("#start")
+            take(page, "#download")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         raw = tmp_path / "auto_raw.xlsx"
         dl.value.save_as(raw)
         wb = load_workbook(raw)
@@ -1468,8 +1497,9 @@ def test_lx3_accumulate(tmp_path: Path):
         find("2026-11-01T23:00", "2026-11-02T11:30")
         assert titles() == ["팰리세이드 시트 토요일 글", "팰리세이드 시트 일요일 글", "팰리세이드 시트 월요일 글"]
         page.click("#selAll")  # (테스트 제목엔 관련 단어가 없어 체크가 풀려 있음)
+        page.click("#saveList")
         with page.expect_download() as dl:
-            page.click("#saveList")
+            take(page, "#getList")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         out = tmp_path / "three_days.xlsx"
         dl.value.save_as(out)
         page.locator("#saveInfo", has_text="✔").wait_for()
@@ -1519,12 +1549,14 @@ def test_retry_keeps_other_comments(tmp_path: Path):
         page.goto(f"{ext}/app.html")
         page.wait_for_timeout(1500)
         page.fill("#urls", "https://cafe.naver.com/mycafe/789\nhttps://youtu.be/zzzzzzzzzzz\nhttps://youtu.be/abcdefghijk")
+        page.click("#start")
         with page.expect_download(timeout=120000):
-            page.click("#start")
+            take(page, "#download")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         page.locator("#retryFailed", has_text="실패한 1개 다시 수집").wait_for(timeout=20000)
         down["on"] = False
+        page.click("#retryFailed")
         with page.expect_download(timeout=120000) as dl:
-            page.click("#retryFailed")
+            take(page, "#download")  # 준비되면 반짝이는 받기 버튼을 눌러 받음
         out = tmp_path / "retried.xlsx"
         dl.value.save_as(out)
         wb = load_workbook(out)

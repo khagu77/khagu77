@@ -40,10 +40,20 @@
     <div class="buttons">
       <button id="start" class="primary">수집 시작</button>
       <button id="stop" disabled>중지</button>
-      <button id="download" disabled>엑셀 다시 받기</button>
+      <button id="download" class="getbtn" disabled>📥 댓글 엑셀 받기</button>
     </div>
 
     <div id="saveWhere" class="hint"></div>
+    <details class="savebox">
+      <summary>저장 폴더 · 알림음</summary>
+        <label>저장 폴더 <span class="hint">(게시물·댓글 엑셀을 받을 폴더 · 폴더 선택 창에서 고르면 그 폴더에 바로 저장 · 고르지 않으면 크롬 다운로드 폴더)</span></label>
+        <div class="row">
+          <button id="saveDirPick" class="small">📁 저장 폴더 고르기</button>
+          <button id="saveDirClear" class="small" hidden>기본(다운로드 폴더)으로</button>
+          <span id="saveDirName" class="hint"></span>
+        </div>
+        <label class="inline"><input type="checkbox" id="soundOn" checked> 끝나면 알림음 (게시물 찾기·엑셀 만들기·댓글 수집)</label>
+    </details>
     <div id="summary" class="summary"></div>
     <div id="failBox" class="failbox" hidden>
       <div class="row"><b id="failTitle"></b><button id="retryFailed" class="primary danger-fill"></button></div>
