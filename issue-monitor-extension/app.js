@@ -1044,17 +1044,19 @@ async function renderSafety() {
     );
   }
 }
+// 누적 엑셀: 모든 날짜의 안전 우려 글을 날짜 순(오래된 날 → 최근)으로 한 파일에 (담당자 요청 2026-11-03)
+// 파일 이름: 마지막 보고 날짜_안전 우려 이슈 관련.xlsx (예: 261103_안전 우려 이슈 관련.xlsx)
 $("#safetyAll").addEventListener("click", async (ev) => {
   const btn = ev.currentTarget;
-  const days = await safetyByDay();
+  const days = (await safetyByDay()).slice().reverse();
   if (!days.length) return;
-  btn.disabled = true;
-  let where = "";
-  for (const d of days) where = await saveSafetyDay(d);
-  btn.disabled = false;
+  const rows = days.flatMap((d) => d.rows);
+  const last = days[days.length - 1];
+  const name = `${last.dayKey.slice(2).replace(/-/g, "")}_안전 우려 이슈 관련.xlsx`;
+  const where = await saveBytesFile(name, ReportXlsx.build(rows), XLSX_MIME, true);
   Celebrate.done(btn);
   await Celebrate.after();
-  alert(`✅ 안전 우려 게시글 엑셀 ${days.length}개 저장 완료 (날짜별 파일, 모두 ${days.reduce((n, d) => n + d.rows.length, 0)}건)\n\n저장 위치: ${where.replace(/ \(.*\)$/, "")}\n같은 이름 파일이 있으면 새 내용으로 덮어씁니다.`);
+  alert(`✅ 안전 우려 이슈 관련 누적 엑셀 저장 완료\n${days[0].dayKey} ~ ${last.dayKey} · ${days.length}일 · ${rows.length}건 (날짜 순)\n\n저장 위치: ${where}`);
 });
 
 async function renderDb() {
