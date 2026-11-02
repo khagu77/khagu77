@@ -489,7 +489,8 @@ function youtubeWatchUrl(id) {
 }
 
 // 수집 결과 → 동호회/유튜브 시트에 들어갈 행
-function buildRows(results, info) {
+// merge: 오늘 이미 저장한 파일에 다시 수집(실패 재시도 등) → 유튜브 시트는 다시 수집한 영상만 바꾸고 나머지 영상은 그대로
+function buildRows(results, info, { merge = false } = {}) {
   const keys = new Set(info ? info.cafeKeys : []);
   let serial = info ? info.cafeLastSerial : 0;
   const cafe = [];
@@ -533,14 +534,24 @@ function buildRows(results, info) {
   // 유튜브: 오늘 입력한 영상들의 댓글로 시트 전체를 교체한다(입력 순서대로).
   // 수집에 실패한 영상이 파일에 있던 영상이면 그 영상의 기존 행만 남긴다.
   const ytResults = results.filter((x) => x.platform === "youtube");
-  const yt = [];
   const keptOld = [];
-  for (const r of ytResults) {
-    if (!r.error) {
-      for (const c of r.comments) yt.push(["유튜브", c.writtenAt, c.content, youtubeWatchUrl(r.articleId)]);
-    } else if (info?.ytVideos.has(r.articleId)) {
-      keptOld.push(r.articleId);
-      yt.push(...info.ytVideos.get(r.articleId));
+  const newRows = (r) => r.comments.map((c) => ["유튜브", c.writtenAt, c.content, youtubeWatchUrl(r.articleId)]);
+  let yt = [];
+  if (merge && info) {
+    // 시트의 영상 순서 그대로, 다시 수집한(성공한) 영상만 새 댓글로 바꾸고 새 영상은 뒤에 붙인다
+    const byVideo = new Map(info.ytVideos);
+    for (const r of ytResults) {
+      if (!r.error) byVideo.set(r.articleId, newRows(r));
+      else if (info.ytVideos.has(r.articleId)) keptOld.push(r.articleId);
+    }
+    yt = [...byVideo.values()].flat();
+  } else {
+    for (const r of ytResults) {
+      if (!r.error) yt.push(...newRows(r));
+      else if (info?.ytVideos.has(r.articleId)) {
+        keptOld.push(r.articleId);
+        yt.push(...info.ytVideos.get(r.articleId));
+      }
     }
   }
   return {
@@ -550,6 +561,8 @@ function buildRows(results, info) {
     duplicates,
     yt: yt.map((row, i) => [i + 1, ...row]),
     ytTouched: ytResults.length > 0,
+    ytMerged: merge && !!info && ytResults.some((r) => !r.error),
+    ytRedone: ytResults.filter((r) => !r.error).length,
     keptOld,
   };
 }
@@ -559,11 +572,11 @@ function outputFileName(baseName) {
   return datedFileName(baseName || DEFAULT_FILE_NAME);
 }
 
-async function buildOutput(results, tpl) {
+async function buildOutput(results, tpl, opts = {}) {
   if (tpl) {
     const wb = await XlsxTemplate.Workbook.open(tpl.bytes);
     const info = await analyzeTemplate(wb);
-    const rows = buildRows(results, info);
+    const rows = buildRows(results, info, opts);
     if (rows.cafe.length) {
       await wb.replaceRowsAfter(SHEET_CAFE, info.cafeLastRow, rows.cafe, info.cafeLastRow, { focusFirstNew: true });
     }
@@ -896,7 +909,9 @@ async function run(state) {
     $("#summary").textContent = "엑셀 만드는 중…";
     showBusy("엑셀 만드는 중", 0, 0, "엑셀 만드는 중");
     const base = baseTemplate();
-    const out = await buildOutput(results, base);
+    // 오늘 이미 저장한 파일에 이어 쓰면(실패 재시도 등) 유튜브는 다시 수집한 영상만 바꿈. 그날 처음이면 전체 교체
+    const merge = !!base && (base.date || (String(base.name).match(/^(\d{8})/) || [])[1]) === today();
+    const out = await buildOutput(results, base, { merge });
     const name = outputFileName(base ? base.name : rememberedName());
     lastWorkbook = { bytes: out.bytes, name };
     await downloadWorkbook(out.bytes, name);
@@ -934,7 +949,8 @@ async function run(state) {
     if (rows.comm.length) parts.push(`자동차 커뮤니티 ${rows.comm.length.toLocaleString()}개 추가`);
     else if (results.some((r) => r.platform === "community")) parts.push("자동차 커뮤니티 추가된 댓글 없음");
     if (rows.duplicates) parts.push(`이미 있던 댓글 ${rows.duplicates.toLocaleString()}개 제외`);
-    if (rows.ytTouched || !info) parts.push(`유튜브 ${rows.yt.length.toLocaleString()}개로 교체`);
+    if (rows.ytMerged) parts.push(`유튜브 영상 ${rows.ytRedone}개 다시 수집 (나머지 영상은 그대로, 시트 ${rows.yt.length.toLocaleString()}개)`);
+    else if (rows.ytTouched || !info) parts.push(`유튜브 ${rows.yt.length.toLocaleString()}개로 교체`);
     if (rows.keptOld.length) parts.push(`수집 실패한 유튜브 영상 ${rows.keptOld.length}개는 기존 댓글 유지`);
     $("#summary").textContent =
       `${stopRequested ? "중지됨 - " : ""}${parts.join(", ")}` +

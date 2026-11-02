@@ -1487,3 +1487,53 @@ def test_lx3_accumulate(tmp_path: Path):
         find("2026-11-02T11:30", "2026-11-03T11:30")
         assert rows.count() == 0
         ctx.close()
+
+
+def test_retry_keeps_other_comments(tmp_path: Path):
+    """실패한 글만 다시 수집해도 오늘 파일에 이어 쓴다: 유튜브 시트는 다시 수집한 영상만 바뀌고 나머지 영상·동호회 댓글은 그대로."""
+    import base64
+    server = start_fake_cafe(tmp_path)
+    port = server.server_address[1]
+    raw = tmp_path / "20261030_raw.xlsx"
+    make_template(raw)
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True, timezone_id="Asia/Seoul",
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}",
+                  f"--host-resolver-rules=MAP cafe.naver.com 127.0.0.1:{port}", "--no-proxy-server", "--ignore-certificate-errors"],
+            accept_downloads=True)
+        down = {"on": True}  # 켜져 있으면 영상 abcdefghijk 만 접속 실패
+        ctx.route("https://www.youtube.com/**", lambda route: route.fulfill(status=503, body="")
+                  if down["on"] and "abcdefghijk" in route.request.url else route.fulfill(
+            status=200, content_type="application/json" if "/youtubei/" in route.request.url else "text/html",
+            body=json.dumps(YT_PAGES.get(json.loads(route.request.post_data or "{}").get("continuation"), {}))
+            if "/youtubei/" in route.request.url else YT_HTML))
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        ext = f"chrome-extension://{sw.url.split('/')[2]}"
+        page = ctx.new_page()
+        page.on("dialog", lambda d: d.accept())
+        page.goto(f"{ext}/db.html")
+        page.evaluate("async (b) => { const bytes = Uint8Array.from(atob(b), (c) => c.charCodeAt(0)); "
+                      "await dbSaveDay('raw', '20261030', '20261030_raw.xlsx', bytes, 'upload', ''); }",
+                      base64.b64encode(raw.read_bytes()).decode())
+        page.goto(f"{ext}/app.html")
+        page.wait_for_timeout(1500)
+        page.fill("#urls", "https://cafe.naver.com/mycafe/789\nhttps://youtu.be/zzzzzzzzzzz\nhttps://youtu.be/abcdefghijk")
+        with page.expect_download(timeout=120000):
+            page.click("#start")
+        page.locator("#retryFailed", has_text="실패한 1개 다시 수집").wait_for(timeout=20000)
+        down["on"] = False
+        with page.expect_download(timeout=120000) as dl:
+            page.click("#retryFailed")
+        out = tmp_path / "retried.xlsx"
+        dl.value.save_as(out)
+        wb = load_workbook(out)
+        assert [r[3] for r in list(wb["동호회"].values)[1:]] == ["예전 댓글", "첫 댓글", "답글", "둘째 페이지"]
+        assert [(r[3], r[4][-11:]) for r in list(wb["유튜브"].values)[1:]] == [
+            ("좋아요", "zzzzzzzzzzz"), ("답글이에요", "zzzzzzzzzzz"), ("멋져요", "zzzzzzzzzzz"), ("마지막", "zzzzzzzzzzz"),
+            ("좋아요", "abcdefghijk"), ("답글이에요", "abcdefghijk"), ("멋져요", "abcdefghijk"), ("마지막", "abcdefghijk")]
+        assert [r[0] for r in list(wb["유튜브"].values)[1:]] == list(range(1, 9))  # 연번 다시 매김
+        page.locator("#summary", has_text="유튜브 영상 1개 다시 수집 (나머지 영상은 그대로").wait_for(timeout=10000)
+        assert page.is_hidden("#failBox")
+        ctx.close()
+    server.shutdown()
