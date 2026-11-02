@@ -103,7 +103,7 @@ async function lx3Tabs() {
     const ctxs = await chrome.runtime.getContexts({ contextTypes: ["TAB"] });
     return ctxs
       .filter((c) => c.tabId >= 0 && [LX3_URL, APP_PAGE_URL].some((u) => String(c.documentUrl || "").startsWith(u)))
-      .map((c) => ({ id: c.tabId, windowId: c.windowId }));
+      .map((c) => ({ id: c.tabId, windowId: c.windowId, url: String(c.documentUrl || "") }));
   } catch {
     return [];
   }
@@ -130,8 +130,22 @@ async function startAuto() {
     return;
   }
   await chrome.storage.local.set({ lx3LastAutoRun: todayKey(now) });
-  // 늘 새 탭으로 (보고 있던 화면은 건드리지 않음 · 앞쪽 탭이어야 크롬이 느리게 돌리지 않음)
-  await chrome.tabs.create({ url: `${LX3_URL}?auto=1&t=${Date.now()}`, active: true });
+  await openAutoTab();
+}
+
+// 열어 둔 LX3·댓글 수집 화면이 있으면 그 화면에서 자동 수집을 시작하고 그 창을 앞으로, 없으면 새 탭
+// (진행 중인 화면은 startAuto 가 미리 걸러 냄 · 앞쪽 탭이어야 크롬이 느리게 돌리지 않음)
+async function openAutoTab() {
+  const url = `${LX3_URL}?auto=1&t=${Date.now()}`;
+  const tabs = await lx3Tabs();
+  const tab = tabs.find((t) => t.url.startsWith(LX3_URL)) || tabs[0];
+  if (tab) {
+    await chrome.tabs.update(tab.id, { url, active: true });
+    await chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+    return tab.id;
+  }
+  const created = await chrome.tabs.create({ url, active: true });
+  return created.id;
 }
 
 // 정해진 시각에 PC·크롬이 꺼져 있었으면, 그날 크롬이 켜질 때 한 번

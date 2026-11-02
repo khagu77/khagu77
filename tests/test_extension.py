@@ -1386,6 +1386,16 @@ def test_lx3_auto(tmp_path: Path):
                 break
             page.wait_for_timeout(300)
         assert notes and notes[0]["title"] == "LX3 자동 수집 완료" and "게시물 1건 엑셀 저장" in notes[0]["message"], notes
+
+        # 자동 수집 시각: 열어 둔 화면이 있으면 새 탭을 열지 않고 그 화면에서 시작 (찾을 곳·영상이 없게 해서 바로 끝나게)
+        page.goto(f"{ext}/lx3.html")
+        page.evaluate("lx3Init")
+        page.evaluate("chrome.storage.local.set({ lx3Channels: { cafe: false, news: false, community: false }, lx3Youtube: [] })")
+        before = len(ctx.pages)
+        tab_id = sw.evaluate("openAutoTab()")
+        page.wait_for_url("**/app.html*", timeout=60000)  # 그 화면에서 자동 수집 → 댓글 수집 화면까지
+        assert len(ctx.pages) == before, [p.url for p in ctx.pages]
+        assert tab_id == sw.evaluate("lx3Tabs().then((t) => t[0].id)")
         ctx.close()
 
 
