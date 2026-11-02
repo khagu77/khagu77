@@ -993,20 +993,19 @@ $("#dailyPptOne").addEventListener("change", async (ev) => {
 async function safetyByDay() {
   const list = (await dbList()).filter((e) => e.range && (e.rows || []).length).sort((a, b) => a.finishedAt - b.finishedAt);
   const byUrl = new Map();
+  const days = new Map(); // 수집한 날은 안전 우려 글이 0건이어도 넣는다 (전일 대비 증감 계산용)
   for (const e of list) {
     const day = new Date(e.range.end);
     const dayKey = `${day.getFullYear()}-${pad2(day.getMonth() + 1)}-${pad2(day.getDate())}`;
+    if (!days.has(dayKey)) days.set(dayKey, { dayKey, end: e.range.end, rows: [] });
     for (const r of deserializeRows(e.rows)) {
       const k = urlKey(r.url);
       const prev = byUrl.get(k);
       byUrl.set(k, { row: r, dayKey: prev ? prev.dayKey : dayKey, end: prev ? prev.end : e.range.end });
     }
   }
-  const days = new Map();
-  for (const { row, dayKey, end } of byUrl.values()) {
-    if (!isSafetyRow(row)) continue;
-    if (!days.has(dayKey)) days.set(dayKey, { dayKey, end, rows: [] });
-    days.get(dayKey).rows.push(row);
+  for (const { row, dayKey } of byUrl.values()) {
+    if (isSafetyRow(row)) days.get(dayKey).rows.push(row);
   }
   for (const d of days.values()) d.rows.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.ts || 0) - (b.ts || 0));
   return [...days.values()].sort((a, b) => (a.dayKey < b.dayKey ? 1 : -1));
@@ -1019,17 +1018,25 @@ async function renderSafety() {
   const days = await safetyByDay().catch(() => []);
   const tbody = $("#safetyTable tbody");
   tbody.textContent = "";
-  $("#safetyEmpty").hidden = days.length > 0;
-  $("#safetyTable").hidden = !days.length;
-  $("#safetyAll").disabled = !days.length;
   const total = days.reduce((n, d) => n + d.rows.length, 0);
-  $("#safetyInfo").textContent = days.length ? `${days.length}일 · ${total}건` : "";
+  $("#safetyEmpty").hidden = total > 0;
+  $("#safetyTable").hidden = !total;
+  $("#safetyAll").disabled = !total;
+  $("#safetyInfo").textContent = total ? `${days.length}일 · ${total}건 · 하루 평균 ${(total / days.length).toFixed(1)}건` : "";
   const dow = (k) => "일월화수목금토"[new Date(`${k}T00:00`).getDay()];
-  for (const d of days) {
+  // 전일(바로 앞 보고일) 대비 증감: ▲ 빨강 / ▼ 파랑 / – 같음 (담당자 요청 2026-11-03)
+  const diffCell = (i) => {
+    const prev = days[i + 1];
+    if (!prev) return el("td", { class: "hint", text: "-" });
+    const d = days[i].rows.length - prev.rows.length;
+    return el("td", { title: `전일(${prev.dayKey}) ${prev.rows.length}건 대비` }, d === 0 ? el("span", { class: "cost-same", text: "– 0" }) : el("span", { class: d > 0 ? "cost-up" : "cost-down", text: `${d > 0 ? "▲" : "▼"} ${Math.abs(d)}건` }));
+  };
+  days.forEach((d, i) => {
     tbody.append(
       el("tr", {},
         el("td", { text: `${d.dayKey}(${dow(d.dayKey)})` }),
-        el("td", {}, el("b", { class: "count-red", text: `${d.rows.length}건` })),
+        el("td", {}, el("b", { class: d.rows.length ? "count-red" : "", text: `${d.rows.length}건` })),
+        diffCell(i),
         el("td", { class: "hint note", text: d.rows.map((r) => `${r.car} ${r.summary}`).join(" · ") }),
         el("td", { class: "actions" },
           el("button", { class: "btn-get", text: "엑셀 받기", onclick: async (ev) => {
@@ -1038,17 +1045,17 @@ async function renderSafety() {
             Celebrate.done(btn);
             await Celebrate.after();
             alert(`✅ 안전 우려 게시글 엑셀 저장 완료 (${d.rows.length}건)\n\n저장 위치: ${where}`);
-          } })
+          }, disabled: !d.rows.length })
         )
       )
     );
-  }
+  });
 }
 // 누적 엑셀: 모든 날짜의 안전 우려 글을 날짜 순(오래된 날 → 최근)으로 한 파일에 (담당자 요청 2026-11-03)
 // 파일 이름: 마지막 보고 날짜_안전 우려 이슈 관련.xlsx (예: 261103_안전 우려 이슈 관련.xlsx)
 $("#safetyAll").addEventListener("click", async (ev) => {
   const btn = ev.currentTarget;
-  const days = (await safetyByDay()).slice().reverse();
+  const days = (await safetyByDay()).filter((d) => d.rows.length).reverse();
   if (!days.length) return;
   const rows = days.flatMap((d) => d.rows);
   const last = days[days.length - 1];
