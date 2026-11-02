@@ -405,7 +405,12 @@ async function buildWeekly({ auto = false } = {}) {
     renderHistory();
     const msg = `✅ 주간 보고서 저장 완료: ${where} (${picked.length}건 · 조회수·댓글 새로 읽음 ${refreshed}건${picked.length - refreshed ? `, 나머지는 일일 보고 때 값` : ""})`;
     setSummary(msg, "ok");
-    if (!auto) alert(msg);
+    Celebrate.done($("#buildWeekly"));
+    Celebrate.ding(); // 주간 보고서 작성 끝: 딩동댕 (담당자 요청 2026-11-02)
+    if (!auto) {
+      await Celebrate.after();
+      alert(msg);
+    }
   } catch (e) {
     setSummary(`주간 보고서를 만들지 못했습니다: ${e.message || e}`, "err");
   } finally {
@@ -472,13 +477,15 @@ async function renderHistory() {
       return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
     };
     tr.innerHTML = `<td>${short(h.at)}</td><td>${esc(h.start)} ~ ${esc(h.end)}</td><td><b>${f ? "담당자 수정본" : h.uploaded ? "올린 파일" : "시스템 작성본"}</b>${f ? `<div class="hint">${short(f.at)} 올림</div>` : ""}</td><td>${esc(f ? f.name : h.name)}</td><td class="count-red">${f ? f.count : h.count}건</td><td class="actions"><div class="acts"><button data-a="get" class="btn-get" title="${f ? "담당자 수정본(최종본) 받기" : "받기"}">⬇ ${f ? "최종본 받기" : "받기"}</button>${f && !h.uploaded ? '<button data-a="sys" class="btn-sys" title="시스템이 처음 만든 파일 받기">시스템본 받기</button>' : ""}<button data-a="up">수정본 올리기</button>${f ? '<button data-a="delf" class="btn-warn" title="올린 수정본만 지우고 시스템 작성본을 최종본으로">수정본 지우기</button>' : ""}<button data-a="del" class="danger">삭제</button></div></td>`;
-    const save = async (name, bytes) => {
+    const save = async (name, bytes, btn) => {
       const dir = await weeklyDirIfAllowed(true);
       const where = await saveFile(dir, await freeName(dir, name), bytes);
+      Celebrate.done(btn);
+      await Celebrate.after();
       alert(`✅ 주간 보고서 저장 완료\n\n저장 위치: ${where}`);
     };
-    tr.querySelector('[data-a="get"]').addEventListener("click", () => save(f ? f.name : h.name, f ? f.bytes : h.bytes));
-    tr.querySelector('[data-a="sys"]')?.addEventListener("click", () => save(h.name, h.bytes));
+    tr.querySelector('[data-a="get"]').addEventListener("click", (ev) => save(f ? f.name : h.name, f ? f.bytes : h.bytes, ev.currentTarget));
+    tr.querySelector('[data-a="sys"]')?.addEventListener("click", (ev) => save(h.name, h.bytes, ev.currentTarget));
     // 필요 없는 주간 보고서 기록 지우기 (담당자 요청 2026-10-23) — 저장 폴더의 파일은 그대로
     const removeIt = async (onlyFinal) => {
       const list = (await kvGet("weeklyHistory")) || [];

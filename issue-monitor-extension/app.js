@@ -843,8 +843,11 @@ async function renderRawHistory() {
         el("td", {}, h.edited && !h.rows ? "-" : el("b", { class: "count-red", text: `${h.rows || 0}건` })),
         el("td", { class: "hint", text: h.detail || "" }),
         el("td", { class: "actions" },
-          el("button", { class: "btn-get", text: "받기", onclick: async () => {
+          el("button", { class: "btn-get", text: "받기", onclick: async (ev) => {
+            const btn = ev.currentTarget;
             const where = await saveBytesFile(h.name, h.bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            Celebrate.done(btn);
+            await Celebrate.after();
             alert(`✅ RAW data 파일 저장 완료\n\n저장 위치: ${where}`);
           } }),
           el("button", { text: "수정본 올리기", title: "엑셀에서 고친 RAW 파일로 이 줄을 바꿉니다 (다음 RAW 이어 쓰기 기준이면 그 기준도 고친 파일로)", onclick: () => {
@@ -924,8 +927,11 @@ async function renderDailyPpts() {
             } })
           ))),
         el("td", { class: "actions" },
-          el("button", { class: "btn-get", text: "받기", onclick: async () => {
+          el("button", { class: "btn-get", text: "받기", onclick: async (ev) => {
+            const btn = ev.currentTarget;
             const where = await saveBytesFile(f.name, f.bytes, PPT_MIME);
+            Celebrate.done(btn);
+            await Celebrate.after();
             alert(`✅ PPT 저장 완료\n\n저장 위치: ${where}`);
           } }),
           el("button", { text: "수정본 올리기", title: "고친 PPT 를 이 날짜의 최종본으로", onclick: () => {
@@ -1058,7 +1064,7 @@ async function renderDb() {
         el(
           "td",
           { class: "actions" },
-          el("button", { text: "엑셀 받기", onclick: () => downloadReport(rows, { start: new Date(e.range.start), end: new Date(e.range.end) }).catch((err) => alert(err.message)) }),
+          el("button", { text: "엑셀 받기", onclick: (ev) => { const btn = ev.currentTarget; downloadReport(rows, { start: new Date(e.range.start), end: new Date(e.range.end) }).then(() => Celebrate.done(btn)).catch((err) => alert(err.message)); } }),
           el("button", {
             text: "결과 보기",
             onclick: () => {
@@ -1505,7 +1511,7 @@ async function downloadReport(rows = state.rows, range = state.range, interactiv
 function savedAlert(where, auto = false) {
   setTimeout(() => {
     alert(`✅ 엑셀 저장 완료${auto ? " (자동 수집)" : ""}\n\n저장 위치: ${where}\n${state.rows.length}건 · 보고 필요 ${state.rows.filter((r) => r.report).length}건\n\n다시 받을 필요 없습니다.`);
-  }, 50);
+  }, 1400); // 받기 버튼 축하 효과가 먼저 보이게
 }
 
 async function downloadClick(plain) {
@@ -1517,6 +1523,7 @@ async function downloadClick(plain) {
     .then((where) => {
       log(`엑셀을 ${where}에 저장했습니다`);
       setSummary(`엑셀을 ${where}에 저장했습니다 (${state.rows.length}건 · 보고 필요 ${state.rows.filter((r) => r.report).length}건)`);
+      Celebrate.done($(plain ? "#downloadPlain" : "#download"));
       savedAlert(where);
     })
     .catch((e) => {
@@ -2219,6 +2226,7 @@ async function runCollection() {
 
   state.running = false;
   runGuard(false);
+  if (!state.stopRequested) Celebrate.ding(); // 수집 끝: 딩동댕 (담당자 요청 2026-11-02)
   $("#mergeBase").disabled = !state.base || !state.base.rows.length;
   $("#start").disabled = false;
   $("#stop").disabled = true;

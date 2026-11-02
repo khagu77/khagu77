@@ -721,6 +721,7 @@ async function start() {
     failed ? "err" : "ok",
   );
   refreshButtons(false);
+  if (!stopRequested) Celebrate.ding(); // 캡처·요약 끝: 딩동댕 (담당자 요청 2026-11-02)
   // 'PPT·RAW 바로 저장': 캡처·요약이 끝나면 이어서 PPT 와 RAW 를 저장하고 한 번에 알린다
   if (chain && !stopRequested && items.some((it) => it.ready && !it.deleted && it.no)) {
     const ppt = await buildPpt({ dir: chainDir, quiet: true });
@@ -1336,10 +1337,13 @@ async function buildRawWork(opts = {}) {
     showRawInfo(saved);
     const detail = res.sheets.map((s) => (s.count ? `${s.name} ${s.count}행 (연번 ${s.from}~${s.to})` : `${s.name} 0행`)).join(" · ") + (res.skipped ? ` · 이미 RAW 에 있던 글 ${res.skipped}건은 빼고 붙임` : "");
     setSummary(`RAW data 저장했습니다: ${where} — ${detail}`, "ok");
+    Celebrate.done($("#rawBuild"));
+    Celebrate.ding();
     if (opts.quiet) return `${where} (${detail})`;
     $("#doneTitle").textContent = "✅ RAW data 엑셀 저장 완료";
     $("#doneText").textContent = `${where} 에 저장했습니다.`;
     $("#doneStats").textContent = detail;
+    await Celebrate.after(); // 받기 버튼 축하 효과가 먼저 보이게
     const dlg = $("#doneDialog");
     if (!dlg.open) dlg.showModal();
     return where;
@@ -1391,16 +1395,19 @@ async function buildPptWork(opts = {}) {
     const fileName = await freeName(saveDir, `${name.replace(/[<>:"/\\|?*]/g, "_")}.pptx`, ["_시스템 작성본"]);
     const size = `${list.length}건, ${(bytes.length / 1024 / 1024).toFixed(1)}MB`;
     // 저장 끝: 소요 시간(캡처·요약 시작부터 PPT 저장까지)·예상 AI 비용과 함께 완료 알림
-    const done = (where, sz) => {
+    const done = async (where, sz) => {
       setSummary(`저장했습니다: ${where} (${sz})`, "ok");
       const total = runStart ? Date.now() - runStart : 0;
       const stats = runStart ? `${statsText(total)}` : `💰 예상 AI 비용 ${AiCost.text()}`;
       $("#stats").hidden = false;
       $("#stats").textContent = stats + (captureMs ? ` (캡처·요약 ${fmtDuration(captureMs)})` : "");
+      Celebrate.done($("#build"));
+      Celebrate.ding(); // PPT 작성 끝: 딩동댕
       if (opts.quiet) return;
       $("#doneTitle").textContent = "✅ PPT 작성 완료";
       $("#doneText").textContent = `${where} 에 저장했습니다 (${sz}).`;
       $("#doneStats").textContent = $("#stats").textContent;
+      await Celebrate.after(); // 받기 버튼 축하 효과가 먼저 보이게
       const d = $("#doneDialog");
       if (!d.open) d.showModal();
     };
