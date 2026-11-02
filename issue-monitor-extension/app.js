@@ -745,11 +745,11 @@ function pptKv(mode, fn) {
 }
 
 // 바이트를 엑셀 저장 폴더(없으면 다운로드 폴더)에 저장, 같은 이름이면 (1)
-async function saveBytesFile(fileName, bytes, mime) {
+async function saveBytesFile(fileName, bytes, mime, overwrite = false) {
   const dir = await withTimeout(getSaveDir(), 5000, "저장 폴더 읽기").catch(() => null);
   if (dir && (await saveDirPermission(dir, true).catch(() => false))) {
     try {
-      const name = await uniqueFileName(dir, fileName);
+      const name = overwrite ? fileName : await uniqueFileName(dir, fileName);
       const fh = await dir.getFileHandle(name, { create: true });
       const w = await fh.createWritable();
       await w.write(bytes);
@@ -759,7 +759,7 @@ async function saveBytesFile(fileName, bytes, mime) {
   }
   const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
   try {
-    await chrome.downloads.download({ url, filename: fileName, conflictAction: "uniquify", saveAs: false });
+    await chrome.downloads.download({ url, filename: fileName, conflictAction: overwrite ? "overwrite" : "uniquify", saveAs: false });
   } finally {
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
@@ -988,9 +988,79 @@ $("#dailyPptOne").addEventListener("change", async (ev) => {
   renderDailyPpts();
 });
 
+// 안전 우려 게시글 모음 (담당자 요청 2026-11-03): 데일리 DB 의 모든 수집 기록에서 연보라색(안전사고 우려) 글만 보고 날짜별로
+// 같은 글이 여러 기록(합본 등)에 있으면 처음 보고한 날짜에 한 번만, 내용은 가장 나중에 고친 것
+async function safetyByDay() {
+  const list = (await dbList()).filter((e) => e.range && (e.rows || []).length).sort((a, b) => a.finishedAt - b.finishedAt);
+  const byUrl = new Map();
+  for (const e of list) {
+    const day = new Date(e.range.end);
+    const dayKey = `${day.getFullYear()}-${pad2(day.getMonth() + 1)}-${pad2(day.getDate())}`;
+    for (const r of deserializeRows(e.rows)) {
+      const k = urlKey(r.url);
+      const prev = byUrl.get(k);
+      byUrl.set(k, { row: r, dayKey: prev ? prev.dayKey : dayKey, end: prev ? prev.end : e.range.end });
+    }
+  }
+  const days = new Map();
+  for (const { row, dayKey, end } of byUrl.values()) {
+    if (!isSafetyRow(row)) continue;
+    if (!days.has(dayKey)) days.set(dayKey, { dayKey, end, rows: [] });
+    days.get(dayKey).rows.push(row);
+  }
+  for (const d of days.values()) d.rows.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.ts || 0) - (b.ts || 0));
+  return [...days.values()].sort((a, b) => (a.dayKey < b.dayKey ? 1 : -1));
+}
+const safetyFileName = (d) => `${d.dayKey.slice(2).replace(/-/g, "")}_안전 우려 이슈 관련.xlsx`;
+async function saveSafetyDay(d) {
+  return saveBytesFile(safetyFileName(d), ReportXlsx.build(d.rows), XLSX_MIME, true);
+}
+async function renderSafety() {
+  const days = await safetyByDay().catch(() => []);
+  const tbody = $("#safetyTable tbody");
+  tbody.textContent = "";
+  $("#safetyEmpty").hidden = days.length > 0;
+  $("#safetyTable").hidden = !days.length;
+  $("#safetyAll").disabled = !days.length;
+  const total = days.reduce((n, d) => n + d.rows.length, 0);
+  $("#safetyInfo").textContent = days.length ? `${days.length}일 · ${total}건` : "";
+  const dow = (k) => "일월화수목금토"[new Date(`${k}T00:00`).getDay()];
+  for (const d of days) {
+    tbody.append(
+      el("tr", {},
+        el("td", { text: `${d.dayKey}(${dow(d.dayKey)})` }),
+        el("td", {}, el("b", { class: "count-red", text: `${d.rows.length}건` })),
+        el("td", { class: "hint note", text: d.rows.map((r) => `${r.car} ${r.summary}`).join(" · ") }),
+        el("td", { class: "actions" },
+          el("button", { class: "btn-get", text: "엑셀 받기", onclick: async (ev) => {
+            const btn = ev.currentTarget;
+            const where = await saveSafetyDay(d);
+            Celebrate.done(btn);
+            await Celebrate.after();
+            alert(`✅ 안전 우려 게시글 엑셀 저장 완료 (${d.rows.length}건)\n\n저장 위치: ${where}`);
+          } })
+        )
+      )
+    );
+  }
+}
+$("#safetyAll").addEventListener("click", async (ev) => {
+  const btn = ev.currentTarget;
+  const days = await safetyByDay();
+  if (!days.length) return;
+  btn.disabled = true;
+  let where = "";
+  for (const d of days) where = await saveSafetyDay(d);
+  btn.disabled = false;
+  Celebrate.done(btn);
+  await Celebrate.after();
+  alert(`✅ 안전 우려 게시글 엑셀 ${days.length}개 저장 완료 (날짜별 파일, 모두 ${days.reduce((n, d) => n + d.rows.length, 0)}건)\n\n저장 위치: ${where.replace(/ \(.*\)$/, "")}\n같은 이름 파일이 있으면 새 내용으로 덮어씁니다.`);
+});
+
 async function renderDb() {
   renderRawHistory();
   renderDailyPpts();
+  renderSafety();
   const list = await dbList();
   const tbody = $("#dbTable tbody");
   tbody.textContent = "";
