@@ -1635,14 +1635,12 @@ async function runAuto(resume) {
     return fail(`게시물 찾기 중 오류가 났습니다 (${e.message})`);
   }
   if (stopRequested) return fail("게시물 찾기를 중지했습니다. 결과를 확인해 주세요.");
-  const n = items.filter((x) => x.checked && !x.dup).length;
-  if (n) await saveList({ auto: true });
-  // 찾은 글이 없어도 이 기간은 모은 것으로 (다음 자동 수집은 여기부터)
-  const end = new Date($("#to").value).getTime();
-  const { lx3LastRangeEnd = 0 } = await chrome.storage.local.get("lx3LastRangeEnd").catch(() => ({}));
-  await chrome.storage.local.set({ lx3AutoPosts: n, ...(end > lx3LastRangeEnd ? { lx3LastRangeEnd: end } : {}) }).catch(() => {});
-  $("#withYoutube").checked = true;
-  toComments(true);
+  // 자동 수집은 게시물 찾기까지만: 결과를 사람이 확인해 고른 뒤 '엑셀 받기' → '체크한 글 댓글 수집하기' (찾은 결과는 수집 기록으로 남음)
+  const found = items.filter((x) => !x.saved).length;
+  const checked = items.filter((x) => x.checked && !x.dup).length;
+  const message = `게시물 ${found}건을 찾았습니다 (관련 글로 체크 ${checked}건). 결과를 확인해 고른 뒤 '엑셀 받기' → '체크한 글 댓글 수집하기'를 눌러 주세요.`;
+  setSummary(`자동 수집: ${message}`, "ok");
+  chrome.runtime.sendMessage({ type: "lx3AutoDone", ok: true, title: "LX3 자동 수집: 게시물 찾기 완료", message }).catch(() => {});
 }
 
 // 위쪽 안내: 자동 수집 설정·오늘 근무일 여부·다음 수집이 어디부터인지

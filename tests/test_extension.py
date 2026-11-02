@@ -1299,7 +1299,7 @@ def test_lx3_news_community(tmp_path: Path):
 
 def test_lx3_auto(tmp_path: Path):
     """자동 수집 ('온라인 오전 일일동향'과 같은 방식): 평일 정해진 시각 예약(휴일 건너뜀), 지난번 저장 이후를 이어서 모으는 기간,
-    lx3.html?auto=1 → 게시물 찾기 → 게시물 엑셀 → 댓글 수집 → 댓글 엑셀 → 완료 알림까지 사람 손 없이."""
+    열어 둔 화면에서 lx3.html?auto=1 → 게시물 찾기까지 하고 알림 → 담당자가 고르고 엑셀 받기 → 댓글 수집."""
     from datetime import timedelta
     now = datetime.now(ZoneInfo("Asia/Seoul"))
     end = now.replace(hour=11, minute=30, second=0, microsecond=0)
@@ -1357,35 +1357,43 @@ def test_lx3_auto(tmp_path: Path):
         assert rng("2026-10-21T11:30:00+09:00", None) == ["2026-10-20T11:30", "2026-10-21T11:30"]
         assert "자동 수집: 평일 오전 11:30" in page.inner_text("#autoInfo")
 
-        # 커뮤니티(클리앙 자동차당)만, 유튜브 목록 1개로 자동 수집 → 사람 손 없이 끝까지
+        # 커뮤니티(클리앙 자동차당)만 자동 수집 → 게시물 찾기까지만 하고 알림 (고르기·엑셀·댓글은 담당자가 직접)
         page.evaluate("""chrome.storage.local.set({ lx3Channels: { cafe: false, news: false, community: true },
           lx3Boards: ['https://www.clien.net/service/board/cm_car'], lx3MainKw: '팰리세이드', lx3SubKw: '시트',
           lx3Youtube: ['https://www.youtube.com/watch?v=abcdefghijk'] })""")
         page.goto(f"{ext}/lx3.html?auto=1")
-        page.wait_for_url("**/app.html*", timeout=180000)
-        for _ in range(240):
-            if len(downloads) >= 2:
-                break
-            page.wait_for_timeout(500)
-        assert len(downloads) == 2, (len(downloads), dialogs)
-        buzz, raw = tmp_path / "auto_buzz.xlsx", tmp_path / "auto_raw.xlsx"
-        downloads[0].save_as(buzz)
-        downloads[1].save_as(raw)
-        vals = [r[1:7] for r in load_workbook(buzz).worksheets[0].iter_rows(min_row=4, values_only=True) if r[1]]
-        assert [(v[1], v[2], v[5]) for v in vals] == [("자동차 커뮤니티", "클리앙", "https://www.clien.net/service/board/cm_car/777")], vals
-        wb = load_workbook(raw)
-        assert [r[3] for r in list(wb["자동차 커뮤니티"].values)[1:]] == ["저도 받았습니다"]
-        assert [r[3] for r in list(wb["유튜브"].values)[1:]] == ["좋아요", "답글이에요", "멋져요", "마지막"]
-        assert not dialogs, dialogs  # 확인 창 없이
-        assert page.url.endswith("/app.html")  # 새로고침해도 다시 자동 수집되지 않게 주소에서 auto 를 뺌
-        # 다음 자동 수집은 이번 기간 끝(오늘 11:30)부터
-        assert page.evaluate("chrome.storage.local.get('lx3LastRangeEnd').then((x) => x.lx3LastRangeEnd)") == int(end.timestamp() * 1000)
+        page.locator("#summary", has_text="자동 수집: 게시물 1건을 찾았습니다").wait_for(timeout=120000)
+        assert page.url.endswith("/lx3.html")  # 새로고침해도 다시 자동 수집되지 않게 주소에서 auto 를 뺌 · 댓글 수집 화면으로 넘어가지 않음
+        assert not downloads and not dialogs, (len(downloads), dialogs)
+        rows = page.locator("#results tbody tr")
+        assert rows.count() == 1 and rows.nth(0).locator("input").is_checked()
+        assert "수집 기록:" in page.locator("#runSelect option:checked").inner_text()  # 찾은 결과는 수집 기록으로
         for _ in range(20):
             notes = [n for n in sw.evaluate("self.__notes") if isinstance(n, dict) and "LX3" in n.get("title", "")]
             if notes:
                 break
             page.wait_for_timeout(300)
-        assert notes and notes[0]["title"] == "LX3 자동 수집 완료" and "게시물 1건 엑셀 저장" in notes[0]["message"], notes
+        assert notes and notes[0]["title"] == "LX3 자동 수집: 게시물 찾기 완료" and "엑셀 받기" in notes[0]["message"], notes
+        # 담당자가 확인 → 엑셀 받기 → 댓글 수집
+        with page.expect_download() as dl:
+            page.click("#saveList")
+        buzz = tmp_path / "auto_buzz.xlsx"
+        dl.value.save_as(buzz)
+        vals = [r[1:7] for r in load_workbook(buzz).worksheets[0].iter_rows(min_row=4, values_only=True) if r[1]]
+        assert [(v[1], v[2], v[5]) for v in vals] == [("자동차 커뮤니티", "클리앙", "https://www.clien.net/service/board/cm_car/777")], vals
+        # 다음 자동 수집은 이번 기간 끝(오늘 11:30)부터 (아직 오지 않은 시각이면 기록하지 않음)
+        page.locator("#saveInfo", has_text="✔").wait_for()
+        got_end = page.evaluate("chrome.storage.local.get('lx3LastRangeEnd').then((x) => x.lx3LastRangeEnd || null)")
+        assert got_end == (int(end.timestamp() * 1000) if datetime.now(ZoneInfo("Asia/Seoul")) >= end else None), got_end
+        page.click("#toComments")
+        page.wait_for_url("**/app.html")
+        with page.expect_download(timeout=120000) as dl:
+            page.click("#start")
+        raw = tmp_path / "auto_raw.xlsx"
+        dl.value.save_as(raw)
+        wb = load_workbook(raw)
+        assert [r[3] for r in list(wb["자동차 커뮤니티"].values)[1:]] == ["저도 받았습니다"]
+        assert [r[3] for r in list(wb["유튜브"].values)[1:]] == ["좋아요", "답글이에요", "멋져요", "마지막"]
 
         # 자동 수집 시각: 열어 둔 화면이 있으면 새 탭을 열지 않고 그 화면에서 시작 (찾을 곳·영상이 없게 해서 바로 끝나게)
         page.goto(f"{ext}/lx3.html")
@@ -1393,7 +1401,7 @@ def test_lx3_auto(tmp_path: Path):
         page.evaluate("chrome.storage.local.set({ lx3Channels: { cafe: false, news: false, community: false }, lx3Youtube: [] })")
         before = len(ctx.pages)
         tab_id = sw.evaluate("openAutoTab()")
-        page.wait_for_url("**/app.html*", timeout=60000)  # 그 화면에서 자동 수집 → 댓글 수집 화면까지
+        page.locator("#summary", has_text="자동 수집").wait_for(timeout=60000)  # 그 화면에서 자동 수집 시작
         assert len(ctx.pages) == before, [p.url for p in ctx.pages]
         assert tab_id == sw.evaluate("lx3Tabs().then((t) => t[0].id)")
         ctx.close()
