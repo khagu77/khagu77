@@ -351,3 +351,20 @@ button.x-del { padding: 0 5px; font-size: 11px; line-height: 16px; border-radius
 button.x-del:hover { border-color: var(--red); }
 /* RAW 담당자 수정본 표시 */
 .badge-edit { display: inline-block; padding: 1px 7px; border-radius: 999px; background: var(--blue); color: #fff; font-size: 11px; font-weight: 700; }
+
+/* 데일리 DB 탭: 칸 제목을 눈에 띄게 (담당자 요청 2026-11-03: 구분이 애매해 가독성이 떨어짐) */
+#tab-db h2 {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--blue);
+  margin: 34px 0 10px;
+  padding: 10px 14px;
+  border-left: 6px solid var(--blue);
+  border-radius: 6px;
+  background: rgba(11, 87, 208, 0.07);
+}
+#tab-db h2:first-child { margin-top: 8px; }
+#tab-db h2 .hint { display: block; margin-top: 4px; font-size: 12.5px; font-weight: 400; color: var(--muted); }
+@media (prefers-color-scheme: dark) { #tab-db h2 { color: #8ab4ff; border-left-color: #8ab4ff; background: rgba(138, 180, 255, 0.1); } }
+/* 안전 우려 게시글 총 건수 */
+.big-total { font-size: 22px; font-weight: 800; color: #d93025; margin: 4px 0 2px; }

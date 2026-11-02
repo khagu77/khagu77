@@ -1022,7 +1022,10 @@ async function renderSafety() {
   $("#safetyEmpty").hidden = total > 0;
   $("#safetyTable").hidden = !total;
   $("#safetyAll").disabled = !total;
-  $("#safetyInfo").textContent = total ? `${days.length}일 · ${total}건 · 하루 평균 ${(total / days.length).toFixed(1)}건` : "";
+  $("#safetyInfo").textContent = total ? `${days[days.length - 1].dayKey} ~ ${days[0].dayKey} · ${days.length}일 · 하루 평균 ${(total / days.length).toFixed(1)}건` : "";
+  // 상단 굵은 총 건수 (담당자 요청 2026-11-03)
+  $("#safetyTotal").hidden = !total;
+  $("#safetyTotal").textContent = `총 ${total}건`;
   const dow = (k) => "일월화수목금토"[new Date(`${k}T00:00`).getDay()];
   // 전일(바로 앞 보고일) 대비 증감: ▲ 빨강 / ▼ 파랑 / – 같음 (담당자 요청 2026-11-03)
   const diffCell = (i) => {
