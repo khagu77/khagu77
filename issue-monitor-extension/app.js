@@ -1012,7 +1012,7 @@ async function safetyByDay() {
 }
 const safetyFileName = (d) => `${d.dayKey.slice(2).replace(/-/g, "")}_안전 우려 이슈 관련.xlsx`;
 async function saveSafetyDay(d) {
-  return saveBytesFile(safetyFileName(d), ReportXlsx.build(d.rows), XLSX_MIME, true);
+  return saveSafetyFile(safetyFileName(d), ReportXlsx.build(d.rows));
 }
 async function renderSafety() {
   const days = await safetyByDay().catch(() => []);
@@ -1058,12 +1058,35 @@ async function renderSafety() {
 // 파일 이름: 마지막 보고 날짜_안전 우려 이슈 관련.xlsx (예: 261103_안전 우려 이슈 관련.xlsx)
 $("#safetyAll").addEventListener("click", async (ev) => {
   const btn = ev.currentTarget;
-  const days = (await safetyByDay()).filter((d) => d.rows.length).reverse();
+  const all = (await safetyByDay()).slice().reverse(); // 오래된 날 → 최근 (0건인 날 포함: 증감용)
+  const days = all.filter((d) => d.rows.length);
   if (!days.length) return;
   const rows = days.flatMap((d) => d.rows);
   const last = days[days.length - 1];
   const name = `${last.dayKey.slice(2).replace(/-/g, "")}_안전 우려 이슈 관련.xlsx`;
-  const where = await saveBytesFile(name, ReportXlsx.build(rows), XLSX_MIME, true);
+  // 두 번째 시트 '일별 건수': 화면과 같은 총 건수·기간·하루 평균, 날짜별 건수·전일 대비 증감 (Sheet1 양식은 일일 보고 엑셀 그대로)
+  const dow = (k) => "일월화수목금토"[new Date(`${k}T00:00`).getDay()];
+  const avg = (rows.length / all.length).toFixed(1);
+  const daily = [
+    [{ v: "안전 우려 이슈 관련 일별 건수", s: "header" }, { v: "", s: "header" }, { v: "", s: "header" }, { v: "", s: "header" }, { v: "", s: "header" }],
+    [{ v: `총 ${rows.length}건 · ${all[0].dayKey} ~ ${all[all.length - 1].dayKey} · ${all.length}일 · 하루 평균 ${avg}건`, s: "text" }],
+    [],
+    ["보고 날짜", "요일", "건수", "전일 대비", "게시글"].map((v) => ({ v, s: "header" })),
+    ...all.map((d, i) => {
+      const prev = all[i - 1];
+      const diff = prev ? d.rows.length - prev.rows.length : null;
+      return [
+        { v: d.dayKey },
+        { v: dow(d.dayKey) },
+        { v: d.rows.length },
+        { v: diff === null ? "-" : diff === 0 ? "– 0" : `${diff > 0 ? "▲" : "▼"} ${Math.abs(diff)}` },
+        { v: d.rows.map((r) => `${r.car} ${r.summary}`).join(" · "), s: "text" },
+      ];
+    }),
+    [{ v: "합계", s: "header" }, { v: "", s: "header" }, { v: rows.length, s: "header" }, { v: `하루 평균 ${avg}`, s: "header" }, { v: "", s: "header" }],
+  ];
+  const bytes = ReportXlsx.build(rows, { extraSheets: [{ name: "일별 건수", cols: [14, 7, 8, 12, 110], merges: ["A1:E1", "A2:E2"], rows: daily }] });
+  const where = await saveSafetyFile(name, bytes);
   Celebrate.done(btn);
   await Celebrate.after();
   alert(`✅ 안전 우려 이슈 관련 누적 엑셀 저장 완료\n${days[0].dayKey} ~ ${last.dayKey} · ${days.length}일 · ${rows.length}건 (날짜 순)\n\n저장 위치: ${where}`);
@@ -1541,6 +1564,58 @@ $("#clearSaveDir").addEventListener("click", async () => {
   await setSaveDir(null);
   renderSaveDir();
 });
+
+// 안전 우려 엑셀 저장 폴더 (담당자 요청 2026-11-03) — 없으면 엑셀 저장 폴더(없으면 다운로드 폴더)
+const getSafetyDir = () => idbHandles("readonly", (st) => st.get("safetySaveDir")).catch(() => null);
+const setSafetyDir = (h) => idbHandles("readwrite", (st) => (h ? st.put(h, "safetySaveDir") : st.delete("safetySaveDir")));
+async function renderSafetyDir() {
+  const dir = await getSafetyDir();
+  $("#clearSafetyDir").hidden = !dir;
+  if (!dir) {
+    $("#grantSafetyDir").hidden = true;
+    $("#safetyDirInfo").textContent = "지금: 엑셀 저장 폴더와 같은 곳";
+    $("#safetyDirInfo").classList.remove("err");
+    return;
+  }
+  const ok = await saveDirPermission(dir, false).catch(() => false);
+  $("#grantSafetyDir").hidden = ok;
+  $("#safetyDirInfo").textContent = ok ? `지금: '${dir.name}' 폴더에 저장` : `'${dir.name}' 폴더 저장 권한이 필요합니다 → '저장 권한 다시 허용'을 눌러 주세요 (그 전까지는 엑셀 저장 폴더에 저장)`;
+  $("#safetyDirInfo").classList.toggle("err", !ok);
+}
+$("#pickSafetyDir").addEventListener("click", async () => {
+  if (!window.showDirectoryPicker) return alert("이 크롬 버전은 폴더 지정을 지원하지 않습니다. 크롬을 최신으로 업데이트해 주세요.");
+  try {
+    const dir = await window.showDirectoryPicker({ id: "safetyDir", mode: "readwrite", startIn: "desktop" });
+    await saveDirPermission(dir, true);
+    await setSafetyDir(dir);
+  } catch (e) {
+    if (e.name !== "AbortError") alert(`폴더를 지정하지 못했습니다: ${e.message}`);
+  }
+  renderSafetyDir();
+});
+$("#grantSafetyDir").addEventListener("click", async () => {
+  const dir = await getSafetyDir();
+  if (dir) await saveDirPermission(dir, true);
+  renderSafetyDir();
+});
+$("#clearSafetyDir").addEventListener("click", async () => {
+  await setSafetyDir(null);
+  renderSafetyDir();
+});
+// 안전 우려 엑셀 저장: 지정한 폴더에 같은 이름이면 덮어쓰기, 안 되면 엑셀 저장 폴더(없으면 다운로드 폴더)
+async function saveSafetyFile(fileName, bytes) {
+  const dir = await withTimeout(getSafetyDir(), 5000, "저장 폴더 읽기").catch(() => null);
+  if (dir && (await saveDirPermission(dir, true).catch(() => false))) {
+    try {
+      const fh = await dir.getFileHandle(fileName, { create: true });
+      const w = await fh.createWritable();
+      await w.write(bytes);
+      await w.close();
+      return `'${dir.name}' 폴더 (${fileName})`;
+    } catch {}
+  }
+  return saveBytesFile(fileName, bytes, XLSX_MIME, true);
+}
 
 // 저장한 곳을 돌려준다 (기록용). interactive=true 면(버튼 클릭) 권한이 없을 때 허용을 묻는다.
 async function downloadReport(rows = state.rows, range = state.range, interactive = true, plain = false) {
@@ -2591,6 +2666,7 @@ function renderSettings() {
   $("#terms").value = s.terms || "";
   $("#fileName").value = s.fileName || "";
   renderSaveDir();
+  renderSafetyDir();
   $("#priorityCars").value = s.priorityCars || "";
   renderCafeTable();
   renderCommunityTable();

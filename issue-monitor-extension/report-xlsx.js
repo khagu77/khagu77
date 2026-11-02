@@ -89,7 +89,31 @@
   }
 
   // rows: [{community, car, date: Date, category, url, summary, highlight}]
-  function build(rows) {
+  // opts.extraSheets: [{ name, cols: [너비…], rows: [[{ v, s: "header"|"center"|"text" }…]…] }] — Sheet1 양식은 그대로 두고 뒤에 시트를 더 붙인다
+  // (안전 우려 이슈 관련 누적 엑셀의 '일별 건수' 시트, 담당자 요청 2026-11-03)
+  function extraSheetXml(sh) {
+    const col = (i) => String.fromCharCode(65 + i);
+    const cell = (ref, c) => {
+      const s = S[c.s || "center"] ?? S.center;
+      if (typeof c.v === "number") return `<c r="${ref}" s="${s}"><v>${c.v}</v></c>`;
+      return c.v === "" || c.v == null ? `<c r="${ref}" s="${s}"/>` : `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${esc(c.v)}</t></is></c>`;
+    };
+    const data = sh.rows.map((r, i) => `<row r="${i + 1}">${r.map((c, j) => (c ? cell(`${col(j)}${i + 1}`, c) : "")).join("")}</row>`).join("");
+    const cols = (sh.cols || []).map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("");
+    const merges = (sh.merges || []).map((m) => `<mergeCell ref="${m}"/>`).join("");
+    return (
+      '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      '<sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="17.4"/>' +
+      (cols ? `<cols>${cols}</cols>` : "") +
+      `<sheetData>${data}</sheetData>` +
+      (merges ? `<mergeCells count="${sh.merges.length}">${merges}</mergeCells>` : "") +
+      '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>'
+    );
+  }
+
+  function build(rows, opts = {}) {
+    const extra = opts.extraSheets || [];
     const strCell = (ref, v, s) => (v === "" || v === null || v === undefined ? `<c r="${ref}" s="${s}"/>` : `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`);
     let data =
       '<row r="1" spans="1:7" x14ac:dyDescent="0.4">' +
@@ -161,6 +185,7 @@
           '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
           '<Override PartName="/xl/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>' +
           '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+          extra.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 2}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("") +
           "</Types>",
       },
       {
@@ -177,7 +202,7 @@
           '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
           '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
           '<workbookPr defaultThemeVersion="166925"/><bookViews><workbookView xWindow="-108" yWindow="-108" windowWidth="23256" windowHeight="13176"/></bookViews>' +
-          '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets><calcPr calcId="191029"/></workbook>',
+          `<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/>${extra.map((sh, i) => `<sheet name="${esc(sh.name)}" sheetId="${i + 2}" r:id="rId${i + 4}"/>`).join("")}</sheets><calcPr calcId="191029"/></workbook>`,
       },
       {
         name: "xl/_rels/workbook.xml.rels",
@@ -187,6 +212,7 @@
           '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
           '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
           '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/theme" Target="theme/theme1.xml"/>' +
+          extra.map((_, i) => `<Relationship Id="rId${i + 4}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 2}.xml"/>`).join("") +
           "</Relationships>",
       },
       { name: "xl/styles.xml", data: STYLES },
@@ -194,6 +220,7 @@
       { name: "xl/worksheets/sheet1.xml", data: sheet },
     ];
     if (links.length) files.push({ name: "xl/worksheets/_rels/sheet1.xml.rels", data: sheetRels });
+    extra.forEach((sh, i) => files.push({ name: `xl/worksheets/sheet${i + 2}.xml`, data: extraSheetXml(sh) }));
     return zip(files);
   }
 
