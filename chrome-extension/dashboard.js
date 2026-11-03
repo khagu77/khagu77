@@ -226,12 +226,12 @@ function dashHtml(data, carSrc, fluid = false) {
     <div style="font-size:13px;font-weight:700;color:#ffffff;">${esc(prettyDate(data.date))}</div>
     ${data.period ? `<div style="font-size:10px;color:#c3cfdd;margin-top:1px;">수집 ${esc(data.period)}</div>` : ""}
     <table width="100%" cellpadding="0" cellspacing="0" bgcolor="#002c5f" style="margin-top:8px;border-top:1px solid #4d6b8f;background:#002c5f;background-color:#002c5f;"><tr>
-      <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;line-height:1.3;">오늘의 신규<br>게시물 수</div>
+      <td width="42%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;line-height:1.3;">오늘의 신규<br>게시물 수</div>
         <div style="font-size:20px;font-weight:800;color:#ffffff;">${total ? num(total.today) : "-"}<span style="font-size:11px;color:#ffffff;">건</span></div>
         <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(total)}</div></td>
-      <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;line-height:1.3;">오늘의 신규<br>댓글 수</div>
+      <td width="58%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;line-height:1.3;">오늘의 신규<br>댓글 수</div>
         <div style="font-size:20px;font-weight:800;color:#ffffff;">${cTotal ? num(cTotal.today) : "-"}<span style="font-size:11px;color:#ffffff;">건</span></div>
-        <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(cTotal)}${data.ytNew != null ? ` <span style="font-size:9px;font-weight:400;color:#c3cfdd;white-space:nowrap;">(유튜브 신규 ${num(data.ytNew)}건)</span>` : ""}</div>
+        <div style="font-size:11px;font-weight:700;color:#ffd166;white-space:nowrap;">${yellow(cTotal)}${data.ytNew != null ? `<span style="font-size:9px;font-weight:400;color:#c3cfdd;letter-spacing:-0.6px;white-space:nowrap;"> (유튜브 신규 ${num(data.ytNew)}건)</span>` : ""}</div>
         ${ytC ? `<div style="font-size:10px;color:#c3cfdd;white-space:nowrap;">+ 유튜브 전체 ${num(ytC.d.today)}건</div>` : ""}</td>
     </tr></table>
     <div style="font-size:10px;color:#b8c5d6;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
