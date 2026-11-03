@@ -269,7 +269,8 @@ function dashText(data) {
 }
 
 async function carDataUrl() {
-  const blob = await (await fetch(chrome.runtime.getURL("icons/logo-car.png"))).blob();
+  // 메일용 그림: 색 수를 줄여 용량 1/5 (큰 그림이 있으면 그룹웨어 편집기가 붙여 넣기를 거부)
+  const blob = await (await fetch(chrome.runtime.getURL("icons/logo-car-mail.png"))).blob();
   return new Promise((resolve) => {
     const r = new FileReader();
     r.onload = () => resolve(r.result);
