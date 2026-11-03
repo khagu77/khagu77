@@ -32,9 +32,11 @@ async function dashData() {
   const lastSerial = (cur?.summary || "").match(/마지막 순번 ([\d,]+)/)?.[1] || "";
   const rawLast = (raw[ri >= 0 ? ri : 0]?.summary || "").split("\n").slice(1).join(" · ");
   const detail = await dashDetail(cur, raw[ri >= 0 ? ri : -1]).catch(() => null);
-  // 유튜브 신규 댓글: 그날 파일과 전날 파일의 유튜브 시트를 비교해 전날에 없던 댓글 수 (전일 대비용으로 전날 것도)
-  const ytNew = ri >= 0 ? await dashYtNew(raw[ri], raw[ri + 1]).catch(() => null) : null;
-  const ytNewPrev = ri >= 0 && ytNew != null ? await dashYtNew(raw[ri + 1], raw[ri + 2]).catch(() => null) : null;
+  // 유튜브 신규 댓글 = 그날 유튜브 시트 전체 건수 − 전날 건수 (지워진 댓글이 더 많으면 음수). 전일 대비용으로 전날 것도
+  const ytRecs = ri >= 0 ? raw.slice(ri).filter((x, k) => k === 0 || x.stats?.youtube != null) : [];
+  const ytAt = (k) => ytRecs[k]?.stats?.youtube;
+  const ytNew = ytAt(0) != null && ytAt(1) != null ? ytAt(0) - ytAt(1) : null;
+  const ytNewPrev = ytAt(1) != null && ytAt(2) != null ? ytAt(1) - ytAt(2) : null;
   return {
     date,
     detail,
@@ -46,28 +48,6 @@ async function dashData() {
     lastSerial,
     rawLast,
   };
-}
-
-// 유튜브 시트의 댓글 열쇠 (영상 주소 | 작성일 | 내용)
-async function dashYtKeys(rec) {
-  const wb = await XlsxTemplate.Workbook.open(rec.bytes);
-  if (!wb.sheetNames().includes("유튜브")) return null;
-  const keys = new Set();
-  for (const r of await wb.readRows("유튜브")) {
-    if (r.r <= 1 || !r.cells.E) continue;
-    keys.add(`${dashUrlKey(r.cells.E)}|${String(r.cells.C ?? "").trim()}|${String(r.cells.D ?? "").trim()}`);
-  }
-  return keys;
-}
-
-// rec 날의 유튜브 신규 댓글 수 = rec 유튜브 시트 중 prev 날 시트에 없던 댓글 (비교할 전날 파일이 없으면 null)
-async function dashYtNew(rec, prev) {
-  if (!rec?.bytes || !prev?.bytes) return null;
-  const [a, b] = [await dashYtKeys(rec), await dashYtKeys(prev)];
-  if (!a || !b) return null;
-  let n = 0;
-  for (const k of a) if (!b.has(k)) n++;
-  return n;
 }
 
 // ── 채널 상세: 그날 엑셀을 직접 읽어 출처(동호회·유튜브 채널·언론사·커뮤니티 사이트)별 게시글·댓글 수 ──
@@ -251,8 +231,8 @@ function dashHtml(data, carSrc, fluid = false) {
         <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(total)}</div></td>
       <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;line-height:1.3;">오늘의 신규<br>댓글 수</div>
         <div style="font-size:20px;font-weight:800;color:#ffffff;">${cTotal ? num(cTotal.today) : "-"}<span style="font-size:11px;color:#ffffff;">건</span></div>
-        <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(cTotal)}</div>
-        ${ytC ? `<div style="font-size:10px;color:#c3cfdd;line-height:1.35;white-space:nowrap;">${data.ytNew != null ? `유튜브 신규 ${num(data.ytNew)} 포함` : "유튜브 신규 미포함"}<br>유튜브 전체 ${num(ytC.d.today)}</div>` : ""}</td>
+        <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(cTotal)}${data.ytNew != null ? ` <span style="font-size:9px;font-weight:400;color:#c3cfdd;white-space:nowrap;">(유튜브 신규 ${num(data.ytNew)}건)</span>` : ""}</div>
+        ${ytC ? `<div style="font-size:10px;color:#c3cfdd;white-space:nowrap;">+ 유튜브 전체 ${num(ytC.d.today)}건</div>` : ""}</td>
     </tr></table>
     <div style="font-size:10px;color:#b8c5d6;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
     </div>
@@ -270,7 +250,7 @@ function dashHtml(data, carSrc, fluid = false) {
 }
 
 // 오늘의 신규 댓글 수와 전일 대비: 언론·동호회·자동차 커뮤니티는 그날 새로 모은 댓글
-// 유튜브는 전날 파일과 비교한 신규 댓글 수를 더함 (전날 파일이 없으면 유튜브는 빼고)
+// 유튜브는 신규 댓글 수(전날 대비 늘어난 건수, 음수 가능)를 더함 (전날 기록이 없으면 유튜브는 빼고)
 function dashCommentTotal(data) {
   const ch = data.comments.channels.filter((x) => x.label !== "유튜브");
   if (!ch.length && data.ytNew == null) return null;
@@ -293,7 +273,7 @@ function dashText(data) {
   return [
     `[팰리세이드(LX3) 전동 시트 관련 온라인 동향] DASHBOARD - ${prettyDate(data.date)}${data.period ? ` (수집 기간 ${data.period})` : ""}`,
     `■ 게시물: ${data.posts.total ? line("오늘의 신규 게시물 수", data.posts.total) : "기록 없음"}${posts ? ` | ${posts}` : ""}`,
-    `■ 댓글: ${dashCommentTotal(data) ? `${line("오늘의 신규 댓글 수", dashCommentTotal(data))}${data.ytNew != null ? ` (유튜브 신규 ${num(data.ytNew)} 포함)` : ""} | ` : ""}${comments || "기록 없음"}`,
+    `■ 댓글: ${dashCommentTotal(data) ? `${line("오늘의 신규 댓글 수", dashCommentTotal(data))}${data.ytNew != null ? ` (유튜브 신규 ${num(data.ytNew)}건)` : ""} | ` : ""}${comments || "기록 없음"}`,
     ...(data.detail
       ? ["■ 채널 상세 (게시글/댓글)"].concat(DASH_CH.map(({ label }) => {
           const list = data.detail[label] || [];
