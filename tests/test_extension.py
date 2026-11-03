@@ -844,6 +844,7 @@ def test_final_db(tmp_path: Path):
         assert list(wb["언론"].values)[1][3] == "언론 댓글"  # 기존 파일에 이어 쓴 것
         assert [r[3] for r in list(wb["유튜브"].values)[1:]] == ["좋아요", "답글이에요", "멋져요", "마지막"]
         page.goto(f"{ext}/db.html")
+        page.locator("section[data-kind=raw] tbody tr").nth(1).wait_for()  # 표가 채워질 때까지
         assert len(db_rows("raw")) == 2 and "최종" in db_rows("raw")[0]
         assert "마지막 연번\n언론 1\n유튜브 4\n동호회 2\n자동차 커뮤니티 1" in db_rows("raw")[0], db_rows("raw")  # 유튜브는 오늘 수집으로 교체
         # ▲ 표시(전일 대비 증가)가 있는 줄에서도 '수정본 올리기'가 눌림 (▲ 표시도 'up' 이름이라 버튼 대신 거기에 붙던 문제)
