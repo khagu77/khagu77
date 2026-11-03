@@ -103,7 +103,7 @@ function dashHtml(d, prev, banner, fluid = false) {
   return `<div style="${fluid ? "display:block;" : "display:inline-block;"}border:1px solid #d9dde3;border-radius:12px;overflow:hidden;background:#ffffff;">
 <table${fluid ? ' width="100%"' : ""} cellpadding="0" cellspacing="0" style="${fluid ? "width:100%;" : ""}border-collapse:collapse;border:0;font-family:${DASH_FONT};background:transparent;">
   <tr>
-  <td width="230" rowspan="2" bgcolor="#002c5f" style="width:230px;vertical-align:top;background:#002c5f;background-color:#002c5f;padding:0;color:#ffffff;">
+  <td width="230" bgcolor="#002c5f" style="width:230px;vertical-align:top;background:#002c5f;background-color:#002c5f;padding:0;color:#ffffff;">
     <div style="padding:14px 14px 12px;${fluid ? "" : "width:202px;"}">
     <div style="font-size:11px;color:#c3cfdd;line-height:1.35;">${desc(d.title || "코리아 세일 페스타(K-세일 페스타) 차종별 동호회 반응")}</div>
     <div style="color:#ffffff;font-family:'Arial Black','Helvetica Neue',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.05;margin-top:4px;letter-spacing:0.3px;">DASHBOARD</div>
@@ -116,7 +116,7 @@ function dashHtml(d, prev, banner, fluid = false) {
     <div style="font-size:10px;color:#c3cfdd;margin:10px 0 4px;">전체 성향 (반응 ${dnum(d.reactions)}건)</div>
     ${dashBar(d.tone, d.reactions, 12)}
     <div style="margin-top:5px;line-height:1.7;">${dashLegend(d, 11, true)}</div>
-    <div style="font-size:11px;color:#ffd166;font-weight:700;margin-top:8px;line-height:1.45;">${desc(dashVerdict(d).text)}</div>
+    ${d.reactions ? `<div style="font-size:11px;color:#ffd166;font-weight:700;margin-top:8px;line-height:1.45;">${desc(dashVerdict(d).text)}</div>` : ""}
     <div style="font-size:10px;color:#b8c5d6;margin-top:8px;line-height:1.5;">모니터링 채널: ${desc(d.channels || `주요 모니터링 동호회 ${d.cafes.length}곳`)}${d.unjudged ? `<br><span style="color:#ffd166;">※ 잠정치: ${dnum(d.unjudged)}건은 AI 판단 전</span>` : ""}</div>
     </div>
   </td>
@@ -129,7 +129,8 @@ function dashHtml(d, prev, banner, fluid = false) {
     ${dashQuotes(d, fluid ? "100%" : W)}
   </td>
   </tr>
-  <tr><td align="right" style="vertical-align:bottom;text-align:right;padding:6px 12px 8px 6px;background:transparent;">
+  <tr><td width="230" bgcolor="#002c5f" valign="bottom" style="width:230px;vertical-align:bottom;background:#002c5f;background-color:#002c5f;padding:0 14px 9px;"><div style="font-size:9px;line-height:1.2;color:#ffffff;letter-spacing:0.6px;opacity:0.85;font-family:Arial,Helvetica,sans-serif;">By LINESQUARE</div></td>
+  <td align="right" style="vertical-align:bottom;text-align:right;padding:6px 12px 8px 6px;background:transparent;">
     <div align="right" style="font-size:10px;color:#4a4f57;text-align:right;">※ 반응 = 게시글·댓글 × 언급 차종 · 성향은 코세페에 대한 반응 기준 · 주요 내용은 많이 이야기된 이슈 순(건수 · 그 차종 긍정/부정 중 비중)${prev ? ` · <span style="color:#d93025;font-weight:700;">▲</span><span style="color:#1a5fd0;font-weight:700;">▼</span> ${desc(prev.dateText)} 대비` : ""}</div>
   </td></tr>
 </table></div>`;
@@ -160,7 +161,7 @@ function dashText(d, prev) {
     `[${d.title || "코리아 세일 페스타 차종별 동호회 반응"}] DASHBOARD - ${d.period} (${new Date(d.at).toLocaleString()} 기준)`,
     ...(d.summary || []).map((t) => `• ${t}`),
     `■ 전체: 게시글 ${dnum(d.posts)}${diff(d.posts, prev?.posts)} / 댓글 ${dnum(d.comments)}${diff(d.comments, prev?.comments)} / 반응 ${dnum(d.reactions)} · ${tones(d)}`,
-    `  → ${dashVerdict(d).text}`,
+    ...(d.reactions ? [`  → ${dashVerdict(d).text}`] : []),
   ];
   for (const c of d.cars) {
     const p = prev?.cars?.find((x) => x.car === c.car);
