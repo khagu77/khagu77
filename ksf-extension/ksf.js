@@ -1,0 +1,2169 @@
+// 코리아 세일 페스타(K-세일 페스타) 차종별 동호회 반응 모니터링
+// 대상 차종(아반떼 · 그랜저 · 싼타페) 동호회에서 기간 안의 코세페 관련 글을 찾아 본문·댓글을 읽고,
+// 글·댓글마다 '어느 차종에 대한 반응인지'를 나눠 그 차종 기준으로 코세페에 대한 긍정·중립·부정·단순비난을 판단한다.
+//  - 일반적인 감정의 긍부정이 아니라 '코리아 세일 페스타(할인 행사)'에 대한 고객 반응의 긍부정
+//  - 한 댓글이 여러 차종을 말하면 차종마다 따로 판단 (예: "아반떼는 많이 깎아 주는데 그랜저는 찔끔" → 아반떼 긍정 · 그랜저 부정)
+//  - 차종 이름이 없으면 그 동호회(글)의 차종에 대한 반응
+// 결과: 차종별 성향 비율 · 차종별 긍정/부정 주요 내용 TOP5(개수·비율) → 엑셀 · 보고서 PPT 3페이지
+// 네이버는 API 를 부르지 않고 검색 화면·게시글을 보이지 않는 틀(필요하면 뒤쪽 탭)로 열어 화면에 보이는 내용만 읽는다(cafe-common.js).
+
+const DEFAULT_CAFES = [
+  "아반떼 | 아반떼 CN8 클럽 | 01088157554",
+  "아반떼 | 아반떼 매니아 | blackboxclub",
+  "그랜저 | 그랜저 리더스 | suddenattackskincafe",
+  "그랜저 | 그랜저 오너스 | allfm03",
+  "그랜저 | 그랜저 멤버스 | bestcm",
+  "그랜저 | 그랜저 매니아 | bestani",
+  "그랜저 | 그랜저 패밀리 | mp3vilge",
+  "싼타페 | 클럽 싼타페 | iroid",
+  "싼타페 | 싼타페MX5클럽 | choids",
+  "싼타페 | 싼타페MX5패밀리 | trailer",
+].join("\n");
+const DEFAULT_QUERIES = "코리아세일페스타, 코리아 세일 페스타, 코세페, K세일페스타, K-세일 페스타, 세일페스타, 세일 페스타, 할인, 프로모션, 특별 할인, 보상";
+// 코세페 단어: 있으면 '관련 글'로 체크
+const DEFAULT_KSF_WORDS = "코리아세일페스타, 코리아 세일 페스타, 코세페, 세일페스타, 세일 페스타, K세일, K-세일, K 세일, 케이세일, KSF";
+// 할인 단어: 코세페 단어가 없어도 기간 안의 할인 이야기는 코세페 반응일 수 있어 본문까지 읽어 확인 (AI 가 최종 판단)
+const DEFAULT_SALE_WORDS = "할인, 프로모션, 특가, 세일, 보상, 할인폭, 할인율, 가격 인하, 재고 할인, 11월 혜택, 11월 조건";
+// 차종 이름: 글·댓글에 이 이름이 있으면 그 차종에 대한 반응으로 본다 (규칙 판단용 · AI 에게도 전달)
+const DEFAULT_CAR_WORDS = [
+  "아반떼 | 아반떼, 아방, 아반, CN8, CN7, avante",
+  "그랜저 | 그랜저, 그렌저, 그랜져, 그랜, GN7, grandeur",
+  "싼타페 | 싼타페, 산타페, 싼타, 싼페, MX5, santafe",
+].join("\n");
+const DEFAULT_EXCLUDE = "팝니다, 삽니다, 판매합니다, 공동구매, 보험 할인, 보험료, 썬팅, 틴팅, 블랙박스";
+const DEFAULT_AI_RULES = "";
+const DEFAULT_START = "2026-11-01";
+const DEFAULT_END = "2026-11-08";
+const DEFAULT_TITLE = "■ 코리아 세일 페스타 관련 차종별 동호회 여론 동향";
+const DEFAULT_SEARCH_URL = "https://cafe.naver.com/f-e/cafes/{cafeId}/menus/0?viewType=L&ta=ARTICLE_COMMENT&page={page}&q={q}";
+const DEFAULT_MAX_PAGES = 10;
+const TONES = ["긍정", "중립", "부정", "단순비난"];
+const OTHER_CAR = "기타 차종";
+const OUT_NAME = "코리아 세일 페스타 차종별 동호회 반응";
+const TOP_N = 5;
+// 걸리는 시간 어림 (초): 검색 화면 한 페이지 · 글 하나
+const SEC_PER_PAGE = 9;
+const SEC_PER_ARTICLE = 14;
+
+const AI_MODELS = [
+  ["claude-opus-5-5", "Claude Opus 5.5 (가장 정확 · 기본 · 권장)"],
+  ["claude-sonnet-5-5", "Claude Sonnet 5.5 (더 빠름 · 약 절반 가격)"],
+  ["claude-haiku-5-5", "Claude Haiku 5.5 (가장 저렴 · 정확도 낮음)"],
+];
+// AI_PRICE · WON_PER_USD · aiWonExact · fmtWon 은 ui.js
+const AI_BATCH = 6; // 한 번에 보내는 글 수
+const COMMENT_BATCH = 20; // 한 번에 보내는 댓글 수 (보고서 3p 의 바탕이라 작게 나눠 꼼꼼히)
+const AI_PARALLEL = 3;
+const AI_BODY_CHARS = 4000;
+const JUDGE_VERSION = 1; // 판단 기준 버전 (바뀌면 다시 판단)
+
+// items: 글 { key, car(동호회 차종), cafeIndex, cafeName, slug, articleId, title, text, date, hasTime, queries,
+//              related, candidate, note, checked, touched, body, bodyRead, bodyNote, nickname, views, comments,
+//              commentList: [{ id, isReply, parentText, nickname, content, dateText, date, a }], commentsRead,
+//              summary, ksf(AI: 코세페 글인지), a: { ops: [{ car, tone, theme }], by, v } }
+let items = [];
+let clubIds = {}; // 영문 주소 → 카페 번호
+let running = false;
+let stopRequested = false;
+let diagnostics = [];
+let aiSpend = { won: 0, input: 0, output: 0 };
+let tops = null; // 주요 내용 TOP5 묶음 { sig, by, cars: { 차종: { 긍정: [{ label, keys:[반응 키] }], 부정: [...] } }, at }
+
+// ---------------------------------------------------------------------------
+// 설정
+// ---------------------------------------------------------------------------
+
+const SETTING_IDS = ["cafeList", "queries", "ksfWords", "saleWords", "carWords", "exclude", "aiRules", "pptTitle", "searchUrl", "maxPages"];
+const SETTING_DEFAULTS = {
+  cafeList: DEFAULT_CAFES, queries: DEFAULT_QUERIES, ksfWords: DEFAULT_KSF_WORDS, saleWords: DEFAULT_SALE_WORDS, carWords: DEFAULT_CAR_WORDS,
+  exclude: DEFAULT_EXCLUDE, aiRules: DEFAULT_AI_RULES, pptTitle: DEFAULT_TITLE, searchUrl: DEFAULT_SEARCH_URL, maxPages: DEFAULT_MAX_PAGES,
+};
+
+async function loadSettings() {
+  const s = await chrome.storage.local
+    .get(["ksfSettings", "ksfStart", "ksfEnd", "ksfClubIds", "saveAsk", "ksfTabFallback", "aiKey", "aiModel", "ksfAiOn", "ksfOnlySlide"])
+    .catch(() => ({}));
+  const set = s.ksfSettings || {};
+  for (const id of SETTING_IDS) $(`#${id}`).value = set[id] ?? SETTING_DEFAULTS[id];
+  $("#saveAsk").checked = !!s.saveAsk;
+  $("#tabFallback").checked = s.ksfTabFallback ?? true;
+  $("#onlySlide").checked = s.ksfOnlySlide ?? true;
+  clubIds = { ...(s.ksfClubIds || {}) };
+  for (const [id, slug] of Object.entries(await loadCafeSlugs())) if (!clubIds[slug.toLowerCase()]) clubIds[slug.toLowerCase()] = id;
+  $("#startDate").value = s.ksfStart || DEFAULT_START;
+  $("#endDate").value = s.ksfEnd || DEFAULT_END;
+  const sel = $("#aiModel");
+  sel.innerHTML = "";
+  for (const [id, label] of AI_MODELS) sel.add(new Option(label, id));
+  if (s.aiModel && AI_MODELS.some(([id]) => id === s.aiModel)) sel.value = s.aiModel;
+  $("#aiKey").value = s.aiKey || "";
+  $("#aiOn").checked = !!s.ksfAiOn;
+  showAiStatus();
+  renderCafeInfo();
+}
+
+function saveSettings() {
+  const set = {};
+  for (const id of SETTING_IDS) set[id] = $(`#${id}`).value;
+  set.maxPages = Math.max(1, Math.min(100, Number(set.maxPages) || DEFAULT_MAX_PAGES));
+  set.searchUrl = normalizeSearchUrl(set.searchUrl);
+  return chrome.storage.local
+    .set({
+      ksfSettings: set,
+      ksfStart: $("#startDate").value,
+      ksfEnd: $("#endDate").value,
+      ksfTabFallback: $("#tabFallback").checked,
+      ksfOnlySlide: $("#onlySlide").checked,
+      saveAsk: $("#saveAsk").checked,
+      aiKey: $("#aiKey").value.trim(),
+      aiModel: $("#aiModel").value,
+      ksfAiOn: $("#aiOn").checked,
+    })
+    .catch(() => {});
+}
+
+function saveClubIds() {
+  return chrome.storage.local.set({ ksfClubIds: clubIds }).catch(() => {});
+}
+
+function compactText(s) {
+  return String(s || "").replace(/\s+/g, "").toLowerCase();
+}
+
+// 단어 목록 → [{ w: 비교할 글자, ascii: 영문·숫자 낱말인지 }]
+function wordList(text) {
+  return String(text || "")
+    .split(/[,\n]/)
+    .map((w) => compactText(w))
+    .filter(Boolean)
+    .map((w) => ({ w, ascii: /^[a-z0-9/-]+$/.test(w) }));
+}
+
+// 한글 단어는 띄어쓰기를 빼고 들어 있는지, 영문 낱말은 앞뒤가 영문자가 아닐 때만
+function hasWord(compact, w) {
+  if (!w.ascii) return compact.includes(w.w);
+  let i = compact.indexOf(w.w);
+  while (i >= 0) {
+    const before = compact[i - 1] || "";
+    const after = compact[i + w.w.length] || "";
+    if (!/[a-z]/.test(before) && !/[a-z]/.test(after)) return true;
+    i = compact.indexOf(w.w, i + 1);
+  }
+  return false;
+}
+
+// 동호회 목록 → [{ car, name, slug }]
+function cafes() {
+  const out = [];
+  for (const line of $("#cafeList").value.split(/\r?\n/)) {
+    const parts = line.split("|").map((p) => p.trim());
+    if (parts.length < 3) continue;
+    const [car, name, addr] = parts;
+    const slug = (parseArticleUrl(addr).cafeUrl || addr.replace(/^https?:\/\/(?:m\.)?cafe\.naver\.com\//, "").replace(/[/?#].*$/, "")).trim();
+    // 카페 주소가 숫자로만 된 카페도 있다 (예: 아반떼 CN8 클럽 cafe.naver.com/01088157554 - 오전 온라인 동향 프로그램과 같은 주소)
+    if (!car || !(isSlug(slug) || /^0\d{5,}$|^\d{10,}$/.test(slug))) continue;
+    out.push({ car, name: name || slug, slug });
+  }
+  return out;
+}
+
+// 대상 차종 (동호회 목록 순서)
+function targetCars() {
+  return [...new Set(cafes().map((c) => c.car))];
+}
+
+// 차종 이름 → { 아반떼: [단어…] }
+function carWords() {
+  const out = {};
+  for (const line of String($("#carWords").value || "").split(/\r?\n/)) {
+    const [car, list] = line.split("|").map((p) => (p || "").trim());
+    if (car && list) out[car] = wordList(list);
+  }
+  for (const car of targetCars()) if (!out[car]) out[car] = wordList(car);
+  return out;
+}
+
+function queries() {
+  return [...new Set(String($("#queries").value).split(/[,\n]/).map((q) => q.trim()).filter(Boolean))];
+}
+
+function dayOf(v) {
+  const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+}
+
+// 기간: { start: 시작일 0시, end: 끝 날짜 다음 날 0시 }
+function period() {
+  const start = dayOf($("#startDate").value) || new Date(0);
+  const e = dayOf($("#endDate").value);
+  const end = e ? new Date(e.getFullYear(), e.getMonth(), e.getDate() + 1) : new Date(8640000000000000);
+  return { start, end };
+}
+
+function inPeriodTime(time, p = period()) {
+  if (!time) return true; // 날짜를 모르면 빼지 않음
+  return time >= p.start.getTime() && time < p.end.getTime();
+}
+
+function periodText() {
+  const f = (v) => {
+    const d = dayOf(v);
+    return d ? `${d.getMonth() + 1}/${d.getDate()}(${"일월화수목금토"[d.getDay()]})` : "?";
+  };
+  return `${f($("#startDate").value)} ~ ${f($("#endDate").value)}`;
+}
+
+function renderCafeInfo() {
+  const list = cafes();
+  const byCar = targetCars().map((car) => `${car}: ${list.filter((c) => c.car === car).map((c) => c.name).join(", ")}`);
+  $("#cafeNames").textContent = list.length ? `동호회 ${list.length}곳 · ${byCar.join(" / ")}` : "동호회가 없습니다 (설정에서 추가)";
+  const tbody = $("#cafeInfo tbody");
+  tbody.innerHTML = "";
+  for (const c of list) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td></td><td></td><td></td><td><input type="text" class="slug" spellcheck="false" placeholder="자동 (숫자나 카페 주소 붙여넣기)"></td>`;
+    tr.children[0].textContent = c.car;
+    tr.children[1].textContent = c.name;
+    tr.children[2].textContent = c.slug;
+    const input = tr.querySelector("input");
+    input.value = clubIds[c.slug.toLowerCase()] || "";
+    input.addEventListener("change", async () => {
+      const raw = input.value.trim();
+      const v = raw ? clubIdFromInput(raw) : "";
+      if (raw && !v) {
+        input.value = clubIds[c.slug.toLowerCase()] || "";
+        askAlert("카페 번호를 찾지 못했습니다. 숫자(예: 16624720)나 카페 '전체글보기' 화면의 주소를 붙여 넣어 주세요.");
+        return;
+      }
+      input.value = v;
+      if (v) clubIds[c.slug.toLowerCase()] = v;
+      else delete clubIds[c.slug.toLowerCase()];
+      await saveClubIds();
+    });
+    tbody.appendChild(tr);
+  }
+  const filter = $("#carFilter");
+  const keep = filter.value;
+  filter.length = 1;
+  for (const car of targetCars()) filter.add(new Option(car, car));
+  filter.value = [...filter.options].some((o) => o.value === keep) ? keep : "";
+  updateJobInfo();
+}
+
+function renderCafeInfoIds() {
+  const list = cafes();
+  document.querySelectorAll("#cafeInfo tbody input").forEach((input, i) => {
+    if (!input.value && list[i]) input.value = clubIds[list[i].slug.toLowerCase()] || "";
+  });
+}
+
+// 찾을 일 목록: 동호회 × 검색어
+function jobs() {
+  const out = [];
+  const qs = queries();
+  cafes().forEach((c, cafeIndex) => {
+    for (const q of qs) out.push({ ...c, cafeIndex, q });
+  });
+  return out;
+}
+
+function updateJobInfo() {
+  const list = jobs();
+  const sec = list.length * 1.5 * SEC_PER_PAGE;
+  $("#jobInfo").textContent = list.length
+    ? `기간 ${periodText()} · 동호회·검색어 ${list.length}개 · 예상 소요 시간 약 ${formatDuration(sec)} (글 수에 따라 달라짐)`
+    : "설정에 동호회와 검색어를 넣어 주세요.";
+}
+
+function ymd(d) {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function formatDuration(sec) {
+  sec = Math.max(0, Math.round(sec));
+  if (sec < 60) return `${sec}초`;
+  const m = Math.round(sec / 60);
+  if (m < 60) return `${m}분`;
+  return `${Math.floor(m / 60)}시간${m % 60 ? ` ${m % 60}분` : ""}`;
+}
+
+function normalizeSearchUrl(raw) {
+  let u = String(raw || "").trim();
+  if (!u) return DEFAULT_SEARCH_URL;
+  if (u.includes("{cafeId}") && u.includes("{q}")) return u;
+  u = u.replace(/\/cafes\/\d+\//, "/cafes/{cafeId}/").replace(/([?&](?:search\.)?clubid=)\d+/i, "$1{cafeId}");
+  if (/[?&](?:q|query|search\.query)=/i.test(u)) u = u.replace(/([?&](?:q|query|search\.query)=)[^&#]*/i, "$1{q}");
+  else u += `${u.includes("?") ? "&" : "?"}q={q}`;
+  if (/[?&](?:search\.)?page=/i.test(u)) u = u.replace(/([?&](?:search\.)?page=)\d*/i, "$1{page}");
+  else u += "&page={page}";
+  return u;
+}
+
+function searchUrl(cafeId, q, page) {
+  return normalizeSearchUrl($("#searchUrl").value)
+    .replace("{cafeId}", cafeId)
+    .replace("{q}", encodeURIComponent(q))
+    .replace("{page}", String(page));
+}
+
+// ---------------------------------------------------------------------------
+// 관련 글 판단 (규칙): 코세페 단어가 있으면 체크 · 할인 단어만 있으면 본문까지 읽어 확인
+// ---------------------------------------------------------------------------
+
+function judge(text) {
+  const t = compactText(text);
+  const ksf = wordList($("#ksfWords").value).some((w) => hasWord(t, w));
+  const sale = wordList($("#saleWords").value).some((w) => hasWord(t, w));
+  const exc = wordList($("#exclude").value).some((w) => hasWord(t, w));
+  return { related: ksf && !exc, candidate: (ksf || sale) && !exc, ksf, sale, exc };
+}
+
+function judgeNote(j) {
+  if (j.related) return "";
+  if (j.exc) return "관련 없는 단어 있음";
+  if (j.sale) return "할인 단어만 있음";
+  return "코세페·할인 단어 없음";
+}
+
+// ---------------------------------------------------------------------------
+// 차종별 반응 판단 (규칙 어림 - AI 를 켜면 AI 가 판단)
+// 반응 하나 = (글 또는 댓글) × (그 글·댓글이 말하는 차종). 차종 이름이 없으면 동호회 차종.
+// ---------------------------------------------------------------------------
+
+const NEG_WORDS = [
+  "보상", "역차별", "호구", "손해", "억울", "배신", "기만", "우롱", "뒤통수", "트라우마", "열받", "화나", "짜증", "욕나", "욕 나",
+  "찔끔", "쥐꼬리", "생색", "별로", "실망", "재고", "떨이", "실적", "취소", "안 사", "안사", "안 삽", "다른 차", "넘어가", "먹이", "장난",
+  "선넘", "너무하", "어이없", "황당", "씁쓸", "비싸", "속상",
+];
+const POS_WORDS = ["좋네", "좋아", "좋은 기회", "기회", "괜찮", "혜자", "득템", "개이득", "이득", "만족", "착하", "잘됐", "다행", "계약했", "계약하", "질렀", "살 만", "사볼", "알아보"];
+const BLAME_WORDS = ["현기", "흉기", "양아치", "날강도", "도둑", "사기꾼", "개같", "꺼져", "망해라", "노조", "귀족노조"];
+// 규칙으로 정하는 주요 내용 (AI 를 쓰지 않을 때) - [주요 내용, 단어들]
+const NEG_THEMES = [
+  ["기존 구매자 보상 필요·역차별 불만", ["보상", "역차별", "호구", "먼저 산", "먼저산", "출고한", "기존 구매", "계약자", "손해", "억울", "트라우마", "뒤통수"]],
+  ["재고 처리·실적용 할인 의심", ["재고", "떨이", "실적", "밀어내"]],
+  ["할인 폭·조건 불만", ["찔끔", "쥐꼬리", "생색", "할인폭", "할인 폭", "조건", "별로"]],
+  ["가격 정책·회사 신뢰 하락", ["배신", "기만", "우롱", "먹이", "장난", "신뢰", "정책"]],
+  ["구매 취소·타 차종 고려", ["취소", "안 사", "안사", "안 삽", "다른 차", "넘어가"]],
+];
+const POS_THEMES = [
+  ["이번 할인을 계기로 구매를 알아보게 됨", ["알아보", "계약", "질렀", "사볼", "살까", "구매"]],
+  ["구매자 입장에서 할인 혜택 반가움", ["좋", "괜찮", "기회", "혜자", "득템", "이득", "다행", "착하", "만족"]],
+];
+
+function carsIn(text) {
+  const t = compactText(text);
+  return Object.entries(carWords()).filter(([, ws]) => ws.some((w) => hasWord(t, w))).map(([car]) => car);
+}
+
+function ruleTone(text) {
+  const t = compactText(text);
+  const count = (list) => list.filter((w) => t.includes(compactText(w))).length;
+  const neg = count(NEG_WORDS);
+  const pos = count(POS_WORDS);
+  const blame = count(BLAME_WORDS);
+  if (blame && !neg && !pos) return "단순비난";
+  if (neg > pos) return "부정";
+  if (pos > neg) return "긍정";
+  return blame ? "단순비난" : "중립";
+}
+
+function ruleTheme(text, tone) {
+  const t = compactText(text);
+  const list = tone === "부정" ? NEG_THEMES : tone === "긍정" ? POS_THEMES : [];
+  for (const [label, ws] of list) if (ws.some((w) => t.includes(compactText(w)))) return label;
+  return tone === "부정" ? "기타 부정 의견" : tone === "긍정" ? "기타 긍정 의견" : "";
+}
+
+// homeCar: 동호회 차종
+function ruleOps(text, homeCar) {
+  const found = carsIn(text);
+  const cars = found.length ? found : [homeCar];
+  const tone = ruleTone(text);
+  return cars.map((car) => ({ car, tone, theme: ruleTheme(text, tone) }));
+}
+
+// 표·엑셀에 쓰는 판단 (AI 결과가 있으면 그것, 없으면 규칙)
+function postOps(x) {
+  if (x.a?.by === "ai" && x.a.v === JUDGE_VERSION) return x.a.ops;
+  return ruleOps(`${x.title}\n${x.body || x.text || ""}`, x.car);
+}
+
+function commentOps(x, c) {
+  if (c.a?.by === "ai" && c.a.v === JUDGE_VERSION) return c.a.ops;
+  return ruleOps(c.content, x.car);
+}
+
+// ---------------------------------------------------------------------------
+// 카페 번호 알아내기: 카페 첫 화면(cafe.naver.com/영문주소)을 열어 화면 속 /cafes/번호/ 단서를 모은다
+// ---------------------------------------------------------------------------
+
+function clubIdHintsInFrame() {
+  const strong = [];
+  const weak = [];
+  const RE = /\/cafes\/(\d{4,})\b|[?&](?:search\.)?club_?id=(\d{4,})|[?&]cafe_?id=(\d{4,})/gi;
+  const add = (s, list) => {
+    for (const m of String(s || "").matchAll(RE)) list.push(m[1] || m[2] || m[3]);
+  };
+  add(location.href, strong);
+  for (const f of document.querySelectorAll("iframe[src]")) add(f.getAttribute("src"), strong);
+  for (const sel of ['meta[property="og:url"]', 'link[rel="canonical"]', 'meta[property="al:android:url"]', 'meta[property="al:ios:url"]']) {
+    const el = document.querySelector(sel);
+    if (el) add(el.getAttribute("content") || el.getAttribute("href"), strong);
+  }
+  for (const a of document.querySelectorAll("a[href]")) add(a.getAttribute("href"), weak);
+  for (const s of document.querySelectorAll("script:not([src])")) {
+    const text = s.textContent || "";
+    for (const m of text.matchAll(/["']?(?:clubId|cafeId|g_sClubId|clubid|cafeid)["']?\s*[:=]\s*["']?(\d{4,})/g)) strong.push(m[1]);
+    add(text, weak);
+  }
+  try {
+    for (const e of performance.getEntriesByType("resource")) add(e.name, weak);
+  } catch {
+    /* 무시 */
+  }
+  return { strong, weak, href: location.href };
+}
+
+function pickClubId(frames) {
+  const score = new Map();
+  for (const f of frames) {
+    for (const id of f.strong || []) score.set(id, (score.get(id) || 0) + 10);
+    for (const id of f.weak || []) score.set(id, (score.get(id) || 0) + 1);
+  }
+  const ranked = [...score.entries()].sort((a, b) => b[1] - a[1]);
+  if (!ranked.length) return null;
+  const [best, second] = ranked;
+  if (best[1] >= 10) return best[0];
+  return !second || best[1] >= second[1] * 3 ? best[0] : null;
+}
+
+async function clubIdFrom(url, mode) {
+  return withTab(url, async (where) => {
+    let frames = [];
+    for (let i = 0; i < 6; i++) {
+      frames = await runInFrames(where, clubIdHintsInFrame);
+      const id = pickClubId(frames);
+      if (id) return { id };
+      await sleep(1500);
+    }
+    return { id: null, snapshot: await runInFrames(where, snapshotInFrame), hints: frames };
+  }, { mode }).catch((e) => ({ id: null, error: String(e?.message || e) }));
+}
+
+async function resolveClubId(slug) {
+  const known = clubIds[slug.toLowerCase()];
+  if (known) return known;
+  const art = items.find((x) => x.slug.toLowerCase() === slug.toLowerCase())?.articleId;
+  const urls = [`https://cafe.naver.com/${slug}`, ...(art ? [`https://cafe.naver.com/${slug}/${art}`] : [])];
+  const tries = urls.map((u) => [u, "frame"]);
+  if ($("#tabFallback").checked) tries.push(...urls.map((u) => [u, "tab"]));
+  for (const [url, mode] of tries) {
+    log(`  ↳ ${slug} 카페 번호 확인 중: ${url} (${mode === "tab" ? "뒤쪽 탭" : "숨긴 화면"})`);
+    const res = await clubIdFrom(url, mode);
+    if (res.id) {
+      clubIds[slug.toLowerCase()] = res.id;
+      await saveClubIds();
+      await saveCafeSlug(res.id, slug);
+      log(`  ↳ ${slug} 카페 번호: ${res.id}`);
+      return res.id;
+    }
+    diagnostics.push({ clubId: slug, url, mode, error: res.error, hints: res.hints, frames: res.snapshot });
+    await sleep(randomBetween(CAFE_PAGE_DELAY));
+  }
+  return null;
+}
+
+function clubIdFromInput(v) {
+  const s = String(v || "").trim();
+  const m = s.match(/\/cafes\/(\d{4,})/) || s.match(/club_?id=(\d{4,})/i) || s.match(/^(\d{4,})$/);
+  return m ? m[1] : null;
+}
+
+// ---------------------------------------------------------------------------
+// 화면 읽기
+// ---------------------------------------------------------------------------
+
+function log(text) {
+  const box = $("#log");
+  box.hidden = false;
+  const line = document.createElement("div");
+  line.textContent = text;
+  box.appendChild(line);
+  while (box.childElementCount > 2000) box.firstElementChild.remove();
+  box.scrollTop = box.scrollHeight;
+}
+
+function setSummary(text, cls = "") {
+  $("#summary").textContent = text;
+  $("#summary").className = `summary ${cls}`;
+}
+
+async function scanSearchPage(url) {
+  const res = await scanSearchPageIn(url, "frame").catch(() => ({ items: [], noResult: false, login: false }));
+  if (!res.items.length && !res.noResult && !res.login && $("#tabFallback").checked) {
+    log("  ↳ 숨긴 화면에서 글을 못 읽어 뒤쪽 탭으로 다시 확인합니다");
+    return scanSearchPageIn(url, "tab").catch(() => ({ items: [], noResult: false, login: false }));
+  }
+  return res;
+}
+
+async function scanSearchPageIn(url, mode) {
+  return withTab(url, async (where) => {
+    let last = { items: [], noResult: false, login: false };
+    let emptyInRow = 0;
+    for (let i = 0; i < 14; i++) {
+      const frames = await runInFrames(where, scanSearchInFrame);
+      last = {
+        items: frames.flatMap((f) => f.items || []),
+        noResult: frames.some((f) => f.noResult),
+        login: frames.some((f) => /nid\.naver\.com/.test(f.href || "")),
+      };
+      if (last.items.length || last.login) break;
+      emptyInRow = last.noResult ? emptyInRow + 1 : 0;
+      if (emptyInRow >= 4) break;
+      await sleep(1500);
+    }
+    if (!last.items.length && !last.login && !last.noResult) last.snapshot = await runInFrames(where, snapshotInFrame);
+    return last;
+  }, { mode });
+}
+
+// 게시글 화면: 제목 · 작성 시간 · 본문 · 작성자 닉네임 · 조회수 · 댓글수 (각 틀 안에서 실행)
+function readPostInFrame() {
+  const q = (sel) => document.querySelector(sel);
+  const text = String(document.body?.innerText || "");
+  if (/카페\s*멤버만|멤버에게만\s*공개|가입\s*후\s*(?:이용|열람)|등급이\s*되어야/.test(text) && !q(".se-main-container, .ContentRenderer, .article_viewer")) {
+    return { found: true, locked: true, href: location.href };
+  }
+  if (/삭제되었거나\s*없는\s*게시글|존재하지\s*않는\s*게시글|삭제된\s*게시글/.test(text)) return { found: true, deleted: true, href: location.href };
+  const bodyEl = q(".se-main-container") || q(".ContentRenderer") || q(".article_viewer") || q("#postViewArea") || q("#tbody") || q(".article_container");
+  const titleEl = q(".ArticleTitle .title_text") || q("h3.title_text") || q(".title_text") || q(".tit-box .b");
+  if (!bodyEl) return { found: false, href: location.href };
+  const re = /(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.?\s*(\d{1,2}):(\d{2})/;
+  let dateText = "";
+  for (const el of document.querySelectorAll(".article_info .date, .ArticleWriterProfile .date, .WriterInfo .date, [class*='article'] .date, .date")) {
+    const m = (el.innerText || "").match(re);
+    if (m) {
+      dateText = m[0];
+      break;
+    }
+  }
+  const one = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  const num = (s) => {
+    const m = String(s || "").match(/([\d][\d,]*(?:\.\d+)?)\s*(만)?/);
+    if (!m) return null;
+    const n = Number(m[1].replace(/,/g, ""));
+    return Number.isFinite(n) ? Math.round(m[2] ? n * 10000 : n) : null;
+  };
+  const nickEl =
+    q(".ArticleWriterProfile .nickname") || q(".WriterInfo .nickname") || q(".profile_info .nickname") || q(".nick_box .nickname") ||
+    q(".article_writer .nickname") || q(".article_writer") || q(".p-nick") || q(".m-tcol-c.nick");
+  const nickname = one(nickEl?.innerText).replace(/\s*(?:님|작성자|매니저|스탭)$/, "").slice(0, 60);
+  const head = q(".ArticleContentBox .article_header") || q(".article_header") || q(".WriterInfo") || q(".article_info");
+  const tool = q(".ArticleTool") || q(".ArticleBottomBtns") || q(".comment_option");
+  const commentBox = q(".CommentBox") || q(".comment_box");
+  let outside = text;
+  for (const el of [bodyEl, commentBox]) {
+    const t = String(el?.innerText || "");
+    if (t) outside = outside.replace(t, " ");
+  }
+  const viewsIn = (s) => num(String(s || "").match(/조회\s*수?\s*[\d][\d,.]*\s*만?/)?.[0]?.replace(/^조회\s*수?/, ""));
+  let views = num(q(".article_info .count")?.innerText);
+  if (views === null) views = viewsIn(head?.innerText);
+  if (views === null) views = viewsIn(outside);
+  let comments = num(q(".ArticleTool .button_comment")?.innerText || q(".button_comment")?.innerText || q(".comment_count")?.innerText);
+  if (comments === null) {
+    const m = `${head?.innerText || ""}\n${tool?.innerText || ""}`.match(/댓글\s*[\d][\d,]*/) || outside.match(/댓글\s*[\d][\d,]*/);
+    comments = m ? num(m[0].replace(/^댓글/, "")) : null;
+  }
+  if (comments === null && commentBox) comments = commentBox.querySelectorAll("li.CommentItem").length;
+  const body = String(bodyEl.innerText || "")
+    .replace(/[​ ]/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n+/g, "\n")
+    .trim();
+  return {
+    found: true, title: titleEl ? one(titleEl.innerText) : "", body: body.slice(0, 8000), dateText, href: location.href,
+    nickname, views, comments,
+  };
+}
+
+async function readPost(url) {
+  const tryIn = (mode) =>
+    withTab(url, async (where) => {
+      for (let i = 0; i < 8; i++) {
+        const frames = await runInFrames(where, readPostInFrame);
+        const hit = frames.find((f) => f.found);
+        if (hit) {
+          if (!hit.locked && !hit.deleted) hit.commentList = await readCommentsIn(where);
+          return hit;
+        }
+        if (frames.some((f) => /nid\.naver\.com/.test(f.href || ""))) return { found: false, login: true };
+        await sleep(1500);
+      }
+      return { found: false };
+    }, { mode }).catch(() => ({ found: false }));
+  const res = await tryIn("frame");
+  if (!res.found && !res.login && $("#tabFallback").checked) return tryIn("tab");
+  return res;
+}
+
+// 게시글 화면의 댓글·답글을 모두 읽는다 (댓글 페이지는 사람처럼 천천히 넘김 · 삭제 댓글 제외)
+// 답글은 바로 앞 댓글(부모)의 내용을 함께 남긴다 → "선생님 말씀이 맞습니다" 같은 답글을 맥락으로 판단
+async function readCommentsInFrame(pageDelay) {
+  if (!document.querySelector("li.CommentItem, .CommentBox")) return { found: false, href: location.href };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const randomWait = () => wait(pageDelay[0] + Math.floor(Math.random() * (pageDelay[1] - pageDelay[0])));
+  const all = [];
+  const seen = new Set();
+  const visited = new Set();
+  for (let guard = 0; guard < 300; guard++) {
+    let parentText = "";
+    for (const li of document.querySelectorAll("li.CommentItem")) {
+      const q = (sel) => li.querySelector(sel)?.innerText.trim() || "";
+      const isReply = li.classList.contains("CommentItem--reply");
+      const row = {
+        id: li.id || "",
+        isReply,
+        parentText: isReply ? parentText : "",
+        nickname: q(".comment_nickname"),
+        content: q(".text_comment"),
+        dateText: q(".comment_info_date"),
+        deleted: !!li.querySelector(".comment_deleted, .comment_delete"),
+      };
+      if (!isReply) parentText = row.content;
+      const key = row.id || `${row.nickname}|${row.dateText}|${row.content}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        all.push(row);
+      }
+    }
+    const current = document.querySelector(".CommentBox .ArticlePaginate button[aria-pressed='true']");
+    if (current) visited.add(current.innerText.trim());
+    let next = null;
+    for (const btn of document.querySelectorAll(".CommentBox .ArticlePaginate button")) {
+      const label = btn.innerText.trim();
+      if (/^\d+$/.test(label) && !visited.has(label)) {
+        next = btn;
+        visited.add(label);
+        break;
+      }
+    }
+    if (!next) break;
+    next.click();
+    await randomWait();
+  }
+  return { found: true, rows: all.filter((r) => !r.deleted && r.content) };
+}
+
+async function readCommentsIn(where) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const answers = await runInFrames(where, readCommentsInFrame, [CAFE_PAGE_DELAY]);
+    const hit = answers.find((r) => r.found);
+    if (hit) {
+      return hit.rows.map((r) => {
+        const d = parseCafeDate(r.dateText);
+        return {
+          id: r.id, isReply: r.isReply, parentText: (r.parentText || "").slice(0, 300), nickname: r.nickname, content: r.content.slice(0, 2000),
+          dateText: r.dateText, date: d ? d.date.getTime() : null,
+        };
+      });
+    }
+    await sleep(1000);
+  }
+  return [];
+}
+
+function articleUrl(item) {
+  return shortArticleUrl(item.slug, item.articleId);
+}
+
+// ---------------------------------------------------------------------------
+// 1. 게시물 찾기 (동호회 × 검색어, 중단되면 이어서)
+// ---------------------------------------------------------------------------
+
+async function search(resume = null) {
+  if (running) return;
+  const list = resume ? resume.jobs : jobs();
+  if (!list.length) return setSummary("설정에 동호회와 검색어가 있는지 확인해 주세요.", "err");
+  if (resume?.start) $("#startDate").value = resume.start;
+  if (resume?.end) $("#endDate").value = resume.end;
+  const p = period();
+  if (p.start >= p.end) return setSummary("시작일이 끝 날짜보다 늦습니다. 기간을 다시 정해 주세요.", "err");
+  await saveSettings();
+  await checkLogin();
+  startBusy();
+  diagnostics = [];
+  $("#diag").hidden = true;
+  $("#log").innerHTML = "";
+  const maxPages = Math.max(1, Number($("#maxPages").value) || DEFAULT_MAX_PAGES);
+  const t0 = Date.now();
+  let pagesDone = 0;
+  let found = 0;
+  let loginNeeded = false;
+  const failed = [];
+  const noClubId = new Set();
+  const startAt = resume ? resume.next : 0;
+  if (resume) log(`· 중단된 곳부터 이어서 찾습니다 (${startAt + 1}/${list.length}번째 동호회·검색어부터)`);
+  log(`· 기간 ${periodText()}`);
+
+  for (let ji = startAt; ji < list.length && !stopRequested; ji++) {
+    const job = list[ji];
+    const label = `${job.name} · '${job.q}'`;
+    const remain = estimateRemaining(t0, ji - startAt, list.length - startAt, (list.length - ji) * 1.5 * SEC_PER_PAGE);
+    showBusy(`게시물 찾는 중 ${ji + 1}/${list.length} · ${label}${remain} — 끝날 때까지 이 탭을 닫지 마세요`, ji, list.length, "게시물 찾는 중");
+    setSummary(`찾는 중… ${ji + 1}/${list.length} · ${label}`);
+    if (noClubId.has(job.slug)) continue;
+    const cafeId = await resolveClubId(job.slug);
+    if (!cafeId) {
+      noClubId.add(job.slug);
+      log(
+        `✖ ${job.name}(${job.slug}): 카페 번호를 알아내지 못해 이 동호회는 건너뜁니다. ` +
+          `크롬에서 이 카페의 '전체글보기'를 열고 주소창 주소(…/cafes/숫자/…)를 복사해 설정의 '카페 번호' 칸에 붙여 넣은 뒤 다시 찾아 주세요.`,
+      );
+      failed.push(`${job.name} (카페 번호)`);
+      $("#diag").hidden = false;
+      continue;
+    }
+    renderCafeInfoIds();
+    let prevKeys = "";
+    for (let page = 1; page <= maxPages && !stopRequested; page++) {
+      const res = await scanSearchPage(searchUrl(cafeId, job.q, page));
+      pagesDone++;
+      if (res.login) {
+        loginNeeded = true;
+        log(`✖ ${job.name}: 네이버 로그인이 필요합니다`);
+        failed.push(label);
+        break;
+      }
+      const pageItems = res.items.filter((x) => !x.cafeId || x.cafeId === cafeId);
+      const keys = pageItems.map((x) => x.articleId).join(",");
+      if (!pageItems.length || keys === prevKeys) {
+        if (!pageItems.length && res.snapshot) diagnostics.push({ job: label, page, url: searchUrl(cafeId, job.q, page), frames: res.snapshot });
+        if (!pageItems.length && !res.noResult && page === 1) failed.push(label);
+        log(`· ${label}: ${page}페이지 ${pageItems.length ? "(앞 페이지와 같음 - 끝)" : res.noResult ? "검색 결과 없음" : "글 목록을 읽지 못함"}`);
+        break;
+      }
+      prevKeys = keys;
+      let older = 0;
+      let dated = 0;
+      let added = 0;
+      for (const x of pageItems) {
+        const parsed = parseCafeDate(x.dateText);
+        if (parsed) dated++;
+        const day = parsed ? new Date(parsed.date.getFullYear(), parsed.date.getMonth(), parsed.date.getDate()) : null;
+        if (day && day < p.start) {
+          older++;
+          continue;
+        }
+        if (day && day >= p.end) continue;
+        const key = `${job.slug}/${x.articleId}`.toLowerCase();
+        const have = items.find((it) => it.key === key);
+        if (have) {
+          if (!have.queries.includes(job.q)) have.queries.push(job.q);
+          continue;
+        }
+        const item = {
+          key, car: job.car, cafeIndex: job.cafeIndex, cafeName: job.name, slug: job.slug, articleId: x.articleId,
+          title: x.title, text: x.text, date: parsed ? parsed.date.getTime() : null, hasTime: !!parsed?.hasTime, queries: [job.q],
+          checked: false, touched: false, body: "", bodyRead: false, bodyNote: "", nickname: "", views: null, comments: null,
+          commentList: [], commentsRead: false, summary: "",
+        };
+        const j = judge(`${item.title} ${item.text}`);
+        item.related = j.related;
+        item.candidate = j.candidate;
+        item.note = judgeNote(j) + (!j.related && j.candidate ? " - 본문에서 확인" : "");
+        item.checked = j.related;
+        items.push(item);
+        added++;
+        found++;
+      }
+      log(`· ${label}: ${page}페이지 ${pageItems.length}개 중 새 글 ${added}개`);
+      renderResults();
+      if (dated && older === dated) break; // 이 페이지가 모두 시작일 이전 → 다음 페이지는 더 이전
+      if (page < maxPages) await sleep(randomBetween(CAFE_PAGE_DELAY));
+    }
+    await saveItems();
+    if (!stopRequested) await saveResume("ksf", { jobs: list, next: ji + 1, start: $("#startDate").value, end: $("#endDate").value });
+    if (ji + 1 < list.length && !stopRequested) await sleep(randomBetween(CAFE_ARTICLE_DELAY));
+  }
+
+  if (!stopRequested) await clearResume("ksf");
+  $("#diag").hidden = !diagnostics.length;
+  renderResults();
+  const checked = items.filter((x) => x.checked).length;
+  const cand = items.filter((x) => !x.checked && x.candidate && !x.touched).length;
+  setSummary(
+    `${stopRequested ? "중지됨 (다시 '게시물 찾기'를 누르면 이어서) - " : ""}새로 찾은 글 ${found}개 · 전체 ${items.length}개 중 코세페 글로 체크 ${checked}개` +
+      (cand ? ` · 할인 이야기라 본문에서 확인할 글 ${cand}개` : "") +
+      ` · ${pagesDone}페이지, ${formatDuration((Date.now() - t0) / 1000)} 걸림` +
+      (failed.length ? ` · 못 읽은 곳 ${failed.length}개(아래 기록 참고)` : "") +
+      (loginNeeded ? " · 로그인이 필요합니다" : ""),
+    loginNeeded || failed.length ? "err" : "ok",
+  );
+  endBusy();
+}
+
+function estimateRemaining(t0, done, total, fallbackSec) {
+  const spent = (Date.now() - t0) / 1000;
+  const sec = done > 0 ? (spent / done) * (total - done) : fallbackSec;
+  return total - done > 0 ? ` · 남은 시간 약 ${formatDuration(sec)}` : "";
+}
+
+// ---------------------------------------------------------------------------
+// 2. 본문·댓글 읽기 → 판단
+// ---------------------------------------------------------------------------
+
+const aiOn = () => $("#aiOn").checked && !!$("#aiKey").value.trim();
+
+async function readBodies() {
+  if (running) return;
+  await saveSettings();
+  // 체크한 글 + (직접 해제하지 않은) 할인 이야기 글을 열어 본문·댓글을 읽는다
+  const toRead = (x) => x.checked || (!x.touched && x.candidate);
+  const todo = sortedItems().filter((x) => toRead(x) && !x.bodyRead);
+  if (todo.length) {
+    const minutes = formatDuration(todo.length * SEC_PER_ARTICLE);
+    if (!(await askConfirm(`본문·댓글을 읽을 글이 ${todo.length.toLocaleString()}개입니다 (예상 소요 시간 약 ${minutes}).\n` +
+      "많은 글을 한 번에 열면 네이버 보호조치가 걸릴 수 있습니다. 중간에 '중지'로 멈춰도 그때까지 읽은 글은 남고, 다시 누르면 이어서 읽습니다.\n\n계속할까요?"))) return;
+    await checkLogin();
+    startBusy();
+    $("#log").hidden = false;
+    const t0 = Date.now();
+    let ok = 0;
+    let nComments = 0;
+    for (let i = 0; i < todo.length && !stopRequested; i++) {
+      const item = todo[i];
+      showBusy(
+        `본문·댓글 읽는 중 ${i + 1}/${todo.length} · ${item.cafeName}${estimateRemaining(t0, i, todo.length, (todo.length - i) * SEC_PER_ARTICLE)} — 끝날 때까지 이 탭을 닫지 마세요`,
+        i, todo.length, "본문 읽는 중",
+      );
+      setSummary(`본문·댓글 읽는 중… (${i + 1}/${todo.length}) ${item.title}`);
+      if (i) await sleep(randomBetween(CAFE_ARTICLE_DELAY));
+      const res = await readPost(articleUrl(item));
+      if (res.login) {
+        log("✖ 네이버 로그인이 필요합니다 - 로그인한 뒤 다시 누르면 이어서 읽습니다");
+        break;
+      }
+      if (!res.found) {
+        item.bodyNote = "본문을 읽지 못함";
+        log(`· 본문을 읽지 못함: ${item.title}`);
+      } else {
+        item.bodyRead = true;
+        if (res.locked) item.bodyNote = "멤버 공개 글 - 본문 못 봄";
+        else if (res.deleted) item.bodyNote = "삭제된 글";
+        else {
+          ok++;
+          item.body = res.body || "";
+          if (res.title) item.title = res.title;
+          if (res.nickname) item.nickname = res.nickname;
+          if (typeof res.views === "number") item.views = res.views;
+          if (typeof res.comments === "number") item.comments = res.comments;
+          item.commentList = res.commentList || [];
+          item.commentsRead = true;
+          nComments += item.commentList.length;
+          const parsed = parseCafeDate(res.dateText);
+          if (parsed) {
+            item.date = parsed.date.getTime();
+            item.hasTime = parsed.hasTime;
+          }
+          // 본문 단어로 다시 판단 (AI 를 쓰면 아래에서 AI 가 최종 판단)
+          const j = judge(`${item.title}\n${item.body}\n${item.commentList.map((c) => c.content).join("\n")}`);
+          item.related = j.related;
+          item.candidate = j.candidate;
+          item.note = judgeNote(j);
+          if (!item.touched) item.checked = j.related || (j.candidate && aiOn());
+          item.bodyNote = "";
+          if (!inPeriodTime(item.date) && !item.touched) {
+            item.checked = false;
+            item.bodyNote = "기간 밖 글";
+          }
+        }
+      }
+      renderRow(item);
+      if (i % 5 === 4) await saveItems();
+    }
+    await saveItems();
+    log(`· 본문 ${ok}개 · 댓글 ${nComments.toLocaleString()}개를 읽었습니다 (${formatDuration((Date.now() - t0) / 1000)} 걸림)`);
+    endBusy();
+    renderResults();
+    setSummary(
+      `${stopRequested ? "중지됨 - " : "✔ "}본문 ${ok.toLocaleString()}개 · 댓글 ${nComments.toLocaleString()}개를 읽었습니다 · ${formatDuration((Date.now() - t0) / 1000)} 걸림` +
+        (stopRequested ? " · 다시 누르면 남은 글부터 이어서 읽습니다" : ""),
+      "ok",
+    );
+    if (stopRequested) {
+      stopRequested = false;
+      return;
+    }
+  }
+  await judgeAll();
+}
+
+// ---------------------------------------------------------------------------
+// Claude AI 판단 (공식 Anthropic SDK, 전역 Anthropic)
+// ---------------------------------------------------------------------------
+
+// 코세페 반응 긍부정 기준 (글·댓글 공통) - 첨부된 분류 예시를 그대로 기준 예로 씀
+const TONE_RULES = `[핵심 원칙]
+- 일반적인 감정·말투의 긍부정이 아니라, '코리아 세일 페스타(K-세일 페스타 · 코세페 · 11월 현대차 할인 행사)'에 대한 고객 반응의 긍부정을 판단합니다.
+- 반드시 '차종별로' 판단합니다. 글·댓글이 어느 차종에 대한 코세페 반응인지 나누고, 차종마다 그 차종 기준의 성향을 정합니다.
+  · 차종 이름이 없으면 그 글이 올라온 동호회의 차종(동호회차종)에 대한 반응입니다. 글의 맥락(게시글 제목·요약)이 특정 차종 이야기면 그 차종입니다.
+  · 여러 대상 차종을 말하면 차종마다 하나씩 (예: "아반떼는 많이 깎아 주는데 그랜저는 찔끔" → 아반떼 긍정 · 그랜저 부정).
+  · 대상 차종이 아닌 차(투싼·쏘렌토 등)에 대한 반응만 있으면 car 는 "${OTHER_CAR}".
+- tone (코세페에 대한 반응):
+  "긍정": 할인 혜택을 반기거나 만족, 좋은 구매 기회로 봄, 이번 할인을 계기로 구매를 알아보거나 계약함, "사는 입장에선 괜찮다"
+  "부정": 기존 구매자 역차별·보상 요구, 먼저 산 사람만 손해(호구·트라우마), 할인 폭·조건 불만, 재고 처리·실적용이라는 의심,
+          가격 정책·회사에 대한 불신·실망, 구매 포기·취소 고려, 단골·충성 고객을 무시한다는 불만, 부정 의견에 동조("당연히 욕 나올 일이죠")
+  "중립": 할인 조건·기간·금액 정보 공유나 문의, 코세페에 대한 평가가 없는 말, 회원끼리의 말다툼·사과·인사·응원
+          (예: "말씀이 좀 지나치시네 본인만 안사면 될것을", "선생님 말씀이 다 맞습니다", "이 카페에 현대차 사신분들을 개돼지 취급하는 비하 발언이시네요",
+           "혹시나 기분 나쁘신분 계시면 죄송합니다 맨 마지막 문구는 삭제했습니다")
+  "단순비난": 코세페나 할인에 대한 구체적 내용·이유 없이 회사·노조·브랜드를 욕하거나 조롱만 함 (예: "흉기 망해라", "현기가 그렇지 뭐")
+- 분류 예 (모두 동호회 차종에 대한 반응):
+  부정: "그냥 잊고 현생이나 사러 갑니다.. 다들 오늘도 파이팅입니다" (행사에 실망해 체념) · "저도 현대차 트라우마 생겼어요" ·
+        "근데 이번 아반떼 하브 8/5 계약자입장으로서 좋은소리 안나옴 이건 구입자문제도 카마스터 문제도아님 제조사 문제지" · "당연히 욕 나올 일이죠 ㅜㅜ" ·
+        "사전 구매자들 배려 따윈 전혀 없는 선택이었죠 ㅎㅎ 보상안 마련해야됨" · "다음차는 기출고자의 보상대응보고 생각해야겠어요" ·
+        "지금 할인한다는 건 진작에도 가격조정이 가능했던거 아닌가하는 의문과 지금의 대처에 대한 실망감" ·
+        "동네에서 구멍가게를 해도 이런 짓은 안합니다. 소비자 그것도 단골 고객을 먹이는 짓은~" ·
+        "애초에 하이브리드는 납기 2개월이면서 행사 왜하는지 모르겠어요. 그냥 가솔린 재고쌓인거 팔아먹을 목적으로밖에 안보임" ·
+        "ㄷㄷ 그러네요 가솔린 재고처리겸 연말 실적 올릴라고;"
+  긍정: "저도 그생각이 났는데 사는입장에선 또 괜찮네요"
+- theme (주요 내용): tone 이 긍정·부정일 때만, 그 반응의 핵심 이유를 보고서 표에 들어갈 짧은 구절(8~25자)로.
+  같은 이유는 같은 말로 씁니다. 예) 부정 "기존 구매자 대상 보상 지급 필요", "재고 처리·연말 실적용 할인으로 인식", "사전 계약자 역차별 불만",
+  "진작 가격 조정이 가능했다는 불신", "할인 폭이 작음" / 긍정 "이번 할인을 계기로 구매를 알아보게 됨", "구매자 입장에서 할인 혜택이 반가움".
+  중립·단순비난이면 "".
+- reason (판단 근거): 왜 그 차종·그 성향으로 봤는지 원문에 근거해 한 구절(10~40자). 예) "8/5 계약자로서 할인에 손해를 봤다며 제조사 탓", "회원 간 언쟁으로 코세페 평가 없음".
+- 정확성이 가장 중요합니다. 말투가 거칠어도 코세페에 대한 평가가 없으면 중립, 말투가 점잖아도 행사에 실망·불만이면 부정입니다.
+  비꼬기·반어("참 잘하는 짓이네요")는 속뜻으로 판단합니다. 확신이 없으면 원문에 드러난 만큼만 판단하고 지나치게 부풀리지 않습니다.`;
+
+const POST_SYSTEM = `당신은 현대자동차 국내 마케팅·고객 부문에 올리는 온라인 여론 모니터링 보고서를 쓰는 분석가입니다.
+주제: 차종별 네이버 동호회에서 '코리아 세일 페스타(K-세일 페스타 · 코세페)' 할인 행사에 대한 고객 반응.
+대상 차종: {{cars}} · 모니터링 기간: {{period}}
+당신이 쓴 결과는 그대로 사내 보고 엑셀·PPT 에 들어가므로 정확성과 일관성이 가장 중요합니다.
+
+[입력] 글마다 id, 동호회, 동호회차종, 작성일, 제목, 본문.
+[출력] 받은 글마다 하나씩, 받은 순서대로, id 를 그대로 돌려줍니다.
+1. ksf (true/false): 코리아 세일 페스타(K-세일 페스타·코세페) 또는 그 기간 현대차 11월 할인 행사·프로모션에 대한 글인지.
+   할인 조건 공유·문의, 할인에 대한 반응, 기존 구매자 보상 이야기, 할인을 보고 구매를 고민하는 글은 true.
+   보험·용품·정비 할인, 중고 거래, 행사와 무관한 일반 글은 false. 애매하면 true (사람이 최종 검토).
+2. summary: 한 문장, 40~120자, 사내 보고서 문체로 "~하는 내용" 으로 끝냄. 글에 있는 사실만.
+3. ops: 이 글(제목+본문)이 말하는 차종별 코세페 반응. 최소 1개. ksf=false 이면 [{ car: 동호회차종, tone: "중립", theme: "" }].
+
+${TONE_RULES}
+
+[반드시] 글에 없는 사실을 지어내지 않습니다. 닉네임·개인정보는 쓰지 않습니다. 욕설은 그대로 옮기지 않습니다.`;
+
+const COMMENT_SYSTEM = `당신은 현대자동차 국내 마케팅·고객 부문에 올리는 온라인 여론 모니터링 보고서를 쓰는 분석가입니다.
+주제: 차종별 네이버 동호회에서 '코리아 세일 페스타(K-세일 페스타 · 코세페)' 할인 행사에 대한 고객 반응.
+대상 차종: {{cars}} · 모니터링 기간: {{period}}
+
+[입력] 코세페 관련 게시글에 달린 댓글들. 댓글마다 id, 동호회차종, 게시글 제목, 게시글 요약(맥락), 구분(댓글/답글), 앞 댓글(답글이면 그 답글이 달린 댓글), 댓글 내용.
+[출력] 받은 댓글마다 하나씩, 받은 순서대로, id 를 그대로 돌려줍니다. ops: 이 댓글의 차종별 코세페 반응 (최소 1개).
+답글은 앞 댓글에 대한 동의·반박인지 보고 판단합니다 (부정 댓글에 "맞아요" → 부정, 회원 간 말다툼·사과 → 중립).
+
+${TONE_RULES}
+
+[반드시] 댓글에 없는 사실을 지어내지 않습니다. 닉네임·개인정보는 쓰지 않습니다.`;
+
+function aiExtra() {
+  const extra = String($("#aiRules")?.value || "").trim();
+  return extra ? `\n\n[담당자 추가 규칙 - 위 규칙보다 우선]\n${extra}` : "";
+}
+
+function fillSystem(text) {
+  const cars = targetCars();
+  const words = carWords();
+  const carText = cars.map((c) => `${c}(${(words[c] || []).map((w) => w.w).join("·")})`).join(", ");
+  return text.replace("{{cars}}", carText).replace("{{period}}", periodText()) + aiExtra();
+}
+
+function opsSchema() {
+  return {
+    type: "array",
+    items: {
+      type: "object",
+      properties: {
+        car: { type: "string", enum: [...targetCars(), OTHER_CAR] },
+        tone: { type: "string", enum: TONES },
+        theme: { type: "string" },
+        reason: { type: "string" },
+      },
+      required: ["car", "tone", "theme", "reason"],
+      additionalProperties: false,
+    },
+  };
+}
+
+function postSchema() {
+  return {
+    type: "object",
+    properties: {
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { id: { type: "string" }, ksf: { type: "boolean" }, summary: { type: "string" }, ops: opsSchema() },
+          required: ["id", "ksf", "summary", "ops"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["items"],
+    additionalProperties: false,
+  };
+}
+
+function commentSchema() {
+  return {
+    type: "object",
+    properties: {
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { id: { type: "string" }, ops: opsSchema() },
+          required: ["id", "ops"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["items"],
+    additionalProperties: false,
+  };
+}
+
+// ops 검사·정리: 같은 차종은 하나만 · 긍정/부정이 아니면 주요 내용 비움 → 형식이 어긋나면 null
+function cleanOps(ops, homeCar) {
+  if (!Array.isArray(ops) || !ops.length) return null;
+  const cars = [...targetCars(), OTHER_CAR];
+  const out = [];
+  for (const o of ops) {
+    if (!o || !cars.includes(o.car) || !TONES.includes(o.tone)) return null;
+    if (out.some((x) => x.car === o.car)) continue;
+    const theme = /^(긍정|부정)$/.test(o.tone) ? String(o.theme || "").replace(/\s+/g, " ").replace(/[.。]\s*$/, "").trim().slice(0, 40) : "";
+    const reason = String(o.reason || "").replace(/\s+/g, " ").replace(/[.。]\s*$/, "").trim().slice(0, 80);
+    out.push({ car: o.car, tone: o.tone, theme: theme || (o.tone === "부정" ? "기타 부정 의견" : o.tone === "긍정" ? "기타 긍정 의견" : ""), reason });
+  }
+  return out.length ? out : [{ car: homeCar, tone: "중립", theme: "" }];
+}
+
+async function callAi(client, model, system, schema, content, effort = "medium") {
+  const params = {
+    model,
+    max_tokens: 16000,
+    system,
+    output_config: { effort, format: { type: "json_schema", schema } },
+    messages: [{ role: "user", content }],
+  };
+  const stream = model === "claude-haiku-5-5"
+    ? client.messages.stream(params)
+    : client.beta.messages.stream({ ...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" });
+  const msg = await stream.finalMessage();
+  if (msg.stop_reason === "refusal") throw new Error("Claude 가 판단을 거절했습니다");
+  if (msg.stop_reason === "max_tokens") throw new Error("결과가 너무 길어 잘렸습니다");
+  return { msg, parsed: JSON.parse(msg.content.filter((b) => b.type === "text").map((b) => b.text).join("")) };
+}
+
+function chargeAi(msg, model, usage) {
+  const input = msg.usage?.input_tokens || 0;
+  const output = msg.usage?.output_tokens || 0;
+  usage.input += input;
+  usage.output += output;
+  aiSpend = { won: aiSpend.won + aiWonExact(input, output, model), input: aiSpend.input + input, output: aiSpend.output + output };
+  chrome.storage.local.set({ ksfAiSpend: aiSpend }).catch(() => {});
+}
+
+async function aiPostBatch(client, model, batch, usage) {
+  const input = batch.map((x) => ({
+    id: x.key, 동호회: x.cafeName, 동호회차종: x.car, 작성일: x.date ? formatDateTime(new Date(x.date), false) : "",
+    제목: x.title, 본문: (x.body || x.text || "").slice(0, AI_BODY_CHARS),
+  }));
+  const { msg, parsed } = await callAi(client, model, fillSystem(POST_SYSTEM), postSchema(),
+    `아래 글 ${batch.length}개를 규칙대로 판단해 items ${batch.length}개로 돌려주세요.\n\n${JSON.stringify(input)}`);
+  chargeAi(msg, model, usage);
+  const byId = new Map((parsed.items || []).map((r) => [r.id, r]));
+  const results = batch.map((x) => {
+    const r = byId.get(x.key);
+    if (!r || typeof r.ksf !== "boolean" || typeof r.summary !== "string") return null;
+    const ops = cleanOps(r.ops, x.car);
+    const summary = r.summary.replace(/\s+/g, " ").replace(/[.。]\s*$/, "").trim();
+    return ops && summary.length >= 4 ? { ksf: r.ksf, summary, ops } : null;
+  });
+  const bad = results.filter((r) => !r).length;
+  if (bad) throw new Error(`결과 ${bad}건의 형식이 맞지 않습니다`);
+  batch.forEach((x, i) => {
+    const r = results[i];
+    x.summary = r.summary;
+    x.ksf = r.ksf;
+    x.a = { ops: r.ops, by: "ai", v: JUDGE_VERSION };
+    if (!x.touched) x.checked = r.ksf && inPeriodTime(x.date);
+  });
+}
+
+async function aiCommentBatch(client, model, batch, usage) {
+  const input = batch.map(({ x, c }, i) => ({
+    id: String(i), 동호회차종: x.car, 게시글제목: x.title, 게시글요약: x.summary || "", 구분: c.isReply ? "답글" : "댓글",
+    앞댓글: c.isReply ? (c.parentText || "").slice(0, 200) : "", 댓글: c.content.slice(0, 600),
+  }));
+  const { msg, parsed } = await callAi(client, model, fillSystem(COMMENT_SYSTEM), commentSchema(),
+    `아래 댓글 ${batch.length}개를 판단해 items ${batch.length}개로 돌려주세요.\n\n${JSON.stringify(input)}`, "high");
+  chargeAi(msg, model, usage);
+  const byId = new Map((parsed.items || []).map((r) => [r.id, r]));
+  const results = batch.map(({ x }, i) => cleanOps(byId.get(String(i))?.ops, x.car));
+  const bad = results.filter((r) => !r).length;
+  if (bad) throw new Error(`결과 ${bad}건의 형식이 맞지 않습니다`);
+  batch.forEach(({ c }, i) => (c.a = { ops: results[i], by: "ai", v: JUDGE_VERSION }));
+}
+
+// 묶음들을 AI_PARALLEL 개씩 동시에 → { failed, fatal, lastError }
+async function runBatches(batches, fn, onDone) {
+  let next = 0;
+  let failed = 0;
+  let fatal = null;
+  let lastError = null;
+  const worker = async () => {
+    while (next < batches.length && !fatal && !stopRequested) {
+      const batch = batches[next++];
+      let ok = false;
+      for (let attempt = 1; attempt <= 3 && !ok && !fatal; attempt++) {
+        try {
+          await fn(batch);
+          ok = true;
+        } catch (e) {
+          lastError = e;
+          if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) fatal = e;
+        }
+      }
+      if (!ok && !fatal && batch.length > 1) {
+        // 하나씩 다시 (한 건 때문에 묶음 전체가 규칙 판단이 되지 않게)
+        for (const one of batch) {
+          try {
+            await fn([one]);
+          } catch (e) {
+            lastError = e;
+            failed++;
+          }
+        }
+        ok = true;
+      }
+      if (!ok) failed += batch.length;
+      onDone(batch);
+    }
+  };
+  await Promise.all(Array.from({ length: AI_PARALLEL }, worker));
+  return { failed, fatal, lastError };
+}
+
+// 판단할 것: 본문을 읽은 글(체크했거나 할인 이야기라 확인할 글) · 체크한 글의 댓글
+function judgeTargets(force = false) {
+  const fresh = (a) => a?.by === "ai" && a.v === JUDGE_VERSION;
+  const posts = sortedItems().filter((x) => x.bodyRead && x.body && (x.checked || (!x.touched && x.candidate)) && (force || !fresh(x.a)));
+  return { posts };
+}
+
+function commentTargets(force = false) {
+  const fresh = (a) => a?.by === "ai" && a.v === JUDGE_VERSION;
+  return reportComments().filter(({ c }) => force || !fresh(c.a));
+}
+
+// 판단: AI 를 켰으면 ① 글(코세페 글인지 · 요약 · 차종별 반응) → ② 체크한 글의 댓글(차종별 반응). 끄면 규칙(어림).
+async function judgeAll({ force = false } = {}) {
+  if (running) return;
+  if (!aiOn()) {
+    for (const x of items) if (x.checked && !x.summary) x.summary = ruleSummary(x);
+    tops = null;
+    await saveItems();
+    renderResults();
+    setSummary("✔ 규칙(단어)으로 차종별 반응을 어림했습니다. 보고에 쓰려면 Claude AI 를 켜고 '💰 차종별 반응 판단하기'를 눌러 주세요.", "ok");
+    return;
+  }
+  const model = $("#aiModel").value;
+  const { posts } = judgeTargets(force);
+  // 댓글 수는 글 판단 뒤 체크가 바뀔 수 있어 어림 (지금 체크·확인 대상 글의 댓글)
+  const willComments = sortedItems()
+    .filter((x) => x.bodyRead && (x.checked || (!x.touched && x.candidate)))
+    .flatMap((x) => (x.commentList || []).filter((c) => inPeriodTime(c.date) && (force || !(c.a?.by === "ai" && c.a.v === JUDGE_VERSION))));
+  if (!posts.length && !willComments.length) {
+    renderResults();
+    setSummary("판단할 글·댓글이 없습니다 (모두 판단했습니다). 기준을 바꿨으면 '다시 판단하기'를 눌러 주세요.", "ok");
+    return;
+  }
+  const postChars = posts.reduce((n, x) => n + Math.min(AI_BODY_CHARS, (x.body || "").length) + x.title.length + 150, 0);
+  const cmtChars = willComments.reduce((n, c) => n + Math.min(600, c.content.length) + (c.isReply ? 200 : 0) + 120, 0);
+  const est = aiCostWon(
+    postChars * 1.1 + 2500 * Math.ceil(posts.length / AI_BATCH) + cmtChars * 1.1 + 2500 * Math.ceil(willComments.length / COMMENT_BATCH),
+    posts.length * 220 + willComments.length * 50, model,
+  );
+  if (!(await askConfirm(`Claude AI 로 차종별 코세페 반응을 판단합니다.\n· 글 ${posts.length.toLocaleString()}개 (코세페 글인지 · 요약 · 차종별 반응)\n· 댓글 약 ${willComments.length.toLocaleString()}개 (차종별 반응)\n\n` +
+    `예상 비용 ${fmtWon(est)} · ${AI_MODELS.find(([id]) => id === model)[1].split(" (")[0]}\n계속할까요?`))) return;
+  const client = new Anthropic({ apiKey: $("#aiKey").value.trim(), dangerouslyAllowBrowser: true, maxRetries: 4 });
+  const usage = { input: 0, output: 0 };
+  const t0 = Date.now();
+  startBusy();
+  // ① 글
+  const pb = [];
+  for (let i = 0; i < posts.length; i += AI_BATCH) pb.push(posts.slice(i, i + AI_BATCH));
+  let done = 0;
+  const pr = await runBatches(pb, (b) => aiPostBatch(client, model, b, usage), (b) => {
+    done++;
+    showBusy(`글 판단 중 ${done}/${pb.length}묶음${estimateRemaining(t0, done, pb.length, (pb.length - done) * 25)}`, done, pb.length, "AI 판단 중");
+    for (const x of b) renderRow(x);
+  });
+  await saveItems();
+  // ② 댓글 (체크한 글만)
+  let cr = { failed: 0, fatal: null };
+  if (!pr.fatal && !stopRequested) {
+    const todo = commentTargets(force);
+    const cb = [];
+    for (let i = 0; i < todo.length; i += COMMENT_BATCH) cb.push(todo.slice(i, i + COMMENT_BATCH));
+    const t1 = Date.now();
+    done = 0;
+    cr = await runBatches(cb, (b) => aiCommentBatch(client, model, b, usage), () => {
+      done++;
+      showBusy(`댓글 판단 중 ${done}/${cb.length}묶음${estimateRemaining(t1, done, cb.length, (cb.length - done) * 25)}`, done, cb.length, "AI 판단 중");
+    });
+  }
+  tops = null; // 판단이 바뀌면 TOP5 는 다시 묶어야 함
+  await chrome.storage.local.remove("ksfTops").catch(() => {});
+  endBusy();
+  await saveItems();
+  renderResults();
+  const fatal = pr.fatal || cr.fatal;
+  const failed = pr.failed + cr.failed;
+  const cost = fmtWon(aiWonExact(usage.input, usage.output, model));
+  if (fatal) setSummary(`AI 판단을 하지 못했습니다: ${aiErrorMessage(fatal)} (판단하지 못한 것은 규칙으로 어림)`, "err");
+  else
+    setSummary(
+      `${stopRequested ? "중지됨 - " : "✔ "}Claude AI 로 차종별 반응을 판단했습니다 · ${formatDuration((Date.now() - t0) / 1000)} · 비용 ${cost}` +
+        (failed ? ` · ${failed}건은 실패해 규칙으로 어림(${aiErrorMessage(pr.lastError || cr.lastError)})` : "") +
+        " · 다음: '💰 주요 내용 TOP5 정리'",
+      failed ? "err" : "ok",
+    );
+  stopRequested = false;
+}
+
+// 규칙 요약: 본문 앞 문장 1~2개
+function ruleSummary(item) {
+  const src = item.body || item.text || "";
+  const ksfW = [...wordList($("#ksfWords").value), ...wordList($("#saleWords").value)];
+  const sentences = src.split(/(?<=[.!?。])\s+|\n+/).map((s) => s.trim()).filter((s) => s.length >= 6);
+  const pick = sentences.filter((s) => ksfW.some((w) => hasWord(compactText(s), w))).slice(0, 2);
+  let out = (pick.length ? pick : sentences.slice(0, 1)).join(" ") || item.title;
+  return out.length > 150 ? `${out.slice(0, 148)}…` : out;
+}
+
+// API 키 저장: 키를 넣으면 'Claude AI 로 쓰기'를 자동으로 켠다
+async function saveAiKey() {
+  const key = $("#aiKey").value.trim();
+  $("#aiKey").value = key;
+  if (key && !/^sk-ant-/.test(key)) {
+    showAiStatus("API 키는 sk-ant- 로 시작합니다. 다시 확인해 주세요.", "err");
+    return;
+  }
+  $("#aiOn").checked = !!key;
+  await saveSettings();
+  updateCounts();
+  showAiStatus(key ? "✔ API 키를 저장했습니다 (이 PC 크롬에만). '키 확인'으로 맞는 키인지 확인할 수 있습니다." : "API 키를 지웠습니다.", key ? "ok" : "");
+}
+
+async function testAiKey() {
+  const key = $("#aiKey").value.trim();
+  if (!key) return showAiStatus("API 키를 먼저 넣어 주세요.", "err");
+  showAiStatus("키 확인 중…");
+  try {
+    const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true, maxRetries: 1 });
+    await client.models.retrieve($("#aiModel").value);
+    await saveAiKey();
+    showAiStatus(`✔ 키가 맞습니다. ${AI_MODELS.find(([id]) => id === $("#aiModel").value)[1].split(" (")[0]} 를 쓸 수 있습니다.`, "ok");
+  } catch (e) {
+    showAiStatus(`✖ ${aiErrorMessage(e)}`, "err");
+  }
+}
+
+function showAiStatus(text, cls = "") {
+  renderAiState();
+  const box = $("#aiStatus");
+  if (text === undefined) {
+    const key = $("#aiKey").value.trim();
+    text = !key
+      ? "API 키가 없습니다. 키 없이도 쓸 수 있지만, 차종별 반응은 단어 규칙으로 어림합니다(보고 전 확인 필요)."
+      : $("#aiOn").checked
+        ? `✔ 저장된 키로 Claude AI 를 씁니다 (sk-ant-…${key.slice(-4)}).`
+        : `저장된 키가 있지만 꺼져 있어 규칙으로 어림합니다 (sk-ant-…${key.slice(-4)}).`;
+    cls = key && $("#aiOn").checked ? "ok" : "";
+  }
+  box.textContent = text;
+  box.className = `hint ${cls}`;
+}
+
+function renderAiState() {
+  const as = $("#aiState");
+  const key = $("#aiKey").value.trim();
+  const model = AI_MODELS.find(([id]) => id === $("#aiModel").value)?.[1].split(" (")[0] || "";
+  as.textContent = !key ? "API 키 없음 - 규칙으로 어림" : $("#aiOn").checked ? `✔ 키 저장됨 · ${model} 사용` : "키 저장됨 · AI 꺼짐(규칙으로 어림)";
+  as.className = `panel-state ${key && $("#aiOn").checked ? "ok" : "err"}`;
+}
+
+function setupPanel(id, needsAttention) {
+  const el = $(`#${id}`);
+  let saved = null;
+  try {
+    saved = localStorage.getItem(`ksfPanel_${id}`);
+  } catch {
+    /* 무시 */
+  }
+  el.open = saved ? saved === "open" : needsAttention;
+  el.addEventListener("toggle", () => {
+    try {
+      localStorage.setItem(`ksfPanel_${id}`, el.open ? "open" : "closed");
+    } catch {
+      /* 무시 */
+    }
+  });
+}
+
+function aiCostWon(inTokens, outTokens, model) {
+  const [inP, outP] = AI_PRICE[model] || AI_PRICE["claude-opus-5-5"];
+  return Math.max(10, Math.round((((inTokens * inP + outTokens * outP) / 1e6) * WON_PER_USD) / 10) * 10);
+}
+
+function aiErrorMessage(e) {
+  if (typeof Anthropic === "undefined") return "AI 도구를 불러오지 못했습니다";
+  if (e instanceof Anthropic.AuthenticationError) return "API 키가 올바르지 않습니다";
+  if (e instanceof Anthropic.PermissionDeniedError) return "이 API 키로는 이 모델을 쓸 수 없습니다";
+  if (e instanceof Anthropic.RateLimitError) return "요청이 너무 많습니다(잠시 후 다시 시도)";
+  if (e instanceof Anthropic.APIConnectionError) return "Claude API 에 연결하지 못했습니다(인터넷 확인)";
+  if (e instanceof Anthropic.APIError) return `Claude API 오류: ${e.message}`;
+  return e && e.message ? e.message : String(e);
+}
+
+// ---------------------------------------------------------------------------
+// 집계: 반응(글·댓글 × 차종) → 차종별 성향 · 주요 내용 TOP5
+// ---------------------------------------------------------------------------
+
+// 보고에 넣는 글: 체크한 글 중 기간 안
+function reportItems() {
+  return sortedItems().filter((x) => x.checked && inPeriodTime(x.date));
+}
+
+// 보고에 넣는 댓글: 그 글의 댓글 중 작성일이 기간 안 (모르면 넣음)
+function reportComments(list = reportItems()) {
+  return list.flatMap((x) => (x.commentList || []).filter((c) => inPeriodTime(c.date)).map((c) => ({ x, c })));
+}
+
+// 반응 목록 → [{ key, x, c|null, kind: 게시글/댓글/답글, car, tone, theme, text, date }]
+function reactions(list = reportItems()) {
+  const out = [];
+  for (const x of list) {
+    postOps(x).forEach((o) => out.push({ key: `${x.key}#p#${o.car}`, x, c: null, kind: "게시글", ...o, text: `${x.title}\n${x.body || x.text || ""}`, date: x.date }));
+    for (const c of (x.commentList || []).filter((cc) => inPeriodTime(cc.date))) {
+      commentOps(x, c).forEach((o) => out.push({
+        key: `${x.key}#c#${c.id || `${c.nickname}|${c.dateText}|${c.content.slice(0, 30)}`}#${o.car}`, x, c, kind: c.isReply ? "답글" : "댓글", ...o, text: c.content, date: c.date ?? x.date,
+      }));
+    }
+  }
+  return out;
+}
+
+function toneCounts(list) {
+  const n = Object.fromEntries(TONES.map((t) => [t, 0]));
+  for (const r of list) n[r.tone]++;
+  return n;
+}
+
+// 성향 비율·TOP5 의 바탕: 보고 양식(1p 채널별 표 · 3p TOP5)처럼 게시글과 댓글(답글 포함) 반응 전체
+function basis(rs) {
+  return rs;
+}
+
+// 차종별 숫자 → [{ car, posts, comments, n(바탕 반응 수), tone: {긍정…}, ratio: {긍정…} }] (맨 앞 '전체')
+function carStats(rs = reactions()) {
+  const list = reportItems();
+  const rows = [];
+  const make = (car, rr, posts, comments) => {
+    const b = basis(rr);
+    const tone = toneCounts(b);
+    const ratio = Object.fromEntries(TONES.map((t) => [t, b.length ? tone[t] / b.length : 0]));
+    return { car, n: b.length, posts, comments, tone, ratio };
+  };
+  rows.push(make("전체", rs, list.length, reportComments(list).length));
+  for (const car of targetCars()) {
+    const rr = rs.filter((r) => r.car === car);
+    const posts = new Set(rr.filter((r) => !r.c).map((r) => r.x.key)).size;
+    const comments = rr.filter((r) => r.c).length;
+    rows.push(make(car, rr, posts, comments));
+  }
+  const other = rs.filter((r) => r.car === OTHER_CAR);
+  if (other.length) rows.push(make(OTHER_CAR, other, new Set(other.filter((r) => !r.c).map((r) => r.x.key)).size, other.filter((r) => r.c).length));
+  return rows;
+}
+
+// TOP5 를 묶은 뒤 판단이 바뀌었는지 보는 표시
+function topsSig(rs = reactions()) {
+  let h = 0;
+  for (const r of basis(rs)) {
+    if (!/^(긍정|부정)$/.test(r.tone)) continue;
+    const s = `${r.key}|${r.tone}|${r.theme};`;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  }
+  return String(h);
+}
+
+// 주요 내용 묶음 (AI 로 묶었고 그 뒤 판단이 그대로면 그것, 아니면 같은 주요 내용끼리)
+// → { 차종: { 긍정: [{ label, count, ratio, examples: [글] }], 부정: [...] , total: { 긍정, 부정 } } }
+function topThemes(rs = reactions()) {
+  const fresh = tops && tops.sig === topsSig(rs);
+  const out = {};
+  for (const car of targetCars()) {
+    out[car] = { total: {} };
+    for (const tone of ["긍정", "부정"]) {
+      const rr = basis(rs).filter((r) => r.car === car && r.tone === tone);
+      out[car].total[tone] = rr.length;
+      let groups;
+      if (fresh && tops.cars?.[car]?.[tone]) {
+        const byKey = new Map(rr.map((r) => [r.key, r]));
+        groups = tops.cars[car][tone].map((g) => ({ label: g.label, list: g.keys.map((k) => byKey.get(k)).filter(Boolean) }));
+        // 묶음에 없는 반응은 그 주요 내용 그대로 (거의 없음)
+        const used = new Set(groups.flatMap((g) => g.list.map((r) => r.key)));
+        for (const r of rr.filter((r) => !used.has(r.key))) {
+          const g = groups.find((x) => x.label === r.theme) || groups[groups.push({ label: r.theme, list: [] }) - 1];
+          g.list.push(r);
+        }
+      } else {
+        const map = new Map();
+        for (const r of rr) {
+          const label = r.theme || (tone === "부정" ? "기타 부정 의견" : "기타 긍정 의견");
+          if (!map.has(label)) map.set(label, []);
+          map.get(label).push(r);
+        }
+        groups = [...map.entries()].map(([label, list]) => ({ label, list }));
+      }
+      // '기타' 묶음은 순위에서 맨 뒤로
+      groups.sort((a, b) => (/^기타/.test(a.label) - /^기타/.test(b.label)) || b.list.length - a.list.length);
+      out[car][tone] = groups.filter((g) => g.list.length).map((g) => ({
+        label: g.label, count: g.list.length, ratio: rr.length ? g.list.length / rr.length : 0,
+        examples: g.list.map((r) => r.text.split("\n").pop().trim()).filter(Boolean).sort((a, b) => Math.abs(a.length - 60) - Math.abs(b.length - 60)).slice(0, 3),
+        keys: g.list.map((r) => r.key),
+        list: g.list,
+      }));
+    }
+  }
+  return { cars: out, fresh: !!fresh, by: fresh ? tops.by : "rule" };
+}
+
+const GROUP_SYSTEM = `당신은 현대자동차 국내 마케팅·고객 부문 온라인 여론 보고서를 쓰는 분석가입니다.
+보고서 3페이지 '차종별 긍정·부정 주요 내용 TOP5' 를 만듭니다: 그 차종 동호회에서 '코리아 세일 페스타(K-세일 페스타 · 코세페)'에 대해
+가장 많이 이슈화되고 이야기된 내용을 많은 순으로 뽑는 표입니다 (순위 · 내용 · 개수 · 비율).
+[입력] 차종, 성향(긍정 또는 부정), 반응 목록(id, 구분(게시글/댓글/답글), 주요 내용 후보, 판단 근거, 원문).
+[할 일]
+1. 검수: 원문을 다시 읽고, 이 차종에 대한 코세페 반응으로서 성향이 틀린 것만 fixes 에 넣습니다 (id, 바른 tone, 바른 성향이 긍정·부정이면 theme).
+   - 코세페 평가가 없는 회원 간 대화·인사·정보 문의 → 중립 · 이유 없는 욕·조롱 → 단순비난 · 반대 성향이면 바꿈.
+   - 확실히 틀린 것만 고칩니다. 애매하면 그대로 둡니다.
+2. 묶기: fixes 에 넣지 않은 반응을 '같은 이슈'끼리 묶습니다. groups: 묶음마다 label 과 ids.
+   - label: 보고서 표의 '내용' 칸 문구, 8~28자, 보고서 문체(명사형 · "~필요", "~인식", "~불만", "~함").
+     예) 부정 "기존 구매자 대상 보상 지급 필요", "재고 처리·연말 실적용 할인으로 인식", "사전 계약자 역차별 불만", "진작 가격 조정이 가능했다는 불신"
+         긍정 "이번 할인을 계기로 구매를 알아보게 됨", "구매자 입장에서 할인 혜택이 반가움"
+   - 의미가 같은 이슈는 표현이 달라도 하나로 합칩니다(많이 이야기된 이슈가 쪼개져 순위가 낮아지지 않게). 다른 이슈를 억지로 합치지 않습니다.
+   - 반응이 많은 순으로 최대 8개 묶음. 한두 번만 나온 이슈들은 마지막에 "기타 부정 의견"/"기타 긍정 의견" 하나로 모읍니다.
+   - fixes 에 넣지 않은 모든 id 를 정확히 한 묶음에만 넣습니다 (빠뜨리거나 두 번 넣지 않음).`;
+
+const GROUP_SCHEMA = {
+  type: "object",
+  properties: {
+    fixes: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { id: { type: "string" }, tone: { type: "string", enum: TONES }, theme: { type: "string" } },
+        required: ["id", "tone", "theme"],
+        additionalProperties: false,
+      },
+    },
+    groups: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: { label: { type: "string" }, ids: { type: "array", items: { type: "string" } } },
+        required: ["label", "ids"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["fixes", "groups"],
+  additionalProperties: false,
+};
+
+// 반응의 판단(ops 중 그 차종 것)을 고친다 (TOP5 검수 결과)
+function fixReaction(r, tone, theme) {
+  const holder = r.c || r.x;
+  if (!holder.a || holder.a.by !== "ai") return false;
+  const op = holder.a.ops.find((o) => o.car === r.car);
+  if (!op) return false;
+  op.tone = tone;
+  op.theme = /^(긍정|부정)$/.test(tone) ? String(theme || "").trim().slice(0, 40) || (tone === "부정" ? "기타 부정 의견" : "기타 긍정 의견") : "";
+  op.reason = `${op.reason ? `${op.reason} → ` : ""}TOP5 검수에서 ${tone}(으)로 고침`;
+  op.fixed = true;
+  return true;
+}
+
+// 💰 주요 내용 TOP5 정리: 차종 × (긍정·부정)마다 AI 가 원문을 다시 보며 성향을 검수하고, 많이 이야기된 이슈끼리 묶는다
+async function groupThemes() {
+  if (running) return;
+  if (!aiOn()) {
+    tops = null;
+    renderStats();
+    return setSummary("AI 를 켜지 않아 같은 주요 내용 문구끼리 묶었습니다 (규칙). AI 를 켜면 원문을 다시 검수하고 같은 이슈끼리 묶어 TOP5 를 정리합니다.", "ok");
+  }
+  const rs0 = basis(reactions());
+  const notAi = rs0.filter((r) => /^(긍정|부정)$/.test(r.tone) && (r.c || r.x).a?.by !== "ai").length;
+  if (notAi && !(await askConfirm(`긍정·부정 반응 중 ${notAi}개는 아직 AI 로 판단하지 않은 규칙 어림입니다. 먼저 '💰 차종별 반응 판단하기'를 하는 것이 정확합니다.\n그래도 지금 TOP5 를 정리할까요?`))) return;
+  const jobsList = [];
+  for (const car of targetCars()) for (const tone of ["긍정", "부정"]) {
+    const rr = rs0.filter((r) => r.car === car && r.tone === tone);
+    if (rr.length) jobsList.push({ car, tone, rr });
+  }
+  if (!jobsList.length) return setSummary("묶을 긍정·부정 반응이 없습니다. 먼저 본문·댓글을 읽고 판단해 주세요.", "err");
+  const model = $("#aiModel").value;
+  const total = jobsList.reduce((n, j) => n + j.rr.length, 0);
+  const est = aiCostWon(total * 160 + jobsList.length * 1200, total * 30 + jobsList.length * 300, model);
+  if (!(await askConfirm(`차종별 긍정·부정 반응 ${total.toLocaleString()}개를 Claude AI 가 원문으로 다시 검수하고(틀린 성향은 고침), 많이 이야기된 이슈끼리 묶어 TOP5 를 정리합니다.\n예상 비용 ${fmtWon(est)}\n\n계속할까요?`))) return;
+  const client = new Anthropic({ apiKey: $("#aiKey").value.trim(), dangerouslyAllowBrowser: true, maxRetries: 4 });
+  const usage = { input: 0, output: 0 };
+  startBusy();
+  const t0 = Date.now();
+  const result = { by: "ai", cars: {}, at: Date.now() };
+  let done = 0;
+  let failed = 0;
+  let fixedN = 0;
+  let lastError = null;
+  for (const j of jobsList) {
+    if (stopRequested) break;
+    showBusy(`TOP5 검수·정리 중 ${done + 1}/${jobsList.length} · ${j.car} ${j.tone}`, done, jobsList.length, "TOP5 정리 중");
+    const input = j.rr.map((r, i) => ({
+      id: String(i), 구분: r.kind, 주요내용: r.theme, 판단근거: r.reason || "",
+      원문: (r.c ? r.c.content : `[제목] ${r.x.title} ${r.x.summary || ""}`).replace(/\s+/g, " ").slice(0, 300),
+    }));
+    let out = null;
+    for (let attempt = 1; attempt <= 3 && !out; attempt++) {
+      try {
+        const { msg, parsed } = await callAi(client, model, GROUP_SYSTEM + aiExtra(), GROUP_SCHEMA,
+          `차종: ${j.car} · 성향: ${j.tone} · 반응 ${input.length}개\n\n${JSON.stringify(input)}`);
+        chargeAi(msg, model, usage);
+        const fixes = (parsed.fixes || []).filter((f) => j.rr[Number(f.id)] && f.tone !== j.tone && TONES.includes(f.tone));
+        const fixedIds = new Set(fixes.map((f) => f.id));
+        const seen = new Set();
+        const gs = (parsed.groups || []).map((g) => ({
+          label: String(g.label || "").replace(/\s+/g, " ").replace(/[.。]\s*$/, "").trim().slice(0, 40),
+          keys: (g.ids || []).filter((id) => j.rr[Number(id)] && !fixedIds.has(id) && !seen.has(id) && seen.add(id)).map((id) => j.rr[Number(id)].key),
+        })).filter((g) => g.label && g.keys.length);
+        if (seen.size + fixedIds.size < j.rr.length * 0.9) throw new Error("묶음에서 빠진 반응이 많습니다");
+        out = { fixes, gs };
+      } catch (e) {
+        lastError = e;
+        if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) break;
+      }
+    }
+    if (out) {
+      for (const f of out.fixes) if (fixReaction(j.rr[Number(f.id)], f.tone, f.theme)) fixedN++;
+      result.cars[j.car] = result.cars[j.car] || {};
+      result.cars[j.car][j.tone] = out.gs;
+    } else failed++;
+    done++;
+  }
+  endBusy();
+  await saveItems();
+  // 검수로 성향을 고친 반응이 다른 쪽(긍정↔부정)으로 옮겨 갔으면 그쪽 묶음에는 '그 주요 내용'으로 들어간다 (topThemes)
+  result.sig = topsSig(reactions());
+  if (!failed && !stopRequested) {
+    tops = result;
+    await chrome.storage.local.set({ ksfTops: tops }).catch(() => {});
+  }
+  renderResults();
+  renderStats();
+  const cost = fmtWon(aiWonExact(usage.input, usage.output, model));
+  setSummary(
+    failed || stopRequested
+      ? `TOP5 정리를 마치지 못했습니다${lastError ? `: ${aiErrorMessage(lastError)}` : ""} (같은 문구끼리 묶은 결과를 보여줍니다) · 비용 ${cost}`
+      : `✔ 차종별 긍정·부정 주요 내용 TOP5 를 정리했습니다 (검수로 성향을 고친 반응 ${fixedN}개) · ${formatDuration((Date.now() - t0) / 1000)} · 비용 ${cost}`,
+    failed || stopRequested ? "err" : "ok",
+  );
+  stopRequested = false;
+}
+
+// ---------------------------------------------------------------------------
+// 화면: 결과 표 · 차종별 현황
+// ---------------------------------------------------------------------------
+
+function sortedItems() {
+  const cars = targetCars();
+  const byDate = (a, b) => (a.date ?? Infinity) - (b.date ?? Infinity);
+  return [...items].sort((a, b) =>
+    $("#sortBy")?.value === "date"
+      ? byDate(a, b) || a.cafeIndex - b.cafeIndex
+      : cars.indexOf(a.car) - cars.indexOf(b.car) || a.cafeIndex - b.cafeIndex || byDate(a, b),
+  );
+}
+
+function visibleItems() {
+  const car = $("#carFilter").value;
+  const view = $("#viewFilter").value;
+  return sortedItems().filter((x) => {
+    if (car && x.car !== car) return false;
+    if (view === "checked") return x.checked;
+    if (view === "unchecked") return !x.checked;
+    if (view === "unread") return (x.checked || x.candidate) && !x.bodyRead;
+    return true;
+  });
+}
+
+const rowEls = new Map();
+
+function renderResults() {
+  const tbody = $("#results tbody");
+  tbody.innerHTML = "";
+  rowEls.clear();
+  $("#resultBox").hidden = !items.length && !running;
+  const list = visibleItems();
+  const frag = document.createDocumentFragment();
+  for (const item of list.slice(0, 1500)) frag.appendChild(buildRow(item));
+  tbody.appendChild(frag);
+  if (list.length > 1500) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="8" class="hint">… 화면에는 1,500개까지만 보입니다 (위 차종·보기로 좁혀 보세요).</td>`;
+    tbody.appendChild(tr);
+  }
+  updateCounts();
+}
+
+function buildRow(item) {
+  const tr = document.createElement("tr");
+  tr.innerHTML =
+    `<td><input type="checkbox"></td><td class="nowrap"></td><td class="nowrap"></td><td><a target="_blank" rel="noopener"></a></td>` +
+    `<td class="ops"></td><td class="sum"></td><td class="note"></td><td><button class="small del">삭제</button></td>`;
+  tr.querySelector("input").addEventListener("change", (e) => {
+    item.checked = e.target.checked;
+    item.touched = true;
+    tr.className = item.checked ? "" : "off";
+    updateCounts();
+    saveItemsSoon();
+  });
+  tr.querySelector(".del").addEventListener("click", () => {
+    items = items.filter((x) => x !== item);
+    tr.remove();
+    rowEls.delete(item.key);
+    updateCounts();
+    saveItemsSoon();
+  });
+  rowEls.set(item.key, tr);
+  fillRow(tr, item);
+  return tr;
+}
+
+function toneBadge(tone, text = tone) {
+  return Object.assign(document.createElement("b"), { className: `tone tone-${tone}`, textContent: text });
+}
+
+function fillRow(tr, item) {
+  tr.className = item.checked ? "" : "off";
+  tr.querySelector("input").checked = item.checked;
+  tr.children[1].replaceChildren(Object.assign(document.createElement("div"), { textContent: item.car }), Object.assign(document.createElement("div"), { className: "hint", textContent: item.cafeName }));
+  tr.children[2].textContent = item.date ? formatDateTime(new Date(item.date), item.hasTime) : "날짜 모름";
+  const a = tr.querySelector("a");
+  a.href = articleUrl(item);
+  a.textContent = item.title;
+  a.title = articleUrl(item);
+  // 반응: 글의 차종별 성향 + 댓글 성향 건수
+  const cell = tr.children[4];
+  cell.replaceChildren();
+  if (item.bodyRead && item.body) {
+    const line = document.createElement("div");
+    line.append("글 ");
+    for (const o of postOps(item)) line.append(toneBadge(o.tone, `${o.car} ${o.tone}`), " ");
+    cell.append(line);
+    const cs = (item.commentList || []).filter((c) => inPeriodTime(c.date)).flatMap((c) => commentOps(item, c));
+    if (cs.length) {
+      const n = toneCounts(cs);
+      const l2 = document.createElement("div");
+      l2.append(`댓글 ${cs.length} `);
+      for (const t of TONES) if (n[t]) l2.append(toneBadge(t, `${t[0] === "단" ? "비난" : t} ${n[t]}`), " ");
+      cell.append(l2);
+    }
+  }
+  tr.children[5].textContent = item.summary || "";
+  const notes = [];
+  if (item.bodyNote) notes.push(item.bodyNote);
+  else if (item.note) notes.push(item.note);
+  if (item.bodyRead && !item.bodyNote) notes.push(`본문 읽음 · 댓글 ${(item.commentList || []).length}개`);
+  if (item.a?.by === "ai") notes.push(`AI 판단${item.ksf === false ? " (코세페 글이 아니라고 판단 - 체크 해제)" : ""}`);
+  else if (item.bodyRead) notes.push("규칙 어림");
+  notes.push(`검색어: ${item.queries.join(", ")}`);
+  tr.children[6].replaceChildren(...notes.map((t) => Object.assign(document.createElement("div"), { textContent: t })));
+}
+
+function renderRow(item) {
+  const tr = rowEls.get(item.key);
+  if (tr) fillRow(tr, item);
+  updateCounts();
+}
+
+function updateCounts() {
+  const n = items.filter((x) => x.checked).length;
+  const read = items.filter((x) => x.checked && x.bodyRead).length;
+  const byCar = targetCars().map((car) => `${car} ${items.filter((x) => x.checked && x.car === car).length}`).join(" · ");
+  $("#resultCount").textContent = items.length ? `전체 ${items.length}개 중 ${n}개 체크 (${byCar}) · 본문·댓글 읽음 ${read}/${n}` : "";
+  const coin = aiOn() ? "💰 " : "";
+  const left = items.filter((x) => !x.bodyRead && (x.checked || (!x.touched && x.candidate))).length;
+  $("#readBodies").textContent = left
+    ? `본문·댓글 읽고 판단하기 (${left.toLocaleString()}개 · 약 ${formatDuration(left * SEC_PER_ARTICLE)})`
+    : "본문·댓글 읽고 판단하기 (모두 읽음)";
+  $("#readBodies").disabled = !items.length || running;
+  $("#judge").textContent = `${coin}차종별 반응 판단하기`;
+  $("#rejudge").textContent = `${coin}처음부터 다시 판단하기`;
+  $("#groupTop").textContent = `${coin}주요 내용 TOP5 정리`;
+  for (const id of ["judge", "rejudge", "groupTop"]) $(`#${id}`).disabled = !n || running;
+  $("#saveExcel").disabled = !n || running;
+  $("#savePpt").disabled = !n || running;
+  $("#selDelete").disabled = !n || running;
+  $("#selDelete").textContent = n ? `선택 삭제 (${n}개)` : "선택 삭제";
+  const vis = visibleItems();
+  $("#checkAll").checked = !!vis.length && vis.every((x) => x.checked);
+  renderStatsSoon();
+}
+
+let statsTimer = null;
+function renderStatsSoon() {
+  clearTimeout(statsTimer);
+  statsTimer = setTimeout(renderStats, 150);
+}
+
+const fmtPct = (v) => `${(Math.round(v * 1000) / 10).toFixed(1)}%`;
+
+// 차종별 현황 표 + TOP5
+function renderStats() {
+  const rs = reactions();
+  const stats = carStats(rs);
+  const tbody = $("#statTable tbody");
+  tbody.replaceChildren();
+  for (const s of stats) {
+    const tr = document.createElement("tr");
+    if (s.car === "전체") tr.className = "total";
+    const td = (v, cls = "") => Object.assign(document.createElement("td"), { textContent: v, className: cls });
+    tr.append(td(s.car), td(s.posts.toLocaleString(), "num"), td(s.comments.toLocaleString(), "num"), td(s.n.toLocaleString(), "num"));
+    for (const t of TONES) {
+      const c = td("", "num");
+      c.append(toneBadge(t, s.n ? fmtPct(s.ratio[t]) : "-"), Object.assign(document.createElement("span"), { className: "hint", textContent: ` ${s.tone[t]}` }));
+      tr.append(c);
+    }
+    tbody.append(tr);
+  }
+  const unjudged = rs.filter((r) => !(r.c ? r.c.a?.by === "ai" : r.x.a?.by === "ai")).length;
+  $("#statState").textContent = !rs.length
+    ? "아직 반응이 없습니다 (체크한 글의 본문·댓글을 읽으면 계산됩니다)."
+    : unjudged
+      ? `잠정치: 반응 ${rs.length.toLocaleString()}개 중 ${unjudged.toLocaleString()}개는 규칙(단어)으로 어림한 값입니다${aiOn() ? " - '💰 차종별 반응 판단하기'를 누르면 AI 로 판단" : ""}.`
+      : `✔ 반응 ${rs.length.toLocaleString()}개 모두 AI 로 판단했습니다.`;
+  $("#statState").className = `hint ${rs.length && !unjudged ? "ok" : ""}`;
+  // TOP5
+  const t = topThemes(rs);
+  const box = $("#topBox");
+  box.replaceChildren();
+  for (const car of targetCars()) {
+    const row = document.createElement("div");
+    row.className = "top-row";
+    row.append(Object.assign(document.createElement("div"), { className: "top-car", textContent: car }));
+    for (const tone of ["긍정", "부정"]) {
+      const col = document.createElement("div");
+      col.className = "top-col";
+      col.append(Object.assign(document.createElement("div"), { className: `top-head tone-bg-${tone}`, textContent: `${tone} (${t.cars[car].total[tone].toLocaleString()})` }));
+      const table = document.createElement("table");
+      table.className = "compact top-table";
+      table.innerHTML = "<thead><tr><th>순위</th><th>내용</th><th>개수</th><th>비율</th></tr></thead>";
+      const tb = document.createElement("tbody");
+      for (let i = 0; i < TOP_N; i++) {
+        const g = t.cars[car][tone][i];
+        const tr = document.createElement("tr");
+        const label = document.createElement("td");
+        if (g) {
+          label.textContent = g.label;
+          label.title = "누르면 이 이슈로 묶인 반응 원문을 펼칩니다";
+          tr.className = "pick";
+        }
+        tr.append(Object.assign(document.createElement("td"), { textContent: i + 1, className: "num" }), label,
+          Object.assign(document.createElement("td"), { textContent: g ? `${g.count}건` : "", className: "num" }),
+          Object.assign(document.createElement("td"), { textContent: g ? fmtPct(g.ratio) : "", className: "num" }));
+        tb.append(tr);
+        if (g) {
+          // 펼치면: 이 이슈로 묶인 반응 원문 (구분 · 판단 근거) - 사람이 맞게 묶였는지 확인
+          const more = document.createElement("tr");
+          more.className = "members";
+          more.hidden = true;
+          const td = document.createElement("td");
+          td.colSpan = 4;
+          const ul = document.createElement("ul");
+          for (const r of g.list) {
+            const li = document.createElement("li");
+            const a = Object.assign(document.createElement("a"), { href: articleUrl(r.x), target: "_blank", rel: "noopener", textContent: `[${r.kind}]` });
+            li.append(a, ` ${(r.c ? r.c.content : r.x.title).replace(/\s+/g, " ").slice(0, 200)}`);
+            if (r.reason) li.append(Object.assign(document.createElement("span"), { className: "hint", textContent: ` — ${r.reason}` }));
+            ul.append(li);
+          }
+          td.append(ul);
+          more.append(td);
+          tr.addEventListener("click", () => (more.hidden = !more.hidden));
+          tb.append(more);
+        }
+      }
+      table.append(tb);
+      col.append(table);
+      row.append(col);
+    }
+    box.append(row);
+  }
+  $("#topState").textContent = t.fresh
+    ? `✔ Claude AI 가 원문을 검수하고 같은 이슈끼리 묶은 TOP5 입니다 (${new Date(tops.at).toLocaleString()}) · 개수 = 그 이슈를 말한 게시글·댓글 반응 수 · 비율 = 그 차종 긍정(부정) 반응 중 비중 · 줄을 누르면 원문`
+    : `같은 주요 내용 문구끼리 센 잠정 TOP5 입니다${aiOn() ? " - '💰 주요 내용 TOP5 정리'를 누르면 AI 가 원문을 검수하고 같은 이슈끼리 묶어 많이 이야기된 순으로 정리" : ""} · 줄을 누르면 원문`;
+}
+
+function saveItems() {
+  return chrome.storage.local.set({ ksfItems: items }).catch(() => {});
+}
+
+let saveTimer = null;
+function saveItemsSoon() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveItems, 500);
+}
+
+// ---------------------------------------------------------------------------
+// 엑셀 받기
+// ---------------------------------------------------------------------------
+
+function fileStem() {
+  const p = (id) => String($(`#${id}`).value || "").replace(/-/g, "").slice(4);
+  return `${today()}_${OUT_NAME}_${p("startDate")}-${p("endDate")}`;
+}
+
+// 대표 반응 (성향마다 원문 몇 개 · 짧고 내용 있는 것)
+function quotes(rs, car, tone, n = 6) {
+  const list = rs.filter((r) => (car === "전체" || r.car === car) && r.tone === tone).map((r) => r.text.split("\n").pop().replace(/\s+/g, " ").trim());
+  const uniq = [...new Set(list)].filter((s) => s.length >= 6);
+  uniq.sort((a, b) => Math.abs(a.length - 70) - Math.abs(b.length - 70));
+  return uniq.slice(0, n).map((s) => `‘${s.length > 140 ? `${s.slice(0, 138)}…` : s}’`).join(", ");
+}
+
+function buildExcel() {
+  const list = reportItems();
+  const rs = reactions(list);
+  const stats = carStats(rs);
+  const top = topThemes(rs);
+  const cars = targetCars();
+  const tone = (t) => ({ v: t, s: `tone-${t}` });
+  const pct = (v, s = "pct") => ({ v: Math.round(v * 10000) / 10000, s });
+  const num = (v) => ({ v, s: "center" });
+  const cond = `모니터링 기간 ${$("#startDate").value} ~ ${$("#endDate").value} · 모니터링 채널: 차종별 주요 동호회 (${cafes().map((c) => c.name).join(", ")}) · ` +
+    `게시글 ${list.length.toLocaleString()}개 · 댓글 ${reportComments(list).length.toLocaleString()}개 · ${formatDateTime(new Date())} 작성`;
+  const unjudged = rs.filter((r) => !(r.c ? r.c.a?.by === "ai" : r.x.a?.by === "ai")).length;
+
+  // ① 요약: 차종별 성향 · 차종별 주요 내용 TOP5 (보고서 3p) · 성향별 대표 반응
+  const S = [];
+  const merges = [];
+  S.push([null, { v: `${$("#pptTitle").value.replace(/^■\s*/, "") || OUT_NAME}`, s: "title" }]);
+  merges.push("B1:K1");
+  S.push([null, { v: cond, s: "note" }]);
+  merges.push("B2:K2");
+  if (unjudged) {
+    S.push([null, { v: `※ 잠정치: 반응 ${rs.length}개 중 ${unjudged}개는 단어 규칙으로 어림한 값 (AI 판단 전)`, s: "note" }]);
+    merges.push(`B${S.length}:K${S.length}`);
+  }
+  S.push([]);
+  S.push([null, { v: "1. 차종별 코세페 반응 성향 (반응 = 게시글·댓글 × 언급 차종)", s: "title" }]);
+  S.push([null, ...["차종", "게시글", "댓글", "반응 수", "긍정", "중립", "부정", "단순비난", "부정 여론(부정+단순비난)"].map((h) => ({ v: h, s: "head" }))]);
+  for (const s of stats) {
+    S.push([null, { v: s.car, s: "bold" }, num(s.posts), num(s.comments), num(s.n),
+      ...TONES.map((t) => (s.n ? pct(s.ratio[t], t === "긍정" ? "pct-긍정" : t === "부정" ? "pct-부정" : "pct") : num("-"))),
+      s.n ? pct(s.ratio["부정"] + s.ratio["단순비난"], "pct-부정") : num("-")]);
+  }
+  S.push([null, ...["차종 (건수)", "게시글", "댓글", "반응 수", "긍정", "중립", "부정", "단순비난", "부정 여론(부정+단순비난)"].map((h) => ({ v: h, s: "sub" }))]);
+  for (const s of stats) S.push([null, { v: s.car, s: "bold" }, num(s.posts), num(s.comments), num(s.n), ...TONES.map((t) => num(s.tone[t])), num(s.tone["부정"] + s.tone["단순비난"])]);
+  S.push([]);
+  S.push([null, { v: "2. 차종별 긍정·부정 주요 내용 TOP5 - 많이 이야기된 이슈 순 (보고서 3p · 개수 = 그 이슈를 말한 게시글·댓글 반응 수 · 비율 = 그 차종 긍정/부정 반응 중 비중)", s: "title" }]);
+  S.push([null, { v: "차종", s: "head" }, { v: "긍정", s: "head" }, { v: "", s: "head" }, { v: "", s: "head" }, { v: "", s: "head" },
+    { v: "부정", s: "head" }, { v: "", s: "head" }, { v: "", s: "head" }, { v: "", s: "head" }]);
+  merges.push(`C${S.length}:F${S.length}`, `G${S.length}:J${S.length}`);
+  S.push([null, { v: "", s: "head" }, ...["순위", "내용", "개수", "비율", "순위", "내용", "개수", "비율"].map((h) => ({ v: h, s: "sub" }))]);
+  merges.push(`B${S.length - 1}:B${S.length}`);
+  for (const car of cars) {
+    const first = S.length + 1;
+    for (let i = 0; i < TOP_N; i++) {
+      const p = top.cars[car]["긍정"][i];
+      const n = top.cars[car]["부정"][i];
+      S.push([null, { v: i ? "" : `${car}\n(긍정 ${top.cars[car].total["긍정"]} · 부정 ${top.cars[car].total["부정"]})`, s: "wrap-head" },
+        num(i + 1), { v: p ? p.label : "", s: "wrap" }, num(p ? p.count : ""), p ? pct(p.ratio) : num(""),
+        num(i + 1), { v: n ? n.label : "", s: "wrap" }, num(n ? n.count : ""), n ? pct(n.ratio) : num("")]);
+    }
+    merges.push(`B${first}:B${first + TOP_N - 1}`);
+  }
+  S.push([]);
+  S.push([null, { v: "3. 차종별 성향별 주요 반응 (원문)", s: "title" }]);
+  S.push([null, { v: "차종", s: "head" }, { v: "성향", s: "head" }, { v: "비율", s: "head" }, { v: "주요 반응", s: "head" }]);
+  merges.push(`E${S.length}:K${S.length}`);
+  const heights = {};
+  for (const s of stats.filter((x) => x.car !== OTHER_CAR)) {
+    for (const t of TONES) {
+      const q = quotes(rs, s.car, t);
+      S.push([null, { v: s.car, s: "bold" }, tone(t), s.n ? pct(s.ratio[t]) : num("-"), { v: q || "-", s: "wrap" }]);
+      merges.push(`E${S.length}:K${S.length}`);
+      heights[S.length] = Math.min(160, Math.max(20, Math.ceil(q.length / 95) * 16 + 6));
+    }
+  }
+  const summary = {
+    name: "요약", rows: S, merges, heights, noGrid: true,
+    widths: { 1: 2, 2: 16, 3: 9, 4: 34, 5: 9, 6: 9, 7: 9, 8: 34, 9: 9, 10: 9, 11: 22 },
+  };
+
+  // ② 게시글
+  const P = [[null, ...["순번", "차종(동호회)", "동호회명", "작성일", "제목", "내용 요약", "URL", "작성자", "조회수", "댓글수(읽은 댓글)", "글 반응(차종: 성향)", "글 주요 내용"].map((h) => ({ v: h, s: "head" }))]];
+  list.forEach((x, i) => {
+    const ops = postOps(x);
+    P.push([null, num(i + 1), num(x.car), { v: x.cafeName, s: "cell" }, x.date ? { v: excelSerial(new Date(x.date)), s: "date" } : num(""),
+      { v: x.title, s: "wrap" }, { v: x.summary || ruleSummary(x), s: "wrap" }, { v: articleUrl(x), s: "cell" }, { v: x.nickname || "", s: "cell" },
+      num(typeof x.views === "number" ? x.views : ""), num(`${x.comments ?? ""}${x.commentList ? ` (${x.commentList.length})` : ""}`),
+      { v: ops.map((o) => `${o.car}: ${o.tone}`).join(", "), s: "wrap" }, { v: ops.map((o) => o.theme).filter(Boolean).join(" / "), s: "wrap" }]);
+  });
+  const posts = { name: "게시글", rows: P, freeze: 1, filter: "B1:M1", widths: { 1: 2, 2: 6, 3: 10, 4: 18, 5: 16, 6: 40, 7: 50, 8: 34, 9: 14, 10: 8, 11: 12, 12: 22, 13: 30 } };
+
+  // ③ 반응 (raw): 반응 하나 = 글·댓글 × 차종
+  const groupOf = new Map();
+  for (const car of cars) for (const t of ["긍정", "부정"]) top.cars[car][t].forEach((g, i) => g.keys.forEach((k) => groupOf.set(k, `${i + 1}위 ${g.label}`)));
+  const R = [[null, ...["순번", "반응 차종", "성향", "주요 내용", "TOP 묶음", "판단 근거", "구분", "내용", "작성일", "작성자", "동호회 차종", "동호회명", "게시글 제목", "게시글 URL", "판단"].map((h) => ({ v: h, s: "head" }))]];
+  const order = (r) => [cars.indexOf(r.car) < 0 ? 99 : cars.indexOf(r.car), TONES.indexOf(r.tone)];
+  const sorted = [...rs].sort((a, b) => order(a)[0] - order(b)[0] || order(a)[1] - order(b)[1] || (a.date ?? 0) - (b.date ?? 0));
+  sorted.forEach((r, i) => {
+    const text = r.c ? r.c.content : `[제목] ${r.x.title}\n${(r.x.body || r.x.text || "").slice(0, 1500)}`;
+    R.push([null, num(i + 1), num(r.car), tone(r.tone), { v: r.theme, s: "wrap" }, { v: groupOf.get(r.key) || "", s: "wrap" }, { v: r.reason || "", s: "wrap" }, num(r.kind), { v: text, s: "wrap" },
+      r.date ? { v: excelSerial(new Date(r.date)), s: "date" } : num(""), { v: r.c ? r.c.nickname : r.x.nickname || "", s: "cell" },
+      num(r.x.car), { v: r.x.cafeName, s: "cell" }, { v: r.x.title, s: "wrap" }, { v: articleUrl(r.x), s: "cell" },
+      num((r.c ? r.c.a?.by : r.x.a?.by) === "ai" ? "AI" : "규칙")]);
+  });
+  const raw = { name: "반응 전체", rows: R, freeze: 1, filter: "B1:P1", widths: { 1: 2, 2: 6, 3: 10, 4: 9, 5: 28, 6: 26, 7: 30, 8: 8, 9: 60, 10: 16, 11: 14, 12: 10, 13: 16, 14: 30, 15: 34, 16: 6 } };
+
+  // ④ 판단 기준 (보고용 설명)
+  const C = [
+    [null, { v: "코리아 세일 페스타 반응 성향 판단 기준", s: "title" }],
+    [],
+    [null, { v: "구분", s: "head" }, { v: "기준", s: "head" }],
+    [null, { v: "대상", s: "bold" }, { v: "모니터링 기간 안에 대상 차종 동호회에 올라온 코리아 세일 페스타(K-세일 페스타·코세페·11월 할인 행사) 관련 게시글과 그 댓글·답글 (삭제 댓글 제외)", s: "wrap" }],
+    [null, { v: "반응 단위", s: "bold" }, { v: "게시글·댓글 하나가 말하는 차종마다 반응 하나. 차종 이름이 없으면 그 동호회 차종에 대한 반응, 여러 차종을 말하면 차종마다 따로 판단", s: "wrap" }],
+    [null, tone("긍정"), { v: "할인 혜택을 반기거나 만족, 좋은 구매 기회로 봄, 이번 할인을 계기로 구매를 알아보거나 계약함", s: "wrap" }],
+    [null, tone("부정"), { v: "기존 구매자 역차별·보상 요구, 할인 폭·조건 불만, 재고 처리·실적용 할인 의심, 가격 정책·회사 불신, 구매 포기·취소 고려, 부정 의견 동조", s: "wrap" }],
+    [null, tone("중립"), { v: "할인 조건·기간 정보 공유·문의, 코세페에 대한 평가가 없는 말, 회원 간 말다툼·사과·인사·응원", s: "wrap" }],
+    [null, tone("단순비난"), { v: "코세페·할인에 대한 구체적 내용 없이 회사·노조·브랜드를 욕하거나 조롱만 함", s: "wrap" }],
+    [null, { v: "비율", s: "bold" }, { v: "성향 비율 = 그 차종 반응 중 비중 · TOP5 비율 = 그 차종 긍정(부정) 반응 중 비중", s: "wrap" }],
+    [null, { v: "판단 방법", s: "bold" }, { v: unjudged ? `Claude AI 판단 (일부 ${unjudged}건은 단어 규칙 어림)` : "Claude AI 판단 후 담당자 검토", s: "wrap" }],
+  ];
+  const crit = { name: "판단 기준", rows: C, noGrid: true, widths: { 1: 2, 2: 14, 3: 110 }, merges: ["B1:C1"] };
+  return XlsxBook.build([summary, posts, raw, crit], { font: "맑은 고딕" });
+}
+
+async function saveExcel() {
+  if (running) return;
+  const list = reportItems();
+  if (!list.length) return setSummary("기간 안의 체크한 글이 없습니다.", "err");
+  const unread = list.filter((x) => !x.bodyRead).length;
+  if (unread && !(await askConfirm(`본문·댓글을 아직 읽지 않은 글이 ${unread}개 있습니다. 이 글들의 댓글은 빠집니다.\n그대로 받을까요?`))) return;
+  $("#saveInfo").className = "hint";
+  $("#saveInfo").textContent = "엑셀 만드는 중…";
+  try {
+    const bytes = buildExcel();
+    const name = `${fileStem()}.xlsx`;
+    const where = await saveBytes(bytes, name);
+    $("#saveInfo").className = "hint ok";
+    $("#saveInfo").textContent = `✔ ${where}에 ${name} - 게시글 ${list.length.toLocaleString()}개 · 반응 ${reactions(list).length.toLocaleString()}개`;
+  } catch (e) {
+    $("#saveInfo").className = "hint err";
+    $("#saveInfo").textContent = `엑셀을 만들지 못했습니다: ${e.message}`;
+  }
+}
+
+// 보고서 PPT 3p 채우기: 사용자가 고른 보고서 PPT 를 틀로
+async function savePpt() {
+  if (running) return;
+  const file = $("#pptFile").files[0];
+  if (!file) {
+    $("#pptInfo").className = "hint err";
+    $("#pptInfo").textContent = "먼저 보고서 PPT 파일(양식 3페이지 '순위·내용·개수·비율' 표가 있는 파일)을 골라 주세요.";
+    return;
+  }
+  const top = topThemes();
+  if (!top.fresh && aiOn() && (await askConfirm("주요 내용 TOP5 를 아직 AI 로 정리하지 않았습니다(같은 문구끼리 센 값).\n· [확인]: 먼저 💰 TOP5 정리하고 PPT 받기\n· [취소]: 지금 값으로 받기"))) {
+    await groupThemes();
+  }
+  const t = topThemes();
+  const cars = {};
+  for (const car of targetCars()) cars[car] = { pos: t.cars[car]["긍정"].slice(0, TOP_N), neg: t.cars[car]["부정"].slice(0, TOP_N) };
+  $("#pptInfo").className = "hint";
+  $("#pptInfo").textContent = "PPT 만드는 중…";
+  try {
+    const { bytes, filled } = await PptFill.fill(new Uint8Array(await file.arrayBuffer()), {
+      cars, title: $("#pptTitle").value.trim(), onlyThis: $("#onlySlide").checked,
+    });
+    const name = `${fileStem()}.pptx`;
+    const where = await saveBytes(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }), name);
+    $("#pptInfo").className = "hint ok";
+    $("#pptInfo").textContent = `✔ ${where}에 ${name} - 표 ${filled.length}개 채움 (${filled.join(" · ")})${t.fresh ? "" : " · TOP5 는 같은 문구끼리 센 값"}`;
+  } catch (e) {
+    $("#pptInfo").className = "hint err";
+    $("#pptInfo").textContent = `PPT 를 만들지 못했습니다: ${e.message}`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 작업 중 표시 · 로그인 · 시작
+// ---------------------------------------------------------------------------
+
+function startBusy() {
+  running = true;
+  stopRequested = false;
+  $("#search").disabled = true;
+  $("#stop").disabled = false;
+  updateCounts();
+}
+
+function endBusy() {
+  running = false;
+  hideBusy();
+  $("#search").disabled = false;
+  $("#stop").disabled = true;
+  updateCounts();
+}
+
+async function checkLogin() {
+  const box = $("#login");
+  let ok = false;
+  try {
+    ok = !!(await chrome.cookies.get({ url: "https://www.naver.com/", name: "NID_AUT" }));
+  } catch {
+    ok = false;
+  }
+  box.className = ok ? "login ok" : "login bad";
+  if (ok) box.textContent = "네이버 로그인됨 ✓";
+  else
+    box.innerHTML =
+      '카페 글을 찾으려면 네이버 로그인이 필요합니다. <a href="https://nid.naver.com/nidlogin.login" target="_blank">여기서 로그인</a>한 뒤 이 화면으로 돌아오세요.';
+  return ok;
+}
+
+async function init() {
+  $("#ver").textContent = `v${chrome.runtime.getManifest().version}`;
+  await loadSettings();
+  setupPanel("panelAi", !$("#aiKey").value.trim());
+  const saved = await chrome.storage.local.get(["ksfItems", "ksfTops", "ksfAiSpend"]).catch(() => ({}));
+  items = saved.ksfItems || [];
+  tops = saved.ksfTops || null;
+  aiSpend = saved.ksfAiSpend || aiSpend;
+  renderResults();
+  if (items.length) setSummary(`지난번까지 찾은 글 ${items.length}개입니다. '게시물 찾기'를 다시 누르면 새로 찾은 글이 더해집니다.`);
+
+  for (const id of [...SETTING_IDS, "tabFallback", "saveAsk", "onlySlide"]) {
+    $(`#${id}`).addEventListener("change", async () => {
+      if (id === "searchUrl") $("#searchUrl").value = normalizeSearchUrl($("#searchUrl").value);
+      await saveSettings();
+      if (id === "cafeList") renderCafeInfo();
+      if (["queries", "maxPages"].includes(id)) updateJobInfo();
+      if (["cafeList", "carWords"].includes(id)) renderResults();
+      if (["ksfWords", "saleWords", "exclude"].includes(id)) {
+        for (const x of items) {
+          const j = judge(`${x.title} ${x.body || x.text}`);
+          x.related = j.related;
+          x.candidate = j.candidate;
+          x.note = judgeNote(j);
+          if (!x.touched && x.a?.by !== "ai") x.checked = j.related;
+        }
+        renderResults();
+        saveItemsSoon();
+      }
+    });
+  }
+  for (const id of ["startDate", "endDate"]) $(`#${id}`).addEventListener("change", () => (saveSettings(), updateJobInfo(), renderResults()));
+  $("#aiKey").addEventListener("change", saveAiKey);
+  $("#aiKey").addEventListener("keydown", (e) => e.key === "Enter" && saveAiKey());
+  $("#aiSave").addEventListener("click", saveAiKey);
+  $("#aiTest").addEventListener("click", testAiKey);
+  for (const id of ["aiModel", "aiOn"]) $(`#${id}`).addEventListener("change", () => (saveSettings(), showAiStatus(), updateCounts()));
+  $("#resetSettings").addEventListener("click", async () => {
+    if (!(await askConfirm("동호회·검색어·관련 단어 설정을 처음 값으로 되돌릴까요?"))) return;
+    for (const id of SETTING_IDS) $(`#${id}`).value = SETTING_DEFAULTS[id];
+    $("#startDate").value = DEFAULT_START;
+    $("#endDate").value = DEFAULT_END;
+    await saveSettings();
+    renderCafeInfo();
+  });
+  $("#search").addEventListener("click", async () => {
+    const r = await loadResume("ksf");
+    search(r && (await askConfirm(`중단된 게시물 찾기가 있습니다 (${r.jobs.length}개 중 ${r.next}개 완료 · 기간 ${r.start || "?"} ~ ${r.end || "?"}).\n\n· [확인]: 이어서 찾기\n· [취소]: 처음부터 다시 찾기`)) ? r : null);
+  });
+  $("#stop").addEventListener("click", () => {
+    stopRequested = true;
+    $("#stop").disabled = true;
+    setSummary("중지하는 중… (지금 하는 것까지 마칩니다)");
+  });
+  $("#carFilter").addEventListener("change", renderResults);
+  $("#viewFilter").addEventListener("change", renderResults);
+  $("#sortBy").addEventListener("change", renderResults);
+  const setVisible = (fn) => {
+    for (const x of visibleItems()) {
+      x.checked = fn(x);
+      x.touched = true;
+    }
+    renderResults();
+    saveItemsSoon();
+  };
+  $("#selAll").addEventListener("click", () => setVisible(() => true));
+  $("#selNone").addEventListener("click", () => setVisible(() => false));
+  $("#checkAll").addEventListener("change", (e) => setVisible(() => e.target.checked));
+  $("#selDelete").addEventListener("click", async () => {
+    const n = items.filter((x) => x.checked).length;
+    if (!n || !(await askConfirm(`체크한 게시물 ${n}개를 목록에서 삭제할까요?`))) return;
+    items = items.filter((x) => !x.checked);
+    renderResults();
+    await saveItems();
+  });
+  $("#clearAll").addEventListener("click", async () => {
+    if (!items.length || !(await askConfirm(`찾은 글 ${items.length}개(읽은 본문·댓글·판단 포함)를 모두 지울까요?`))) return;
+    items = [];
+    tops = null;
+    await chrome.storage.local.remove("ksfTops").catch(() => {});
+    await clearResume("ksf");
+    renderResults();
+    await saveItems();
+  });
+  $("#readBodies").addEventListener("click", readBodies);
+  $("#judge").addEventListener("click", () => judgeAll());
+  $("#rejudge").addEventListener("click", async () => {
+    if (await askConfirm("이미 판단한 글·댓글도 모두 처음부터 다시 판단할까요? (기준·AI 추가 규칙을 바꿨을 때)")) judgeAll({ force: true });
+  });
+  $("#groupTop").addEventListener("click", groupThemes);
+  $("#saveExcel").addEventListener("click", () => (prepareFolder(), saveExcel()));
+  $("#savePpt").addEventListener("click", () => (prepareFolder(), savePpt()));
+  $("#pickFolder").addEventListener("click", pickSaveFolder);
+  $("#clearFolder").addEventListener("click", clearSaveFolder);
+  renderSaveFolder();
+  $("#diag").addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify({ version: chrome.runtime.getManifest().version, at: new Date().toString(), diagnostics }, null, 1)], { type: "application/json" });
+    prepareFolder();
+    saveBytes(blob, `${today()}_코세페_진단.json`);
+  });
+  window.addEventListener("focus", checkLogin);
+  checkLogin();
+  const r = await loadResume("ksf");
+  if (r && (await askConfirm(`중단된 게시물 찾기가 있습니다 (동호회·검색어 ${r.jobs.length}개 중 ${r.next}개 완료 · ${new Date(r.at).toLocaleString()}).\n\n· [확인]: 이어서 찾기\n· [취소]: 나중에 ('게시물 찾기'를 누르면 다시 물어봄)`))) search(r);
+}
+
+function openSettingsFromHash() {
+  if (location.hash !== "#settings") return;
+  $("#settings").open = true;
+  $("#settings").scrollIntoView({ block: "start", behavior: "smooth" });
+}
+window.addEventListener("hashchange", openSettingsFromHash);
+
+init().then(openSettingsFromHash);

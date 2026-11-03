@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "코리아 세일 페스타 차종별 동호회 반응 모니터링",
+  "version": "1.0.0",
+  "description": "아반떼·그랜저·싼타페 동호회에서 기간 안의 코리아 세일 페스타(K-세일 페스타) 관련 글과 댓글을 찾아, 차종별로 코세페에 대한 긍정·중립·부정·단순비난과 긍정/부정 주요 내용 TOP5를 정리해 엑셀과 보고서 PPT(3p)로 받습니다.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "코리아 세일 페스타 차종별 동호회 반응 모니터링",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "declarativeNetRequest",
+    "scripting",
+    "cookies",
+    "storage",
+    "downloads",
+    "unlimitedStorage",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "https://cafe.naver.com/*",
+    "https://m.cafe.naver.com/*",
+    "https://*.naver.com/*",
+    "https://naver.me/*",
+    "https://api.anthropic.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://cafe.naver.com/*"
+      ],
+      "js": [
+        "bg-render.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN"
+    }
+  ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAwxcxcFmMrd4ZBOjC1Z0jZeh87d8f4VZsBG5q8ddWAG9OWgMsvz3kofZEFI8DTjpRdt0aH5QWyGNHGHtMhrV0m13sJx+TrnNKmZjl89wC69nfmSRYQmDjSKivKTes1v4jBjiDmGxHWa3vhoYSptPgWtY1vaqzaIqeCG4kj6fmXwNVpB8/2/0j2vqi6LYKnoSSLyx82izmK1cK66HKFZZ5JzhdfyhuW7P1mO/RUq4H7rIk65VQb1VT4sFnkg/I6epJ2PpD9D8bHDeK27+IN7aCIzJ4nH25x0GIRk3JwGKjOSIozpcbnx6At4CCIS872/HDY/HGUvxsOaiUh3lXaw3/aQIDAQAB"
+}
