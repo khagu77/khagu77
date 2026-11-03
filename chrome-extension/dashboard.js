@@ -58,19 +58,12 @@ function dashUrlKey(u) {
   return u.toLowerCase().replace(/^https?:\/\//, "").replace(/^(www|m)\./, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
 }
 
-// 동호회 글 주소에서 카페 아이디(주소 이름, 없으면 번호)를 꺼내 모음 — 비슷한 이름의 동호회 구분용
-function dashCafeId(url, set) {
-  const p = parseArticleUrl(String(url || ""));
-  const id = p.cafeUrl || p.cafeId;
-  if (id) set.add(id);
-}
-
 async function dashDetail(buzzRec, rawRec) {
   const out = Object.fromEntries(DASH_CH.map(({ label }) => [label, new Map()]));
   const bump = (ch, name, field, n = 1) => {
     if (!out[ch]) return;
     const k = String(name || "기타").trim() || "기타";
-    const v = out[ch].get(k) || { posts: 0, comments: 0, vids: new Set(), cafeIds: new Set() };
+    const v = out[ch].get(k) || { posts: 0, comments: 0, vids: new Set() };
     v[field] += n;
     out[ch].set(k, v);
     return v;
@@ -92,7 +85,6 @@ async function dashDetail(buzzRec, rawRec) {
       for (const r of rows) if (Number(r.cells.B) > last - posts) {
         const v = bump(String(r.cells.C || "동호회").trim(), r.cells.D, "posts");
         if (v && String(r.cells.C || "").trim() === "유튜브") v.vids.add(dashUrlKey(r.cells.G));
-        if (v && String(r.cells.C || "동호회").trim() === "동호회") dashCafeId(r.cells.G, v.cafeIds);
       }
     }
   }
@@ -107,10 +99,7 @@ async function dashDetail(buzzRec, rawRec) {
       if (!n || !names.includes(ch)) continue;
       hasComments = true;
       const rows = (await wb.readRows(ch)).filter((r) => r.r > 1 && has(r)).sort((a, b) => a.r - b.r).slice(-n);
-      for (const r of rows) {
-        const v = bump(ch, nameOf(r.cells.E, ch === "자동차 커뮤니티" ? r.cells.B : "기타"), "comments");
-        if (v && ch === "동호회") dashCafeId(r.cells.E, v.cafeIds);
-      }
+      for (const r of rows) bump(ch, nameOf(r.cells.E, ch === "자동차 커뮤니티" ? r.cells.B : "기타"), "comments");
     }
     if (names.includes("유튜브")) {
       const rows = (await wb.readRows("유튜브")).filter((r) => r.r > 1 && has(r));
@@ -121,12 +110,14 @@ async function dashDetail(buzzRec, rawRec) {
   }
   if (!hasPosts && !hasComments) return null;
   return Object.fromEntries(
-    Object.entries(out).map(([ch, m]) => [ch, [...m.entries()].map(([name, { vids, cafeIds, ...v }]) => ({ name, ...v, videos: vids.size, cafeId: [...cafeIds].join(", ") })).sort((a, b) => b.posts + b.comments - (a.posts + a.comments) || a.name.localeCompare(b.name))]),
+    Object.entries(out).map(([ch, m]) => [ch, [...m.entries()].map(([name, { vids, ...v }]) => ({ name, ...v, videos: vids.size })).sort((a, b) => b.posts + b.comments - (a.posts + a.comments) || a.name.localeCompare(b.name))]),
   );
 }
 
 // 메일 프로그램이 칸 폭을 멋대로 바꾸지 않게 폭을 픽셀로 고정 (전체 960 = 왼쪽 200 + 오른쪽 760)
-const DASH_CELL = 186;
+const DASH_CELL = 186; // 네 칸 평균 폭
+// 채널별 칸 폭 (합 = DASH_CELL × 4): 이름이 긴 동호회는 넓게, 이름이 짧은 언론·커뮤니티는 좁게
+const DASH_W = { 언론: 168, 유튜브: 190, 동호회: 220, "자동차 커뮤니티": 166 };
 
 // 이름을 정해진 폭(대략 글자 수, 영문·숫자는 0.6자)에 맞게 미리 줄임 — 메일에서는 자동 줄임이 안 됨
 // (그룹웨어 메일 편집기가 '…' 문자·title 속성이 든 붙여 넣기를 거부해서 '..' 만 씀)
@@ -170,11 +161,13 @@ function dashChannelCell({ label, color }, data, fluid = false) {
   const plus = (n) => (n ? `<span style="color:#d93025;font-size:10px;font-weight:700;"> +${num(n)}</span>` : "");
   const first = (x) => (yt ? `${n0(x.videos)}${plus(x.posts)}` : n0(x.posts));
   const W1 = yt ? 40 : 26; // 글(영상) 칸 폭
-  const W2 = 42; // 댓글 칸 폭
+  const W2 = label === "동호회" ? 36 : 42; // 댓글 칸 폭
+  const cw = DASH_W[label] || DASH_CELL;
+  const pct = `${((cw / (DASH_CELL * 4)) * 100).toFixed(1)}%`;
+  // 이름 칸에 들어가는 글자 수 (한글 1자 ≈ 11.6px; 칸 폭 − 여백 − 숫자 칸)
+  const nameEm = Math.max(4, (cw - 36 - W1 - W2) / 11.6);
   const row = (x) =>
-    // 동호회는 이름 아래에 (카페 아이디) — 비슷한 이름도 구분되게
-    `<tr><td style="${cellStyle}color:#1b1d21;white-space:nowrap;overflow:hidden;line-height:1.3;">${esc(dashClip(x.name, yt ? 5.6 : 7.4))}` +
-    (x.cafeId ? `<br><span style="font-size:10px;color:#8a8f98;">(${esc(dashClip(x.cafeId, 12))})</span>` : "") +
+    `<tr><td style="${cellStyle}color:#1b1d21;white-space:nowrap;overflow:hidden;line-height:1.3;">${esc(dashClip(x.name, nameEm))}` +
     `</td>` +
     `<td width="${W1}" style="${cellStyle}width:${W1}px;text-align:right;font-weight:700;color:#1b1d21;white-space:nowrap;">${first(x)}</td>` +
     `<td width="${W2}" style="${cellStyle}width:${W2}px;text-align:right;font-weight:700;color:${color};white-space:nowrap;">${n0(x.comments)}</td></tr>`;
@@ -192,7 +185,7 @@ function dashChannelCell({ label, color }, data, fluid = false) {
       `</table>`
     : "";
   return (
-    `<td width="${fluid ? "25%" : DASH_CELL}" style="width:${fluid ? "25%" : `${DASH_CELL}px`};padding:0 4px;vertical-align:top;">` +
+    `<td width="${fluid ? pct : cw}" style="width:${fluid ? pct : `${cw}px`};padding:0 4px;vertical-align:top;">` +
     `<div style="border:1px solid #e3e6eb;border-top:3px solid ${color};border-radius:8px;padding:6px 7px;background:#ffffff;">` +
     `<div style="display:inline-block;background:${color};color:#fff;font-weight:700;font-size:11px;padding:1px 8px;border-radius:999px;">${esc(label)}</div>` +
     `<table width="100%" cellpadding="0" cellspacing="3" style="width:100%;border-collapse:separate;table-layout:fixed;margin-top:3px;"><tr>` +
