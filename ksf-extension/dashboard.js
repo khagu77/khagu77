@@ -98,7 +98,8 @@ function dashHtml(d, prev, banner, fluid = false) {
   const asOfText = `${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, "0")}-${String(asOf.getDate()).padStart(2, "0")} ${String(asOf.getHours()).padStart(2, "0")}:${String(asOf.getMinutes()).padStart(2, "0")}`;
   const big = (label, v, pv) =>
     `<td bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background:#002c5f;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;">${label}</div>` +
-    `<div style="font-size:19px;font-weight:800;color:#ffffff;white-space:nowrap;">${dnum(v)}<span style="font-size:10px;">건</span></div>` +
+    // 숫자 흰 글씨: 네이버 메일 편집기가 글자색을 지우는 경우가 있어 <font color> 와 글자마다 흰색을 함께 지정
+    `<div style="font-size:19px;font-weight:800;color:#ffffff;white-space:nowrap;"><font color="#ffffff" style="color:#ffffff;"><b style="font-weight:800;color:#ffffff;">${dnum(v)}</b><span style="font-size:10px;font-weight:400;color:#ffffff;">건</span></font></div>` +
     `<div>${prev ? dashDiff(v, pv, true) : "&nbsp;"}</div></td>`;
   const W = DASH_CELL * d.cars.length;
   return `<div style="${fluid ? "display:block;" : "display:inline-block;"}border:1px solid #d9dde3;border-radius:12px;overflow:hidden;background:#ffffff;">
