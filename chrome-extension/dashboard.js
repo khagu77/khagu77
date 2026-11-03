@@ -167,7 +167,7 @@ function dashChannelCell({ label, color }, data, fluid = false) {
   // 이름 칸에 들어가는 글자 수 (한글 1자 ≈ 11.6px; 칸 폭 − 여백 − 숫자 칸)
   const nameEm = Math.max(4, (cw - 36 - W1 - W2) / 11.6);
   const row = (x) =>
-    `<tr><td style="${cellStyle}color:#1b1d21;white-space:nowrap;overflow:hidden;line-height:1.3;">${esc(dashClip(x.name, nameEm))}` +
+    `<tr><td style="${cellStyle}color:#1b1d21;white-space:nowrap;overflow:hidden;line-height:1.3;">${fluid ? `<a data-alias="${esc(x.name)}" style="color:inherit;text-decoration:none;cursor:pointer;">` : ""}${esc(dashClip(dashShort(x.name), nameEm))}${fluid ? "</a>" : ""}` +
     `</td>` +
     `<td width="${W1}" style="${cellStyle}width:${W1}px;text-align:right;font-weight:700;color:#1b1d21;white-space:nowrap;">${first(x)}</td>` +
     `<td width="${W2}" style="${cellStyle}width:${W2}px;text-align:right;font-weight:700;color:${color};white-space:nowrap;">${n0(x.comments)}</td></tr>`;
@@ -265,7 +265,7 @@ function dashText(data) {
       ? ["■ 채널 상세 (게시글/댓글)"].concat(DASH_CH.map(({ label }) => {
           const list = data.detail[label] || [];
           const items = list.slice(0, DASH_TOP).map((x) =>
-            label === "유튜브" ? `${x.name} 영상 ${num(x.videos)}${x.posts ? `(+${num(x.posts)})` : ""}/${num(x.comments)}` : `${x.name} ${num(x.posts)}/${num(x.comments)}`,
+            label === "유튜브" ? `${dashShort(x.name)} 영상 ${num(x.videos)}${x.posts ? `(+${num(x.posts)})` : ""}/${num(x.comments)}` : `${dashShort(x.name)} ${num(x.posts)}/${num(x.comments)}`,
           );
           if (list.length > DASH_TOP) items.push(`외 ${list.length - DASH_TOP}곳`);
           return `  - ${label}: ${items.join(", ") || "해당 없음"}`;
@@ -287,9 +287,45 @@ async function carDataUrl() {
 
 let dashCache = null;
 
+// 대시보드에 쓰는 짧은 이름: 직접 정한 이름(대시보드에서 이름을 눌러 지정) → 없으면 자동으로 줄임
+let dashAlias = {};
+function dashShort(name) {
+  const full = String(name || "").trim();
+  if (dashAlias[full]) return dashAlias[full];
+  let t = full
+    .replace(/[★☆♥♡◆◇■□●○▶▷♣♠※]/g, " ")
+    .replace(/\s+-\s+.*$/, "") // '이름 - 부제' 의 부제
+    .replace(/\[[^\]]*\]?/g, " ") // [대괄호]
+    .replace(/풀\s*체인지/g, " ")
+    .replace(/공식\s*(동호회|카페|클럽)/g, " 클럽")
+    .replace(/공식/g, " ")
+    .replace(/([가-힣])([A-Z]{1,4}\d)/g, "$1 $2") // 팰리세이드LX3 → 팰리세이드 LX3
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^현대\s+/, "") // 맨 앞 '현대 '
+    .replace(/([A-Z]+\d+)\s+클럽$/, "$1클럽"); // LX3 클럽 → LX3클럽
+  return t || full;
+}
+
+$("#dashBody")?.addEventListener("click", async (e) => {
+  const a = e.target.closest("[data-alias]");
+  if (!a) return;
+  const full = a.dataset.alias;
+  const v = prompt(`'${full}'\n대시보드에 보일 짧은 이름 (비우면 자동으로 줄임):`, dashShort(full));
+  if (v === null) return;
+  const st = await chrome.storage.local.get("lx3NameAlias").catch(() => ({}));
+  const map = st.lx3NameAlias || {};
+  if (v.trim() && v.trim() !== full) map[full] = v.trim();
+  else delete map[full];
+  await chrome.storage.local.set({ lx3NameAlias: map });
+  renderDash();
+});
+
 async function renderDash() {
   const box = $("#dash");
   if (!box) return;
+  const st = await chrome.storage.local.get("lx3NameAlias").catch(() => ({}));
+  dashAlias = st.lx3NameAlias || {};
   dashCache = await dashData();
   $("#dashCopy").disabled = !dashCache;
   if ($("#dashCopyLite")) $("#dashCopyLite").disabled = !dashCache;
