@@ -235,6 +235,7 @@ function dashHtml(data, carSrc, fluid = false) {
         ${ytC ? `<div style="font-size:10px;color:#c3cfdd;white-space:nowrap;">+ 유튜브 전체 ${num(ytC.d.today)}건</div>` : ""}</td>
     </tr></table>
     <div style="font-size:10px;color:#b8c5d6;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
+    <div style="font-size:8px;color:#ffffff;letter-spacing:0.5px;margin-top:10px;">By <b style="font-weight:800;color:#ffffff;">LINESQUARE</b></div>
     </div>
   </td>
   <td style="vertical-align:top;padding:10px 8px 0 6px;height:1px;background:transparent;border-radius:0 11px 0 0;">
