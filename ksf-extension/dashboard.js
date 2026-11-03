@@ -123,8 +123,8 @@ function dashHtml(d, prev, banner, fluid = false) {
     </div>
   </td>
   <td bgcolor="#ffffff" style="vertical-align:top;padding:10px 8px 0 6px;background:#ffffff;background-color:#ffffff;border-radius:0 11px 0 0;">
-    ${(d.summary || []).length ? `<div style="margin:0 4px 8px;padding:8px 10px;border:1px solid #d9dde3;border-left:4px solid #002c5f;border-radius:6px;background:#f8fafc;">${d.summary.map((t) => `<div style="font-size:12.5px;font-weight:700;color:#1b1d21;line-height:1.5;">• ${desc(t)}</div>`).join("")}</div>` : ""}
     ${banner ? `<div style="margin:0 4px 8px;"><img src="${banner}" width="${fluid ? "" : W - 8}" alt="AVANTE · SANTA FE · GRANDEUR" style="display:block;border:0;border-radius:8px;${fluid ? "width:100%;max-width:100%;height:auto;" : ""}"></div>` : ""}
+    ${(d.summary || []).length ? `<div style="margin:0 4px 8px;padding:8px 10px;border:1px solid #d9dde3;border-left:4px solid #002c5f;border-radius:6px;background:#f8fafc;">${d.summary.map((t) => `<div style="font-size:12.5px;font-weight:700;color:#1b1d21;line-height:1.5;">• ${desc(t)}</div>`).join("")}</div>` : ""}
     <table width="${fluid ? "100%" : W}" cellpadding="0" cellspacing="0" style="width:${fluid ? "100%" : `${W}px`};border-collapse:collapse;table-layout:fixed;"><tr>
       ${d.cars.map((c) => dashCarCell(c, prev, fluid)).join("")}
     </tr></table>
