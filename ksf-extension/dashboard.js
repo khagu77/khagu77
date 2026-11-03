@@ -204,7 +204,9 @@ async function renderDash() {
   src.textContent = dashCache.src === "live"
     ? "지금 수집 화면에서 작업 중인 값입니다 (아직 엑셀로 만들지 않았을 수 있음)."
     : `데이터 DB ${prettyDate(dashCache.rec.date)} '차종별 반응 요약' 기준${newer ? " · 그 뒤 수집 화면에서 바뀐 값이 있습니다 ('지금 작업 중인 값 보기' 또는 수집 화면에서 [엑셀 만들기])" : ""}.`;
-  $("#dashLive").textContent = dashMode === "live" ? "데이터 DB 저장 값 보기" : "지금 작업 중인 값 보기";
+  // 버튼 이름은 지금 보이는 값의 반대쪽으로 · 데이터 DB 기록이 없으면 바꿔 볼 것이 없으니 숨김
+  $("#dashLive").hidden = !(await dbList("summary").catch(() => [])).some((r) => r.stats?.kind === "dash");
+  $("#dashLive").textContent = dashCache.src === "live" ? "데이터 DB 저장 값 보기" : "지금 작업 중인 값 보기";
 }
 
 function dashCopied(ok, withImg = true, why = "") {
