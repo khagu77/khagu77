@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>데이터 DB - 코리아 세일 페스타 차종별 동호회 반응 모니터링</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body class="theme-ksf">
+  <header class="topbar">
+    <div class="topbar-in">
+      <div class="brand">
+        <img src="icons/logo-ksf.png" alt="K-세일 페스타" class="logo">
+        <h1>코리아 세일 페스타 차종별 동호회 반응 모니터링</h1>
+        <span class="ver" id="ver"></span>
+        <div class="tools"><a class="tool" href="ksf.html">🔍 게시물 수집</a><a class="tool on" href="ksf-db.html">🗄 데이터 DB · 대시보드</a></div>
+        <div class="sub">데이터 DB · 메일 붙여넣기용 대시보드</div>
+      </div>
+    </div>
+  </header>
+  <main>
+    <section id="dash" class="dashbox">
+      <div id="dashBody"></div>
+      <div class="row"><span id="dashSrc" class="hint"></span><button id="dashLive" class="small">지금 작업 중인 값 보기</button></div>
+      <div class="buttons">
+        <button id="dashCopy" class="primary" disabled>📋 메일에 붙여넣기용 복사</button>
+        <button id="dashCopyLite" disabled>📋 이미지 없이 복사</button>
+        <button id="dashCopyCode" disabled>🧾 HTML 코드로 복사</button>
+        <span id="dashInfo" class="hint">누르면 위 대시보드가 보이는 그대로 복사됩니다 (차량 이미지 포함) → 메일 본문에 붙여 넣기</span>
+      </div>
+    </section>
+
+    <p class="hint">
+      수집 화면에서 <b>엑셀 만들기</b>를 누를 때마다 만든 파일(차종별 반응 요약 · 게시물 리스트 · 게시물 성향 분석 · 댓글 raw data · 댓글 성향 분석 · 보고서 PPT)을
+      이 PC 크롬에 날짜별로 보관합니다(같은 날 다시 만들면 그날 파일을 바꿈). <b>가장 위(최근 날짜)가 '최종'</b>입니다.
+      엑셀에서 직접 고친 파일은 그 칸의 <b>수정본 올리기</b>로 바꿔 두세요.
+    </p>
+
+    <section class="db-section">
+      <h2>1. 날짜별 파일</h2>
+      <table class="dbtable" id="days">
+        <colgroup><col class="w-date"><col><col class="w-cnt"></colgroup>
+        <thead><tr><th>날짜</th><th>파일 (받기 · 수정본 올리기 · 삭제)</th><th>건수 <span class="th-sub">(전 기록 대비)</span></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+
+    <section class="db-section">
+      <h2>2. 작업 데이터 (찾은 글 · 본문 · 댓글 · 판단 · 비용)</h2>
+      <div class="hint">수집 화면에서 찾은 글, 읽은 본문·댓글, AI 판단, TOP5 묶음, 카페 번호, 설정입니다. 이 PC 크롬에만 있으니,
+        다른 PC로 옮기거나 확장프로그램을 지우기 전에는 <b>백업 받기</b>로 파일을 받아 두세요 (API 키는 넣지 않음).</div>
+      <table class="compact" id="work"><tbody></tbody></table>
+      <div class="buttons">
+        <button id="backup" class="primary">백업 받기</button>
+        <button id="restore">백업 불러오기</button>
+      </div>
+      <input type="file" id="restoreFile" accept=".json" hidden>
+    </section>
+
+    <input type="file" id="picker" accept=".xlsx,.pptx" hidden>
+    <div id="dbInfo" class="summary"></div>
+    <p class="note" id="usage"></p>
+  </main>
+  <script src="zip.js"></script>
+  <script src="cafe-common.js"></script>
+  <script src="ui.js"></script>
+  <script src="db-store.js"></script>
+  <script src="dashboard.js"></script>
+  <script src="ksf-db.js"></script>
+</body>
+</html>

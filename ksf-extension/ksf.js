@@ -81,13 +81,14 @@ const SETTING_DEFAULTS = {
 
 async function loadSettings() {
   const s = await chrome.storage.local
-    .get(["ksfSettings", "ksfStart", "ksfEnd", "ksfClubIds", "saveAsk", "ksfTabFallback", "aiKey", "aiModel", "ksfAiOn", "ksfOnlySlide"])
+    .get(["ksfSettings", "ksfStart", "ksfEnd", "ksfClubIds", "saveAsk", "ksfTabFallback", "aiKey", "aiModel", "ksfAiOn", "ksfOnlySlide", "ksfSound"])
     .catch(() => ({}));
   const set = s.ksfSettings || {};
   for (const id of SETTING_IDS) $(`#${id}`).value = set[id] ?? SETTING_DEFAULTS[id];
   $("#saveAsk").checked = !!s.saveAsk;
   $("#tabFallback").checked = s.ksfTabFallback ?? true;
   $("#onlySlide").checked = s.ksfOnlySlide ?? true;
+  $("#soundOn").checked = s.ksfSound ?? true;
   clubIds = { ...(s.ksfClubIds || {}) };
   for (const [id, slug] of Object.entries(await loadCafeSlugs())) if (!clubIds[slug.toLowerCase()]) clubIds[slug.toLowerCase()] = id;
   $("#startDate").value = s.ksfStart || DEFAULT_START;
@@ -114,6 +115,7 @@ function saveSettings() {
       ksfEnd: $("#endDate").value,
       ksfTabFallback: $("#tabFallback").checked,
       ksfOnlySlide: $("#onlySlide").checked,
+      ksfSound: $("#soundOn").checked,
       saveAsk: $("#saveAsk").checked,
       aiKey: $("#aiKey").value.trim(),
       aiModel: $("#aiModel").value,
@@ -802,6 +804,7 @@ async function search(resume = null) {
     loginNeeded || failed.length ? "err" : "ok",
   );
   endBusy();
+  if (!stopRequested) playChime();
 }
 
 function estimateRemaining(t0, done, total, fallbackSec) {
@@ -896,6 +899,7 @@ async function readBodies() {
       stopRequested = false;
       return;
     }
+    if (!aiOn()) playChime();
   }
   await judgeAll();
 }
@@ -1239,6 +1243,7 @@ async function judgeAll({ force = false } = {}) {
         " · 다음: '💰 주요 내용 TOP5 정리'",
       failed ? "err" : "ok",
     );
+  if (!stopRequested) playChime();
   stopRequested = false;
 }
 
@@ -1587,6 +1592,7 @@ async function groupThemes() {
       : `✔ 차종별 긍정·부정 주요 내용 TOP5 를 정리했습니다 (검수로 성향을 고친 반응 ${fixedN}개) · ${formatDuration((Date.now() - t0) / 1000)} · 비용 ${cost}`,
     failed || stopRequested ? "err" : "ok",
   );
+  if (!stopRequested) playChime();
   stopRequested = false;
 }
 
@@ -1721,7 +1727,7 @@ function updateCounts() {
   $("#rejudge").textContent = `${coin}처음부터 다시 판단하기`;
   $("#groupTop").textContent = `${coin}주요 내용 TOP5 정리`;
   for (const id of ["judge", "rejudge", "groupTop"]) $(`#${id}`).disabled = !n || running;
-  $("#saveExcel").disabled = !n || running;
+  $("#makeFiles").disabled = !n || running;
   $("#savePpt").disabled = !n || running;
   $("#selDelete").disabled = !n || running;
   $("#selDelete").textContent = n ? `선택 삭제 (${n}개)` : "선택 삭제";
@@ -1819,6 +1825,7 @@ function renderStats() {
     }
     box.append(row);
   }
+  saveDashSoon();
   $("#topState").textContent = t.fresh
     ? `✔ Claude AI 가 원문을 검수하고 같은 이슈끼리 묶은 TOP5 입니다 (${new Date(tops.at).toLocaleString()}) · 개수 = 그 이슈를 말한 게시글·댓글 반응 수 · 비율 = 그 차종 긍정(부정) 반응 중 비중 · 줄을 누르면 원문`
     : `같은 주요 내용 문구끼리 센 잠정 TOP5 입니다${aiOn() ? " - '💰 주요 내용 TOP5 정리'를 누르면 AI 가 원문을 검수하고 같은 이슈끼리 묶어 많이 이야기된 순으로 정리" : ""} · 줄을 누르면 원문`;
@@ -1965,27 +1972,194 @@ function buildExcel() {
   return XlsxBook.build([summary, posts, raw, crit], { font: "맑은 고딕" });
 }
 
-async function saveExcel() {
+// ---------------------------------------------------------------------------
+// 파일 만들기: 이슈 모니터링 보고서 작성 프로그램과 같은 양식의 엑셀 4종 + 차종별 반응 요약 (+ PPT)
+// [엑셀 만들기]를 누르면 모두 만들어 데이터 DB 에 오늘 파일로 저장하고, 📥 받기 버튼이 반짝이며 알림음 (누르면 받음)
+// ---------------------------------------------------------------------------
+
+const FILE_BASE = "코리아 세일 페스타_동호회";
+const fileBase = () => `${today()}_${FILE_BASE}`;
+const CAR_COLORS = ["#002c5f", "#00809d", "#a2652a", "#6b6b45", "#7b3fe4"];
+let pending = {}; // 종류 → { name, bytes } (받기 버튼을 누르면 저장)
+
+const GET_BUTTONS = { summary: "#getSummary", posts: "#getPosts", postsSenti: "#getPostsSenti", comments: "#getComments", commentsSenti: "#getCommentsSenti", ppt: "#getPpt" };
+
+// 받기 버튼: 파일이 준비되면 무지개빛으로 반짝이게 (누르면 멈춤)
+function readyButton(btn, on) {
+  if (!btn) return;
+  btn.classList.toggle("ready", !!on);
+  btn.disabled = !on && !btn.dataset.keep;
+}
+
+// 완료 알림음 '딩동댕' (LX3 수집기와 같은 소리 · 설정에서 끌 수 있음)
+function playChime() {
+  if ($("#soundOn") && !$("#soundOn").checked) return;
+  try {
+    const ac = new AudioContext();
+    const t0 = ac.currentTime + 0.05;
+    [784, 988, 1319].forEach((f, i) => {
+      const o = ac.createOscillator();
+      const g = ac.createGain();
+      o.type = "sine";
+      o.frequency.value = f;
+      const t = t0 + i * 0.22;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.35, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+      o.connect(g).connect(ac.destination);
+      o.start(t);
+      o.stop(t + 0.65);
+    });
+    setTimeout(() => ac.close(), 1500);
+  } catch {
+    /* 소리를 못 내도 넘어감 */
+  }
+}
+
+// 차종 순서 (대상 차종 → 기타 차종)
+function carOrder(list) {
+  const cars = targetCars();
+  return [...new Set(list)].sort((a, b) => (cars.indexOf(a) < 0 ? 99 : cars.indexOf(a)) - (cars.indexOf(b) < 0 ? 99 : cars.indexOf(b)));
+}
+
+// 게시물 리스트 (이슈 보고서 양식: No · 출처 · 제목 · 작성시간 · Link)
+// 로우데이터: 동호회 차종마다 시트 · 성향분석 포함: 반응 차종마다 시트(그 차종에 대한 글의 성향)
+async function makePostsFile(withSentiment = false) {
+  const list = reportItems();
+  const rowOf = (x, tone = "") => ({ source: x.cafeName, title: x.title, date: x.date, url: articleUrl(x), sentiment: tone });
+  const byDate = (a, b) => (b.date || 0) - (a.date || 0);
+  let sheets;
+  if (!withSentiment) {
+    sheets = carOrder(list.map((x) => x.car)).map((car) => ({ name: car, rows: list.filter((x) => x.car === car).sort(byDate).map((x) => rowOf(x)) }));
+  } else {
+    const rs = reactions(list).filter((r) => !r.c);
+    sheets = carOrder(rs.map((r) => r.car)).map((car) => ({
+      name: car, rows: rs.filter((r) => r.car === car).map((r) => r.x).sort(byDate).map((x) => rowOf(x, postOps(x).find((o) => o.car === car)?.tone || "")),
+    }));
+  }
+  if (!sheets.length) sheets = [{ name: "게시물", rows: [] }];
+  return { name: `${fileBase()}_게시물 리스트${withSentiment ? "_성향분석 포함" : ""}.xlsx`, bytes: await buildPostsXlsx(sheets, withSentiment) };
+}
+
+// 댓글 (이슈 보고서 양식: 1행 제목 · domain · text · 작성일 · 게시글 URL (+ 성향))
+// 로우데이터: 동호회 차종마다 시트(댓글 한 줄씩) · 성향 분석: 반응 차종마다 시트(댓글 × 차종 한 줄씩)
+async function makeCommentsFile(withSentiment) {
+  const list = reportItems();
+  const rowOf = (x, c, tone = "") => ({
+    domain: `cafe.naver.com/${x.slug}`, text: c.content, sentiment: tone,
+    writtenAt: c.date ? formatDateTime(new Date(c.date)) : c.dateText || "", url: articleUrl(x),
+  });
+  let sheets;
+  if (!withSentiment) {
+    const cs = reportComments(list);
+    sheets = carOrder(cs.map(({ x }) => x.car)).map((car) => ({
+      name: car, title: `코세페_${car} 동호회 댓글`, rows: cs.filter(({ x }) => x.car === car).map(({ x, c }) => rowOf(x, c)),
+    }));
+  } else {
+    const rs = reactions(list).filter((r) => r.c);
+    sheets = carOrder(rs.map((r) => r.car)).map((car) => ({
+      name: car, title: `코세페_${car} 동호회 댓글 성향`, rows: rs.filter((r) => r.car === car).map((r) => rowOf(r.x, r.c, r.tone)),
+    }));
+  }
+  if (!sheets.length) sheets = [{ name: "댓글", title: "코세페_동호회 댓글", rows: [] }];
+  return { name: `${fileBase()}_댓글 ${withSentiment ? "성향 분석" : "raw data"}.xlsx`, bytes: await buildCommentsXlsx(sheets, withSentiment) };
+}
+
+// 대시보드 숫자 (데이터 DB 화면 맨 위 · 메일 붙여넣기용) - 요약 파일과 함께 저장
+function dashSnapshot() {
+  const list = reportItems();
+  const rs = reactions(list);
+  const stats = carStats(rs);
+  const top = topThemes(rs);
+  const pick = (g) => ({ label: g.label, count: g.count, ratio: g.ratio });
+  const total = stats[0];
+  return {
+    at: Date.now(),
+    start: $("#startDate").value,
+    end: $("#endDate").value,
+    period: periodText(),
+    title: ($("#pptTitle").value || "").replace(/^■\s*/, ""),
+    cafes: cafes().map((c) => ({ car: c.car, name: c.name })),
+    posts: total.posts,
+    comments: total.comments,
+    reactions: total.n,
+    tone: total.tone,
+    ratio: total.ratio,
+    unjudged: rs.filter((r) => !(r.c ? r.c.a?.by === "ai" : r.x.a?.by === "ai")).length,
+    topsAi: top.fresh,
+    cars: targetCars().map((car, i) => {
+      const s = stats.find((x) => x.car === car);
+      return {
+        car, color: CAR_COLORS[i % CAR_COLORS.length], cafes: cafes().filter((c) => c.car === car).length, cafeNames: cafes().filter((c) => c.car === car).map((c) => c.name),
+        posts: s.posts, comments: s.comments, n: s.n, tone: s.tone, ratio: s.ratio,
+        pos: top.cars[car]["긍정"].slice(0, TOP_N).map(pick), neg: top.cars[car]["부정"].slice(0, TOP_N).map(pick),
+        posN: top.cars[car].total["긍정"], negN: top.cars[car].total["부정"],
+      };
+    }),
+  };
+}
+
+// 엑셀 만들기: 5개 파일을 만들어 데이터 DB 에 오늘 파일로 저장 → 📥 받기 버튼 반짝 + 알림음
+async function makeFiles() {
   if (running) return;
   const list = reportItems();
   if (!list.length) return setSummary("기간 안의 체크한 글이 없습니다.", "err");
   const unread = list.filter((x) => !x.bodyRead).length;
-  if (unread && !(await askConfirm(`본문·댓글을 아직 읽지 않은 글이 ${unread}개 있습니다. 이 글들의 댓글은 빠집니다.\n그대로 받을까요?`))) return;
+  if (unread && !(await askConfirm(`본문·댓글을 아직 읽지 않은 글이 ${unread}개 있습니다. 이 글들의 댓글은 빠집니다.\n그대로 만들까요?`))) return;
+  const rs = reactions(list);
+  const unjudged = rs.filter((r) => !(r.c ? r.c.a?.by === "ai" : r.x.a?.by === "ai")).length;
+  if (unjudged && aiOn() && !(await askConfirm(`반응 ${rs.length}개 중 ${unjudged}개는 아직 AI 로 판단하지 않은 규칙 어림입니다 (성향 칸이 어림값).\n그대로 만들까요? ([취소] 후 '💰 차종별 반응 판단하기')`))) return;
   $("#saveInfo").className = "hint";
   $("#saveInfo").textContent = "엑셀 만드는 중…";
+  for (const sel of Object.values(GET_BUTTONS)) readyButton($(sel), false);
   try {
-    const bytes = buildExcel();
-    const name = `${fileStem()}.xlsx`;
-    const where = await saveBytes(bytes, name);
+    const files = {
+      summary: { name: `${fileBase()}_차종별 반응 요약.xlsx`, bytes: buildExcel() },
+      posts: await makePostsFile(false),
+      postsSenti: await makePostsFile(true),
+      comments: await makeCommentsFile(false),
+      commentsSenti: await makeCommentsFile(true),
+    };
+    const snap = dashSnapshot();
+    const day = today();
+    const sums = {
+      summary: [`게시글 ${snap.posts} · 댓글 ${snap.comments} · 반응 ${snap.reactions}`, { ...snap, kind: "dash" }],
+      posts: [`게시글 ${snap.posts}`, { posts: snap.posts }],
+      postsSenti: [`게시글 반응 ${rs.filter((r) => !r.c).length}`, { posts: snap.posts, pos: toneCounts(rs.filter((r) => !r.c))["긍정"], neg: toneCounts(rs.filter((r) => !r.c))["부정"] }],
+      comments: [`댓글 ${snap.comments}`, { comments: snap.comments }],
+      commentsSenti: [`댓글 반응 ${rs.filter((r) => r.c).length}`, { comments: snap.comments, pos: toneCounts(rs.filter((r) => r.c))["긍정"], neg: toneCounts(rs.filter((r) => r.c))["부정"], blame: toneCounts(rs.filter((r) => r.c))["단순비난"] }],
+    };
+    let dbNote = " · 데이터 DB에 오늘 파일로 저장했습니다";
+    try {
+      for (const [kind, f] of Object.entries(files)) await dbSaveDay(kind, day, f.name, f.bytes, "auto", sums[kind][0], sums[kind][1]);
+    } catch {
+      dbNote = " · (데이터 DB 저장은 하지 못했습니다)";
+    }
+    pending = { ...pending, ...files };
+    for (const kind of Object.keys(files)) readyButton($(GET_BUTTONS[kind]), true);
     $("#saveInfo").className = "hint ok";
-    $("#saveInfo").textContent = `✔ ${where}에 ${name} - 게시글 ${list.length.toLocaleString()}개 · 반응 ${reactions(list).length.toLocaleString()}개`;
+    $("#saveInfo").textContent = `✔ 엑셀 5개를 만들었습니다 (게시글 ${list.length.toLocaleString()}개 · 댓글 ${snap.comments.toLocaleString()}개 · 반응 ${rs.length.toLocaleString()}개)${dbNote}. 반짝이는 📥 버튼을 눌러 받으세요.`;
+    playChime();
   } catch (e) {
     $("#saveInfo").className = "hint err";
     $("#saveInfo").textContent = `엑셀을 만들지 못했습니다: ${e.message}`;
   }
 }
 
-// 보고서 PPT 3p 채우기: 사용자가 고른 보고서 PPT 를 틀로
+// 📥 받기
+async function getFile(kind) {
+  const f = pending[kind];
+  if (!f) return;
+  readyButton($(GET_BUTTONS[kind]), false);
+  $(GET_BUTTONS[kind]).disabled = false;
+  const data = kind === "ppt" ? new Blob([f.bytes], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }) : f.bytes;
+  const where = await saveBytes(data, f.name);
+  const info = kind === "ppt" ? $("#pptInfo") : $("#saveInfo");
+  info.className = "hint ok";
+  info.textContent = `✔ ${where}에 ${f.name} 저장`;
+}
+
+// 보고서 PPT 3p 채우기: 사용자가 고른 보고서 PPT 를 틀로 → 📥 PPT 받기 반짝
 async function savePpt() {
   if (running) return;
   const file = $("#pptFile").files[0];
@@ -1995,7 +2169,7 @@ async function savePpt() {
     return;
   }
   const top = topThemes();
-  if (!top.fresh && aiOn() && (await askConfirm("주요 내용 TOP5 를 아직 AI 로 정리하지 않았습니다(같은 문구끼리 센 값).\n· [확인]: 먼저 💰 TOP5 정리하고 PPT 받기\n· [취소]: 지금 값으로 받기"))) {
+  if (!top.fresh && aiOn() && (await askConfirm("주요 내용 TOP5 를 아직 AI 로 정리하지 않았습니다(같은 문구끼리 센 값).\n· [확인]: 먼저 💰 TOP5 정리하고 PPT 만들기\n· [취소]: 지금 값으로 만들기"))) {
     await groupThemes();
   }
   const t = topThemes();
@@ -2003,18 +2177,29 @@ async function savePpt() {
   for (const car of targetCars()) cars[car] = { pos: t.cars[car]["긍정"].slice(0, TOP_N), neg: t.cars[car]["부정"].slice(0, TOP_N) };
   $("#pptInfo").className = "hint";
   $("#pptInfo").textContent = "PPT 만드는 중…";
+  readyButton($("#getPpt"), false);
   try {
     const { bytes, filled } = await PptFill.fill(new Uint8Array(await file.arrayBuffer()), {
       cars, title: $("#pptTitle").value.trim(), onlyThis: $("#onlySlide").checked,
     });
-    const name = `${fileStem()}.pptx`;
-    const where = await saveBytes(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }), name);
+    const name = `${fileBase()}_차종별 반응 보고서.pptx`;
+    pending.ppt = { name, bytes };
+    await dbSaveDay("ppt", today(), name, bytes, "auto", `TOP5 표 ${filled.length}개`, null).catch(() => {});
+    readyButton($("#getPpt"), true);
     $("#pptInfo").className = "hint ok";
-    $("#pptInfo").textContent = `✔ ${where}에 ${name} - 표 ${filled.length}개 채움 (${filled.join(" · ")})${t.fresh ? "" : " · TOP5 는 같은 문구끼리 센 값"}`;
+    $("#pptInfo").textContent = `✔ PPT 를 만들었습니다 - 표 ${filled.length}개 채움 (${filled.join(" · ")})${t.fresh ? "" : " · TOP5 는 같은 문구끼리 센 값"} · 데이터 DB 에도 저장. 반짝이는 📥 PPT 받기를 누르세요.`;
+    playChime();
   } catch (e) {
     $("#pptInfo").className = "hint err";
     $("#pptInfo").textContent = `PPT 를 만들지 못했습니다: ${e.message}`;
   }
+}
+
+// 대시보드 숫자를 늘 최신으로 남겨 둔다 (데이터 DB 화면에서 '지금 작업 중인 값'으로 보여줌)
+let dashTimer = null;
+function saveDashSoon() {
+  clearTimeout(dashTimer);
+  dashTimer = setTimeout(() => chrome.storage.local.set({ ksfDashLive: dashSnapshot() }).catch(() => {}), 800);
 }
 
 // ---------------------------------------------------------------------------
@@ -2064,7 +2249,7 @@ async function init() {
   renderResults();
   if (items.length) setSummary(`지난번까지 찾은 글 ${items.length}개입니다. '게시물 찾기'를 다시 누르면 새로 찾은 글이 더해집니다.`);
 
-  for (const id of [...SETTING_IDS, "tabFallback", "saveAsk", "onlySlide"]) {
+  for (const id of [...SETTING_IDS, "tabFallback", "saveAsk", "onlySlide", "soundOn"]) {
     $(`#${id}`).addEventListener("change", async () => {
       if (id === "searchUrl") $("#searchUrl").value = normalizeSearchUrl($("#searchUrl").value);
       await saveSettings();
@@ -2143,8 +2328,10 @@ async function init() {
     if (await askConfirm("이미 판단한 글·댓글도 모두 처음부터 다시 판단할까요? (기준·AI 추가 규칙을 바꿨을 때)")) judgeAll({ force: true });
   });
   $("#groupTop").addEventListener("click", groupThemes);
-  $("#saveExcel").addEventListener("click", () => (prepareFolder(), saveExcel()));
-  $("#savePpt").addEventListener("click", () => (prepareFolder(), savePpt()));
+  $("#makeFiles").addEventListener("click", makeFiles);
+  $("#savePpt").addEventListener("click", savePpt);
+  // 받기: 누른 그때 폴더 쓰기 허용을 확인해 둔다 (허용 요청은 사용자 동작 안에서만 가능)
+  for (const [kind, sel] of Object.entries(GET_BUTTONS)) $(sel).addEventListener("click", () => (prepareFolder(), getFile(kind)));
   $("#pickFolder").addEventListener("click", pickSaveFolder);
   $("#clearFolder").addEventListener("click", clearSaveFolder);
   renderSaveFolder();

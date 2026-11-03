@@ -388,3 +388,34 @@ body.theme-ksf details.panel > summary::before { color: #002c5f; }
 .top-table tr.members td { background: var(--bg); font-size: 12px; }
 .top-table tr.members ul { margin: 4px 0; padding-left: 18px; max-height: 260px; overflow: auto; }
 .top-table tr.members li { margin: 2px 0; }
+/* 받기 버튼: 파일이 준비되면 무지개빛으로 반짝이며 커졌다 작아지고 '✔ 완료!' 표시 (누르면 멈춤) */
+button.getbtn { font-weight: 700; }
+button.getbtn.ready {
+  position: relative; color: #fff; font-size: 16px; font-weight: 800; padding: 11px 22px; border: none;
+  background: linear-gradient(90deg, #ff3d77, #ff9a00, #ffd400, #00c853, #00b0ff, #7b3fe4, #ff3d77);
+  background-size: 300% 100%; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  animation: getbtn-rainbow 1.6s linear infinite, getbtn-pop 0.9s ease-in-out infinite;
+}
+button.getbtn.ready::after {
+  content: "✔ 완료!"; position: absolute; top: -13px; right: -16px; padding: 2px 8px; border-radius: 999px;
+  background: #e11d48; color: #fff; font-size: 11px; font-weight: 800; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  animation: getbtn-badge 0.5s ease-in-out infinite alternate;
+}
+@keyframes getbtn-rainbow { to { background-position: 300% 0; } }
+@keyframes getbtn-pop {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 140, 0, 0.6); }
+  50% { transform: scale(1.12); box-shadow: 0 0 24px 10px rgba(255, 120, 0, 0.55); }
+}
+@keyframes getbtn-badge { from { transform: translateY(0) rotate(-6deg); } to { transform: translateY(-4px) rotate(6deg); } }
+button.getbtn.ready { margin: 6px 4px; }
+.getrow { align-items: center; }
+/* 코세페 데이터 DB: 날짜별 파일 줄 · 대시보드 */
+body.theme-ksf .db-section h2 { border-left-color: #002c5f; }
+body.theme-ksf .dbtable .pill { background: #002c5f; }
+.dashbox { margin-bottom: 18px; }
+.dashbox #dashBody { overflow-x: auto; }
+.fileline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 3px 0; border-top: 1px dashed var(--border); }
+.fileline:first-child { border-top: 0; }
+.fileline .k { width: 118px; flex: none; font-weight: 700; font-size: 12.5px; }
+.fileline .fname { flex: 1; min-width: 160px; font-size: 12.5px; word-break: break-all; font-weight: 400; }
+.fileline .chip { margin-left: 6px; font-size: 11px; padding: 0 6px; border: 1px solid var(--border); border-radius: 999px; }

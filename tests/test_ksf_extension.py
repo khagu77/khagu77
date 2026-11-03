@@ -26,15 +26,17 @@ def test_manifest_and_files():
     for other in ["chrome-extension", "seat-extension", "youtube-extension"]:
         other_m = json.loads((ROOT / other / "manifest.json").read_text())
         assert m.get("key") != other_m.get("key")  # 따로 설치·따로 저장
-    for f in [*m["icons"].values(), m["background"]["service_worker"], *m["content_scripts"][0]["js"], "ksf.html", "icons/title-bg.jpg"]:
+    for f in [*m["icons"].values(), m["background"]["service_worker"], *m["content_scripts"][0]["js"], "ksf.html", "ksf-db.html",
+              "icons/title-bg.jpg", "icons/dash-banner.jpg", "templates/posts-template.xlsx", "templates/comments-template.xlsx"]:
         assert (EXT_DIR / f).exists(), f
-    html = (EXT_DIR / "ksf.html").read_text()
-    for src in re.findall(r'(?:src|href)="([^"#:]+)"', html):
-        assert (EXT_DIR / src).exists(), src
+    for page in ["ksf.html", "ksf-db.html"]:
+        html = (EXT_DIR / page).read_text()
+        for src in re.findall(r'(?:src|href)="([^"#:]+)"', html):
+            assert (EXT_DIR / src).exists(), (page, src)
     assert "ksf.html" in (EXT_DIR / "background.js").read_text()
 
 
-@pytest.mark.parametrize("name", ["ksf.js", "pptfill.js", "xlsx.js", "zip.js"])
+@pytest.mark.parametrize("name", ["ksf.js", "ksf-db.js", "dashboard.js", "pptfill.js", "xlsx.js", "xlsx-out.js", "zip.js", "db-store.js"])
 def test_syntax(name):
     subprocess.run(["node", "--check", str(EXT_DIR / name)], check=True)
 
@@ -44,3 +46,19 @@ def test_default_cafes():
     src = (EXT_DIR / "ksf.js").read_text()
     for slug in ["01088157554", "blackboxclub", "suddenattackskincafe", "allfm03", "bestcm", "bestani", "mp3vilge", "iroid", "choids", "trailer"]:
         assert f"| {slug}\"" in src, slug
+
+
+def test_excel_templates_match_issue_report():
+    """게시물·댓글 엑셀 4종은 이슈 모니터링 보고서 작성 프로그램과 같은 양식 (머리글)."""
+    from openpyxl import load_workbook
+    posts = load_workbook(EXT_DIR / "templates" / "posts-template.xlsx").active
+    assert [c.value for c in posts[1]][:5] == ["No", "출처", "제목", "작성시간", "Link"]
+    comments = load_workbook(EXT_DIR / "templates" / "comments-template.xlsx").active
+    assert [c.value for c in comments[2]][:3] == ["domain", "text", "성향"]
+
+
+def test_dashboard_banner_is_pinned():
+    """메일에 붙여 넣는 대시보드의 차량 그림은 커밋 번호로 고정한 주소 (보낸 메일의 그림이 바뀌지 않게)."""
+    src = (EXT_DIR / "dashboard.js").read_text()
+    m = re.search(r'DASH_BANNER_URL = "https://raw\.githubusercontent\.com/khagu77/khagu77/([0-9a-f]{40})/ksf-extension/icons/dash-banner\.jpg"', src)
+    assert m, "고정 주소가 없습니다"

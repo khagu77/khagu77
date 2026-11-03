@@ -13,7 +13,7 @@
         <img src="icons/logo-ksf.png" alt="K-세일 페스타" class="logo">
         <h1>코리아 세일 페스타 차종별 동호회 반응 모니터링</h1>
         <span class="ver" id="ver"></span>
-        <div class="tools"><a class="tool" href="ksf.html#settings">⚙ 설정</a></div>
+        <div class="tools"><a class="tool" href="ksf-db.html">🗄 데이터 DB · 대시보드</a><a class="tool" href="ksf.html#settings">⚙ 설정</a></div>
         <div class="sub">아반떼 · 그랜저 · 싼타페 동호회의 '코세페'에 대한 반응을 차종별로 긍정 · 중립 · 부정 · 단순비난으로</div>
       </div>
     </div>
@@ -64,6 +64,7 @@
         <div class="row"><span id="folderName" class="folder-name"></span><button id="pickFolder" class="small">폴더 선택</button><button id="clearFolder" class="small" hidden>다운로드 폴더로</button></div>
         <div class="hint">크롬 보안상 폴더 이름만 보이고, 크롬을 새로 켠 뒤 처음 저장할 때 '파일 수정 허용'을 한 번 물을 수 있습니다(허용을 누르세요).</div>
         <label class="inline"><input type="checkbox" id="saveAsk"> 폴더를 고르지 않았을 때: 받을 때마다 저장 위치 묻기</label>
+        <label class="inline"><input type="checkbox" id="soundOn" checked> 끝나면 알림음 '딩동댕' (게시물 찾기 · 본문 읽기 · AI 판단 · TOP5 정리 · 엑셀·PPT 만들기)</label>
         <div class="buttons"><button id="resetSettings" class="small">설정 처음 값으로</button></div>
       </details>
 
@@ -145,17 +146,29 @@
       <div id="topBox"></div>
 
       <h3>엑셀 · PPT 받기</h3>
-      <div class="hint"><b>엑셀</b>: ① 요약(차종별 성향 비율 · 차종별 긍정/부정 TOP5 · 성향별 주요 반응 원문) ② 게시글 ③ 반응 전체(글·댓글 × 차종마다 한 줄: 성향 · 주요 내용 · TOP 묶음 · 원문) ④ 판단 기준.<br>
-        <b>PPT</b>: 보고서 PPT(첨부 양식 3페이지 '순위 · 내용 · 개수 · 비율' 표가 있는 파일)를 고르면, 그 양식 그대로 차종별 긍정·부정 TOP5 표를 채워 받습니다.
-        그랜저·싼타페 줄에 표가 없으면 아반떼 줄 표를 복제해 넣습니다. 고른 파일은 바뀌지 않습니다.</div>
+      <div class="hint"><b>엑셀 만들기</b>를 누르면 아래 5개 파일을 한꺼번에 만들어 <b>데이터 DB</b>에 오늘 파일로 저장하고, 📥 받기 버튼이 반짝이며 알림음이 납니다(누르면 받음).
+        게시물·댓글 4종은 <b>이슈 모니터링 보고서 작성 프로그램과 같은 양식</b>입니다(차종마다 시트 하나).<br>
+        · <b>게시물 리스트</b>(로우데이터: No · 출처 · 제목 · 작성시간 · Link · 동호회 차종별 시트) · <b>게시물 성향 분석</b>(같은 양식 + 성향 · 반응 차종별 시트)<br>
+        · <b>댓글 raw data</b>(domain · text · 작성일 · 게시글 URL · 동호회 차종별 시트) · <b>댓글 성향 분석</b>(+ 성향 · 반응 차종별 시트, 여러 차종을 말한 댓글은 차종마다 한 줄)<br>
+        · <b>차종별 반응 요약</b>: 차종별 성향 비율 · 차종별 긍정/부정 TOP5 · 성향별 주요 반응 원문 · 반응 전체(판단 근거) · 판단 기준</div>
       <div class="buttons">
-        <button id="saveExcel" class="primary" disabled>엑셀 받기</button>
+        <button id="makeFiles" class="primary" disabled>엑셀 만들기 (데이터 DB 저장)</button>
+      </div>
+      <div class="buttons getrow">
+        <button id="getSummary" class="getbtn" disabled>📥 차종별 반응 요약</button>
+        <button id="getPosts" class="getbtn" disabled>📥 게시물 리스트</button>
+        <button id="getPostsSenti" class="getbtn" disabled>📥 게시물 성향 분석</button>
+        <button id="getComments" class="getbtn" disabled>📥 댓글 raw data</button>
+        <button id="getCommentsSenti" class="getbtn" disabled>📥 댓글 성향 분석</button>
       </div>
       <div id="saveInfo" class="hint"></div>
+      <div class="hint" style="margin-top:14px"><b>PPT</b>: 보고서 PPT(첨부 양식 3페이지 '순위 · 내용 · 개수 · 비율' 표가 있는 파일)를 고르면, 그 양식 그대로 차종별 긍정·부정 TOP5 표를 채웁니다.
+        그랜저·싼타페 줄에 표가 없으면 아반떼 줄 표를 복제해 넣습니다. 고른 파일은 바뀌지 않습니다.</div>
       <div class="row">
         <label class="inline">보고서 PPT <input type="file" id="pptFile" accept=".pptx"></label>
         <label class="inline"><input type="checkbox" id="onlySlide"> TOP5 슬라이드만 남기기</label>
-        <button id="savePpt" disabled>PPT 3페이지 채워 받기</button>
+        <button id="savePpt" disabled>PPT 3페이지 채우기</button>
+        <button id="getPpt" class="getbtn" disabled>📥 PPT 받기</button>
       </div>
       <div id="pptInfo" class="hint"></div>
     </section>
@@ -168,9 +181,11 @@
   <script src="lib/anthropic-sdk.min.js"></script>
   <script src="xlsx.js"></script>
   <script src="zip.js"></script>
+  <script src="xlsx-out.js"></script>
   <script src="pptfill.js"></script>
   <script src="cafe-common.js"></script>
   <script src="ui.js"></script>
+  <script src="db-store.js"></script>
   <script src="ksf.js"></script>
 </body>
 </html>
