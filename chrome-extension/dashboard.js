@@ -207,8 +207,9 @@ function dashHtml(data, carSrc, fluid = false) {
   // 메일용: 바깥 표는 너비를 정하지 않고 내용에 맞춰 늘어나게 (메일마다 여백을 너비에 넣고 빼는 방식이 달라 어긋나지 않게)
   // 너비를 정한 칸에는 여백을 두지 않고, 여백은 안쪽 상자에
   // 테두리·둥근 모서리는 표가 아니라 감싸는 상자에 (메일 프로그램마다 표의 둥근 테두리를 다르게 그림)
+  // 안쪽 표는 바탕을 투명하게 — 네이버 메일은 넘침 자르기를 지워서, 네모난 흰 바탕이 둥근 모서리를 덮어 버림
   return `<div style="${fluid ? "display:block;" : "display:inline-block;"}border:1px solid #d9dde3;border-radius:12px;overflow:hidden;background:#ffffff;">
-<table${fluid ? ' width="100%"' : ""} cellpadding="0" cellspacing="0" bgcolor="#ffffff" style="${fluid ? "width:100%;" : ""}border-collapse:collapse;border:0;font-family:${DASH_FONT};background:#ffffff;">
+<table${fluid ? ' width="100%"' : ""} cellpadding="0" cellspacing="0" style="${fluid ? "width:100%;" : ""}border-collapse:collapse;border:0;font-family:${DASH_FONT};background:transparent;background-color:transparent;">
   <tr>
   <td width="228" rowspan="2" bgcolor="#002c5f" style="width:228px;vertical-align:top;background:#002c5f;background-color:#002c5f;padding:0;color:#ffffff;border-radius:11px 0 0 11px;">
     <div style="padding:14px 14px 12px;${fluid ? "" : "width:200px;"}">
