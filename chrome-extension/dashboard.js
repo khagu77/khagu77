@@ -171,7 +171,7 @@ function dashHtml(data, carSrc) {
   <tr>
   <td width="200" style="width:200px;vertical-align:top;background:#002c5f;background-image:linear-gradient(160deg,#001a3a 0%,#002c5f 50%,#0b5aa8 100%);padding:14px 14px 12px;color:#ffffff;border-radius:12px 0 0 12px;">
     <div style="font-size:11px;opacity:0.8;line-height:1.35;">팰리세이드(LX3) 전동 시트<br>관련 온라인 동향</div>
-    <div style="font-family:'Arial Black','Helvetica Neue',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.05;margin-top:4px;letter-spacing:0.3px;">TODAY'S<br>DASHBOARD</div>
+    <div style="font-family:'Arial Black','Helvetica Neue',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.05;margin-top:4px;letter-spacing:0.3px;">DASHBOARD</div>
     <img src="${carSrc}" width="172" alt="PALISADE" style="display:block;border:0;margin:8px 0 6px;">
     <div style="font-size:13px;font-weight:700;">${esc(prettyDate(data.date))}</div>
     ${data.period ? `<div style="font-size:10px;opacity:0.8;margin-top:1px;">수집 ${esc(data.period)}</div>` : ""}
@@ -206,7 +206,7 @@ function dashText(data) {
   const posts = data.posts.channels.map((c) => line(c.label, c)).join(" / ");
   const comments = data.comments.channels.map((c) => line(c.label, c)).join(" / ");
   return [
-    `[팰리세이드(LX3) 전동 시트 관련 온라인 동향] TODAY'S DASHBOARD - ${prettyDate(data.date)}${data.period ? ` (수집 기간 ${data.period})` : ""}`,
+    `[팰리세이드(LX3) 전동 시트 관련 온라인 동향] DASHBOARD - ${prettyDate(data.date)}${data.period ? ` (수집 기간 ${data.period})` : ""}`,
     `■ 게시물: ${data.posts.total ? line("합계", data.posts.total) : "기록 없음"}${posts ? ` | ${posts}` : ""}`,
     `■ 댓글: ${comments || "기록 없음"}`,
     ...(data.detail
