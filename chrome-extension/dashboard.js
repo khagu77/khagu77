@@ -344,10 +344,14 @@ function dashCopied(ok, withCar = true, why = "") {
   $("#dashInfo").className = ok ? "hint ok" : "hint err";
 }
 
+// 메일 붙여 넣기용 차량 그림은 인터넷 주소로 (그림을 글자로 담으면 그룹웨어 편집기가 서버에 올리다 실패해 붙여 넣기가 취소됨)
+// 커밋 번호로 고정한 주소라 파일이 나중에 바뀌어도 보낸 메일의 그림은 그대로
+const DASH_CAR_URL = "https://raw.githubusercontent.com/khagu77/khagu77/164d8a3326b9f1be53709a6a120e7d8b1c9f98a5/chrome-extension/icons/logo-car-mail.png";
+
 // withCar=false: 차량 이미지 없이 (그룹웨어 메일 편집기 중에는 글자로 담은 그림이 있으면 붙여 넣기를 통째로 거부하는 곳이 있음)
 function copyDash(withCar = true) {
   if (!dashCache) return;
-  const body = dashHtml(dashCache, withCar ? dashCar || chrome.runtime.getURL("icons/logo-car.png") : "");
+  const body = dashHtml(dashCache, withCar ? DASH_CAR_URL : "");
   const html = `<html><body>${body}</body></html>`;
   const text = dashText(dashCache);
   // 1) ⌘C 와 같은 순간에 복사 이벤트로 서식·글자를 직접 담음 (전에 붙여 넣기가 됐던 방식)
