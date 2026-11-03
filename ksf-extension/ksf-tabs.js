@@ -357,7 +357,7 @@ function statsForAi() {
   for (const s of stats) {
     lines.push(`${s.car}: 게시글 ${s.posts} · 댓글 ${s.comments} · 반응 ${s.n} · ${TONES.map((t) => `${t} ${fmtPct(s.ratio[t])}(${s.tone[t]})`).join(" · ")}`);
   }
-  lines.push("", "[차종별 많이 이야기된 주요 내용 TOP5 (건수 · 그 차종 긍정/부정 중 비중)]");
+  lines.push("", "[차종별 많이 이야기된 주요 내용 TOP5 (건수 · 해당 차종 긍정/부정 중 비중)]");
   for (const car of targetCars()) {
     for (const t of ["긍정", "부정"]) lines.push(`${car} ${t}: ${top.cars[car][t].slice(0, 5).map((g) => `${g.label} ${g.count}건(${fmtPct(g.ratio)})`).join(" / ") || "없음"}`);
   }
@@ -579,7 +579,7 @@ function makeSummaryText(ppt = null) {
     if (s.n) L.push(`   → 부정 여론 ${fmtPct(negOf(s.ratio))} vs 긍정 ${fmtPct(s.ratio["긍정"])}`);
   }
   L.push("");
-  L.push(`4. 차종별 긍정 · 부정 주요 내용 TOP${TOP_N} (많이 이야기된 순 · 괄호 안은 그 차종 긍정/부정 반응 중 비중)`);
+  L.push(`4. 차종별 긍정 · 부정 주요 내용 TOP${TOP_N} (많이 이야기된 순 · 괄호 안은 해당 차종 긍정/부정 반응 중 비중)`);
   for (const c of targetCars()) {
     L.push(` - ${c}`);
     for (const t of ["긍정", "부정"]) {

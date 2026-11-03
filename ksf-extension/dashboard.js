@@ -134,7 +134,7 @@ function dashHtml(d, prev, banner, fluid = false) {
   </tr>
   <tr><td width="230" bgcolor="#002c5f" valign="bottom" style="width:230px;vertical-align:bottom;background:#002c5f;background-color:#002c5f;padding:0 14px 9px;border-radius:0 0 0 11px;"><div style="font-size:9px;line-height:1.2;color:#ffffff;letter-spacing:0.6px;opacity:0.85;font-family:Arial,Helvetica,sans-serif;">By <b style="font-weight:800;color:#ffffff;">LINESQUARE</b></div></td>
   <td align="right" bgcolor="#ffffff" style="vertical-align:bottom;text-align:right;padding:6px 12px 8px 6px;background:#ffffff;background-color:#ffffff;border-radius:0 0 11px 0;">
-    <div align="right" style="font-size:10px;color:#4a4f57;text-align:right;">※ 반응 = 게시글·댓글 × 언급 차종 · 성향은 코세페에 대한 반응 기준 · 주요 내용은 많이 이야기된 이슈 순(건수 · 그 차종 긍정/부정 중 비중)${prev ? ` · <span style="color:#d93025;font-weight:700;">▲</span><span style="color:#1a5fd0;font-weight:700;">▼</span> ${desc(prev.dateText)} 대비` : ""}</div>
+    <div align="right" style="font-size:10px;color:#4a4f57;text-align:right;">※ 반응 = 게시글·댓글 × 언급 차종 · 성향은 코세페에 대한 반응 기준 · 주요 내용은 많이 이야기된 이슈 순(건수 · 해당 차종 긍정/부정 중 비중)${prev ? ` · <span style="color:#d93025;font-weight:700;">▲</span><span style="color:#1a5fd0;font-weight:700;">▼</span> ${desc(prev.dateText)} 대비` : ""}</div>
   </td></tr>
 </table></div>`;
 }
