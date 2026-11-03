@@ -124,7 +124,7 @@ function dashHtml(d, prev, banner, fluid = false) {
   </td>
   <td bgcolor="#ffffff" style="vertical-align:top;padding:10px 8px 0 6px;background:#ffffff;background-color:#ffffff;border-radius:0 11px 0 0;">
     ${banner ? `<div style="margin:0 4px 8px;"><img src="${banner}" width="${fluid ? "" : W - 8}" alt="AVANTE · SANTA FE · GRANDEUR" style="display:block;border:0;border-radius:8px;${fluid ? "width:100%;max-width:100%;height:auto;" : ""}"></div>` : ""}
-    ${(d.summary || []).length ? `<div style="margin:0 4px 8px;padding:8px 10px;border:1px solid #d9dde3;border-left:4px solid #002c5f;border-radius:6px;background:#f8fafc;${fluid ? "" : boxW(W)}">${d.summary.map((t) => `<div style="font-size:12.5px;font-weight:700;color:#1b1d21;line-height:1.5;">• ${desc(t)}</div>`).join("")}</div>` : ""}
+    ${(d.summary || []).length ? `<div style="margin:0 4px 8px;padding:8px 10px;border:1px solid #d9dde3;border-left:4px solid #002c5f;border-radius:6px;background:#f8fafc;${fluid ? "" : boxW(W, 25)}">${d.summary.map((t) => `<div style="font-size:12.5px;font-weight:700;color:#1b1d21;line-height:1.5;">• ${desc(t)}</div>`).join("")}</div>` : ""}
     <table width="${fluid ? "100%" : W}" cellpadding="0" cellspacing="0" style="width:${fluid ? "100%" : `${W}px`};border-collapse:collapse;table-layout:fixed;"><tr>
       ${d.cars.map((c) => dashCarCell(c, prev, fluid)).join("")}
     </tr></table>
@@ -140,7 +140,8 @@ function dashHtml(d, prev, banner, fluid = false) {
 }
 
 // 메일용: 상자 폭 고정 (차종 칸 3개 합 − 좌우 여백 8px · 테두리 포함 · 메일 프로그램이 폭 없는 상자를 화면 끝까지 늘리지 않게) / 화면: 꽉 채움
-const boxW = (width) => (typeof width === "number" ? `width:${width - 8}px;max-width:${width - 8}px;box-sizing:border-box;` : "");
+// extra: 상자의 좌우 여백+테두리 (폭은 테두리·여백을 뺀 안쪽 폭으로 - 메일 편집기가 box-sizing 을 지워도 어긋나지 않게)
+const boxW = (width, extra = 2) => (typeof width === "number" ? `width:${width - 8 - extra}px;` : "");
 
 // 성향별 주요 내용 (보고서 1페이지와 같은 대표 댓글 · 원문)
 function dashQuotes(d, width) {
@@ -154,9 +155,9 @@ function dashQuotes(d, width) {
     `<tr><td width="58" style="width:58px;padding:5px 6px;border-top:1px solid #eef0f3;vertical-align:top;white-space:nowrap;"><b style="font-size:11px;color:${c};">${t}</b><div style="font-size:10px;color:#6b7079;">${dpct(d.ratio[t])}</div></td>` +
     `<td style="padding:5px 6px;border-top:1px solid #eef0f3;font-size:11px;color:#1b1d21;line-height:1.5;vertical-align:top;">${(d.short[t] || []).map((q) => `‘${desc(clip(q))}’`).join(", ") || '<span style="color:#a0a5ad;">-</span>'}</td></tr>`,
   ).join("");
-  return `<div style="margin:8px 4px 0;border:1px solid #e3e6eb;border-radius:8px;background:#ffffff;overflow:hidden;${boxW(width)}">` +
-    `<div style="padding:5px 8px;font-size:11px;font-weight:800;color:#002c5f;background:#f6f8fa;">성향별 주요 댓글 여론 (전 차종)</div>` +
-    `<table width="${width}" cellpadding="0" cellspacing="0" style="width:${typeof width === "number" ? `${width - 10}px` : width};border-collapse:collapse;table-layout:fixed;">${rows}</table></div>`;
+  return `<div style="margin:8px 4px 0;border:1px solid #e3e6eb;border-radius:8px;background:#ffffff;background-color:#ffffff;overflow:hidden;padding:0 0 6px;${boxW(width)}">` +
+    `<div style="padding:5px 8px;font-size:11px;font-weight:800;color:#002c5f;background:#f6f8fa;background-color:#f6f8fa;border-radius:7px 7px 0 0;">성향별 주요 댓글 여론 (전 차종)</div>` +
+    `<table width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;table-layout:fixed;background:transparent;">${rows}</table></div>`;
 }
 
 // 유형 구분 (글쓴이 유형) - 엑셀과 같은 보라 계열 5가지 + 유형 구분 외(회색)
@@ -185,9 +186,9 @@ function dashTypes(d, width) {
       td(`<span style="font-size:11px;line-height:1.45;">${top}</span>`) + "</tr>";
   }).join("");
   const notes = DASH_TYPES.map(([t, c, n]) => `<span style="white-space:nowrap;"><b style="color:${c};">${t}</b>: ${desc(n)}</span>`).join(" · ");
-  return `<div style="margin:8px 4px 0;border:1px solid #e3e6eb;border-radius:8px;background:#ffffff;overflow:hidden;${boxW(width)}">` +
-    `<div style="padding:5px 8px;font-size:11px;font-weight:800;color:#002c5f;background:#f6f8fa;">유형 구분별 반응 <span style="font-weight:400;color:#6b7079;">(글쓴이 유형 · 반응 기준 · 가장 많이 나온 여론)</span></div>` +
-    `<table width="${width}" cellpadding="0" cellspacing="0" style="width:${typeof width === "number" ? `${width - 10}px` : width};border-collapse:collapse;table-layout:fixed;">${rows}</table>` +
+  return `<div style="margin:8px 4px 0;border:1px solid #e3e6eb;border-radius:8px;background:#ffffff;background-color:#ffffff;overflow:hidden;padding:0 0 6px;${boxW(width)}">` +
+    `<div style="padding:5px 8px;font-size:11px;font-weight:800;color:#002c5f;background:#f6f8fa;background-color:#f6f8fa;border-radius:7px 7px 0 0;">유형 구분별 반응 <span style="font-weight:400;color:#6b7079;">(글쓴이 유형 · 반응 기준 · 가장 많이 나온 여론)</span></div>` +
+    `<table width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;table-layout:fixed;background:transparent;">${rows}</table>` +
     `<div style="padding:5px 8px;font-size:9.5px;color:#6b7079;line-height:1.6;background:#ffffff;">※ ${notes}</div></div>`;
 }
 
