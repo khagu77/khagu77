@@ -117,13 +117,14 @@ async function dashDetail(buzzRec, rawRec) {
 // 메일 프로그램이 칸 폭을 멋대로 바꾸지 않게 폭을 픽셀로 고정 (전체 960 = 왼쪽 200 + 오른쪽 760)
 const DASH_CELL = 186;
 
-// 이름을 정해진 폭(대략 글자 수, 영문·숫자는 0.6자)에 맞게 미리 줄임 — 메일에서는 '…' 자동 줄임이 안 됨
+// 이름을 정해진 폭(대략 글자 수, 영문·숫자는 0.6자)에 맞게 미리 줄임 — 메일에서는 자동 줄임이 안 됨
+// (그룹웨어 메일 편집기가 '…' 문자·title 속성이 든 붙여 넣기를 거부해서 '..' 만 씀)
 function dashClip(name, em) {
   let w = 0;
   let out = "";
   for (const ch of String(name)) {
     const cw = /[\u1100-\u11ff\u3000-\u9fff\uac00-\ud7af\uff00-\uffef★☆]/.test(ch) ? 1 : /[A-Z]/.test(ch) ? 0.75 : 0.62;
-    if (w + cw > em) return out.trimEnd() + "…";
+    if (w + cw > em) return out.trimEnd() + "..";
     w += cw;
     out += ch;
   }
@@ -160,7 +161,7 @@ function dashChannelCell({ label, color }, data, fluid = false) {
   const W1 = yt ? 40 : 26; // 글(영상) 칸 폭
   const W2 = 42; // 댓글 칸 폭
   const row = (x) =>
-    `<tr><td style="${cellStyle}color:#1b1d21;white-space:nowrap;overflow:hidden;" title="${esc(x.name)}">${esc(dashClip(x.name, yt ? 5.6 : 7.4))}</td>` +
+    `<tr><td style="${cellStyle}color:#1b1d21;white-space:nowrap;overflow:hidden;">${esc(dashClip(x.name, yt ? 5.6 : 7.4))}</td>` +
     `<td width="${W1}" style="${cellStyle}width:${W1}px;text-align:right;font-weight:700;color:#1b1d21;white-space:nowrap;">${first(x)}</td>` +
     `<td width="${W2}" style="${cellStyle}width:${W2}px;text-align:right;font-weight:700;color:${color};white-space:nowrap;">${n0(x.comments)}</td></tr>`;
   const rest = list.slice(DASH_TOP);
@@ -203,7 +204,7 @@ function dashHtml(data, carSrc, fluid = false) {
   <td width="200" rowspan="2" style="width:200px;vertical-align:top;background:#002c5f;background-image:linear-gradient(160deg,#001a3a 0%,#002c5f 50%,#0b5aa8 100%);padding:14px 14px 12px;color:#ffffff;border-radius:12px 0 0 12px;">
     <div style="font-size:11px;opacity:0.8;line-height:1.35;">팰리세이드(LX3) 전동 시트<br>관련 온라인 동향</div>
     <div style="font-family:'Arial Black','Helvetica Neue',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.05;margin-top:4px;letter-spacing:0.3px;">DASHBOARD</div>
-    <div align="center" style="text-align:center;margin:8px 0 6px;"><img src="${carSrc}" width="138" alt="PALISADE" style="display:inline-block;border:0;"></div>
+    ${carSrc ? `<div align="center" style="text-align:center;margin:8px 0 6px;"><img src="${carSrc}" width="138" alt="PALISADE" style="display:inline-block;border:0;"></div>` : `<div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>`}
     <div style="font-size:13px;font-weight:700;">${esc(prettyDate(data.date))}</div>
     ${data.period ? `<div style="font-size:10px;opacity:0.8;margin-top:1px;">수집 ${esc(data.period)}</div>` : ""}
     <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;border-top:1px solid rgba(255,255,255,0.25);"><tr>
@@ -283,6 +284,7 @@ async function renderDash() {
   if (!box) return;
   dashCache = await dashData();
   $("#dashCopy").disabled = !dashCache;
+  if ($("#dashCopyLite")) $("#dashCopyLite").disabled = !dashCache;
   $("#dashBody").innerHTML = dashCache
     ? dashHtml(dashCache, chrome.runtime.getURL("icons/logo-car.png"), true)
     : `<div class="hint">아직 최종 DB에 기록이 없습니다. 게시물 엑셀을 만들거나 파일을 등록하면 여기에 그날의 건수가 보입니다.</div>`;
@@ -292,39 +294,40 @@ async function renderDash() {
 let dashCar = null;
 carDataUrl().then((d) => (dashCar = d)).catch(() => {});
 
-function dashCopied(ok, why = "") {
-  $("#dashInfo").textContent = ok ? "✔ 복사했습니다. 메일 본문에 붙여 넣으세요 (⌘V)." : `복사하지 못했습니다${why ? `: ${why}` : ""}. 다시 눌러 주세요.`;
+function dashCopied(ok, withCar = true, why = "") {
+  $("#dashInfo").textContent = ok
+    ? `✔ ${withCar ? "" : "이미지 없이 "}복사했습니다. 메일 본문에 붙여 넣으세요 (⌘V).${withCar ? " 붙여 넣기가 안 되면 '이미지 없이 복사'를 눌러 보세요." : ""}`
+    : `복사하지 못했습니다${why ? `: ${why}` : ""}. 다시 눌러 주세요.`;
   $("#dashInfo").className = ok ? "hint ok" : "hint err";
 }
 
-function copyDash() {
+// withCar=false: 차량 이미지 없이 (그룹웨어 메일 편집기 중에는 글자로 담은 그림이 있으면 붙여 넣기를 통째로 거부하는 곳이 있음)
+function copyDash(withCar = true) {
   if (!dashCache) return;
-  const body = dashHtml(dashCache, dashCar || chrome.runtime.getURL("icons/logo-car.png"));
-  const text = dashText(dashCache);
-  // 1) 사람이 화면을 드래그해서 ⌘C 하는 것과 똑같이: 안 보이는 곳에 그려 놓고 선택해서 복사
-  const box = document.createElement("div");
-  box.className = "dashmail";
-  box.style.cssText = "position:fixed;left:-20000px;top:0;";
-  box.innerHTML = body;
-  document.body.appendChild(box);
-  const sel = window.getSelection();
-  sel.removeAllRanges();
-  const range = document.createRange();
-  range.selectNode(box.firstElementChild);
-  sel.addRange(range);
-  let ok = false;
-  try {
-    ok = document.execCommand("copy");
-  } catch {}
-  sel.removeAllRanges();
-  box.remove();
-  if (ok) return dashCopied(true);
-  // 2) 안 되면 클립보드 API (서식 + 글자)
+  const body = dashHtml(dashCache, withCar ? dashCar || chrome.runtime.getURL("icons/logo-car.png") : "");
   const html = `<html><body>${body}</body></html>`;
+  const text = dashText(dashCache);
+  // 1) ⌘C 와 같은 순간에 복사 이벤트로 서식·글자를 직접 담음 (전에 붙여 넣기가 됐던 방식)
+  let done = false;
+  const onCopy = (e) => {
+    e.clipboardData.setData("text/html", html);
+    e.clipboardData.setData("text/plain", text);
+    e.preventDefault();
+    done = true;
+  };
+  document.addEventListener("copy", onCopy);
+  try {
+    document.execCommand("copy");
+  } catch {}
+  document.removeEventListener("copy", onCopy);
+  if (done) return dashCopied(true, withCar);
+  // 2) 안 되면 클립보드 API
   navigator.clipboard
     .write([new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([text], { type: "text/plain" }) })])
-    .then(() => dashCopied(true))
-    .catch((e) => dashCopied(false, e.message));
+    .then(() => dashCopied(true, withCar))
+    .catch((e) => dashCopied(false, withCar, e.message));
 }
 
-$("#dashCopy")?.addEventListener("click", copyDash);
+$("#dashCopy")?.addEventListener("click", () => copyDash(true));
+$("#dashCopyLite")?.addEventListener("click", () => copyDash(false));
+
