@@ -117,7 +117,7 @@ async function dashDetail(buzzRec, rawRec) {
 // 메일 프로그램이 칸 폭을 멋대로 바꾸지 않게 폭을 픽셀로 고정 (전체 960 = 왼쪽 200 + 오른쪽 760)
 const DASH_CELL = 186; // 네 칸 평균 폭
 // 채널별 칸 폭 (합 = DASH_CELL × 4): 이름이 긴 동호회는 넓게, 이름이 짧은 언론·커뮤니티는 좁게
-const DASH_W = { 언론: 168, 유튜브: 190, 동호회: 220, "자동차 커뮤니티": 166 };
+const DASH_W = { 언론: 158, 유튜브: 214, 동호회: 230, "자동차 커뮤니티": 142 };
 
 // 이름을 정해진 폭(대략 글자 수, 영문·숫자는 0.6자)에 맞게 미리 줄임 — 메일에서는 자동 줄임이 안 됨
 // (그룹웨어 메일 편집기가 '…' 문자·title 속성이 든 붙여 넣기를 거부해서 '..' 만 씀)
@@ -125,7 +125,7 @@ function dashClip(name, em) {
   let w = 0;
   let out = "";
   for (const ch of String(name)) {
-    const cw = /[\u1100-\u11ff\u3000-\u9fff\uac00-\ud7af\uff00-\uffef★☆]/.test(ch) ? 1 : /[A-Z]/.test(ch) ? 0.75 : 0.62;
+    const cw = /[\u1100-\u11ff\u3000-\u9fff\uac00-\ud7af\uff00-\uffef★☆]/.test(ch) ? 1 : /[A-Z]/.test(ch) ? 0.7 : ch === " " ? 0.35 : 0.55;
     if (w + cw > em) return out.trimEnd() + "..";
     w += cw;
     out += ch;
@@ -160,12 +160,12 @@ function dashChannelCell({ label, color }, data, fluid = false) {
   // 유튜브는 지켜보는 영상 전체 수 (오늘 새로 넣은 영상은 +n)
   const plus = (n) => (n ? `<span style="color:#d93025;font-size:10px;font-weight:700;"> +${num(n)}</span>` : "");
   const first = (x) => (yt ? `${n0(x.videos)}${plus(x.posts)}` : n0(x.posts));
-  const W1 = yt ? 40 : 26; // 글(영상) 칸 폭
-  const W2 = label === "동호회" ? 36 : 42; // 댓글 칸 폭
+  const W1 = yt ? 34 : 26; // 글(영상) 칸 폭
+  const W2 = label === "동호회" ? 36 : 40; // 댓글 칸 폭
   const cw = DASH_W[label] || DASH_CELL;
   const pct = `${((cw / (DASH_CELL * 4)) * 100).toFixed(1)}%`;
   // 이름 칸에 들어가는 글자 수 (한글 1자 ≈ 11.6px; 칸 폭 − 여백 − 숫자 칸)
-  const nameEm = Math.max(4, (cw - 36 - W1 - W2) / 11.6);
+  const nameEm = Math.max(4, (cw - 34 - W1 - W2) / 11.2);
   const row = (x) =>
     `<tr><td style="${cellStyle}color:#1b1d21;white-space:nowrap;overflow:hidden;line-height:1.3;">${fluid ? `<a data-alias="${esc(x.name)}" style="color:inherit;text-decoration:none;cursor:pointer;">` : ""}${esc(dashClip(dashShort(x.name), nameEm))}${fluid ? "</a>" : ""}` +
     `</td>` +
