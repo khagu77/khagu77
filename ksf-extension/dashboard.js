@@ -97,14 +97,14 @@ function dashHtml(d, prev, banner, fluid = false) {
   const asOf = new Date(d.at);
   const asOfText = `${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, "0")}-${String(asOf.getDate()).padStart(2, "0")} ${String(asOf.getHours()).padStart(2, "0")}:${String(asOf.getMinutes()).padStart(2, "0")}`;
   const big = (label, v, pv) =>
-    `<td style="padding-top:6px;color:#ffffff;vertical-align:top;"><div style="font-size:10px;color:#c3cfdd;">${label}</div>` +
+    `<td bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background:#002c5f;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;">${label}</div>` +
     `<div style="font-size:19px;font-weight:800;color:#ffffff;white-space:nowrap;">${dnum(v)}<span style="font-size:10px;">건</span></div>` +
     `<div>${prev ? dashDiff(v, pv, true) : "&nbsp;"}</div></td>`;
   const W = DASH_CELL * d.cars.length;
   return `<div style="${fluid ? "display:block;" : "display:inline-block;"}border:1px solid #d9dde3;border-radius:12px;overflow:hidden;background:#ffffff;">
 <table${fluid ? ' width="100%"' : ""} cellpadding="0" cellspacing="0" style="${fluid ? "width:100%;" : ""}border-collapse:collapse;border:0;font-family:${DASH_FONT};background:transparent;">
   <tr>
-  <td width="230" bgcolor="#002c5f" style="width:230px;vertical-align:top;background:#002c5f;background-color:#002c5f;padding:0;color:#ffffff;">
+  <td width="230" bgcolor="#002c5f" style="width:230px;vertical-align:top;background:#002c5f;background-color:#002c5f;padding:0;color:#ffffff;border-radius:11px 0 0 0;">
     <div style="padding:14px 14px 12px;${fluid ? "" : "width:202px;"}">
     <div style="font-size:10.5px;color:#c3cfdd;line-height:1.35;letter-spacing:-0.7px;white-space:nowrap;">${desc(d.title || "코리아 세일 페스타 차종별 동호회 반응")}</div>
     <div style="color:#ffffff;font-family:'Arial Black','Helvetica Neue',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.05;margin-top:4px;letter-spacing:0.3px;">DASHBOARD</div>
@@ -121,7 +121,7 @@ function dashHtml(d, prev, banner, fluid = false) {
     <div style="font-size:10px;color:#b8c5d6;margin-top:8px;line-height:1.5;">모니터링 채널: ${desc(d.channels || `주요 모니터링 동호회 ${d.cafes.length}곳`)}${d.unjudged ? `<br><span style="color:#ffd166;">※ 잠정치: ${dnum(d.unjudged)}건은 AI 판단 전</span>` : ""}</div>
     </div>
   </td>
-  <td style="vertical-align:top;padding:10px 8px 0 6px;background:transparent;">
+  <td bgcolor="#ffffff" style="vertical-align:top;padding:10px 8px 0 6px;background:#ffffff;background-color:#ffffff;border-radius:0 11px 0 0;">
     ${(d.summary || []).length ? `<div style="margin:0 4px 8px;padding:8px 10px;border:1px solid #d9dde3;border-left:4px solid #002c5f;border-radius:6px;background:#f8fafc;">${d.summary.map((t) => `<div style="font-size:12.5px;font-weight:700;color:#1b1d21;line-height:1.5;">• ${desc(t)}</div>`).join("")}</div>` : ""}
     ${banner ? `<div style="margin:0 4px 8px;"><img src="${banner}" width="${fluid ? "" : W - 8}" alt="AVANTE · SANTA FE · GRANDEUR" style="display:block;border:0;border-radius:8px;${fluid ? "width:100%;max-width:100%;height:auto;max-height:150px;object-fit:cover;" : ""}"></div>` : ""}
     <table width="${fluid ? "100%" : W}" cellpadding="0" cellspacing="0" style="width:${fluid ? "100%" : `${W}px`};border-collapse:collapse;table-layout:fixed;"><tr>
@@ -130,8 +130,8 @@ function dashHtml(d, prev, banner, fluid = false) {
     ${dashQuotes(d, fluid ? "100%" : W)}
   </td>
   </tr>
-  <tr><td width="230" bgcolor="#002c5f" valign="bottom" style="width:230px;vertical-align:bottom;background:#002c5f;background-color:#002c5f;padding:0 14px 9px;"><div style="font-size:9px;line-height:1.2;color:#ffffff;letter-spacing:0.6px;opacity:0.85;font-family:Arial,Helvetica,sans-serif;">By <b style="font-weight:800;color:#ffffff;">LINESQUARE</b></div></td>
-  <td align="right" style="vertical-align:bottom;text-align:right;padding:6px 12px 8px 6px;background:transparent;">
+  <tr><td width="230" bgcolor="#002c5f" valign="bottom" style="width:230px;vertical-align:bottom;background:#002c5f;background-color:#002c5f;padding:0 14px 9px;border-radius:0 0 0 11px;"><div style="font-size:9px;line-height:1.2;color:#ffffff;letter-spacing:0.6px;opacity:0.85;font-family:Arial,Helvetica,sans-serif;">By <b style="font-weight:800;color:#ffffff;">LINESQUARE</b></div></td>
+  <td align="right" bgcolor="#ffffff" style="vertical-align:bottom;text-align:right;padding:6px 12px 8px 6px;background:#ffffff;background-color:#ffffff;border-radius:0 0 11px 0;">
     <div align="right" style="font-size:10px;color:#4a4f57;text-align:right;">※ 반응 = 게시글·댓글 × 언급 차종 · 성향은 코세페에 대한 반응 기준 · 주요 내용은 많이 이야기된 이슈 순(건수 · 그 차종 긍정/부정 중 비중)${prev ? ` · <span style="color:#d93025;font-weight:700;">▲</span><span style="color:#1a5fd0;font-weight:700;">▼</span> ${desc(prev.dateText)} 대비` : ""}</div>
   </td></tr>
 </table></div>`;
