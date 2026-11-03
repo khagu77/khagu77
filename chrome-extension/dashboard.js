@@ -219,10 +219,10 @@ function dashHtml(data, carSrc, fluid = false) {
     <div style="font-size:13px;font-weight:700;color:#ffffff;">${esc(prettyDate(data.date))}</div>
     ${data.period ? `<div style="font-size:10px;color:#c3cfdd;margin-top:1px;">수집 ${esc(data.period)}</div>` : ""}
     <table width="100%" cellpadding="0" cellspacing="0" bgcolor="#002c5f" style="margin-top:8px;border-top:1px solid #4d6b8f;background:#002c5f;background-color:#002c5f;"><tr>
-      <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;">오늘 새 게시물</div>
+      <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;line-height:1.3;">오늘의 신규<br>게시물 수</div>
         <div style="font-size:20px;font-weight:800;color:#ffffff;">${total ? num(total.today) : "-"}<span style="font-size:11px;color:#ffffff;">건</span></div>
         <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(total)}</div></td>
-      <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;">오늘 새 댓글</div>
+      <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;line-height:1.3;">오늘의 신규<br>댓글 수</div>
         <div style="font-size:20px;font-weight:800;color:#ffffff;">${cTotal ? num(cTotal.today) : "-"}<span style="font-size:11px;color:#ffffff;">건</span></div>
         <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(cTotal)}</div>
         ${ytC ? `<div style="font-size:10px;color:#c3cfdd;white-space:nowrap;">+ 유튜브 전체 ${num(ytC.d.today)}건</div>` : ""}</td>
@@ -264,8 +264,8 @@ function dashText(data) {
   const comments = data.comments.channels.map((c) => line(c.label, c)).join(" / ");
   return [
     `[팰리세이드(LX3) 전동 시트 관련 온라인 동향] DASHBOARD - ${prettyDate(data.date)}${data.period ? ` (수집 기간 ${data.period})` : ""}`,
-    `■ 게시물: ${data.posts.total ? line("오늘 새 게시물", data.posts.total) : "기록 없음"}${posts ? ` | ${posts}` : ""}`,
-    `■ 댓글: ${dashCommentTotal(data) ? `${line("오늘 새 댓글", dashCommentTotal(data))} | ` : ""}${comments || "기록 없음"}`,
+    `■ 게시물: ${data.posts.total ? line("오늘의 신규 게시물 수", data.posts.total) : "기록 없음"}${posts ? ` | ${posts}` : ""}`,
+    `■ 댓글: ${dashCommentTotal(data) ? `${line("오늘의 신규 댓글 수", dashCommentTotal(data))} | ` : ""}${comments || "기록 없음"}`,
     ...(data.detail
       ? ["■ 채널 상세 (게시글/댓글)"].concat(DASH_CH.map(({ label }) => {
           const list = data.detail[label] || [];
