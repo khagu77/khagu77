@@ -94,13 +94,14 @@ const SETTING_DEFAULTS = {
 
 async function loadSettings() {
   const s = await chrome.storage.local
-    .get(["ksfSettings", "ksfStart", "ksfEnd", "ksfClubIds", "saveAsk", "ksfTabFallback", "aiKey", "aiModel", "ksfAiOn", "ksfOnlySlide", "ksfSound"])
+    .get(["ksfSettings", "ksfStart", "ksfEnd", "ksfClubIds", "saveAsk", "ksfTabFallback", "aiKey", "aiModel", "ksfAiOn", "ksfOnlyP3", "ksfSound"])
     .catch(() => ({}));
   const set = s.ksfSettings || {};
   for (const id of SETTING_IDS) $(`#${id}`).value = set[id] ?? SETTING_DEFAULTS[id];
   $("#saveAsk").checked = !!s.saveAsk;
   $("#tabFallback").checked = s.ksfTabFallback ?? true;
-  $("#onlySlide").checked = !!s.ksfOnlySlide;
+  // 1.0 의 'TOP5 슬라이드만 남기기'(기본 체크) 저장값은 쓰지 않는다 → 기본은 1~3페이지 모두
+  $("#onlySlide").checked = !!s.ksfOnlyP3;
   $("#soundOn").checked = s.ksfSound ?? true;
   clubIds = { ...(s.ksfClubIds || {}) };
   for (const [id, slug] of Object.entries(await loadCafeSlugs())) if (!clubIds[slug.toLowerCase()]) clubIds[slug.toLowerCase()] = id;
@@ -129,7 +130,7 @@ function saveSettings() {
       ksfStart: $("#startDate").value,
       ksfEnd: $("#endDate").value,
       ksfTabFallback: $("#tabFallback").checked,
-      ksfOnlySlide: $("#onlySlide").checked,
+      ksfOnlyP3: $("#onlySlide").checked,
       ksfSound: $("#soundOn").checked,
       saveAsk: $("#saveAsk").checked,
       aiKey: $("#aiKey").value.trim(),
