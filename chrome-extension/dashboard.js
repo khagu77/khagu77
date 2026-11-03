@@ -167,20 +167,23 @@ function dashChannelCell({ label, color }, data) {
 function dashHtml(data, carSrc) {
   const total = data.posts.total;
   const cSum = data.comments.channels.reduce((s, x) => s + (x.d.today || 0), 0);
+  const cTotal = dashCommentTotal(data);
+  const yellow = (d) => (!d || d.diff == null ? "" : d.diff > 0 ? `▲${num(d.diff)}` : d.diff < 0 ? `▼${num(-d.diff)}` : "변동 없음");
   return `<table width="960" cellpadding="0" cellspacing="0" style="border-collapse:separate;font-family:${DASH_FONT};background:#ffffff;border:1px solid #d9dde3;border-radius:12px;max-width:100%;">
   <tr>
   <td width="200" style="width:200px;vertical-align:top;background:#002c5f;background-image:linear-gradient(160deg,#001a3a 0%,#002c5f 50%,#0b5aa8 100%);padding:14px 14px 12px;color:#ffffff;border-radius:12px 0 0 12px;">
     <div style="font-size:11px;opacity:0.8;line-height:1.35;">팰리세이드(LX3) 전동 시트<br>관련 온라인 동향</div>
     <div style="font-family:'Arial Black','Helvetica Neue',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.05;margin-top:4px;letter-spacing:0.3px;">DASHBOARD</div>
-    <img src="${carSrc}" width="172" alt="PALISADE" style="display:block;border:0;margin:8px 0 6px;">
+    <img src="${carSrc}" width="138" alt="PALISADE" style="display:block;border:0;margin:8px 0 6px;">
     <div style="font-size:13px;font-weight:700;">${esc(prettyDate(data.date))}</div>
     ${data.period ? `<div style="font-size:10px;opacity:0.8;margin-top:1px;">수집 ${esc(data.period)}</div>` : ""}
     <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;border-top:1px solid rgba(255,255,255,0.25);"><tr>
-      <td style="padding-top:6px;color:#ffffff;"><div style="font-size:10px;opacity:0.8;">게시물 합계</div>
+      <td width="50%" style="padding-top:6px;color:#ffffff;vertical-align:top;"><div style="font-size:10px;opacity:0.8;">게시물 합계</div>
         <div style="font-size:20px;font-weight:800;">${total ? num(total.today) : "-"}<span style="font-size:11px;">건</span></div>
-        <div style="font-size:11px;font-weight:700;color:#ffd166;">${total ? (total.diff == null ? "" : total.diff > 0 ? `▲${num(total.diff)}` : total.diff < 0 ? `▼${num(-total.diff)}` : "변동 없음") : ""}</div></td>
-      <td style="padding-top:6px;color:#ffffff;"><div style="font-size:10px;opacity:0.8;">댓글 합계</div>
+        <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(total)}</div></td>
+      <td width="50%" style="padding-top:6px;color:#ffffff;vertical-align:top;"><div style="font-size:10px;opacity:0.8;">댓글 합계</div>
         <div style="font-size:20px;font-weight:800;">${data.comments.channels.length ? num(cSum) : "-"}<span style="font-size:11px;">건</span></div>
+        <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(cTotal)}</div>
         <div style="font-size:10px;opacity:0.8;">유튜브 전체 포함</div></td>
     </tr></table>
     <div style="font-size:10px;opacity:0.75;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
@@ -193,6 +196,16 @@ function dashHtml(data, carSrc) {
   </td>
   </tr>
 </table>`;
+}
+
+// 댓글 합계와 전일 대비 (전일 기록이 있는 채널만 비교)
+function dashCommentTotal(data) {
+  const ch = data.comments.channels;
+  if (!ch.length) return null;
+  const today = ch.reduce((s, x) => s + (x.d.today || 0), 0);
+  if (ch.every((x) => x.d.prev == null)) return { today, diff: null };
+  const prev = ch.reduce((s, x) => s + (x.d.prev || 0), 0);
+  return { today, diff: today - prev };
 }
 
 // 메일에 그냥 글로 붙여 넣을 때 (서식 없는 곳)
@@ -208,7 +221,7 @@ function dashText(data) {
   return [
     `[팰리세이드(LX3) 전동 시트 관련 온라인 동향] DASHBOARD - ${prettyDate(data.date)}${data.period ? ` (수집 기간 ${data.period})` : ""}`,
     `■ 게시물: ${data.posts.total ? line("합계", data.posts.total) : "기록 없음"}${posts ? ` | ${posts}` : ""}`,
-    `■ 댓글: ${comments || "기록 없음"}`,
+    `■ 댓글: ${dashCommentTotal(data) ? `${line("합계", dashCommentTotal(data))} | ` : ""}${comments || "기록 없음"}`,
     ...(data.detail
       ? ["■ 채널 상세 (게시글/댓글)"].concat(DASH_CH.map(({ label }) => {
           const list = data.detail[label] || [];
