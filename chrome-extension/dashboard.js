@@ -204,7 +204,7 @@ function dashHtml(data, carSrc, fluid = false) {
   const yellow = (d) => (!d || d.diff == null ? "" : d.diff > 0 ? `▲${num(d.diff)}` : d.diff < 0 ? `▼${num(-d.diff)}` : "변동 없음");
   const W = (px) => (fluid ? "100%" : px); // 화면은 꽉 채우고, 메일은 픽셀 고정 (메일 프로그램이 칸 폭을 바꾸지 않게)
   const Wcss = (px) => (fluid ? "100%" : `${px}px`);
-  return `<table width="${W(DASH_CELL * 4 + 242)}" cellpadding="0" cellspacing="0" style="width:${Wcss(DASH_CELL * 4 + 242)};border-collapse:separate;font-family:${DASH_FONT};background:#ffffff;border:1px solid #d9dde3;border-radius:12px;max-width:100%;">
+  return `<table width="${W(DASH_CELL * 4 + 242)}" cellpadding="0" cellspacing="0" style="width:${Wcss(DASH_CELL * 4 + 242)};border-collapse:separate;font-family:${DASH_FONT};background:#ffffff;border:1px solid #d9dde3;border-radius:12px;${fluid ? "max-width:100%;" : ""}">
   <tr>
   <td width="200" rowspan="2" bgcolor="#002c5f" style="width:200px;vertical-align:top;background:#002c5f;background-color:#002c5f;padding:14px 14px 12px;color:#ffffff;border-radius:12px 0 0 12px;">
     <div style="font-size:11px;color:#c3cfdd;line-height:1.35;">팰리세이드(LX3) 전동 시트<br>관련 온라인 동향</div>
