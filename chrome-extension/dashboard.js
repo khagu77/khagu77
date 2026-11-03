@@ -183,8 +183,8 @@ function dashChannelCell({ label, color }, data, fluid = false) {
       `</table>`
     : "";
   return (
-    `<td width="${fluid ? pct : cw}" style="width:${fluid ? pct : `${cw}px`};padding:0 4px;vertical-align:top;">` +
-    `<div style="border:1px solid #e3e6eb;border-top:3px solid ${color};border-radius:8px;padding:6px 7px;background:#ffffff;">` +
+    `<td width="${fluid ? pct : cw}" style="width:${fluid ? pct : `${cw}px`};padding:0;vertical-align:top;">` +
+    `<div style="margin:0 4px;border:1px solid #e3e6eb;border-top:3px solid ${color};border-radius:8px;padding:6px 7px;background:#ffffff;">` +
     `<div style="display:inline-block;background:${color};color:#fff;font-weight:700;font-size:11px;padding:1px 8px;border-radius:999px;">${esc(label)}</div>` +
     `<table width="100%" cellpadding="0" cellspacing="3" style="width:100%;border-collapse:separate;table-layout:fixed;margin-top:3px;"><tr>` +
     stat(yt ? "새 영상" : "게시글", p) +
@@ -204,9 +204,12 @@ function dashHtml(data, carSrc, fluid = false) {
   const yellow = (d) => (!d || d.diff == null ? "" : d.diff > 0 ? `▲${num(d.diff)}` : d.diff < 0 ? `▼${num(-d.diff)}` : "변동 없음");
   const W = (px) => (fluid ? "100%" : px); // 화면은 꽉 채우고, 메일은 픽셀 고정 (메일 프로그램이 칸 폭을 바꾸지 않게)
   const Wcss = (px) => (fluid ? "100%" : `${px}px`);
-  return `<table width="${W(DASH_CELL * 4 + 242)}" cellpadding="0" cellspacing="0" style="width:${Wcss(DASH_CELL * 4 + 242)};border-collapse:separate;font-family:${DASH_FONT};background:#ffffff;border:1px solid #d9dde3;border-radius:12px;${fluid ? "max-width:100%;" : ""}">
+  // 메일용: 바깥 표는 너비를 정하지 않고 내용에 맞춰 늘어나게 (메일마다 여백을 너비에 넣고 빼는 방식이 달라 어긋나지 않게)
+  // 너비를 정한 칸에는 여백을 두지 않고, 여백은 안쪽 상자에
+  return `<table${fluid ? ' width="100%"' : ""} cellpadding="0" cellspacing="0" style="${fluid ? "width:100%;" : ""}border-collapse:separate;font-family:${DASH_FONT};background:#ffffff;border:1px solid #d9dde3;border-radius:12px;${fluid ? "max-width:100%;" : ""}">
   <tr>
-  <td width="200" rowspan="2" bgcolor="#002c5f" style="width:200px;vertical-align:top;background:#002c5f;background-color:#002c5f;padding:14px 14px 12px;color:#ffffff;border-radius:12px 0 0 12px;">
+  <td width="228" rowspan="2" bgcolor="#002c5f" style="width:228px;vertical-align:top;background:#002c5f;background-color:#002c5f;padding:0;color:#ffffff;border-radius:12px 0 0 12px;">
+    <div style="padding:14px 14px 12px;${fluid ? "" : "width:200px;"}">
     <div style="font-size:11px;color:#c3cfdd;line-height:1.35;">팰리세이드(LX3) 전동 시트<br>관련 온라인 동향</div>
     <div style="color:#ffffff;font-family:'Arial Black','Helvetica Neue',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.05;margin-top:4px;letter-spacing:0.3px;">DASHBOARD</div>
     ${carSrc ? `<div align="center" style="text-align:center;margin:8px 0 6px;"><img src="${carSrc}" width="138" alt="PALISADE" style="display:inline-block;border:0;"></div>` : `<div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>`}
@@ -222,9 +225,10 @@ function dashHtml(data, carSrc, fluid = false) {
         <div style="font-size:10px;color:#c3cfdd;">유튜브 전체 포함</div></td>
     </tr></table>
     <div style="font-size:10px;color:#b8c5d6;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
+    </div>
   </td>
-  <td${fluid ? "" : ` width="${DASH_CELL * 4}"`} style="${fluid ? "" : `width:${DASH_CELL * 4}px;`}vertical-align:top;padding:10px 8px 0 6px;height:1px;">
-    <table width="${W(DASH_CELL * 4)}" cellpadding="0" cellspacing="0" style="width:${Wcss(DASH_CELL * 4)};border-collapse:collapse;table-layout:fixed;"><tr>
+  <td style="vertical-align:top;padding:10px 8px 0 6px;height:1px;">
+    <table width="${W(DASH_CELL * 4)}" cellpadding="0" cellspacing="0" style="width:${Wcss(DASH_CELL * 4)};${fluid ? "" : `min-width:${DASH_CELL * 4}px;`}border-collapse:collapse;table-layout:fixed;"><tr>
       ${DASH_CH.map((ch) => dashChannelCell(ch, data, fluid)).join("")}
     </tr></table>
   </td>
