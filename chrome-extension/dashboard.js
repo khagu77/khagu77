@@ -230,13 +230,13 @@ function dashHtml(data, carSrc, fluid = false) {
     <div style="font-size:10px;color:#b8c5d6;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
     </div>
   </td>
-  <td style="vertical-align:top;padding:10px 8px 0 6px;height:1px;">
+  <td style="vertical-align:top;padding:10px 8px 0 6px;height:1px;background:transparent;border-radius:0 11px 0 0;">
     <table width="${W(DASH_CELL * 4)}" cellpadding="0" cellspacing="0" style="width:${Wcss(DASH_CELL * 4)};${fluid ? "" : `min-width:${DASH_CELL * 4}px;`}border-collapse:collapse;table-layout:fixed;"><tr>
       ${DASH_CH.map((ch) => dashChannelCell(ch, data, fluid)).join("")}
     </tr></table>
   </td>
   </tr>
-  <tr><td align="right" style="vertical-align:bottom;text-align:right;padding:6px 12px 8px 6px;">
+  <tr><td align="right" style="vertical-align:bottom;text-align:right;padding:6px 12px 8px 6px;background:transparent;border-radius:0 0 11px 0;">
     <div align="right" style="font-size:10px;color:#4a4f57;text-align:right;">※ <span style="color:#d93025;font-weight:700;">▲</span><span style="color:#1a5fd0;font-weight:700;">▼</span> 전일 대비 · 댓글은 그날 새로 모은 건수(유튜브는 시트 전체) · 출처별은 많은 순</div>
   </td></tr>
 </table></div>`;
