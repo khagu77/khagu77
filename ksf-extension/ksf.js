@@ -2410,6 +2410,12 @@ async function savePpt() {
     pending.ppt = { name, bytes };
     await dbSaveDay("ppt", today(), name, bytes, "auto", `TOP5 표 ${filled.length}개`, null).catch(() => {});
     readyButton($("#getPpt"), true);
+    // 프로그램이 PPT 를 새로 만들면 예전 수정본 기준은 지우고 새 데이터로
+    if (typeof pptRev !== "undefined" && pptRev) {
+      pptRev = null;
+      await chrome.storage.local.remove("ksfPptRev").catch(() => {});
+      $("#revPptState").textContent = "현재 SUMMARY 기준: 프로그램 데이터";
+    }
     if (typeof refreshSummary === "function") await refreshSummary("PPT 와 함께");
     $("#pptInfo").className = "hint ok";
     $("#pptInfo").textContent = `✔ PPT 를 만들었습니다 - ${filled.join(" · ")} 채움${t.fresh ? "" : " · TOP5 는 같은 문구끼리 센 값"} · 데이터 DB 에도 저장. 반짝이는 📥 PPT 받기를 누르세요.`;

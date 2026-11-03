@@ -267,7 +267,23 @@
       </div>
       <div id="saveInfo" class="hint"></div>
 
-      <h3>⑤ SUMMARY <span class="hint">(메일 본문에 붙여 넣을 종합 결과 글 · PPT·엑셀을 만들 때 함께 새로 만들어짐)</span></h3>
+      <h3>⑤ 수정본 올리기 <span class="hint">(엑셀·PPT 를 직접 고친 뒤 · 여러 파일 한꺼번에 가능)</span></h3>
+      <div class="hint">받은 파일을 엑셀·PowerPoint 에서 고친 뒤 여기서 고르면, 파일 이름으로 종류를 알아내 <b>그날 파일의 수정본</b>으로 데이터 DB 에 저장하고 📥 받기 버튼도 수정본으로 바뀝니다.
+        <b>PPT 수정본</b>을 올리면 그 PPT 의 제목 · 기간/채널 · 2줄 요약 · 머리 문장 · 차종별 표 · 성향별 주요 내용 · TOP5 를 읽어 <b>SUMMARY 를 수정본 기준으로 다시 만듭니다</b>
+        (PPT 에 없는 개요 건수 · 유형 구분 · 시사점은 지금 데이터). 데이터 DB 화면의 '수정본 올리기'로 올려도 같습니다.</div>
+      <div class="row">
+        <label class="inline">수정 파일 <input type="file" id="revFiles" accept=".xlsx,.pptx,.txt" multiple></label>
+        <label class="inline">종류 <select id="revKind">
+          <option value="">자동 (파일 이름으로)</option><option value="ppt">보고서 PPT</option><option value="summary">차종별 반응 요약</option>
+          <option value="posts">게시물 리스트</option><option value="postsSenti">게시물 성향 분석</option>
+          <option value="comments">댓글 raw data</option><option value="commentsSenti">댓글 성향 분석</option><option value="summaryText">SUMMARY 글 (.txt)</option>
+        </select></label>
+        <button id="revClear" class="small" title="PPT 수정본 기준을 지우고 프로그램 데이터로 SUMMARY 를 다시 만듭니다">PPT 수정본 기준 해제</button>
+      </div>
+      <div id="revPptState" class="hint">현재 SUMMARY 기준: 프로그램 데이터</div>
+      <div id="revInfo" class="hint"></div>
+
+      <h3>⑥ SUMMARY <span class="hint">(메일 본문에 붙여 넣을 종합 결과 글 · PPT·엑셀을 만들 때 함께 새로 만들어짐)</span></h3>
       <div class="buttons">
         <button id="copySummary" class="getbtn" disabled>📋 SUMMARY 복사</button>
         <button id="remakeSummary" class="small">지금 숫자로 다시 만들기</button>

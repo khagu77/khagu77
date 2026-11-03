@@ -126,7 +126,15 @@ async function onPicked(file) {
     if (kind !== "summaryText") await Zip.read(bytes); // 깨진 파일인지 확인
     // 수정본: 파일만 바꾸고, 대시보드 숫자(stats)는 그대로 둔다
     await dbSaveDay(kind, date, file.name, bytes, "upload", "담당자 수정본", null);
-    setInfo(`✔ ${prettyDate(date)} ${DB_KINDS[kind].short} 파일을 ${file.name}(으)로 바꿨습니다.`, "ok");
+    // PPT 수정본: 수집 화면의 SUMMARY 를 이 PPT 기준으로 다시 만들도록 (수집 화면이 열려 있으면 바로 · 아니면 다음에 열 때)
+    if (kind === "ppt") {
+      const st = await chrome.storage.local.get("ksfSettings").catch(() => ({}));
+      const cars = [...new Set(String(st.ksfSettings?.cafeList || "아반떼 | |\n그랜저 | |\n싼타페 | |").split(/\r?\n/).map((l) => l.split("|")[0].trim()).filter(Boolean))];
+      const data = await PptFill.read(bytes, cars);
+      await chrome.storage.local.set({ ksfPptRev: { name: file.name, data, at: Date.now() } });
+    }
+    if (kind === "summaryText") await chrome.storage.local.set({ ksfSummaryText: new TextDecoder().decode(bytes).replace(/^\ufeff/, ""), ksfSummaryAt: Date.now() });
+    setInfo(`✔ ${prettyDate(date)} ${DB_KINDS[kind].short} 파일을 ${file.name}(으)로 바꿨습니다.${kind === "ppt" ? " SUMMARY 는 이 PPT 수정본 기준으로 다시 만들어집니다 (수집 화면 ⑤탭)." : ""}`, "ok");
   } catch (e) {
     setInfo(`파일을 올리지 못했습니다: ${e.message}`, "err");
   }

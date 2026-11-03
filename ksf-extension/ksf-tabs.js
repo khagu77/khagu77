@@ -530,7 +530,8 @@ function autoInsights() {
   return out;
 }
 
-function makeSummaryText() {
+// ppt: 담당자가 고친 PPT 수정본에서 읽은 내용 (PptFill.read) - 있으면 그 내용(제목·기간·요약·차종별 표·성향별 주요 내용·TOP5)을 우선
+function makeSummaryText(ppt = null) {
   const list = reportItems();
   const rs = reactions(list);
   const stats = carStats(rs);
@@ -539,10 +540,10 @@ function makeSummaryText() {
   const r = report || {};
   const cafesList = cafes();
   const L = [];
-  L.push(`■ ${reportTitle()} 결과`, "");
+  L.push(`■ ${ppt?.title || reportTitle()} 결과`, "");
   L.push("1. 개요");
-  L.push(` - 모니터링 기간 : ${periodText()}`);
-  L.push(` - 모니터링 대상 : 차종별 네이버 동호회 ${cafesList.length}곳 (${targetCars().map((c) => `${c} ${cafesList.filter((x) => x.car === c).length}곳`).join(" · ")})`);
+  L.push(` - 모니터링 기간 : ${ppt?.period || periodText()}`);
+  L.push(` - 모니터링 대상 : ${ppt?.channels || `차종별 네이버 동호회 ${cafesList.length}곳 (${targetCars().map((c) => `${c} ${cafesList.filter((x) => x.car === c).length}곳`).join(" · ")})`}`);
   for (const c of targetCars()) L.push(`   · ${c} : ${cafesList.filter((x) => x.car === c).map((x) => x.name).join(", ")}`);
   L.push(` - 수집 결과 : 검색된 게시글 ${items.length.toLocaleString()}건 중 코세페 관련 게시글 ${list.length.toLocaleString()}건 선별 (${items.length ? fmtPct(list.length / items.length) : "-"}), 댓글·답글 ${all.comments.toLocaleString()}건`);
   L.push(`   → 분석 반응 ${all.n.toLocaleString()}건 (게시글·댓글 × 언급 차종, 한 글이 여러 차종을 말하면 차종마다 집계)`);
@@ -550,15 +551,29 @@ function makeSummaryText() {
   L.push(` - 성향 기준 : 일반적인 말투가 아닌 '코리아 세일 페스타'에 대한 반응 기준 (긍정 · 중립 · 부정 · 단순비난)${unj ? ` ※ ${unj}건은 AI 판단 전 잠정치` : ""}`);
   L.push("");
   L.push("2. 전체 여론");
-  for (const t of (r.summary || []).filter(Boolean)) L.push(` - ${t}`);
-  L.push(` - 긍정 ${cnt(all.tone["긍정"], all.n)} / 중립 ${cnt(all.tone["중립"], all.n)} / 부정 ${cnt(all.tone["부정"], all.n)} / 단순비난 ${cnt(all.tone["단순비난"], all.n)}`);
-  if (all.n) {
-    const neg = negOf(all.ratio);
-    L.push(`   → ${neg >= all.ratio["긍정"] ? "부정 여론(부정+단순비난)이 긍정 여론" : "긍정 여론이 부정 여론(부정+단순비난)"} 比 ${(r.headline || "").trim() || (Math.abs(neg - all.ratio["긍정"]) < 0.03 ? "비슷한 수준" : "높은 편")} (${fmtPct(Math.max(neg, all.ratio["긍정"]))} vs ${fmtPct(Math.min(neg, all.ratio["긍정"]))})`);
+  const pRow = (name) => ppt?.rows?.find((x) => x.name === name);
+  const pp = (v) => (typeof v === "number" ? fmtPct(v) : "-");
+  for (const t of (ppt?.summary?.length ? ppt.summary : r.summary || []).filter(Boolean)) L.push(` - ${t}`);
+  if (pRow("전체")) {
+    const t0 = pRow("전체");
+    L.push(` - 긍정 ${pp(t0.ratio["긍정"])} / 중립 ${pp(t0.ratio["중립"])} / 부정 ${pp(t0.ratio["부정"])} / 단순비난 ${pp(t0.ratio["단순비난"])} (게시글 ${(t0.posts ?? 0).toLocaleString()}건 · 댓글 ${(t0.comments ?? 0).toLocaleString()}건)`);
+    if (ppt.headline) L.push(`   → ${ppt.headline}`);
+  } else {
+    L.push(` - 긍정 ${cnt(all.tone["긍정"], all.n)} / 중립 ${cnt(all.tone["중립"], all.n)} / 부정 ${cnt(all.tone["부정"], all.n)} / 단순비난 ${cnt(all.tone["단순비난"], all.n)}`);
+    if (all.n) {
+      const neg = negOf(all.ratio);
+      L.push(`   → ${neg >= all.ratio["긍정"] ? "부정 여론(부정+단순비난)이 긍정 여론" : "긍정 여론이 부정 여론(부정+단순비난)"} 比 ${(r.headline || "").trim() || (Math.abs(neg - all.ratio["긍정"]) < 0.03 ? "비슷한 수준" : "높은 편")} (${fmtPct(Math.max(neg, all.ratio["긍정"]))} vs ${fmtPct(Math.min(neg, all.ratio["긍정"]))})`);
+    }
   }
   L.push("");
   L.push("3. 차종별 성향");
-  for (const s of stats.filter((x) => targetCars().includes(x.car))) {
+  const pCars = (ppt?.rows || []).filter((x) => x.name !== "전체");
+  for (const c of pCars) {
+    L.push(` - ${c.name} : 게시글 ${(c.posts ?? 0).toLocaleString()}건 · 댓글 ${(c.comments ?? 0).toLocaleString()}건`);
+    L.push(`   · 긍정 ${pp(c.ratio["긍정"])} / 중립 ${pp(c.ratio["중립"])} / 부정 ${pp(c.ratio["부정"])} / 단순비난 ${pp(c.ratio["단순비난"])}`);
+    if (typeof c.ratio["긍정"] === "number") L.push(`   → 부정 여론 ${fmtPct((c.ratio["부정"] || 0) + (c.ratio["단순비난"] || 0))} vs 긍정 ${fmtPct(c.ratio["긍정"])}`);
+  }
+  for (const s of pCars.length ? [] : stats.filter((x) => targetCars().includes(x.car))) {
     L.push(` - ${s.car} : 게시글 ${s.posts.toLocaleString()}건 · 댓글 ${s.comments.toLocaleString()}건 · 반응 ${s.n.toLocaleString()}건 (전체 반응의 ${all.n ? fmtPct(s.n / all.n) : "-"})`);
     L.push(`   · 긍정 ${cnt(s.tone["긍정"], s.n)} / 중립 ${cnt(s.tone["중립"], s.n)} / 부정 ${cnt(s.tone["부정"], s.n)} / 단순비난 ${cnt(s.tone["단순비난"], s.n)}`);
     if (s.n) L.push(`   → 부정 여론 ${fmtPct(negOf(s.ratio))} vs 긍정 ${fmtPct(s.ratio["긍정"])}`);
@@ -568,9 +583,11 @@ function makeSummaryText() {
   for (const c of targetCars()) {
     L.push(` - ${c}`);
     for (const t of ["긍정", "부정"]) {
-      const gs = top.cars[c][t].slice(0, TOP_N);
-      L.push(`   · ${t} (${top.cars[c].total[t].toLocaleString()}건)${gs.length ? "" : " : 해당 없음"}`);
-      gs.forEach((g, i) => L.push(`     ${i + 1}) ${g.label} ${g.count.toLocaleString()}건 (${fmtPct(g.ratio)})`));
+      const fromPpt = ppt?.top?.[c]?.[t];
+      const gs = (fromPpt || top.cars[c][t]).slice(0, TOP_N);
+      const total = fromPpt ? null : top.cars[c].total[t];
+      L.push(`   · ${t}${total !== null ? ` (${total.toLocaleString()}건)` : ""}${gs.length ? "" : " : 해당 없음"}`);
+      gs.forEach((g, i) => L.push(`     ${i + 1}) ${g.label}${typeof g.count === "number" ? ` ${g.count.toLocaleString()}건` : ""}${typeof g.ratio === "number" ? ` (${fmtPct(g.ratio)})` : ""}`));
     }
   }
   L.push("");
@@ -584,8 +601,10 @@ function makeSummaryText() {
   L.push("6. 성향별 주요 댓글");
   const pr = pptReportData();
   for (const t of TONES) {
-    const qs = (pr.short[t] || []).slice(0, 4).map((q) => `‘${String(q).replace(/\s+/g, " ").trim().slice(0, 90)}’`);
-    L.push(` - ${t} (${all.n ? fmtPct(all.ratio[t]) : "-"}) : ${qs.join(", ") || "-"}`);
+    const pq = ppt?.tones?.[t];
+    const qs = (pq?.quotes?.length ? pq.quotes : pr.short[t] || []).slice(0, 4).map((q) => `‘${String(q).replace(/\s+/g, " ").trim().slice(0, 90)}’`);
+    const ratio = typeof pq?.ratio === "number" ? fmtPct(pq.ratio) : all.n ? fmtPct(all.ratio[t]) : "-";
+    L.push(` - ${t} (${ratio}) : ${qs.join(", ") || "-"}`);
   }
   L.push("");
   L.push("7. 시사점");
@@ -594,8 +613,12 @@ function makeSummaryText() {
   return L.join("\n");
 }
 
+// 담당자가 올린 PPT 수정본에서 읽은 내용 (있으면 SUMMARY 는 이것을 기준으로 · 프로그램이 PPT 를 새로 만들면 지움)
+let pptRev = null;
+
 async function refreshSummary(reason = "") {
-  const text = makeSummaryText();
+  const text = makeSummaryText(pptRev?.data || null);
+  if (pptRev) reason = `${reason ? `${reason} · ` : ""}수정본 PPT(${pptRev.name}) 기준`;
   $("#summaryText").value = text;
   await chrome.storage.local.set({ ksfSummaryText: text, ksfSummaryAt: Date.now() }).catch(() => {});
   await dbSaveDay("summaryText", today(), `${fileBase()}_SUMMARY.txt`, Zip.bytes(text), "auto", "메일 붙여넣기용 SUMMARY", null).catch(() => {});
@@ -618,6 +641,67 @@ function copySummary() {
     document.execCommand("copy");
     done();
   });
+}
+
+// ---------------------------------------------------------------------------
+// 수정본 올리기: 담당자가 고친 엑셀·PPT 를 그날 파일로 데이터 DB 에 (📥 받기도 수정본으로) · PPT 면 SUMMARY 를 수정본 기준으로 다시
+// ---------------------------------------------------------------------------
+
+function kindOfFile(name) {
+  const n = String(name || "");
+  if (/\.pptx$/i.test(n)) return "ppt";
+  if (/\.txt$/i.test(n)) return "summaryText";
+  if (!/\.xlsx$/i.test(n)) return null;
+  if (/차종별\s*반응\s*요약/.test(n)) return "summary";
+  if (/게시물\s*리스트.*성향/.test(n)) return "postsSenti";
+  if (/게시물\s*리스트/.test(n)) return "posts";
+  if (/댓글\s*성향/.test(n)) return "commentsSenti";
+  if (/댓글\s*raw/i.test(n)) return "comments";
+  return null;
+}
+
+async function usePptRevision(name, bytes) {
+  const data = await PptFill.read(bytes, targetCars());
+  pptRev = { name, data, at: Date.now() };
+  await chrome.storage.local.set({ ksfPptRev: pptRev }).catch(() => {});
+  await refreshSummary("PPT 수정본 등록");
+  return data;
+}
+
+async function uploadRevisions(fileList) {
+  const info = $("#revInfo");
+  const lines = [];
+  for (const f of fileList) {
+    const kind = $("#revKind").value || kindOfFile(f.name);
+    if (!kind) {
+      lines.push(`✖ ${f.name}: 어떤 파일인지 알 수 없습니다 (위 '종류'를 골라 주세요)`);
+      continue;
+    }
+    try {
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      if (kind !== "summaryText") await Zip.read(bytes); // 깨진 파일인지 확인
+      const date = dateFromName(f.name);
+      await dbSaveDay(kind, date, f.name, bytes, "upload", "담당자 수정본", null);
+      if (kind === "summaryText") {
+        $("#summaryText").value = new TextDecoder().decode(bytes).replace(/^\ufeff/, "");
+        await chrome.storage.local.set({ ksfSummaryText: $("#summaryText").value, ksfSummaryAt: Date.now() }).catch(() => {});
+      } else {
+        pending[kind] = { name: f.name, bytes };
+        readyButton($(GET_BUTTONS[kind]), true);
+      }
+      let extra = "";
+      if (kind === "ppt") {
+        const d = await usePptRevision(f.name, bytes);
+        extra = ` → SUMMARY 를 수정본 기준으로 다시 만들었습니다 (읽은 페이지: ${d.slides.join(" · ")})`;
+      }
+      lines.push(`✔ ${f.name}: ${DB_KINDS[kind].short} 수정본으로 ${prettyDate(date)} 데이터 DB 에 저장${kind !== "summaryText" ? " · 📥 받기도 수정본" : ""}${extra}`);
+    } catch (e) {
+      lines.push(`✖ ${f.name}: ${e.message}`);
+    }
+  }
+  info.className = `hint ${lines.some((l) => l.startsWith("✖")) ? "err" : "ok"}`;
+  info.replaceChildren(...lines.map((t) => Object.assign(document.createElement("div"), { textContent: t })));
+  if (lines.some((l) => l.startsWith("✔"))) playChime();
 }
 
 // ---------------------------------------------------------------------------
@@ -698,7 +782,31 @@ function copySummary() {
     report = { ...(report || {}), insights: $("#rInsights").value.split("\n").map((x) => x.trim()).filter(Boolean) };
     saveReportSoon();
   });
-  const saved = await chrome.storage.local.get(["ksfSummaryText", "ksfSummaryAt"]).catch(() => ({}));
+  const saved = await chrome.storage.local.get(["ksfSummaryText", "ksfSummaryAt", "ksfPptRev"]).catch(() => ({}));
+  pptRev = saved.ksfPptRev || null;
+  if (pptRev) $("#revPptState").textContent = `현재 SUMMARY 기준: 수정본 PPT ${pptRev.name} (${new Date(pptRev.at).toLocaleString()} 등록)`;
+  $("#revFiles").addEventListener("change", async (e) => {
+    if (!e.target.files.length) return;
+    await uploadRevisions([...e.target.files]);
+    e.target.value = "";
+    if (pptRev) $("#revPptState").textContent = `현재 SUMMARY 기준: 수정본 PPT ${pptRev.name} (${new Date(pptRev.at).toLocaleString()} 등록)`;
+  });
+  // 수집 화면이 닫혀 있는 동안 데이터 DB 에서 PPT 수정본을 올렸으면, 글 목록을 다 불러온 뒤 SUMMARY 를 다시
+  if (pptRev && (!saved.ksfSummaryAt || saved.ksfSummaryAt < pptRev.at)) setTimeout(() => refreshSummary("데이터 DB 에서 등록한 PPT 수정본"), 1500);
+  $("#revClear").addEventListener("click", async () => {
+    pptRev = null;
+    await chrome.storage.local.remove("ksfPptRev").catch(() => {});
+    $("#revPptState").textContent = "현재 SUMMARY 기준: 프로그램 데이터";
+    await refreshSummary("프로그램 데이터 기준으로");
+  });
+  // 데이터 DB 화면에서 PPT 수정본을 올리면 여기 SUMMARY 도 다시
+  chrome.storage.onChanged.addListener((ch) => {
+    if (ch.ksfPptRev && ch.ksfPptRev.newValue && (!pptRev || ch.ksfPptRev.newValue.at !== pptRev.at)) {
+      pptRev = ch.ksfPptRev.newValue;
+      $("#revPptState").textContent = `현재 SUMMARY 기준: 수정본 PPT ${pptRev.name} (${new Date(pptRev.at).toLocaleString()} 등록)`;
+      refreshSummary("데이터 DB 에서 PPT 수정본 등록");
+    }
+  });
   if (saved.ksfSummaryText) {
     $("#summaryText").value = saved.ksfSummaryText;
     $("#copySummary").disabled = false;

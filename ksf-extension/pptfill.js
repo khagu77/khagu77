@@ -504,5 +504,93 @@
     return { bytes: await Zip.write(files), filled };
   }
 
-  global.PptFill = { fill };
+  // ======================================================================
+  // 수정본 PPT 읽기: 담당자가 고친 보고서 PPT 에서 SUMMARY 에 쓸 내용을 다시 읽는다
+  // → { title, period, channels, summary[], headline, rows: [{ name, posts, comments, ratio{성향: 0~1} }],
+  //     tones: { 성향: { ratio, quotes[] } }, top: { 차종: { 긍정: [{ label, count, ratio }], 부정: [...] } }, slides: [읽은 페이지] }
+  // ======================================================================
+  const paraTexts = (el) => all(el, A, "p").map((p) => all(p, A, "t").map((t) => t.textContent).join("").replace(/\s+/g, " ").trim()).filter(Boolean);
+  const pctOf = (t) => {
+    const m = String(t || "").match(/(-?[\d.]+)\s*%/);
+    return m ? Number(m[1]) / 100 : null;
+  };
+  const numOf = (t) => {
+    const m = String(t || "").replace(/,/g, "").match(/-?\d+/);
+    return m ? Number(m[0]) : null;
+  };
+  const quotesOf = (t) => {
+    const out = [...String(t || "").matchAll(/‘([^’]*)’/g)].map((m) => m[1].trim()).filter(Boolean);
+    return out.length ? out : String(t || "").trim() && String(t).trim() !== "-" ? [String(t).trim()] : [];
+  };
+  const byName = (doc, name) => all(doc, P, "cNvPr").find((c) => c.getAttribute("name") === name)?.parentNode?.parentNode || null;
+  const tableRows = (frame) => kids(all(frame, A, "tbl")[0], A, "tr").map((tr) => kids(tr, A, "tc").map((tc) => paraTexts(tc).join(" ")));
+
+  async function read(bytes, carNames = []) {
+    const files = await Zip.read(bytes);
+    if (!files.has("ppt/presentation.xml")) throw new Error("PowerPoint(.pptx) 파일이 아닙니다");
+    const pres = parse(files.get("ppt/presentation.xml"));
+    const slides = slideList(files, pres).map((s) => ({ ...s, doc: parse(files.get(s.part)) }));
+    const out = { title: "", period: "", channels: "", summary: [], headline: "", rows: [], tones: {}, top: {}, slides: [] };
+    // 1페이지 (표 15 · 표 17 이 있는 슬라이드)
+    const s1 = slides.find((s) => byName(s.doc, "표 15") && byName(s.doc, "표 17"));
+    if (s1) {
+      out.slides.push("1p");
+      const t = byName(s1.doc, "제목 9");
+      if (t) out.title = paraTexts(t).join(" ").replace(/^■\s*/, "").trim();
+      const info = byName(s1.doc, "직사각형 25");
+      for (const line of info ? paraTexts(info) : []) {
+        if (/모니터링 기간/.test(line)) out.period = line.replace(/^.*?모니터링 기간\s*:\s*/, "");
+        if (/모니터링 채널/.test(line)) out.channels = line.replace(/^.*?모니터링 채널\s*:\s*/, "");
+      }
+      const sum = byName(s1.doc, "직사각형 31");
+      if (sum) out.summary = paraTexts(sum).map((x) => x.replace(/^[•·\-\s]+/, ""));
+      const head = byName(s1.doc, "직사각형 21");
+      if (head) out.headline = paraTexts(head).join(" ").replace(/^[•·\-\s]+/, "");
+      const t15 = tableRows(byName(s1.doc, "표 15"));
+      for (const row of t15.slice(1)) {
+        const name = (row[1] || row[0] || "").trim() || "전체";
+        const nm = /^전체/.test(row[0]) ? "전체" : name;
+        out.rows.push({ name: nm, posts: numOf(row[2]), comments: numOf(row[3]), ratio: Object.fromEntries(SENTI.map((s, k) => [s, pctOf(row[4 + k])])) });
+      }
+      const t17 = tableRows(byName(s1.doc, "표 17"));
+      for (const row of t17.slice(1)) {
+        const s = SENTI.find((x) => row[0].replace(/\s/g, "").startsWith(x));
+        if (s) out.tones[s] = { ratio: pctOf(row[1]), quotes: quotesOf(row[2]) };
+      }
+    }
+    // 2페이지 (표 16)
+    const s2 = slides.find((s) => s !== s1 && byName(s.doc, "표 16"));
+    if (s2) {
+      out.slides.push("2p");
+      for (const row of tableRows(byName(s2.doc, "표 16")).slice(1)) {
+        const s = SENTI.find((x) => row[0].replace(/\s/g, "").startsWith(x));
+        if (s) out.tones[s] = { ...(out.tones[s] || {}), longQuotes: quotesOf(row[1]) };
+      }
+    }
+    // 3페이지 (순위 · 내용 · 개수 · 비율 표)
+    const s3 = slides.find((s) => all(s.doc, P, "graphicFrame").some(isRankTable));
+    if (s3) {
+      out.slides.push("3p");
+      const shapes = [...all(s3.doc, P, "spTree")[0].childNodes].filter((n) => n.nodeType === 1);
+      const labels = shapes.filter((x) => x.localName === "sp" && carNames.includes(textOf(x))).map((x) => ({ car: textOf(x), ...xfrmOf(x) })).sort((a, b) => a.y - b.y);
+      const tables = shapes.filter((x) => x.localName === "graphicFrame" && isRankTable(x)).map((x) => ({ el: x, ...xfrmOf(x) }));
+      const bars = shapes.filter((x) => x.localName === "sp" && /^(긍정|부정)$/.test(textOf(x))).map((x) => ({ tone: textOf(x), ...xfrmOf(x) }));
+      for (const l of labels) {
+        const row = tables.filter((t) => t.y >= l.y - 5000 && t.y < l.y + l.h).sort((a, b) => a.x - b.x);
+        out.top[l.car] = { 긍정: [], 부정: [] };
+        row.forEach((t, i) => {
+          const bar = bars.find((b) => Math.abs(b.x - t.x) < 200000 && b.y <= t.y && b.y >= l.y - 5000);
+          const tone = bar ? bar.tone : i === 0 ? "긍정" : "부정";
+          const rows = tableRows(t.el);
+          const head = rows[0];
+          const ci = { label: head.indexOf("내용"), count: head.findIndex((h) => /개수|건수/.test(h)), ratio: head.indexOf("비율") };
+          out.top[l.car][tone] = rows.slice(1).map((r) => ({ label: (r[ci.label] || "").trim(), count: numOf(r[ci.count]), ratio: pctOf(r[ci.ratio]) })).filter((r) => r.label && !/^예시\)/.test(r.label));
+        });
+      }
+    }
+    if (!out.slides.length) throw new Error("보고서 PPT 양식(1페이지 표 · 3페이지 순위 표)을 찾지 못했습니다");
+    return out;
+  }
+
+  global.PptFill = { fill, read };
 })(typeof window !== "undefined" ? window : globalThis);
