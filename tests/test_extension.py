@@ -858,7 +858,7 @@ def test_final_db(tmp_path: Path):
         dash = page.inner_text("#dashBody")
         for ch in ("언론", "유튜브", "동호회", "자동차 커뮤니티"):
             assert ch in dash, dash
-        assert "게시물 합계" in dash and "오늘 새 댓글" in dash, dash
+        assert "오늘 새 게시물" in dash and "오늘 새 댓글" in dash, dash
         assert page.locator("#dashBody img").count() == 1
         assert page.is_enabled("#dashCopy")
         ctx.close()
