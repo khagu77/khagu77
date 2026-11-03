@@ -214,3 +214,9 @@ h2.dbtitle.buzz { background: #002c5f; }
 h2.dbtitle.raw { background: #0b6e4f; }
 h2.dbtitle .dbsub { font-size: 14px; font-weight: 600; opacity: 0.85; }
 @media (prefers-color-scheme: dark) { h2.dbtitle.buzz { background: #1f4f8a; } h2.dbtitle.raw { background: #12805d; } }
+
+/* 최종 DB 맨 위 '오늘의 대시보드' (안쪽 서식은 메일에 붙여 넣어도 같게 dashboard.js 에서 직접 지정) */
+.dashbox { margin: 4px 0 18px; }
+.dashbox #dashBody { overflow-x: auto; }
+#dashBody td, #dashBody th { padding: 0; border-bottom: 0; }
+.dashbox .buttons { align-items: center; }

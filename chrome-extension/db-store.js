@@ -183,7 +183,7 @@ async function fillBaseSelect(sel, kind, value, fileName) {
 
 // 그날 수집 건수와 전일 대비 (rows: 최신순, i: 그날 기록)
 // 게시물 리스트는 합계(게시물)와 채널별 증감을 모두 '합계를 비교한 같은 날짜'와 비교해, 채널별 증감을 더하면 합계 증감과 같다.
-// 채널별 줄은 그날 기록됐거나(0건 포함) 비교 날짜에 1건 이상 있었던 채널만 (없던 채널은 0건으로 계산)
+// 채널별 기록이 있는 날은 네 채널(언론·유튜브·동호회·자동차 커뮤니티)을 늘 보여 줌 (글이 없으면 0건)
 const STAT_CHANNELS = {
   buzz: [["news", "언론"], ["youtube", "유튜브"], ["cafe", "동호회"], ["community", "자동차 커뮤니티"]],
   raw: [["news", "언론"], ["youtube", "유튜브"], ["comments", "동호회"], ["community", "자동차 커뮤니티"]],
@@ -205,7 +205,6 @@ function statDiffs(kind, rows, i) {
   if (hasCh(cur)) {
     for (const [field, label] of fields) {
       const pv = hasCh(prev) ? prev.stats[field] ?? 0 : null;
-      if (cur.stats[field] == null && !(pv > 0)) continue;
       channels.push({ field, label, d: mk(cur.stats[field] ?? 0, prev, pv) });
     }
   }

@@ -835,8 +835,10 @@ def test_final_db(tmp_path: Path):
         assert dl.value.suggested_filename == f"{today}_raw_data.xlsx"
         page.locator("#summary", has_text="최종 DB에 오늘 파일로 저장").wait_for()
         # 엑셀 순서(언론 → 유튜브 → 동호회 → 자동차 커뮤니티)
-        assert page.inner_text("#diffs").split("\n") == ["유튜브 댓글 4건 (10-08 (목) 대비 ▲ 2 건)", "오늘 카페 댓글 0건 (10-08 (목) 대비 ▼ 10 건)"] or \
-            page.inner_text("#diffs") == "유튜브 댓글 4건 (10-08 (목) 대비 ▲ 2 건)오늘 카페 댓글 0건 (10-08 (목) 대비 ▼ 10 건)", page.inner_text("#diffs")
+        # 네 채널을 늘 (글이 없으면 0건)
+        want = ["오늘 언론 댓글 0건 (10-08 (목) 대비 변동 없음)", "유튜브 댓글 4건 (10-08 (목) 대비 ▲ 2 건)",
+                "오늘 카페 댓글 0건 (10-08 (목) 대비 ▼ 10 건)", "오늘 커뮤니티 댓글 0건 (10-08 (목) 대비 변동 없음)"]
+        assert page.inner_text("#diffs").replace("\n", "") == "".join(want), page.inner_text("#diffs")
         assert page.locator("#diffs .diff.up").inner_text() == "▲ 2 건"
         wb = load_workbook(rawout)
         assert list(wb["언론"].values)[1][3] == "언론 댓글"  # 기존 파일에 이어 쓴 것
@@ -850,6 +852,14 @@ def test_final_db(tmp_path: Path):
         assert "직접 올림" in db_rows("raw")[0] and "수정본" not in db_rows("raw")[0].split("\n")[0]
         assert "바꿨습니다" in page.locator("section[data-kind=raw] tbody tr").nth(0).inner_text()  # 그 줄에 안내
         assert "유튜브 4건" in db_rows("raw")[0]  # 유튜브 건수는 올린 파일에서 다시 셈
+        # 맨 위 '오늘의 대시보드': 네 채널 타일(게시물·댓글)과 메일 복사 버튼
+        page.wait_for_function("document.querySelector('#dashBody').innerText.includes('DASHBOARD')")
+        dash = page.inner_text("#dashBody")
+        for ch in ("언론", "유튜브", "동호회", "자동차 커뮤니티"):
+            assert ch in dash, dash
+        assert "게시물 합계" in dash and "댓글 합계" in dash, dash
+        assert page.locator("#dashBody img").count() == 1
+        assert page.is_enabled("#dashCopy")
         ctx.close()
     assert not any("첨부하지 않았고" in m or "고르지 않았고" in m for m in dialogs), dialogs
 

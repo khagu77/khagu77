@@ -93,6 +93,7 @@ async function render() {
       tbody.appendChild(tr);
     });
   }
+  if (typeof renderDash === "function") renderDash(); // 맨 위 '오늘의 대시보드'도 새 숫자로
   try {
     const est = await navigator.storage.estimate();
     $("#usage").textContent = `이 PC 크롬에 저장된 크기: 약 ${(est.usage / 1e6).toFixed(1)} MB (확장프로그램을 삭제하면 함께 지워집니다).`;

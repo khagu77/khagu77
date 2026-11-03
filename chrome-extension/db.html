@@ -19,6 +19,13 @@
     </div>
   </header>
   <main>
+    <section id="dash" class="dashbox">
+      <div id="dashBody"></div>
+      <div class="buttons">
+        <button id="dashCopy" class="primary" disabled>📋 메일에 붙여넣기용 복사</button>
+        <span id="dashInfo" class="hint">누르면 위 대시보드가 보이는 그대로 복사됩니다 (차량 이미지 포함) → 메일 본문에 붙여 넣기</span>
+      </div>
+    </section>
 
     <p class="hint">
       그날그날 받은 최종 엑셀 파일을 이 PC 크롬에 날짜별로 보관합니다. <b>가장 위(최근 날짜) 파일이 '최종'</b>이며,
@@ -46,5 +53,6 @@
   <script src="cafe-common.js"></script>
   <script src="db-store.js"></script>
   <script src="db.js"></script>
+  <script src="dashboard.js"></script>
 </body>
 </html>
