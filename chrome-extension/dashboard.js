@@ -174,7 +174,7 @@ function dashHtml(data, carSrc) {
   <td width="200" style="width:200px;vertical-align:top;background:#002c5f;background-image:linear-gradient(160deg,#001a3a 0%,#002c5f 50%,#0b5aa8 100%);padding:14px 14px 12px;color:#ffffff;border-radius:12px 0 0 12px;">
     <div style="font-size:11px;opacity:0.8;line-height:1.35;">팰리세이드(LX3) 전동 시트<br>관련 온라인 동향</div>
     <div style="font-family:'Arial Black','Helvetica Neue',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.05;margin-top:4px;letter-spacing:0.3px;">DASHBOARD</div>
-    <img src="${carSrc}" width="138" alt="PALISADE" style="display:block;border:0;margin:8px 0 6px;">
+    <div align="center" style="text-align:center;margin:8px 0 6px;"><img src="${carSrc}" width="138" alt="PALISADE" style="display:inline-block;border:0;"></div>
     <div style="font-size:13px;font-weight:700;">${esc(prettyDate(data.date))}</div>
     ${data.period ? `<div style="font-size:10px;opacity:0.8;margin-top:1px;">수집 ${esc(data.period)}</div>` : ""}
     <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;border-top:1px solid rgba(255,255,255,0.25);"><tr>
