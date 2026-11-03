@@ -285,6 +285,7 @@ async function renderDash() {
   dashCache = await dashData();
   $("#dashCopy").disabled = !dashCache;
   if ($("#dashCopyLite")) $("#dashCopyLite").disabled = !dashCache;
+  if ($("#dashCopyCode")) $("#dashCopyCode").disabled = !dashCache;
   $("#dashBody").innerHTML = dashCache
     ? dashHtml(dashCache, chrome.runtime.getURL("icons/logo-car.png"), true)
     : `<div class="hint">아직 최종 DB에 기록이 없습니다. 게시물 엑셀을 만들거나 파일을 등록하면 여기에 그날의 건수가 보입니다.</div>`;
@@ -328,6 +329,30 @@ function copyDash(withCar = true) {
     .catch((e) => dashCopied(false, withCar, e.message));
 }
 
+// 메일 편집기의 'HTML' 탭에 붙여 넣을 코드(글자)로 복사 — 서식 붙여 넣기를 거부하는 편집기에서도 확실히 들어감
+function copyDashCode() {
+  if (!dashCache) return;
+  const code = dashHtml(dashCache, dashCar || chrome.runtime.getURL("icons/logo-car.png"));
+  let done = false;
+  const onCopy = (e) => {
+    e.clipboardData.setData("text/plain", code);
+    e.preventDefault();
+    done = true;
+  };
+  document.addEventListener("copy", onCopy);
+  try {
+    document.execCommand("copy");
+  } catch {}
+  document.removeEventListener("copy", onCopy);
+  const ok = () => {
+    $("#dashInfo").textContent = "✔ HTML 코드를 복사했습니다. 메일 편집기 아래 'HTML' 탭 → 넣을 자리에 ⌘V → 다시 '디자인' 탭으로 돌아오면 대시보드가 보입니다.";
+    $("#dashInfo").className = "hint ok";
+  };
+  if (done) return ok();
+  navigator.clipboard.writeText(code).then(ok).catch((e) => dashCopied(false, true, e.message));
+}
+
 $("#dashCopy")?.addEventListener("click", () => copyDash(true));
+$("#dashCopyCode")?.addEventListener("click", copyDashCode);
 $("#dashCopyLite")?.addEventListener("click", () => copyDash(false));
 
