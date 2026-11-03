@@ -58,12 +58,19 @@ function dashUrlKey(u) {
   return u.toLowerCase().replace(/^https?:\/\//, "").replace(/^(www|m)\./, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
 }
 
+// 동호회 글 주소에서 카페 아이디(주소 이름, 없으면 번호)를 꺼내 모음 — 비슷한 이름의 동호회 구분용
+function dashCafeId(url, set) {
+  const p = parseArticleUrl(String(url || ""));
+  const id = p.cafeUrl || p.cafeId;
+  if (id) set.add(id);
+}
+
 async function dashDetail(buzzRec, rawRec) {
   const out = Object.fromEntries(DASH_CH.map(({ label }) => [label, new Map()]));
   const bump = (ch, name, field, n = 1) => {
     if (!out[ch]) return;
     const k = String(name || "기타").trim() || "기타";
-    const v = out[ch].get(k) || { posts: 0, comments: 0, vids: new Set() };
+    const v = out[ch].get(k) || { posts: 0, comments: 0, vids: new Set(), cafeIds: new Set() };
     v[field] += n;
     out[ch].set(k, v);
     return v;
@@ -85,6 +92,7 @@ async function dashDetail(buzzRec, rawRec) {
       for (const r of rows) if (Number(r.cells.B) > last - posts) {
         const v = bump(String(r.cells.C || "동호회").trim(), r.cells.D, "posts");
         if (v && String(r.cells.C || "").trim() === "유튜브") v.vids.add(dashUrlKey(r.cells.G));
+        if (v && String(r.cells.C || "동호회").trim() === "동호회") dashCafeId(r.cells.G, v.cafeIds);
       }
     }
   }
@@ -99,7 +107,10 @@ async function dashDetail(buzzRec, rawRec) {
       if (!n || !names.includes(ch)) continue;
       hasComments = true;
       const rows = (await wb.readRows(ch)).filter((r) => r.r > 1 && has(r)).sort((a, b) => a.r - b.r).slice(-n);
-      for (const r of rows) bump(ch, nameOf(r.cells.E, ch === "자동차 커뮤니티" ? r.cells.B : "기타"), "comments");
+      for (const r of rows) {
+        const v = bump(ch, nameOf(r.cells.E, ch === "자동차 커뮤니티" ? r.cells.B : "기타"), "comments");
+        if (v && ch === "동호회") dashCafeId(r.cells.E, v.cafeIds);
+      }
     }
     if (names.includes("유튜브")) {
       const rows = (await wb.readRows("유튜브")).filter((r) => r.r > 1 && has(r));
@@ -110,7 +121,7 @@ async function dashDetail(buzzRec, rawRec) {
   }
   if (!hasPosts && !hasComments) return null;
   return Object.fromEntries(
-    Object.entries(out).map(([ch, m]) => [ch, [...m.entries()].map(([name, { vids, ...v }]) => ({ name, ...v, videos: vids.size })).sort((a, b) => b.posts + b.comments - (a.posts + a.comments) || a.name.localeCompare(b.name))]),
+    Object.entries(out).map(([ch, m]) => [ch, [...m.entries()].map(([name, { vids, cafeIds, ...v }]) => ({ name, ...v, videos: vids.size, cafeId: [...cafeIds].join(", ") })).sort((a, b) => b.posts + b.comments - (a.posts + a.comments) || a.name.localeCompare(b.name))]),
   );
 }
 
@@ -161,7 +172,10 @@ function dashChannelCell({ label, color }, data, fluid = false) {
   const W1 = yt ? 40 : 26; // 글(영상) 칸 폭
   const W2 = 42; // 댓글 칸 폭
   const row = (x) =>
-    `<tr><td style="${cellStyle}color:#1b1d21;white-space:nowrap;overflow:hidden;">${esc(dashClip(x.name, yt ? 5.6 : 7.4))}</td>` +
+    // 동호회는 이름 아래에 (카페 아이디) — 비슷한 이름도 구분되게
+    `<tr><td style="${cellStyle}color:#1b1d21;white-space:nowrap;overflow:hidden;line-height:1.3;">${esc(dashClip(x.name, yt ? 5.6 : 7.4))}` +
+    (x.cafeId ? `<br><span style="font-size:10px;color:#8a8f98;">(${esc(dashClip(x.cafeId, 12))})</span>` : "") +
+    `</td>` +
     `<td width="${W1}" style="${cellStyle}width:${W1}px;text-align:right;font-weight:700;color:#1b1d21;white-space:nowrap;">${first(x)}</td>` +
     `<td width="${W2}" style="${cellStyle}width:${W2}px;text-align:right;font-weight:700;color:${color};white-space:nowrap;">${n0(x.comments)}</td></tr>`;
   const rest = list.slice(DASH_TOP);
