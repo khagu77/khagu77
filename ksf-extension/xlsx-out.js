@@ -133,6 +133,22 @@ const SENTI_DXF = [
   ["FF9C0006", "FFFFC7CE"], // 부정
   ["FF9C5700", "FFFFEB9C"], // 단순비난
 ].map(([fg, bg]) => `<dxf><font><b/><color rgb="${fg}"/></font><fill><patternFill><bgColor rgb="${bg}"/></patternFill></fill></dxf>`);
+// 유형 구분 (글쓴이 유형) - 같은 보라 계열에서 조금씩 다른 5가지 글자색 + '유형 구분 외'(회색) · ( ) 안 설명은 표 아래 ※ 안내 문구로
+const PTYPES = [
+  ["일반", "FF9A8CC2", "기존 이전 오너 및 일반적인 의견 개진"],
+  ["기존 출고자", "FF6F4FBF", "혜택 미적용자"],
+  ["출고 대기자", "FF3F2196", "혜택 미적용자"],
+  ["행사 기간 내 계약자", "FF8E44AD", "혜택 적용자"],
+  ["계약 예정자", "FFC060D2", "혜택 적용, 미적용 미정인자"],
+  ["유형 구분 외", "FF8A8F98", "구분이 안 되거나 위 5가지에 해당하지 않는 경우"],
+];
+const TYPE_DXF = PTYPES.map(([, c]) => `<dxf><font><b/><color rgb="${c}"/></font></dxf>`);
+// 유형 구분 열의 글자색 (값이 같은 칸만) · dxf0: 그 파일 dxfs 안에서 유형 서식이 시작하는 번호
+const typeCf = (col, from, to, dxf0, prio0 = 20) =>
+  `<conditionalFormatting sqref="${col}${from}:${col}${Math.max(from, to)}">${PTYPES.map(([t], k) => `<cfRule type="cellIs" dxfId="${dxf0 + k}" priority="${prio0 + k}" operator="equal"><formula>"${t}"</formula></cfRule>`).join("")}</conditionalFormatting>`;
+// 표 아래 안내 문구 줄들 (※)
+const typeNotes = () => ["※ 유형 구분 안내", ...PTYPES.map(([t, , note]) => `※ ${t} : ${note}`)];
+
 // '단순비난' 을 '부정' 보다 먼저 (글자 포함 검사라 순서 중요하지 않지만 우선순위 명확히)
 const SENTI_CF = [["단순비난", 3], ["부정", 2], ["중립", 1], ["긍정", 0]];
 
@@ -142,14 +158,18 @@ async function buildPostsXlsx(sheets, withSentiment = false) {
   const tpl = splitSheet(Zip.text(files.get("xl/worksheets/sheet1.xml")));
   const header = tpl.rows[0];
   const pattern = tpl.rows[1];
+  const se = new StyleEditor(Zip.text(files.get("xl/styles.xml")));
+  const H = se.head(header.styles.A);
+  const B = Object.fromEntries(Object.entries(pattern.styles).map(([k, v]) => [k, se.body(v)]));
   const built = sheets.map((sh, index) => {
-    let head = header.xml.replace(/<row r="\d+"/, '<row r="1"');
-    if (withSentiment) head = head.replace("</row>", `${cellXml("F1", header.styles.A, "성향")}</row>`).replace(/spans="1:5"/, 'spans="1:6"');
+    // 첫 행: 현대 블루 · 흰색 굵은 글씨 · 흰색 테두리 / 성향분석 포함: F 유형 구분 · G 성향
+    const heads = ["No", "출처", "제목", "작성시간", "Link", ...(withSentiment ? ["유형 구분", "성향"] : [])];
+    const head = rowXml(1, header.attrs.replace(/spans="[^"]*"/, `spans="1:${heads.length}"`), heads.map((t, k) => cellXml(`${colLetter(k)}1`, H, t)));
     const rows = [head];
     const links = [];
     sh.rows.forEach((p, i) => {
       const n = i + 2;
-      const st = pattern.styles;
+      const st = B;
       rows.push(
         rowXml(n, pattern.attrs, [
           cellXml(`A${n}`, st.A, i + 1),
@@ -157,22 +177,31 @@ async function buildPostsXlsx(sheets, withSentiment = false) {
           cellXml(`C${n}`, st.C, p.title || ""),
           cellXml(`D${n}`, st.D, p.date ? excelSerial(new Date(p.date)) : ""),
           cellXml(`E${n}`, st.E, p.url || ""),
-          ...(withSentiment ? [cellXml(`F${n}`, st.A, p.sentiment || "")] : []),
+          ...(withSentiment ? [cellXml(`F${n}`, st.A, p.ptype || ""), cellXml(`G${n}`, st.A, p.sentiment || "")] : []),
         ]),
       );
       if (p.url) links.push({ ref: `E${n}`, url: p.url });
     });
+    // 표 아래 ※ 유형 구분 안내
+    const lastData = sh.rows.length + 1;
+    if (withSentiment) typeNotes().forEach((t, k) => rows.push(rowXml(lastData + 2 + k, "", [cellXml(`B${lastData + 2 + k}`, null, t)])));
     // 성향 칸 색: 샘플 성향 분석 엑셀과 같은 조건부 서식 (긍정 파랑·중립 초록·부정 빨강·단순비난 노랑)
     const cf = withSentiment
-      ? `<conditionalFormatting sqref="F2:F${Math.max(2, sh.rows.length + 1)}">${SENTI_CF.map(([word, dxf], k) => `<cfRule type="containsText" dxfId="${dxf}" priority="${k + 1}" operator="containsText" text="${word}"><formula>NOT(ISERROR(SEARCH("${word}",F2)))</formula></cfRule>`).join("")}</conditionalFormatting>`
+      ? `<conditionalFormatting sqref="G2:G${Math.max(2, sh.rows.length + 1)}">${SENTI_CF.map(([word, dxf], k) => `<cfRule type="containsText" dxfId="${dxf}" priority="${k + 1}" operator="containsText" text="${word}"><formula>NOT(ISERROR(SEARCH("${word}",G2)))</formula></cfRule>`).join("")}</conditionalFormatting>` +
+        typeCf("F", 2, sh.rows.length + 1, SENTI_DXF.length)
       : "";
-    const xml = finishSheet(tpl, rows, links, sh.rows.length + 1, withSentiment ? "F" : "E", index, (x) => (cf ? x.replace(/(<phoneticPr[^>]*\/>)/, `$1${cf}`) : x));
+    const lastRow = withSentiment ? lastData + 1 + typeNotes().length : lastData;
+    const xml = finishSheet(tpl, rows, links, lastRow, withSentiment ? "G" : "E", index, (x) => {
+      if (!cf) return x;
+      x = x.replace(/(<phoneticPr[^>]*\/>)/, `$1${cf}`);
+      // 유형 구분 · 성향 열 너비
+      return x.replace(/<col min="6"[^>]*\/>/, "").replace("</cols>", '<col min="6" max="6" width="19" customWidth="1"/><col min="7" max="7" width="10" customWidth="1"/></cols>');
+    });
     return { name: sh.name, links, filter: null, xml };
   });
-  if (withSentiment) {
-    const st = Zip.text(files.get("xl/styles.xml"));
-    files.set("xl/styles.xml", st.replace(/<dxfs count="0"\/>/, `<dxfs count="${SENTI_DXF.length}">${SENTI_DXF.join("")}</dxfs>`));
-  }
+  let st = se.xml;
+  if (withSentiment) st = st.replace(/<dxfs count="0"\/>/, `<dxfs count="${SENTI_DXF.length + TYPE_DXF.length}">${SENTI_DXF.join("")}${TYPE_DXF.join("")}</dxfs>`);
+  files.set("xl/styles.xml", st);
   return assembleWorkbook(files, built);
 }
 
@@ -190,7 +219,15 @@ async function buildCommentsXlsx(sheets, withSentiment = true) {
   const endRight = "thin";
   const dateStyle = (base) => styles.derive(base, { horizontal: "center", right: "thin" });
   const urlStyle = (base) => styles.derive(base, { right: endRight });
-  // 열: A domain · B text · C 작성일 · D 게시글 URL · E 성향(맨 오른쪽, 양식의 성향 칸 서식·색)
+  // 열: A domain · B text · C 작성일 · D 게시글 URL · (성향 분석) E 유형 구분 · F 성향(맨 오른쪽, 양식의 성향 칸 서식·색)
+  // 유형 구분 글자색 서식은 양식의 dxfs 뒤에 붙인다
+  let typeDxf0 = 0;
+  if (withSentiment) {
+    styles.xml = styles.xml.replace(/<dxfs count="(\d+)">(.*?)<\/dxfs>/s, (all, n, inner) => {
+      typeDxf0 = Number(n);
+      return `<dxfs count="${Number(n) + TYPE_DXF.length}">${inner}${TYPE_DXF.join("")}</dxfs>`;
+    });
+  }
   const built = sheets.map((sh, index) => {
     const rows = [];
     const ts = titleRow.styles;
@@ -200,31 +237,40 @@ async function buildCommentsXlsx(sheets, withSentiment = true) {
         cellXml("B1", ts.B, ""),
         cellXml("C1", ts.B, ""),
         cellXml("D1", withSentiment ? ts.B : ts.C, ""),
-        ...(withSentiment ? [cellXml("E1", ts.C, "")] : []),
+        ...(withSentiment ? [cellXml("E1", ts.B, ""), cellXml("F1", ts.C, "")] : []),
       ]),
     );
+    // 항목명 행(2행): 현대 블루 · 흰색 굵은 글씨 · 흰색 테두리
     const hs = headRow.styles;
-    rows.push(rowXml(2, headRow.attrs, [cellXml("A2", hs.A, "domain"), cellXml("B2", hs.B, "text"), cellXml("C2", dateStyle(hs.B), "작성일"), cellXml("D2", urlStyle(hs.B), "게시글 URL"), ...(withSentiment ? [cellXml("E2", hs.C, "성향")] : [])]));
+    const hh = (b) => styles.head(b);
+    rows.push(rowXml(2, headRow.attrs, [cellXml("A2", hh(hs.A), "domain"), cellXml("B2", hh(hs.B), "text"), cellXml("C2", hh(hs.B), "작성일"), cellXml("D2", hh(hs.B), "게시글 URL"), ...(withSentiment ? [cellXml("E2", hh(hs.C), "유형 구분"), cellXml("F2", hh(hs.C), "성향")] : [])]));
     const links = [];
     const total = sh.rows.length;
     sh.rows.forEach((c, i) => {
       const n = i + 3;
       const pat = i === 0 ? firstRow : i === total - 1 ? lastRow : midRow;
       const st = pat.styles;
+      // 표 칸: 옅은 회색 얇은 테두리
+      const bd = (b) => styles.body(b);
       rows.push(
         rowXml(n, pat.attrs, [
-          cellXml(`A${n}`, st.A, c.domain || ""),
-          cellXml(`B${n}`, st.B, c.text || ""),
-          cellXml(`C${n}`, dateStyle(st.B), c.writtenAt || ""),
-          cellXml(`D${n}`, urlStyle(st.B), c.url || ""),
-          ...(withSentiment ? [cellXml(`E${n}`, st.C, c.sentiment || "")] : []),
+          cellXml(`A${n}`, bd(st.A), c.domain || ""),
+          cellXml(`B${n}`, bd(st.B), c.text || ""),
+          cellXml(`C${n}`, bd(dateStyle(st.B)), c.writtenAt || ""),
+          cellXml(`D${n}`, bd(urlStyle(st.B)), c.url || ""),
+          ...(withSentiment ? [cellXml(`E${n}`, bd(st.C), c.ptype || ""), cellXml(`F${n}`, bd(st.C), c.sentiment || "")] : []),
         ]),
       );
       if (c.domain) links.push({ ref: `A${n}`, url: `https://${c.domain}/` });
       if (c.url) links.push({ ref: `D${n}`, url: c.url });
     });
-    const last = total + 2;
-    const lastCol = withSentiment ? "E" : "D";
+    let last = total + 2;
+    // 표 아래 ※ 유형 구분 안내
+    if (withSentiment) {
+      typeNotes().forEach((t, k) => rows.push(rowXml(last + 2 + k, "", [cellXml(`B${last + 2 + k}`, null, t)])));
+      last += 1 + typeNotes().length;
+    }
+    const lastCol = withSentiment ? "F" : "D";
     const xml = finishSheet(tpl, rows, links, last, lastCol, index, (x) => {
       x = x
         .replace(/<autoFilter[^>]*\/>|<autoFilter[^>]*>.*?<\/autoFilter>/s, "")
@@ -233,12 +279,15 @@ async function buildCommentsXlsx(sheets, withSentiment = true) {
           /<cols>.*?<\/cols>/s,
           `<cols><col min="1" max="1" width="${fitWidth(sh.rows.map((c) => c.domain), 13.7, 30)}" style="1" customWidth="1"/><col min="2" max="2" width="130" style="5" customWidth="1"/>` +
             `<col min="3" max="3" width="${fitWidth(sh.rows.map((c) => c.writtenAt), 12, 30)}" style="1" customWidth="1"/><col min="4" max="4" width="${fitWidth(sh.rows.map((c) => c.url), 20, 120)}" style="1" customWidth="1"/>` +
-            '<col min="5" max="5" width="10" style="18" customWidth="1"/><col min="6" max="16384" width="8.33203125" style="1"/></cols>',
+            (withSentiment
+              ? '<col min="5" max="5" width="19" style="18" customWidth="1"/><col min="6" max="6" width="10" style="18" customWidth="1"/><col min="7" max="16384" width="8.33203125" style="1"/></cols>'
+              : '<col min="5" max="16384" width="8.33203125" style="1"/></cols>'),
         )
         // 성향 색(조건부 서식)도 맨 오른쪽 성향 열로 (성향 없는 파일은 지움)
-        .replace(/sqref="C1:C1048576"/, 'sqref="E1:E1048576"')
-        .replace(/,C1\)\)\)/g, ",E1)))");
-      if (!withSentiment) x = x.replace(/<conditionalFormatting.*?<\/conditionalFormatting>/gs, "").replace(/<col min="5" max="5"[^>]*\/>/, "");
+        .replace(/sqref="C1:C1048576"/, `sqref="F3:F${Math.max(3, total + 2)}"`)
+        .replace(/,C1\)\)\)/g, ",F3)))");
+      if (!withSentiment) x = x.replace(/<conditionalFormatting.*?<\/conditionalFormatting>/gs, "");
+      else x = x.replace(/(<\/conditionalFormatting>)(?![\s\S]*<\/conditionalFormatting>)/, `$1${typeCf("E", 3, total + 2, typeDxf0)}`);
       return x;
     });
     return { name: sh.name, links, filter: null, xml };
@@ -275,6 +324,55 @@ class StyleEditor {
     const { whole, items } = this.list(tag, item);
     this.xml = this.xml.replace(whole, `<${tag} count="${items.length + 1}">${items.join("")}${x}</${tag}>`);
     return items.length;
+  }
+
+  // 첫 행(항목명): 현대 블루 바탕 · 흰색 굵은 글씨 · 흰색 얇은 테두리 (서체·크기·정렬은 양식 그대로)
+  head(base) {
+    const key = `head|${base}`;
+    if (this.cache.has(key)) return this.cache.get(key);
+    let xf = this.list("cellXfs", "xf").items[+base] || '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>';
+    const fonts = this.list("fonts", "font").items;
+    let font = fonts[+(xf.match(/fontId="(\d+)"/) || [0, 0])[1]] || fonts[0];
+    font = font.replace(/<b\/>/g, "").replace(/<color [^>]*\/>/g, "").replace("<font>", '<font><b/><color rgb="FFFFFFFF"/>');
+    const fontId = this.append("fonts", "font", font);
+    const fillId = this.fillOf("FF002C5F");
+    const borderId = this.borderOf("FFFFFFFF");
+    xf = this.setIds(xf, { fontId, fillId, borderId });
+    if (!/<alignment/.test(xf)) xf = xf.replace(/\/>$/, '><alignment horizontal="center" vertical="center" wrapText="1"/></xf>');
+    const idx = String(this.append("cellXfs", "xf", xf));
+    this.cache.set(key, idx);
+    return idx;
+  }
+
+  // 나머지 표 칸: 옅은 회색 얇은 테두리
+  body(base) {
+    const key = `body|${base}`;
+    if (this.cache.has(key)) return this.cache.get(key);
+    let xf = this.list("cellXfs", "xf").items[+base];
+    if (!xf) return base;
+    xf = this.setIds(xf, { borderId: this.borderOf("FFD9D9D9") });
+    const idx = String(this.append("cellXfs", "xf", xf));
+    this.cache.set(key, idx);
+    return idx;
+  }
+
+  setIds(xf, ids) {
+    for (const [k, v] of Object.entries(ids)) xf = new RegExp(`${k}="`).test(xf) ? xf.replace(new RegExp(`${k}="\\d+"`), `${k}="${v}"`) : xf.replace("<xf ", `<xf ${k}="${v}" `);
+    for (const a of ["applyFont", "applyFill", "applyBorder"]) if (!new RegExp(a).test(xf)) xf = xf.replace("<xf ", `<xf ${a}="1" `);
+    return xf;
+  }
+
+  fillOf(rgb) {
+    const key = `fill|${rgb}`;
+    if (!this.cache.has(key)) this.cache.set(key, this.append("fills", "fill", `<fill><patternFill patternType="solid"><fgColor rgb="${rgb}"/><bgColor indexed="64"/></patternFill></fill>`));
+    return this.cache.get(key);
+  }
+
+  borderOf(rgb) {
+    const key = `border|${rgb}`;
+    const side = (n) => `<${n} style="thin"><color rgb="${rgb}"/></${n}>`;
+    if (!this.cache.has(key)) this.cache.set(key, this.append("borders", "border", `<border>${side("left")}${side("right")}${side("top")}${side("bottom")}<diagonal/></border>`));
+    return this.cache.get(key);
   }
 
   derive(base, { horizontal, right }) {

@@ -257,15 +257,18 @@ async function recollect() {
 
 let cCar = "";
 let cTone = "";
+let cType = "";
 let cLimit = 200;
 
 function renderCommentList() {
   segButtons($("#cCarSeg"), [["", "전체"], ...targetCars().map((c) => [c, c])], cCar, (v) => ((cCar = v), (cLimit = 200), renderCommentList()));
   segButtons($("#cToneSeg"), [["", "전체"], ...TONES.map((t) => [t, t]), ["미분석", "미분석"]], cTone, (v) => ((cTone = v), (cLimit = 200), renderCommentList()));
+  segButtons($("#cTypeSeg"), [["", "유형 전체"], ...PTYPE_NAMES.map((t) => [t, t])], cType, (v) => ((cType = v), (cLimit = 200), renderCommentList()));
   const q = compactText($("#cSearch").value);
   const list = reactions().filter((r) => r.c).filter((r) =>
     (!cCar || r.car === cCar) &&
     (!cTone || (cTone === "미분석" ? !judged(r.c) : r.tone === cTone)) &&
+    (!cType || r.ptype === cType) &&
     (!q || compactText(r.c.content).includes(q)));
   const tbody = $("#cList tbody");
   tbody.replaceChildren();
@@ -282,11 +285,11 @@ function renderCommentList() {
     if (r.c.isReply && r.c.parentText) text.title = `앞 댓글: ${r.c.parentText}`;
     if (r.reason) text.append(Object.assign(document.createElement("div"), { className: "hint small", textContent: `근거: ${r.reason}${r.theme ? ` · ${r.theme}` : ""}` }));
     const a = Object.assign(document.createElement("a"), { href: articleUrl(r.x), target: "_blank", rel: "noopener", textContent: r.x.title });
-    tr.append(td(r.car), td(r.kind), td(text), td(a, "post"), td(toneSelect(r.c, r, () => renderWorkBar()), "nowrap"));
+    tr.append(td(r.car), td(r.kind), td(text), td(a, "post"), td(typeSelect(r.c, r.c.content, () => renderCommentList()), "nowrap"), td(toneSelect(r.c, r, () => renderWorkBar()), "nowrap"));
     if (!judged(r.c)) tr.className = "unjudged";
     tbody.append(tr);
   }
-  if (!list.length) tbody.innerHTML = `<tr><td colspan="5" class="hint">${reportComments().length ? "조건에 맞는 댓글이 없습니다." : "③ 댓글 수집 탭에서 댓글을 먼저 모아 주세요."}</td></tr>`;
+  if (!list.length) tbody.innerHTML = `<tr><td colspan="6" class="hint">${reportComments().length ? "조건에 맞는 댓글이 없습니다." : "③ 댓글 수집 탭에서 댓글을 먼저 모아 주세요."}</td></tr>`;
   $("#cCount").textContent = `${list.length.toLocaleString()}개 중 ${Math.min(cLimit, list.length).toLocaleString()}개 표시 · 성향을 고르면 바로 반영 (고친 것은 '담당자 수정'으로 표시되고 다시 분석해도 그대로)`;
   $("#cMore").hidden = list.length <= cLimit;
 }

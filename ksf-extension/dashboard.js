@@ -128,6 +128,7 @@ function dashHtml(d, prev, banner, fluid = false) {
     <table width="${fluid ? "100%" : W}" cellpadding="0" cellspacing="0" style="width:${fluid ? "100%" : `${W}px`};border-collapse:collapse;table-layout:fixed;"><tr>
       ${d.cars.map((c) => dashCarCell(c, prev, fluid)).join("")}
     </tr></table>
+    ${dashTypes(d, fluid ? "100%" : W)}
     ${dashQuotes(d, fluid ? "100%" : W)}
   </td>
   </tr>
@@ -155,6 +156,38 @@ function dashQuotes(d, width) {
     `<table width="${width}" cellpadding="0" cellspacing="0" style="width:${typeof width === "number" ? `${width - 10}px` : width};border-collapse:collapse;table-layout:fixed;">${rows}</table></div>`;
 }
 
+// 유형 구분 (글쓴이 유형) - 엑셀과 같은 보라 계열 5가지 + 유형 구분 외(회색)
+const DASH_TYPES = [
+  ["일반", "#9a8cc2", "기존 이전 오너 및 일반적인 의견 개진"],
+  ["기존 출고자", "#6f4fbf", "혜택 미적용자"],
+  ["출고 대기자", "#3f2196", "혜택 미적용자"],
+  ["행사 기간 내 계약자", "#8e44ad", "혜택 적용자"],
+  ["계약 예정자", "#c060d2", "혜택 적용, 미적용 미정인자"],
+  ["유형 구분 외", "#8a8f98", "구분이 안 되거나 위 5가지에 해당하지 않는 경우"],
+];
+
+// 유형 구분별 반응: 반응 수·비중 · 성향 막대·긍정/부정 비율 · 가장 많이 나온 여론 1개
+function dashTypes(d, width) {
+  if (!(d.types || []).length) return "";
+  const toneColor = Object.fromEntries(DASH_TONES);
+  const td = (inner, w, extra = "") => `<td${w ? ` width="${w}"` : ""} bgcolor="#ffffff" style="${w ? `width:${w}px;` : ""}padding:5px 6px;border-top:1px solid #eef0f3;vertical-align:middle;background:#ffffff;background-color:#ffffff;${extra}">${inner}</td>`;
+  const rows = DASH_TYPES.map(([type, color, note]) => {
+    const t = d.types.find((x) => x.type === type) || { n: 0, share: 0, tone: {}, ratio: {} };
+    const top = t.top
+      ? `${t.top.quote ? "" : `<b style="color:${toneColor[t.top.tone] || "#1b1d21"};">[${t.top.tone}]</b> `}<span style="color:#1b1d21;">${desc(t.top.label)}</span>${t.top.quote ? "" : ` <span style="color:#8a8f98;">${dnum(t.top.count)}건</span>`}`
+      : '<span style="color:#a0a5ad;">-</span>';
+    return `<tr>${td(`<b style="font-size:11px;color:${color};white-space:nowrap;" title="${desc(note)}">${type}</b>`, 112)}` +
+      td(`<b style="font-size:12px;color:#1b1d21;">${dnum(t.n)}</b><span style="font-size:10px;color:#6b7079;">건 ${t.n ? dpct(t.share) : ""}</span>`, 74, "white-space:nowrap;") +
+      td(`${dashBar(t.tone, t.n, 7)}<div style="font-size:9.5px;color:#6b7079;margin-top:2px;white-space:nowrap;">${t.n ? `<span style="color:#0070c0;">긍 ${dpct(t.ratio["긍정"])}</span> · <span style="color:#e00000;">부 ${dpct((t.ratio["부정"] || 0) + (t.ratio["단순비난"] || 0))}</span>` : "&nbsp;"}</div>`, 120) +
+      td(`<span style="font-size:11px;line-height:1.45;">${top}</span>`) + "</tr>";
+  }).join("");
+  const notes = DASH_TYPES.map(([t, c, n]) => `<span style="white-space:nowrap;"><b style="color:${c};">${t}</b>: ${desc(n)}</span>`).join(" · ");
+  return `<div style="margin:8px 4px 0;border:1px solid #e3e6eb;border-radius:8px;background:#ffffff;overflow:hidden;">` +
+    `<div style="padding:5px 8px;font-size:11px;font-weight:800;color:#002c5f;background:#f6f8fa;">유형 구분별 반응 <span style="font-weight:400;color:#6b7079;">(글쓴이 유형 · 반응 기준 · 가장 많이 나온 여론)</span></div>` +
+    `<table width="${width}" cellpadding="0" cellspacing="0" style="width:${typeof width === "number" ? `${width - 10}px` : width};border-collapse:collapse;table-layout:fixed;">${rows}</table>` +
+    `<div style="padding:5px 8px;font-size:9.5px;color:#6b7079;line-height:1.6;background:#ffffff;">※ ${notes}</div></div>`;
+}
+
 // 서식 없는 곳에 붙여 넣을 때 (글자만)
 function dashText(d, prev) {
   const diff = (v, pv) => (pv === null || pv === undefined ? "" : v - pv > 0 ? ` (▲${dnum(v - pv)})` : v - pv < 0 ? ` (▼${dnum(pv - v)})` : " (변동 없음)");
@@ -171,6 +204,10 @@ function dashText(d, prev) {
     if (c.n) lines.push(`  → ${dashVerdict(c).text}`);
     lines.push(`  - 긍정: ${c.pos.slice(0, DASH_TOP).map((r, i) => `${i + 1}) ${r.label} ${dnum(r.count)}건(${dpct(r.ratio)})`).join(", ") || "해당 없음"}`);
     lines.push(`  - 부정: ${c.neg.slice(0, DASH_TOP).map((r, i) => `${i + 1}) ${r.label} ${dnum(r.count)}건(${dpct(r.ratio)})`).join(", ") || "해당 없음"}`);
+  }
+  if (d.types) {
+    lines.push("■ 유형 구분별 반응");
+    for (const t of d.types) lines.push(`  - ${t.type}: ${dnum(t.n)}건${t.n ? ` (${dpct(t.share)})` : ""}${t.top ? ` · ${t.top.quote ? "" : `[${t.top.tone}] `}${t.top.label}${t.top.quote ? "" : ` ${dnum(t.top.count)}건`}` : ""}`);
   }
   if (d.short) for (const [t] of DASH_TONES) if ((d.short[t] || []).length) lines.push(`■ ${t} 주요 댓글: ${d.short[t].map((q) => `‘${String(q).replace(/\s+/g, " ").slice(0, 80)}’`).join(", ")}`);
   if (d.unjudged) lines.push(`※ 잠정치: ${dnum(d.unjudged)}건은 AI 판단 전`);

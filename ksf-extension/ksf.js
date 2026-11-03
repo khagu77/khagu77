@@ -457,6 +457,25 @@ function commentOps(x, c) {
   return withManual(ops, c.manual);
 }
 
+// 유형 구분 (글쓴이 유형): 담당자 수정 → AI → 단어 규칙(어림)
+const PTYPE_NAMES = PTYPES.map(([t]) => t);
+const TYPE_WORDS = [
+  ["행사 기간 내 계약자", ["이번에 계약", "이번 할인으로 계약", "할인 보고 계약", "코세페로 계약", "코세페 계약", "질렀", "계약했습니다", "계약 완료", "계약완료"]],
+  ["출고 대기자", ["출고 대기", "출고대기", "대기 중", "대기중", "출고 기다", "계약하고 기다", "계약자입장", "계약자 입장", "사전계약", "사전 계약"]],
+  ["기존 출고자", ["출고했", "출고 받", "출고받", "인수했", "타고 있", "타는 중", "기출고", "먼저 산", "먼저산", "이미 산"]],
+  ["계약 예정자", ["살까", "사려고", "계약 예정", "계약하러", "고민 중", "고민중", "알아보는", "구매 예정", "구매예정", "견적"]],
+];
+function ruleType(text) {
+  const t = compactText(text);
+  for (const [type, ws] of TYPE_WORDS) if (ws.some((w) => t.includes(compactText(w)))) return type;
+  return "유형 구분 외";
+}
+function typeOf(h, text) {
+  if (h.manualType) return h.manualType;
+  if (h.a?.by === "ai" && h.a.ptype) return h.a.ptype;
+  return ruleType(text);
+}
+
 // 판단이 AI(또는 담당자)로 정해졌는지 (잠정치 표시용)
 const judged = (h) => h.a?.by === "ai" || (h.manual && Object.keys(h.manual).length);
 
@@ -1006,7 +1025,17 @@ const TONE_RULES = `[핵심 원칙]
   중립·단순비난이면 "".
 - reason (판단 근거): 왜 그 차종·그 성향으로 봤는지 원문에 근거해 한 구절(10~40자). 예) "8/5 계약자로서 할인에 손해를 봤다며 제조사 탓", "회원 간 언쟁으로 코세페 평가 없음".
 - 정확성이 가장 중요합니다. 말투가 거칠어도 코세페에 대한 평가가 없으면 중립, 말투가 점잖아도 행사에 실망·불만이면 부정입니다.
-  비꼬기·반어("참 잘하는 짓이네요")는 속뜻으로 판단합니다. 확신이 없으면 원문에 드러난 만큼만 판단하고 지나치게 부풀리지 않습니다.`;
+  비꼬기·반어("참 잘하는 짓이네요")는 속뜻으로 판단합니다. 확신이 없으면 원문에 드러난 만큼만 판단하고 지나치게 부풀리지 않습니다.
+
+[유형 구분 ptype - 글쓴이가 코세페 혜택과 어떤 관계인지, 글·댓글 하나에 하나 (차종별이 아님)]
+  "일반": 예전 차 오너, 구매 계획을 밝히지 않은 회원 등 일반적인 의견 개진 (본인 구매·계약 상황과 무관하게 의견을 말함)
+  "기존 출고자": 행사 전에 이미 차를 출고받아 타고 있는 사람 (혜택 미적용자) 예) "작년에 출고했는데", "지금 타고 있는데 억울하네요"
+  "출고 대기자": 행사 전에 계약하고 아직 출고를 기다리는 사람 (혜택 미적용자) 예) "8/5 계약하고 대기 중인데", "출고 기다리는 입장에서"
+  "행사 기간 내 계약자": 코세페 기간(할인 적용)에 계약한 사람 (혜택 적용자) 예) "이번 할인 보고 계약했습니다", "코세페로 질렀어요"
+  "계약 예정자": 아직 계약 전이며 구매를 고민·예정하는 사람 (혜택 적용·미적용 미정) 예) "이번에 살까 고민 중", "계약하러 갈 예정"
+  "유형 구분 외": 글로 구분이 안 되거나 위 5가지에 해당하지 않음 (인사·짧은 맞장구·회원 간 말다툼·정보 질문만 등)
+  - 글에 드러난 본인 상황만으로 정합니다. 계약 시점이 행사 전이면 출고 여부에 따라 기존 출고자/출고 대기자, 출고 여부가 안 드러나면 출고 대기자.
+  - "8/5 계약자입장으로서 좋은소리 안나옴" → 출고 대기자 · 본인 상황 없이 의견만 → 일반 · 판단 근거가 거의 없으면 유형 구분 외.`;
 
 const POST_SYSTEM = `당신은 현대자동차 국내 마케팅·고객 부문에 올리는 온라인 여론 모니터링 보고서를 쓰는 분석가입니다.
 주제: 차종별 네이버 동호회에서 '코리아 세일 페스타(K-세일 페스타 · 코세페)' 할인 행사에 대한 고객 반응.
@@ -1081,8 +1110,8 @@ function postSchema() {
         type: "array",
         items: {
           type: "object",
-          properties: { id: { type: "string" }, ksf: { type: "boolean" }, summary: { type: "string" }, ops: opsSchema() },
-          required: ["id", "ksf", "summary", "ops"],
+          properties: { id: { type: "string" }, ksf: { type: "boolean" }, summary: { type: "string" }, ptype: { type: "string", enum: PTYPE_NAMES }, ops: opsSchema() },
+          required: ["id", "ksf", "summary", "ptype", "ops"],
           additionalProperties: false,
         },
       },
@@ -1100,8 +1129,8 @@ function commentSchema() {
         type: "array",
         items: {
           type: "object",
-          properties: { id: { type: "string" }, ops: opsSchema() },
-          required: ["id", "ops"],
+          properties: { id: { type: "string" }, ptype: { type: "string", enum: PTYPE_NAMES }, ops: opsSchema() },
+          required: ["id", "ptype", "ops"],
           additionalProperties: false,
         },
       },
@@ -1166,7 +1195,7 @@ async function aiPostBatch(client, model, batch, usage) {
     if (!r || typeof r.ksf !== "boolean" || typeof r.summary !== "string") return null;
     const ops = cleanOps(r.ops, x.car);
     const summary = r.summary.replace(/\s+/g, " ").replace(/[.。]\s*$/, "").trim();
-    return ops && summary.length >= 4 ? { ksf: r.ksf, summary, ops } : null;
+    return ops && summary.length >= 4 && PTYPE_NAMES.includes(r.ptype) ? { ksf: r.ksf, summary, ops, ptype: r.ptype } : null;
   });
   const bad = results.filter((r) => !r).length;
   if (bad) throw new Error(`결과 ${bad}건의 형식이 맞지 않습니다`);
@@ -1174,7 +1203,7 @@ async function aiPostBatch(client, model, batch, usage) {
     const r = results[i];
     x.summary = r.summary;
     x.ksf = r.ksf;
-    x.a = { ops: r.ops, by: "ai", v: JUDGE_VERSION };
+    x.a = { ops: r.ops, ptype: r.ptype, by: "ai", v: JUDGE_VERSION };
     if (!x.touched) x.checked = r.ksf && inPeriodTime(x.date);
   });
 }
@@ -1188,10 +1217,14 @@ async function aiCommentBatch(client, model, batch, usage) {
     `아래 댓글 ${batch.length}개를 판단해 items ${batch.length}개로 돌려주세요.\n\n${JSON.stringify(input)}`, "high");
   chargeAi(msg, model, usage);
   const byId = new Map((parsed.items || []).map((r) => [r.id, r]));
-  const results = batch.map(({ x }, i) => cleanOps(byId.get(String(i))?.ops, x.car));
+  const results = batch.map(({ x }, i) => {
+    const r = byId.get(String(i));
+    const ops = cleanOps(r?.ops, x.car);
+    return ops && PTYPE_NAMES.includes(r.ptype) ? { ops, ptype: r.ptype } : null;
+  });
   const bad = results.filter((r) => !r).length;
   if (bad) throw new Error(`결과 ${bad}건의 형식이 맞지 않습니다`);
-  batch.forEach(({ c }, i) => (c.a = { ops: results[i], by: "ai", v: JUDGE_VERSION }));
+  batch.forEach(({ c }, i) => (c.a = { ops: results[i].ops, ptype: results[i].ptype, by: "ai", v: JUDGE_VERSION }));
 }
 
 // 묶음들을 AI_PARALLEL 개씩 동시에 → { failed, fatal, lastError }
@@ -1235,13 +1268,13 @@ async function runBatches(batches, fn, onDone) {
 
 // 판단할 것: 본문을 읽은 글(체크했거나 할인 이야기라 확인할 글) · 체크한 글의 댓글
 function judgeTargets(force = false) {
-  const fresh = (a) => a?.by === "ai" && a.v === JUDGE_VERSION;
+  const fresh = (a) => a?.by === "ai" && a.v === JUDGE_VERSION && !!a.ptype;
   const posts = sortedItems().filter((x) => x.bodyRead && x.body && (x.checked || (!x.touched && x.candidate)) && (force || !fresh(x.a)));
   return { posts };
 }
 
 function commentTargets(force = false) {
-  const fresh = (a) => a?.by === "ai" && a.v === JUDGE_VERSION;
+  const fresh = (a) => a?.by === "ai" && a.v === JUDGE_VERSION && !!a.ptype;
   return reportComments().filter(({ c }) => force || !fresh(c.a));
 }
 
@@ -1261,7 +1294,7 @@ async function judgeAll({ force = false, postsOnly = false } = {}) {
   // 댓글 수는 글 판단 뒤 체크가 바뀔 수 있어 어림 (지금 체크·확인 대상 글의 댓글)
   const willComments = sortedItems()
     .filter((x) => x.bodyRead && (x.checked || (!x.touched && x.candidate)))
-    .flatMap((x) => (postsOnly ? [] : x.commentList || []).filter((c) => inPeriodTime(c.date) && (force || !(c.a?.by === "ai" && c.a.v === JUDGE_VERSION))));
+    .flatMap((x) => (postsOnly ? [] : x.commentList || []).filter((c) => inPeriodTime(c.date) && (force || !(c.a?.by === "ai" && c.a.v === JUDGE_VERSION && c.a.ptype))));
   if (!posts.length && !willComments.length) {
     renderResults();
     setSummary("판단할 글·댓글이 없습니다 (모두 판단했습니다). 기준을 바꿨으면 '다시 판단하기'를 눌러 주세요.", "ok");
@@ -1435,10 +1468,11 @@ function reportComments(list = reportItems()) {
 function reactions(list = reportItems()) {
   const out = [];
   for (const x of list) {
-    postOps(x).forEach((o) => out.push({ key: `${x.key}#p#${o.car}`, x, c: null, kind: "게시글", ...o, text: `${x.title}\n${x.body || x.text || ""}`, date: x.date }));
+    const ptype = typeOf(x, `${x.title}\n${x.body || x.text || ""}`);
+    postOps(x).forEach((o) => out.push({ key: `${x.key}#p#${o.car}`, x, c: null, kind: "게시글", ...o, ptype, text: `${x.title}\n${x.body || x.text || ""}`, date: x.date }));
     for (const c of (x.commentList || []).filter((cc) => inPeriodTime(cc.date))) {
       commentOps(x, c).forEach((o) => out.push({
-        key: `${x.key}#c#${c.id || `${c.nickname}|${c.dateText}|${c.content.slice(0, 30)}`}#${o.car}`, x, c, kind: c.isReply ? "답글" : "댓글", ...o, text: c.content, date: c.date ?? x.date,
+        key: `${x.key}#c#${c.id || `${c.nickname}|${c.dateText}|${c.content.slice(0, 30)}`}#${o.car}`, x, c, kind: c.isReply ? "답글" : "댓글", ...o, ptype: typeOf(c, c.content), text: c.content, date: c.date ?? x.date,
       }));
     }
   }
@@ -1529,6 +1563,41 @@ function topThemes(rs = reactions()) {
     }
   }
   return { cars: out, fresh: !!fresh, by: fresh ? tops.by : "rule" };
+}
+
+// 유형 구분별 숫자 · 가장 많이 나온 여론 (TOP5 묶음의 주요 내용 중 그 유형에서 가장 많이 나온 것 · 없으면 대표 원문)
+// → [{ type, n, share, tone{}, ratio{}, top: { label, tone, count, quote } | null }]
+function typeStats(rs = reactions()) {
+  const top = topThemes(rs);
+  const labelOf = new Map();
+  for (const car of targetCars()) for (const t of ["긍정", "부정"]) for (const g of top.cars[car][t]) for (const k of g.keys) labelOf.set(k, { label: g.label, tone: t });
+  return PTYPE_NAMES.map((type) => {
+    const list = rs.filter((r) => r.ptype === type);
+    const tone = toneCounts(list);
+    const ratio = Object.fromEntries(TONES.map((t) => [t, list.length ? tone[t] / list.length : 0]));
+    const cnt = new Map();
+    for (const r of list) {
+      const l = labelOf.get(r.key) || (/^(긍정|부정)$/.test(r.tone) && r.theme ? { label: r.theme, tone: r.tone } : null);
+      if (!l || /^기타/.test(l.label)) continue;
+      const k = `${l.tone}\u0001${l.label}`;
+      cnt.set(k, (cnt.get(k) || 0) + 1);
+    }
+    let topIssue = null;
+    for (const [k, n] of cnt) {
+      if (!topIssue || n > topIssue.count) {
+        const [t, label] = k.split("\u0001");
+        topIssue = { label, tone: t, count: n, quote: false };
+      }
+    }
+    if (!topIssue && list.length) {
+      // 긍정·부정 주요 내용이 없으면 그 유형에서 가장 많은 성향의 대표 원문
+      const main = TONES.slice().sort((a, b) => tone[b] - tone[a])[0];
+      const q = list.filter((r) => r.tone === main).map((r) => (r.c ? r.c.content : r.x.title).replace(/\s+/g, " ").trim()).filter((t) => t.length >= 6)
+        .sort((a, b) => Math.abs(a.length - 50) - Math.abs(b.length - 50))[0];
+      if (q) topIssue = { label: `‘${q.length > 60 ? `${q.slice(0, 59)}…` : q}’`, tone: main, count: tone[main], quote: true };
+    }
+    return { type, n: list.length, share: rs.length ? list.length / rs.length : 0, tone, ratio, top: topIssue };
+  });
 }
 
 const GROUP_SYSTEM = `당신은 현대자동차 국내 마케팅·고객 부문 온라인 여론 보고서를 쓰는 분석가입니다.
@@ -1766,6 +1835,26 @@ function toneSelect(holder, op, onChange) {
   return sel;
 }
 
+// 유형 구분 고르기 (담당자 수정 → holder.manualType) · AI 판정과 같게 고르면 수정 표시를 지움
+function typeSelect(holder, text, onChange) {
+  const sel = document.createElement("select");
+  const cur = typeOf(holder, text);
+  sel.className = `type-sel${holder.manualType ? " manual" : ""}`;
+  for (const t of PTYPE_NAMES) sel.add(new Option(t, t, false, t === cur));
+  sel.style.color = (PTYPES.find(([t]) => t === cur) || [, "FF8A8F98"])[1].replace(/^FF/, "#");
+  sel.title = holder.manualType ? "담당자 수정" : holder.a?.by === "ai" && holder.a.ptype ? "AI 판정" : "단어 규칙 어림";
+  sel.addEventListener("change", () => {
+    holder.manualType = sel.value;
+    if (holder.a?.by === "ai" && holder.a.ptype === sel.value) delete holder.manualType;
+    sel.className = `type-sel${holder.manualType ? " manual" : ""}`;
+    sel.style.color = (PTYPES.find(([t]) => t === sel.value) || [, "FF8A8F98"])[1].replace(/^FF/, "#");
+    saveItemsSoon();
+    renderStatsSoon();
+    onChange?.();
+  });
+  return sel;
+}
+
 function fillRow(tr, item) {
   tr.className = item.checked ? "" : "off";
   tr.querySelector(".pick").checked = item.checked;
@@ -1789,6 +1878,10 @@ function fillRow(tr, item) {
       line.append(toneSelect(item, o, () => fillRow(tr, item)));
       cell.append(line);
     }
+    const tl = document.createElement("div");
+    tl.className = "tone-line";
+    tl.append(typeSelect(item, `${item.title}\n${item.body || item.text || ""}`, () => fillRow(tr, item)));
+    cell.append(tl);
   } else cell.append(Object.assign(document.createElement("span"), { className: "hint", textContent: "본문 읽은 뒤" }));
   // AI 판독: 관련 여부 + 요약 (없으면 규칙 메모)
   const j = tr.children[7];
@@ -2026,6 +2119,20 @@ function buildExcel() {
       heights[S.length] = Math.min(160, Math.max(20, Math.ceil(q.length / 95) * 16 + 6));
     }
   }
+  S.push([]);
+  S.push([null, { v: "4. 유형 구분별 반응 (글쓴이 유형 · 반응 기준)", s: "title" }]);
+  S.push([null, ...["유형 구분", "반응 수", "비중", "긍정", "중립", "부정", "단순비난", "가장 많이 나온 여론"].map((h) => ({ v: h, s: "head" }))]);
+  merges.push(`I${S.length}:K${S.length}`);
+  for (const t of typeStats(rs)) {
+    const topText = t.top ? `${t.top.quote ? "" : `[${t.top.tone}] `}${t.top.label}${t.top.quote ? "" : ` (${t.top.count}건)`}` : "-";
+    S.push([null, { v: t.type, s: "bold" }, num(t.n), t.n ? pct(t.share) : num("-"), ...TONES.map((k) => (t.n ? pct(t.ratio[k], k === "긍정" ? "pct-긍정" : k === "부정" ? "pct-부정" : "pct") : num("-"))), { v: topText, s: "wrap" }]);
+    merges.push(`I${S.length}:K${S.length}`);
+    heights[S.length] = topText.length > 48 ? 34 : 20;
+  }
+  for (const line of typeNotes()) {
+    S.push([null, { v: line, s: "note" }]);
+    merges.push(`B${S.length}:K${S.length}`);
+  }
   const summary = {
     name: "요약", rows: S, merges, heights, noGrid: true,
     widths: { 1: 2, 2: 16, 3: 9, 4: 34, 5: 9, 6: 9, 7: 9, 8: 34, 9: 9, 10: 9, 11: 22 },
@@ -2045,17 +2152,17 @@ function buildExcel() {
   // ③ 반응 (raw): 반응 하나 = 글·댓글 × 차종
   const groupOf = new Map();
   for (const car of cars) for (const t of ["긍정", "부정"]) top.cars[car][t].forEach((g, i) => g.keys.forEach((k) => groupOf.set(k, `${i + 1}위 ${g.label}`)));
-  const R = [[null, ...["순번", "반응 차종", "성향", "주요 내용", "TOP 묶음", "판단 근거", "구분", "내용", "작성일", "작성자", "동호회 차종", "동호회명", "게시글 제목", "게시글 URL", "판단"].map((h) => ({ v: h, s: "head" }))]];
+  const R = [[null, ...["순번", "반응 차종", "성향", "유형 구분", "주요 내용", "TOP 묶음", "판단 근거", "구분", "내용", "작성일", "작성자", "동호회 차종", "동호회명", "게시글 제목", "게시글 URL", "판단"].map((h) => ({ v: h, s: "head" }))]];
   const order = (r) => [cars.indexOf(r.car) < 0 ? 99 : cars.indexOf(r.car), TONES.indexOf(r.tone)];
   const sorted = [...rs].sort((a, b) => order(a)[0] - order(b)[0] || order(a)[1] - order(b)[1] || (a.date ?? 0) - (b.date ?? 0));
   sorted.forEach((r, i) => {
     const text = r.c ? r.c.content : `[제목] ${r.x.title}\n${(r.x.body || r.x.text || "").slice(0, 1500)}`;
-    R.push([null, num(i + 1), num(r.car), tone(r.tone), { v: r.theme, s: "wrap" }, { v: groupOf.get(r.key) || "", s: "wrap" }, { v: r.reason || "", s: "wrap" }, num(r.kind), { v: text, s: "wrap" },
+    R.push([null, num(i + 1), num(r.car), tone(r.tone), num(r.ptype), { v: r.theme, s: "wrap" }, { v: groupOf.get(r.key) || "", s: "wrap" }, { v: r.reason || "", s: "wrap" }, num(r.kind), { v: text, s: "wrap" },
       r.date ? { v: excelSerial(new Date(r.date)), s: "date" } : num(""), { v: r.c ? r.c.nickname : r.x.nickname || "", s: "cell" },
       num(r.x.car), { v: r.x.cafeName, s: "cell" }, { v: r.x.title, s: "wrap" }, { v: articleUrl(r.x), s: "cell" },
       num((r.c ? r.c.a?.by : r.x.a?.by) === "ai" ? "AI" : "규칙")]);
   });
-  const raw = { name: "반응 전체", rows: R, freeze: 1, filter: "B1:P1", widths: { 1: 2, 2: 6, 3: 10, 4: 9, 5: 28, 6: 26, 7: 30, 8: 8, 9: 60, 10: 16, 11: 14, 12: 10, 13: 16, 14: 30, 15: 34, 16: 6 } };
+  const raw = { name: "반응 전체", rows: R, freeze: 1, filter: "B1:Q1", widths: { 1: 2, 2: 6, 3: 10, 4: 9, 5: 16, 6: 28, 7: 26, 8: 30, 9: 8, 10: 60, 11: 16, 12: 14, 13: 10, 14: 16, 15: 30, 16: 34, 17: 6 } };
 
   // ④ 판단 기준 (보고용 설명)
   const C = [
@@ -2071,6 +2178,8 @@ function buildExcel() {
     [null, { v: "비율", s: "bold" }, { v: "성향 비율 = 그 차종 반응 중 비중 · TOP5 비율 = 그 차종 긍정(부정) 반응 중 비중", s: "wrap" }],
     [null, { v: "판단 방법", s: "bold" }, { v: unjudged ? `Claude AI 판단 (일부 ${unjudged}건은 단어 규칙 어림)` : "Claude AI 판단 후 담당자 검토", s: "wrap" }],
   ];
+  C.push([null, { v: "유형 구분", s: "bold" }, { v: "글·댓글마다 글쓴이가 코세페 혜택과 어떤 관계인지 하나로 구분 (차종별이 아님)", s: "wrap" }]);
+  for (const [t, , note] of PTYPES) C.push([null, { v: t, s: "center" }, { v: note, s: "wrap" }]);
   const crit = { name: "판단 기준", rows: C, noGrid: true, widths: { 1: 2, 2: 14, 3: 110 }, merges: ["B1:C1"] };
   return XlsxBook.build([summary, posts, raw, crit], { font: "맑은 고딕" });
 }
@@ -2129,7 +2238,7 @@ function carOrder(list) {
 // 로우데이터: 동호회 차종마다 시트 · 성향분석 포함: 반응 차종마다 시트(그 차종에 대한 글의 성향)
 async function makePostsFile(withSentiment = false) {
   const list = reportItems();
-  const rowOf = (x, tone = "") => ({ source: x.cafeName, title: x.title, date: x.date, url: articleUrl(x), sentiment: tone });
+  const rowOf = (x, tone = "") => ({ source: x.cafeName, title: x.title, date: x.date, url: articleUrl(x), sentiment: tone, ptype: tone ? typeOf(x, `${x.title}\n${x.body || x.text || ""}`) : "" });
   const byDate = (a, b) => (b.date || 0) - (a.date || 0);
   let sheets;
   if (!withSentiment) {
@@ -2149,7 +2258,7 @@ async function makePostsFile(withSentiment = false) {
 async function makeCommentsFile(withSentiment) {
   const list = reportItems();
   const rowOf = (x, c, tone = "") => ({
-    domain: `cafe.naver.com/${x.slug}`, text: c.content, sentiment: tone,
+    domain: `cafe.naver.com/${x.slug}`, text: c.content, sentiment: tone, ptype: tone ? typeOf(c, c.content) : "",
     writtenAt: c.date ? formatDateTime(new Date(c.date)) : c.dateText || "", url: articleUrl(x),
   });
   let sheets;
@@ -2195,6 +2304,8 @@ function dashSnapshot() {
     ratio: total.ratio,
     unjudged: rs.filter((r) => !judged(r.c || r.x)).length,
     topsAi: top.fresh,
+    // 유형 구분별 (글쓴이 유형): 반응 수 · 비중 · 성향 · 가장 많이 나온 여론
+    types: typeStats(rs).map((t) => ({ type: t.type, n: t.n, share: t.share, tone: t.tone, ratio: t.ratio, top: t.top })),
     cars: targetCars().map((car, i) => {
       const s = stats.find((x) => x.car === car);
       return {

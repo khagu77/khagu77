@@ -101,7 +101,7 @@
   // 바탕: 0 없음 · 2 현대 블루 · 3 옅은 회색
   const STYLES = [
     ["default", 0, 0, 0, 0, ""],
-    ["head", 1, 2, 1, 0, '<alignment horizontal="center" vertical="center" wrapText="1"/>'],
+    ["head", 1, 2, 2, 0, '<alignment horizontal="center" vertical="center" wrapText="1"/>'],
     ["cell", 0, 0, 1, 0, '<alignment vertical="top"/>'],
     ["wrap", 0, 0, 1, 0, '<alignment vertical="top" wrapText="1"/>'],
     ["center", 0, 0, 1, 0, '<alignment horizontal="center" vertical="center"/>'],
@@ -136,8 +136,9 @@
       fontXml("", 10, "FF6B7280"),
     ];
     const fill = (rgb) => `<fill><patternFill patternType="solid"><fgColor rgb="${rgb}"/><bgColor indexed="64"/></patternFill></fill>`;
-    const thin = '<left style="thin"><color rgb="FFBFBFBF"/></left><right style="thin"><color rgb="FFBFBFBF"/></right>' +
-      '<top style="thin"><color rgb="FFBFBFBF"/></top><bottom style="thin"><color rgb="FFBFBFBF"/></bottom><diagonal/>';
+    // 표 테두리: 옅은 회색 얇은 선 · 항목명(head) 칸: 흰색 얇은 선
+    const thinOf = (c) => `<left style="thin"><color rgb="${c}"/></left><right style="thin"><color rgb="${c}"/></right>` +
+      `<top style="thin"><color rgb="${c}"/></top><bottom style="thin"><color rgb="${c}"/></bottom><diagonal/>`;
     const xfs = STYLES.map(([, fontId, fillId, borderId, numFmtId, align]) =>
       `<xf numFmtId="${numFmtId}" fontId="${fontId}" fillId="${fillId}" borderId="${borderId}" xfId="0" applyFont="1" applyFill="1" applyBorder="1"` +
       `${numFmtId ? ' applyNumberFormat="1"' : ""}${align ? ` applyAlignment="1">${align}</xf>` : "/>"}`).join("");
@@ -146,7 +147,7 @@
       '<numFmts count="2"><numFmt numFmtId="164" formatCode="0.0%"/><numFmt numFmtId="165" formatCode="yyyy-mm-dd hh:mm"/></numFmts>' +
       `<fonts count="${fonts.length}">${fonts.join("")}</fonts>` +
       `<fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>${fill(NAVY)}${fill("FFF2F2F2")}</fills>` +
-      `<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border>${thin}</border></borders>` +
+      `<borders count="3"><border><left/><right/><top/><bottom/><diagonal/></border><border>${thinOf("FFD9D9D9")}</border><border>${thinOf("FFFFFFFF")}</border></borders>` +
       '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
       `<cellXfs count="${STYLES.length}">${xfs}</cellXfs>` +
       '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +

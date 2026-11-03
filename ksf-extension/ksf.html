@@ -137,7 +137,7 @@
       <div class="tablewrap">
         <table id="results" class="ksf">
           <colgroup><col class="w-cb"><col class="w-car"><col class="w-src"><col class="w-title"><col class="w-day"><col class="w-num"><col class="w-tone"><col><col class="w-del"></colgroup>
-          <thead><tr><th><input type="checkbox" id="checkAll" title="보이는 글 모두 체크/해제"></th><th>차종</th><th>출처</th><th>제목 <span class="hint">(누르면 원문)</span></th><th>작성시간</th><th>댓글</th><th>게시글 성향</th><th>AI 판독</th><th></th></tr></thead>
+          <thead><tr><th><input type="checkbox" id="checkAll" title="보이는 글 모두 체크/해제"></th><th>차종</th><th>출처</th><th>제목 <span class="hint">(누르면 원문)</span></th><th>작성시간</th><th>댓글</th><th>게시글 성향 · 유형</th><th>AI 판독</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -200,12 +200,13 @@
       <div class="row">
         <div class="seg" id="cCarSeg"></div>
         <div class="seg" id="cToneSeg"></div>
+        <div class="seg" id="cTypeSeg"></div>
         <input type="text" id="cSearch" placeholder="댓글 내용으로 찾기" class="search">
       </div>
       <div class="tablewrap">
         <table id="cList" class="compact">
-          <colgroup><col class="w-car"><col class="w-kind"><col><col class="w-post"><col class="w-tone"></colgroup>
-          <thead><tr><th>차종</th><th>구분</th><th>댓글</th><th>게시글</th><th>성향</th></tr></thead>
+          <colgroup><col class="w-car"><col class="w-kind"><col><col class="w-post"><col class="w-type"><col class="w-tone"></colgroup>
+          <thead><tr><th>차종</th><th>구분</th><th>댓글</th><th>게시글</th><th>유형 구분</th><th>성향</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
