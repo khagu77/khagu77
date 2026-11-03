@@ -132,7 +132,7 @@ function dashChannelCell({ label, color }, data) {
   const unitName = yt ? "채널" : label === "언론" ? "언론사" : label === "동호회" ? "동호회" : "사이트";
   const stat = (title, x) =>
     `<td width="50%" style="padding:4px 6px;background:#f6f8fa;border-radius:6px;">` +
-    `<div style="font-size:10px;color:#6b7079;font-weight:600;">${title}</div>` +
+    `<div style="font-size:10px;color:#6b7079;font-weight:600;white-space:nowrap;">${title}</div>` +
     `<div style="white-space:nowrap;"><b style="font-size:18px;color:#1b1d21;">${x ? num(x.d.today) : "-"}</b>` +
     `<span style="font-size:11px;color:#6b7079;">건</span> ${x ? dashSmallBadge(x.d) : ""}</div></td>`;
   const cellStyle = "padding:2px 3px;font-size:11px;border-top:1px solid #eef0f3;";
@@ -267,20 +267,38 @@ async function renderDash() {
     : `<div class="hint">아직 최종 DB에 기록이 없습니다. 게시물 엑셀을 만들거나 파일을 등록하면 여기에 그날의 건수가 보입니다.</div>`;
 }
 
-async function copyDash() {
+// 차량 이미지는 미리 글자(data 주소)로 바꿔 둔다 → 버튼을 누르는 순간 기다림 없이 바로 복사
+let dashCar = null;
+carDataUrl().then((d) => (dashCar = d)).catch(() => {});
+
+function dashCopied(ok, why = "") {
+  $("#dashInfo").textContent = ok ? "✔ 복사했습니다. 메일 본문에 붙여 넣으세요 (⌘V)." : `복사하지 못했습니다${why ? `: ${why}` : ""}. 다시 눌러 주세요.`;
+  $("#dashInfo").className = ok ? "hint ok" : "hint err";
+}
+
+function copyDash() {
   if (!dashCache) return;
-  const html = dashHtml(dashCache, await carDataUrl());
+  const html = `<html><body>${dashHtml(dashCache, dashCar || chrome.runtime.getURL("icons/logo-car.png"))}</body></html>`;
   const text = dashText(dashCache);
+  // 1) ⌘C 와 같은 방식(복사 이벤트에 서식·글자를 직접 담음) — 메일 프로그램에 가장 잘 붙음
+  let done = false;
+  const onCopy = (e) => {
+    e.clipboardData.setData("text/html", html);
+    e.clipboardData.setData("text/plain", text);
+    e.preventDefault();
+    done = true;
+  };
+  document.addEventListener("copy", onCopy);
   try {
-    await navigator.clipboard.write([
-      new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([text], { type: "text/plain" }) }),
-    ]);
-    $("#dashInfo").textContent = "✔ 복사했습니다. 메일 본문에 붙여 넣으세요 (⌘V).";
-    $("#dashInfo").className = "hint ok";
-  } catch (e) {
-    $("#dashInfo").textContent = `복사하지 못했습니다: ${e.message}`;
-    $("#dashInfo").className = "hint err";
-  }
+    document.execCommand("copy");
+  } catch {}
+  document.removeEventListener("copy", onCopy);
+  if (done) return dashCopied(true);
+  // 2) 안 되면 클립보드 API
+  navigator.clipboard
+    .write([new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([text], { type: "text/plain" }) })])
+    .then(() => dashCopied(true))
+    .catch((e) => dashCopied(false, e.message));
 }
 
 $("#dashCopy")?.addEventListener("click", copyDash);
