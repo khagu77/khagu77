@@ -218,5 +218,6 @@ h2.dbtitle .dbsub { font-size: 14px; font-weight: 600; opacity: 0.85; }
 /* 최종 DB 맨 위 '오늘의 대시보드' (안쪽 서식은 메일에 붙여 넣어도 같게 dashboard.js 에서 직접 지정) */
 .dashbox { margin: 4px 0 18px; }
 .dashbox #dashBody { overflow-x: auto; }
-#dashBody td, #dashBody th { padding: 0; border-bottom: 0; }
+#dashBody td, #dashBody th, .dashmail td, .dashmail th { padding: 0; border-bottom: 0; text-align: inherit; }
+.dashmail table { font-size: inherit; }
 .dashbox .buttons { align-items: center; }

@@ -140,7 +140,7 @@ const dashSmallBadge = (d) => {
 };
 
 // 채널 한 칸: 위에 게시글·댓글 건수(전일 대비), 아래에 출처별 상세(많은 순)
-function dashChannelCell({ label, color }, data) {
+function dashChannelCell({ label, color }, data, fluid = false) {
   const yt = label === "유튜브";
   const p = data.posts.channels.find((x) => x.label === label);
   const c = data.comments.channels.find((x) => x.label === label);
@@ -177,7 +177,7 @@ function dashChannelCell({ label, color }, data) {
       `</table>`
     : "";
   return (
-    `<td width="${DASH_CELL}" style="width:${DASH_CELL}px;padding:0 4px;vertical-align:top;">` +
+    `<td width="${fluid ? "25%" : DASH_CELL}" style="width:${fluid ? "25%" : `${DASH_CELL}px`};padding:0 4px;vertical-align:top;">` +
     `<div style="border:1px solid #e3e6eb;border-top:3px solid ${color};border-radius:8px;padding:6px 7px;background:#ffffff;">` +
     `<div style="display:inline-block;background:${color};color:#fff;font-weight:700;font-size:11px;padding:1px 8px;border-radius:999px;">${esc(label)}</div>` +
     `<table width="100%" cellpadding="0" cellspacing="3" style="width:100%;border-collapse:separate;table-layout:fixed;margin-top:3px;"><tr>` +
@@ -191,12 +191,14 @@ function dashChannelCell({ label, color }, data) {
 
 // 메일·화면 공통 대시보드 HTML (carSrc: 차량 이미지 주소 — 화면은 확장 안 주소, 메일 복사는 그림을 글자로 담은 주소)
 // 왼쪽: 차량 이미지와 제목 · 날짜 · 합계 · 누적 / 오른쪽: 네 채널 칸
-function dashHtml(data, carSrc) {
+function dashHtml(data, carSrc, fluid = false) {
   const total = data.posts.total;
   const cSum = data.comments.channels.reduce((s, x) => s + (x.d.today || 0), 0);
   const cTotal = dashCommentTotal(data);
   const yellow = (d) => (!d || d.diff == null ? "" : d.diff > 0 ? `▲${num(d.diff)}` : d.diff < 0 ? `▼${num(-d.diff)}` : "변동 없음");
-  return `<table width="${DASH_CELL * 4 + 242}" cellpadding="0" cellspacing="0" style="width:${DASH_CELL * 4 + 242}px;border-collapse:separate;font-family:${DASH_FONT};background:#ffffff;border:1px solid #d9dde3;border-radius:12px;max-width:100%;">
+  const W = (px) => (fluid ? "100%" : px); // 화면은 꽉 채우고, 메일은 픽셀 고정 (메일 프로그램이 칸 폭을 바꾸지 않게)
+  const Wcss = (px) => (fluid ? "100%" : `${px}px`);
+  return `<table width="${W(DASH_CELL * 4 + 242)}" cellpadding="0" cellspacing="0" style="width:${Wcss(DASH_CELL * 4 + 242)};border-collapse:separate;font-family:${DASH_FONT};background:#ffffff;border:1px solid #d9dde3;border-radius:12px;max-width:100%;">
   <tr>
   <td width="200" rowspan="2" style="width:200px;vertical-align:top;background:#002c5f;background-image:linear-gradient(160deg,#001a3a 0%,#002c5f 50%,#0b5aa8 100%);padding:14px 14px 12px;color:#ffffff;border-radius:12px 0 0 12px;">
     <div style="font-size:11px;opacity:0.8;line-height:1.35;">팰리세이드(LX3) 전동 시트<br>관련 온라인 동향</div>
@@ -215,9 +217,9 @@ function dashHtml(data, carSrc) {
     </tr></table>
     <div style="font-size:10px;opacity:0.75;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
   </td>
-  <td width="${DASH_CELL * 4}" style="width:${DASH_CELL * 4}px;vertical-align:top;padding:10px 8px 0 6px;height:1px;">
-    <table width="${DASH_CELL * 4}" cellpadding="0" cellspacing="0" style="width:${DASH_CELL * 4}px;border-collapse:collapse;table-layout:fixed;"><tr>
-      ${DASH_CH.map((ch) => dashChannelCell(ch, data)).join("")}
+  <td${fluid ? "" : ` width="${DASH_CELL * 4}"`} style="${fluid ? "" : `width:${DASH_CELL * 4}px;`}vertical-align:top;padding:10px 8px 0 6px;height:1px;">
+    <table width="${W(DASH_CELL * 4)}" cellpadding="0" cellspacing="0" style="width:${Wcss(DASH_CELL * 4)};border-collapse:collapse;table-layout:fixed;"><tr>
+      ${DASH_CH.map((ch) => dashChannelCell(ch, data, fluid)).join("")}
     </tr></table>
   </td>
   </tr>
@@ -282,7 +284,7 @@ async function renderDash() {
   dashCache = await dashData();
   $("#dashCopy").disabled = !dashCache;
   $("#dashBody").innerHTML = dashCache
-    ? dashHtml(dashCache, chrome.runtime.getURL("icons/logo-car.png"))
+    ? dashHtml(dashCache, chrome.runtime.getURL("icons/logo-car.png"), true)
     : `<div class="hint">아직 최종 DB에 기록이 없습니다. 게시물 엑셀을 만들거나 파일을 등록하면 여기에 그날의 건수가 보입니다.</div>`;
 }
 
@@ -297,23 +299,28 @@ function dashCopied(ok, why = "") {
 
 function copyDash() {
   if (!dashCache) return;
-  const html = `<html><body>${dashHtml(dashCache, dashCar || chrome.runtime.getURL("icons/logo-car.png"))}</body></html>`;
+  const body = dashHtml(dashCache, dashCar || chrome.runtime.getURL("icons/logo-car.png"));
   const text = dashText(dashCache);
-  // 1) ⌘C 와 같은 방식(복사 이벤트에 서식·글자를 직접 담음) — 메일 프로그램에 가장 잘 붙음
-  let done = false;
-  const onCopy = (e) => {
-    e.clipboardData.setData("text/html", html);
-    e.clipboardData.setData("text/plain", text);
-    e.preventDefault();
-    done = true;
-  };
-  document.addEventListener("copy", onCopy);
+  // 1) 사람이 화면을 드래그해서 ⌘C 하는 것과 똑같이: 안 보이는 곳에 그려 놓고 선택해서 복사
+  const box = document.createElement("div");
+  box.className = "dashmail";
+  box.style.cssText = "position:fixed;left:-20000px;top:0;";
+  box.innerHTML = body;
+  document.body.appendChild(box);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  const range = document.createRange();
+  range.selectNode(box.firstElementChild);
+  sel.addRange(range);
+  let ok = false;
   try {
-    document.execCommand("copy");
+    ok = document.execCommand("copy");
   } catch {}
-  document.removeEventListener("copy", onCopy);
-  if (done) return dashCopied(true);
-  // 2) 안 되면 클립보드 API
+  sel.removeAllRanges();
+  box.remove();
+  if (ok) return dashCopied(true);
+  // 2) 안 되면 클립보드 API (서식 + 글자)
+  const html = `<html><body>${body}</body></html>`;
   navigator.clipboard
     .write([new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([text], { type: "text/plain" }) })])
     .then(() => dashCopied(true))
