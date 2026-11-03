@@ -204,3 +204,13 @@ button.getbtn.ready::after {
 }
 @keyframes getbtn-badge { from { transform: translateY(0) rotate(-6deg); } to { transform: translateY(-4px) rotate(6deg); } }
 .savebox { margin: 8px 0; }
+
+/* 최종 DB: 게시물 리스트 / 댓글 raw data 제목을 색깔 띠로 (구분이 잘 되게) */
+section[data-kind] { margin-top: 30px; }
+section[data-kind] + section[data-kind] { margin-top: 44px; padding-top: 6px; border-top: 2px dashed var(--border); }
+h2.dbtitle { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 12px; padding: 12px 18px; border-radius: 10px;
+  color: #fff; font-size: 21px; font-weight: 800; letter-spacing: -0.3px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15); }
+h2.dbtitle.buzz { background: #002c5f; }
+h2.dbtitle.raw { background: #0b6e4f; }
+h2.dbtitle .dbsub { font-size: 14px; font-weight: 600; opacity: 0.85; }
+@media (prefers-color-scheme: dark) { h2.dbtitle.buzz { background: #1f4f8a; } h2.dbtitle.raw { background: #12805d; } }

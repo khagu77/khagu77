@@ -1630,17 +1630,14 @@ const lx3Init = init(); // 화면 준비가 끝나면 풀림 (테스트가 기�
 // 오늘 엑셀에 넣은 게시물 수 · 전일(직전 기록일) 대비 증감
 async function showDiffs() {
   const box = $("#diffs");
-  const d = await dbStatDiff("buzz", today(), "posts").catch(() => null);
-  box.hidden = !d;
+  const rows = await dbList("buzz").catch(() => []);
+  const i = rows.findIndex((r) => r.date === today());
+  const { total, channels } = i >= 0 ? statDiffs("buzz", rows, i) : { total: null, channels: [] };
+  box.hidden = !total;
   box.replaceChildren();
-  if (d) box.append(diffLine("오늘 게시물", d));
-  // 합계 아래에 채널별로도
-  const lines = [];
-  for (const [field, label] of [["news", "언론"], ["youtube", "유튜브"], ["cafe", "동호회"], ["community", "자동차 커뮤니티"]]) {
-    const c = await dbStatDiff("buzz", today(), field).catch(() => null);
-    if (c && d) lines.push(diffLine(label, c));
-  }
-  box.append(...lines);
+  if (!total) return;
+  // 합계 아래에 채널별로도 (같은 날짜와 비교 → 채널별 증감을 더하면 합계 증감)
+  box.append(diffLine("오늘 게시물", total), ...channels.map((c) => diffLine(c.label, c.d)));
 }
 
 // 위쪽 '⚙ 설정' 버튼(lx3.html#settings): 설정을 펼치고 그 위치로

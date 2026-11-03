@@ -32,6 +32,12 @@ CAFE_PAGES = {
 
 def take(page, sel, timeout=240000):
     """엑셀은 저절로 받지 않고, 준비되면 반짝이는(.ready) 받기 버튼을 눌러 받는다."""
+    if sel == "#getList":  # 게시물 엑셀: 만들다 오류가 나면 바로 알려 줌
+        for _ in range(int(timeout / 200)):
+            if page.locator(f"{sel}.ready").count() or "만들지 못했습니다" in page.inner_text("#saveInfo"):
+                break
+            page.wait_for_timeout(200)
+        assert "만들지 못했습니다" not in page.inner_text("#saveInfo"), page.inner_text("#saveInfo")
     page.locator(f"{sel}.ready").wait_for(timeout=timeout)
     page.click(sel, force=True)  # 반짝이며 움직이는 버튼이라 움직임과 상관없이 누름
 
@@ -828,8 +834,9 @@ def test_final_db(tmp_path: Path):
         dl.value.save_as(rawout)
         assert dl.value.suggested_filename == f"{today}_raw_data.xlsx"
         page.locator("#summary", has_text="최종 DB에 오늘 파일로 저장").wait_for()
-        assert page.inner_text("#diffs").split("\n") == ["오늘 카페 댓글 0건 (10-08 (목) 대비 ▼ 10 건)", "유튜브 댓글 4건 (10-08 (목) 대비 ▲ 2 건)"] or \
-            page.inner_text("#diffs") == "오늘 카페 댓글 0건 (10-08 (목) 대비 ▼ 10 건)유튜브 댓글 4건 (10-08 (목) 대비 ▲ 2 건)", page.inner_text("#diffs")
+        # 엑셀 순서(언론 → 유튜브 → 동호회 → 자동차 커뮤니티)
+        assert page.inner_text("#diffs").split("\n") == ["유튜브 댓글 4건 (10-08 (목) 대비 ▲ 2 건)", "오늘 카페 댓글 0건 (10-08 (목) 대비 ▼ 10 건)"] or \
+            page.inner_text("#diffs") == "유튜브 댓글 4건 (10-08 (목) 대비 ▲ 2 건)오늘 카페 댓글 0건 (10-08 (목) 대비 ▼ 10 건)", page.inner_text("#diffs")
         assert page.locator("#diffs .diff.up").inner_text() == "▲ 2 건"
         wb = load_workbook(rawout)
         assert list(wb["언론"].values)[1][3] == "언론 댓글"  # 기존 파일에 이어 쓴 것

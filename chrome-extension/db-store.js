@@ -180,3 +180,34 @@ async function fillBaseSelect(sel, kind, value, fileName) {
   sel.disabled = sel.options.length < 2 && !sel.value;
   return sel.value;
 }
+
+// 그날 수집 건수와 전일 대비 (rows: 최신순, i: 그날 기록)
+// 게시물 리스트는 합계(게시물)와 채널별 증감을 모두 '합계를 비교한 같은 날짜'와 비교해, 채널별 증감을 더하면 합계 증감과 같다.
+// 채널별 줄은 그날 기록됐거나(0건 포함) 비교 날짜에 1건 이상 있었던 채널만 (없던 채널은 0건으로 계산)
+const STAT_CHANNELS = {
+  buzz: [["news", "언론"], ["youtube", "유튜브"], ["cafe", "동호회"], ["community", "자동차 커뮤니티"]],
+  raw: [["news", "언론"], ["youtube", "유튜브"], ["comments", "동호회"], ["community", "자동차 커뮤니티"]],
+};
+function statDiffs(kind, rows, i) {
+  const cur = rows[i];
+  const fields = STAT_CHANNELS[kind];
+  const hasCh = (r) => !!r && fields.some(([f]) => r.stats?.[f] != null);
+  const mk = (v, prev, pv) => ({ today: v, prev: pv, prevDate: pv == null ? null : prev?.date || null, diff: pv == null ? null : v - pv });
+  let total = null;
+  let prev;
+  if (kind === "buzz") {
+    prev = rows.slice(i + 1).find((r) => r.stats?.posts != null);
+    if (cur?.stats?.posts != null) total = mk(cur.stats.posts, prev, prev ? prev.stats.posts : null);
+  } else {
+    prev = rows.slice(i + 1).find(hasCh);
+  }
+  const channels = [];
+  if (hasCh(cur)) {
+    for (const [field, label] of fields) {
+      const pv = hasCh(prev) ? prev.stats[field] ?? 0 : null;
+      if (cur.stats[field] == null && !(pv > 0)) continue;
+      channels.push({ field, label, d: mk(cur.stats[field] ?? 0, prev, pv) });
+    }
+  }
+  return { total, channels };
+}

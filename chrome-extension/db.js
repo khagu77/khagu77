@@ -34,20 +34,16 @@ function setInfo(text, cls = "") {
 
 // 그날 수집 건수와 바로 전 기록일 대비 증감 (rows: 최신순)
 function fillCounts(td, kind, rows, i) {
-  const fields =
-    kind === "buzz"
-      ? [["posts", "게시물"], ["news", "언론"], ["youtube", "유튜브"], ["cafe", "동호회"], ["community", "자동차 커뮤니티"]]
-      : [["news", "언론"], ["youtube", "유튜브"], ["comments", "동호회"], ["community", "자동차 커뮤니티"]];
-  // 게시물: 합계 아래에 그날 기록된 채널별 줄을 늘 보여 줌 (채널별 기록이 없는 예전 날짜는 합계만)
-  for (const [field, label] of fields) {
-    const v = rows[i].stats?.[field];
-    if (v === undefined || v === null) continue;
-    const prev = rows.slice(i + 1).find((r) => r.stats?.[field] !== undefined && r.stats?.[field] !== null);
-    const d = { today: v, prev: prev ? prev.stats[field] : null, prevDate: prev?.date || null, diff: prev ? v - prev.stats[field] : null };
+  // 합계(게시물)와 채널별 증감을 같은 비교 날짜로 (채널별 증감을 더하면 합계 증감)
+  const { total, channels } = statDiffs(kind, rows, i);
+  if (total) {
     const line = document.createElement("div");
-    // 채널은 색깔 상자로 (게시물 합계만 글자)
-    if (CHANNEL_CLASS[label]) line.append(channelChip(label), ` ${v.toLocaleString()}건 `, diffBadge(d));
-    else line.append(`${label} ${v.toLocaleString()}건 `, diffBadge(d));
+    line.append(`게시물 ${total.today.toLocaleString()}건 `, diffBadge(total));
+    td.append(line);
+  }
+  for (const c of channels) {
+    const line = document.createElement("div");
+    line.append(channelChip(c.label), ` ${c.d.today.toLocaleString()}건 `, diffBadge(c.d));
     td.append(line);
   }
   if (!td.childNodes.length) td.textContent = "-";

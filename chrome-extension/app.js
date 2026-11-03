@@ -1090,10 +1090,10 @@ async function offerResume() {
 async function showDiffs() {
   const box = $("#diffs");
   box.replaceChildren();
-  for (const [field, label] of [["news", "오늘 언론 댓글"], ["comments", "오늘 카페 댓글"], ["community", "오늘 커뮤니티 댓글"], ["youtube", "유튜브 댓글"]]) {
-    const d = await dbStatDiff("raw", today(), field).catch(() => null);
-    if (d) box.append(diffLine(label, d));
-  }
+  const rows = await dbList("raw").catch(() => []);
+  const i = rows.findIndex((r) => r.date === today());
+  const label = { news: "오늘 언론 댓글", comments: "오늘 카페 댓글", community: "오늘 커뮤니티 댓글", youtube: "유튜브 댓글" };
+  if (i >= 0) for (const c of statDiffs("raw", rows, i).channels) box.append(diffLine(label[c.field], c.d));
   box.hidden = !box.childNodes.length;
 }
 
