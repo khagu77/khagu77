@@ -206,22 +206,22 @@ function dashHtml(data, carSrc, fluid = false) {
   const Wcss = (px) => (fluid ? "100%" : `${px}px`);
   return `<table width="${W(DASH_CELL * 4 + 242)}" cellpadding="0" cellspacing="0" style="width:${Wcss(DASH_CELL * 4 + 242)};border-collapse:separate;font-family:${DASH_FONT};background:#ffffff;border:1px solid #d9dde3;border-radius:12px;max-width:100%;">
   <tr>
-  <td width="200" rowspan="2" style="width:200px;vertical-align:top;background:#002c5f;background-image:linear-gradient(160deg,#001a3a 0%,#002c5f 50%,#0b5aa8 100%);padding:14px 14px 12px;color:#ffffff;border-radius:12px 0 0 12px;">
-    <div style="font-size:11px;opacity:0.8;line-height:1.35;">팰리세이드(LX3) 전동 시트<br>관련 온라인 동향</div>
-    <div style="font-family:'Arial Black','Helvetica Neue',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.05;margin-top:4px;letter-spacing:0.3px;">DASHBOARD</div>
+  <td width="200" rowspan="2" bgcolor="#002c5f" style="width:200px;vertical-align:top;background:#002c5f;background-color:#002c5f;padding:14px 14px 12px;color:#ffffff;border-radius:12px 0 0 12px;">
+    <div style="font-size:11px;color:#c3cfdd;line-height:1.35;">팰리세이드(LX3) 전동 시트<br>관련 온라인 동향</div>
+    <div style="color:#ffffff;font-family:'Arial Black','Helvetica Neue',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.05;margin-top:4px;letter-spacing:0.3px;">DASHBOARD</div>
     ${carSrc ? `<div align="center" style="text-align:center;margin:8px 0 6px;"><img src="${carSrc}" width="138" alt="PALISADE" style="display:inline-block;border:0;"></div>` : `<div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>`}
-    <div style="font-size:13px;font-weight:700;">${esc(prettyDate(data.date))}</div>
-    ${data.period ? `<div style="font-size:10px;opacity:0.8;margin-top:1px;">수집 ${esc(data.period)}</div>` : ""}
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;border-top:1px solid rgba(255,255,255,0.25);"><tr>
-      <td width="50%" style="padding-top:6px;color:#ffffff;vertical-align:top;"><div style="font-size:10px;opacity:0.8;">게시물 합계</div>
-        <div style="font-size:20px;font-weight:800;">${total ? num(total.today) : "-"}<span style="font-size:11px;">건</span></div>
+    <div style="font-size:13px;font-weight:700;color:#ffffff;">${esc(prettyDate(data.date))}</div>
+    ${data.period ? `<div style="font-size:10px;color:#c3cfdd;margin-top:1px;">수집 ${esc(data.period)}</div>` : ""}
+    <table width="100%" cellpadding="0" cellspacing="0" bgcolor="#002c5f" style="margin-top:8px;border-top:1px solid #4d6b8f;background:#002c5f;background-color:#002c5f;"><tr>
+      <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;">게시물 합계</div>
+        <div style="font-size:20px;font-weight:800;color:#ffffff;">${total ? num(total.today) : "-"}<span style="font-size:11px;color:#ffffff;">건</span></div>
         <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(total)}</div></td>
-      <td width="50%" style="padding-top:6px;color:#ffffff;vertical-align:top;"><div style="font-size:10px;opacity:0.8;">댓글 합계</div>
-        <div style="font-size:20px;font-weight:800;">${data.comments.channels.length ? num(cSum) : "-"}<span style="font-size:11px;">건</span></div>
+      <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;">댓글 합계</div>
+        <div style="font-size:20px;font-weight:800;color:#ffffff;">${data.comments.channels.length ? num(cSum) : "-"}<span style="font-size:11px;color:#ffffff;">건</span></div>
         <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(cTotal)}</div>
-        <div style="font-size:10px;opacity:0.8;">유튜브 전체 포함</div></td>
+        <div style="font-size:10px;color:#c3cfdd;">유튜브 전체 포함</div></td>
     </tr></table>
-    <div style="font-size:10px;opacity:0.75;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
+    <div style="font-size:10px;color:#b8c5d6;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
   </td>
   <td${fluid ? "" : ` width="${DASH_CELL * 4}"`} style="${fluid ? "" : `width:${DASH_CELL * 4}px;`}vertical-align:top;padding:10px 8px 0 6px;height:1px;">
     <table width="${W(DASH_CELL * 4)}" cellpadding="0" cellspacing="0" style="width:${Wcss(DASH_CELL * 4)};border-collapse:collapse;table-layout:fixed;"><tr>
