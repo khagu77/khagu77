@@ -200,7 +200,7 @@ function dashHtml(data, carSrc) {
     <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;table-layout:fixed;"><tr>
       ${DASH_CH.map((ch) => dashChannelCell(ch, data)).join("")}
     </tr></table>
-    <div style="font-size:10px;color:#a0a5ad;padding:5px 4px 0;">▲▼ 전일 대비 · 댓글은 그날 새로 모은 건수(유튜브는 시트 전체) · 출처별은 많은 순</div>
+    <div align="right" style="font-size:10px;color:#4a4f57;padding:5px 4px 0;text-align:right;">※ <span style="color:#d93025;font-weight:700;">▲</span><span style="color:#1a5fd0;font-weight:700;">▼</span> 전일 대비 · 댓글은 그날 새로 모은 건수(유튜브는 시트 전체) · 출처별은 많은 순</div>
   </td>
   </tr>
 </table>`;
