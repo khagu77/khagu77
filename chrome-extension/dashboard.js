@@ -114,6 +114,22 @@ async function dashDetail(buzzRec, rawRec) {
   );
 }
 
+// 메일 프로그램이 칸 폭을 멋대로 바꾸지 않게 폭을 픽셀로 고정 (전체 960 = 왼쪽 200 + 오른쪽 760)
+const DASH_CELL = 186;
+
+// 이름을 정해진 폭(대략 글자 수, 영문·숫자는 0.6자)에 맞게 미리 줄임 — 메일에서는 '…' 자동 줄임이 안 됨
+function dashClip(name, em) {
+  let w = 0;
+  let out = "";
+  for (const ch of String(name)) {
+    const cw = /[\u1100-\u11ff\u3000-\u9fff\uac00-\ud7af\uff00-\uffef★☆]/.test(ch) ? 1 : /[A-Z]/.test(ch) ? 0.75 : 0.62;
+    if (w + cw > em) return out.trimEnd() + "…";
+    w += cw;
+    out += ch;
+  }
+  return out;
+}
+
 const DASH_TOP = Infinity; // 출처는 모두 표시 (묶지 않음)
 
 const dashSmallBadge = (d) => {
@@ -131,25 +147,28 @@ function dashChannelCell({ label, color }, data) {
   const list = data.detail?.[label] || [];
   const unitName = yt ? "채널" : label === "언론" ? "언론사" : label === "동호회" ? "동호회" : "사이트";
   const stat = (title, x) =>
-    `<td width="50%" style="padding:4px 6px;background:#f6f8fa;border-radius:6px;">` +
+    `<td width="50%" style="width:50%;padding:4px 6px;background:#f6f8fa;border-radius:6px;white-space:nowrap;">` +
     `<div style="font-size:10px;color:#6b7079;font-weight:600;white-space:nowrap;">${title}</div>` +
-    `<div style="white-space:nowrap;"><b style="font-size:18px;color:#1b1d21;">${x ? num(x.d.today) : "-"}</b>` +
-    `<span style="font-size:11px;color:#6b7079;">건</span> ${x ? dashSmallBadge(x.d) : ""}</div></td>`;
+    `<div style="white-space:nowrap;"><b style="font-size:17px;color:#1b1d21;white-space:nowrap;">${x ? num(x.d.today) : "-"}</b>` +
+    `<span style="font-size:11px;color:#6b7079;">건</span></div>` +
+    `<div style="white-space:nowrap;line-height:1.2;">${x ? dashSmallBadge(x.d) : "&nbsp;"}</div></td>`;
   const cellStyle = "padding:2px 3px;font-size:11px;border-top:1px solid #eef0f3;";
   const n0 = (v) => (v ? num(v) : `<span style="color:#c4c8ce;">0</span>`);
   // 유튜브는 지켜보는 영상 전체 수 (오늘 새로 넣은 영상은 +n)
   const plus = (n) => (n ? `<span style="color:#d93025;font-size:10px;font-weight:700;"> +${num(n)}</span>` : "");
   const first = (x) => (yt ? `${n0(x.videos)}${plus(x.posts)}` : n0(x.posts));
+  const W1 = yt ? 40 : 26; // 글(영상) 칸 폭
+  const W2 = 42; // 댓글 칸 폭
   const row = (x) =>
-    `<tr><td style="${cellStyle}color:#1b1d21;"><div style="max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(x.name)}</div></td>` +
-    `<td style="${cellStyle}text-align:right;font-weight:700;color:#1b1d21;white-space:nowrap;">${first(x)}</td>` +
-    `<td style="${cellStyle}text-align:right;font-weight:700;color:${color};">${n0(x.comments)}</td></tr>`;
+    `<tr><td style="${cellStyle}color:#1b1d21;white-space:nowrap;overflow:hidden;" title="${esc(x.name)}">${esc(dashClip(x.name, yt ? 5.6 : 7.4))}</td>` +
+    `<td width="${W1}" style="${cellStyle}width:${W1}px;text-align:right;font-weight:700;color:#1b1d21;white-space:nowrap;">${first(x)}</td>` +
+    `<td width="${W2}" style="${cellStyle}width:${W2}px;text-align:right;font-weight:700;color:${color};white-space:nowrap;">${n0(x.comments)}</td></tr>`;
   const rest = list.slice(DASH_TOP);
   const sum = (arr, f) => arr.reduce((s, x) => s + x[f], 0);
-  const head = (t) => `<td style="padding:2px 3px;font-size:10px;color:#8a8f98;text-align:right;white-space:nowrap;">${t}</td>`;
+  const head = (t, w) => `<td width="${w}" style="width:${w}px;padding:2px 3px;font-size:10px;color:#8a8f98;text-align:right;white-space:nowrap;">${t}</td>`;
   const detail = data.detail
-    ? `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:6px;">` +
-      `<tr><td style="padding:2px 3px;font-size:10px;color:#8a8f98;">${unitName}별 (${list.length})</td>${head(yt ? "영상(전체)" : "글")}${head("댓글")}</tr>` +
+    ? `<table width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:6px;">` +
+      `<tr><td style="padding:2px 3px;font-size:10px;color:#8a8f98;white-space:nowrap;">${unitName}별 (${list.length})</td>${head(yt ? "영상" : "글", W1)}${head("댓글", W2)}</tr>` +
       (list.length ? list.slice(0, DASH_TOP).map(row).join("") : `<tr><td colspan="3" style="${cellStyle}color:#a0a5ad;">해당 없음</td></tr>`) +
       (rest.length
         ? `<tr><td style="${cellStyle}color:#8a8f98;">외 ${rest.length}곳</td><td style="${cellStyle}text-align:right;color:#8a8f98;">${num(sum(rest, yt ? "videos" : "posts"))}${yt && sum(rest, "posts") ? ` +${num(sum(rest, "posts"))}` : ""}</td>` +
@@ -158,10 +177,10 @@ function dashChannelCell({ label, color }, data) {
       `</table>`
     : "";
   return (
-    `<td width="25%" style="padding:0 4px;vertical-align:top;">` +
+    `<td width="${DASH_CELL}" style="width:${DASH_CELL}px;padding:0 4px;vertical-align:top;">` +
     `<div style="border:1px solid #e3e6eb;border-top:3px solid ${color};border-radius:8px;padding:6px 7px;background:#ffffff;">` +
     `<div style="display:inline-block;background:${color};color:#fff;font-weight:700;font-size:11px;padding:1px 8px;border-radius:999px;">${esc(label)}</div>` +
-    `<table width="100%" cellpadding="0" cellspacing="3" style="border-collapse:separate;margin-top:3px;"><tr>` +
+    `<table width="100%" cellpadding="0" cellspacing="3" style="width:100%;border-collapse:separate;table-layout:fixed;margin-top:3px;"><tr>` +
     stat(yt ? "새 영상" : "게시글", p) +
     stat(yt ? "댓글(전체)" : "댓글", c) +
     `</tr></table>` +
@@ -177,7 +196,7 @@ function dashHtml(data, carSrc) {
   const cSum = data.comments.channels.reduce((s, x) => s + (x.d.today || 0), 0);
   const cTotal = dashCommentTotal(data);
   const yellow = (d) => (!d || d.diff == null ? "" : d.diff > 0 ? `▲${num(d.diff)}` : d.diff < 0 ? `▼${num(-d.diff)}` : "변동 없음");
-  return `<table width="960" cellpadding="0" cellspacing="0" style="border-collapse:separate;font-family:${DASH_FONT};background:#ffffff;border:1px solid #d9dde3;border-radius:12px;max-width:100%;">
+  return `<table width="${DASH_CELL * 4 + 242}" cellpadding="0" cellspacing="0" style="width:${DASH_CELL * 4 + 242}px;border-collapse:separate;font-family:${DASH_FONT};background:#ffffff;border:1px solid #d9dde3;border-radius:12px;max-width:100%;">
   <tr>
   <td width="200" rowspan="2" style="width:200px;vertical-align:top;background:#002c5f;background-image:linear-gradient(160deg,#001a3a 0%,#002c5f 50%,#0b5aa8 100%);padding:14px 14px 12px;color:#ffffff;border-radius:12px 0 0 12px;">
     <div style="font-size:11px;opacity:0.8;line-height:1.35;">팰리세이드(LX3) 전동 시트<br>관련 온라인 동향</div>
@@ -196,8 +215,8 @@ function dashHtml(data, carSrc) {
     </tr></table>
     <div style="font-size:10px;opacity:0.75;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
   </td>
-  <td style="vertical-align:top;padding:10px 8px 0 6px;height:1px;">
-    <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;table-layout:fixed;"><tr>
+  <td width="${DASH_CELL * 4}" style="width:${DASH_CELL * 4}px;vertical-align:top;padding:10px 8px 0 6px;height:1px;">
+    <table width="${DASH_CELL * 4}" cellpadding="0" cellspacing="0" style="width:${DASH_CELL * 4}px;border-collapse:collapse;table-layout:fixed;"><tr>
       ${DASH_CH.map((ch) => dashChannelCell(ch, data)).join("")}
     </tr></table>
   </td>
