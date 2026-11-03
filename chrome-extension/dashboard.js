@@ -63,9 +63,10 @@ async function dashDetail(buzzRec, rawRec) {
   const bump = (ch, name, field, n = 1) => {
     if (!out[ch]) return;
     const k = String(name || "기타").trim() || "기타";
-    const v = out[ch].get(k) || { posts: 0, comments: 0 };
+    const v = out[ch].get(k) || { posts: 0, comments: 0, vids: new Set() };
     v[field] += n;
     out[ch].set(k, v);
+    return v;
   };
   const where = new Map(); // 글 열쇠 → { ch, name } (게시물 리스트 전체에서)
   let hasPosts = false;
@@ -81,7 +82,10 @@ async function dashDetail(buzzRec, rawRec) {
       hasPosts = true;
       const serials = rows.map((r) => Number(r.cells.B)).filter(Number.isFinite);
       const last = Math.max(0, ...serials);
-      for (const r of rows) if (Number(r.cells.B) > last - posts) bump(String(r.cells.C || "동호회").trim(), r.cells.D, "posts");
+      for (const r of rows) if (Number(r.cells.B) > last - posts) {
+        const v = bump(String(r.cells.C || "동호회").trim(), r.cells.D, "posts");
+        if (v && String(r.cells.C || "").trim() === "유튜브") v.vids.add(dashUrlKey(r.cells.G));
+      }
     }
   }
   let hasComments = false;
@@ -100,16 +104,17 @@ async function dashDetail(buzzRec, rawRec) {
     if (names.includes("유튜브")) {
       const rows = (await wb.readRows("유튜브")).filter((r) => r.r > 1 && has(r));
       if (rows.length) hasComments = true;
-      for (const r of rows) bump("유튜브", nameOf(r.cells.E, "기타 영상"), "comments");
+      // 유튜브: 지켜보는 영상(시트에 있는 영상 전체) 수도 채널별로
+      for (const r of rows) bump("유튜브", nameOf(r.cells.E, "기타 영상"), "comments").vids.add(dashUrlKey(r.cells.E));
     }
   }
   if (!hasPosts && !hasComments) return null;
   return Object.fromEntries(
-    Object.entries(out).map(([ch, m]) => [ch, [...m.entries()].map(([name, v]) => ({ name, ...v })).sort((a, b) => b.posts + b.comments - (a.posts + a.comments) || a.name.localeCompare(b.name))]),
+    Object.entries(out).map(([ch, m]) => [ch, [...m.entries()].map(([name, { vids, ...v }]) => ({ name, ...v, videos: vids.size })).sort((a, b) => b.posts + b.comments - (a.posts + a.comments) || a.name.localeCompare(b.name))]),
   );
 }
 
-const DASH_TOP = 5;
+const DASH_TOP = Infinity; // 출처는 모두 표시 (묶지 않음)
 
 const dashSmallBadge = (d) => {
   if (!d || d.diff == null) return `<span style="color:#a0a5ad;font-size:10px;">전일 없음</span>`;
@@ -132,19 +137,22 @@ function dashChannelCell({ label, color }, data) {
     `<span style="font-size:11px;color:#6b7079;">건</span> ${x ? dashSmallBadge(x.d) : ""}</div></td>`;
   const cellStyle = "padding:2px 3px;font-size:11px;border-top:1px solid #eef0f3;";
   const n0 = (v) => (v ? num(v) : `<span style="color:#c4c8ce;">0</span>`);
+  // 유튜브는 지켜보는 영상 전체 수 (오늘 새로 넣은 영상은 +n)
+  const plus = (n) => (n ? `<span style="color:#d93025;font-size:10px;font-weight:700;"> +${num(n)}</span>` : "");
+  const first = (x) => (yt ? `${n0(x.videos)}${plus(x.posts)}` : n0(x.posts));
   const row = (x) =>
     `<tr><td style="${cellStyle}color:#1b1d21;"><div style="max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(x.name)}</div></td>` +
-    `<td style="${cellStyle}text-align:right;font-weight:700;color:#1b1d21;">${n0(x.posts)}</td>` +
+    `<td style="${cellStyle}text-align:right;font-weight:700;color:#1b1d21;white-space:nowrap;">${first(x)}</td>` +
     `<td style="${cellStyle}text-align:right;font-weight:700;color:${color};">${n0(x.comments)}</td></tr>`;
   const rest = list.slice(DASH_TOP);
   const sum = (arr, f) => arr.reduce((s, x) => s + x[f], 0);
   const head = (t) => `<td style="padding:2px 3px;font-size:10px;color:#8a8f98;text-align:right;white-space:nowrap;">${t}</td>`;
   const detail = data.detail
     ? `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:6px;">` +
-      `<tr><td style="padding:2px 3px;font-size:10px;color:#8a8f98;">${unitName}별 (${list.length})</td>${head(yt ? "영상" : "글")}${head("댓글")}</tr>` +
+      `<tr><td style="padding:2px 3px;font-size:10px;color:#8a8f98;">${unitName}별 (${list.length})</td>${head(yt ? "영상(전체)" : "글")}${head("댓글")}</tr>` +
       (list.length ? list.slice(0, DASH_TOP).map(row).join("") : `<tr><td colspan="3" style="${cellStyle}color:#a0a5ad;">해당 없음</td></tr>`) +
       (rest.length
-        ? `<tr><td style="${cellStyle}color:#8a8f98;">외 ${rest.length}곳</td><td style="${cellStyle}text-align:right;color:#8a8f98;">${num(sum(rest, "posts"))}</td>` +
+        ? `<tr><td style="${cellStyle}color:#8a8f98;">외 ${rest.length}곳</td><td style="${cellStyle}text-align:right;color:#8a8f98;">${num(sum(rest, yt ? "videos" : "posts"))}${yt && sum(rest, "posts") ? ` +${num(sum(rest, "posts"))}` : ""}</td>` +
           `<td style="${cellStyle}text-align:right;color:#8a8f98;">${num(sum(rest, "comments"))}</td></tr>`
         : "") +
       `</table>`
@@ -192,7 +200,7 @@ function dashHtml(data, carSrc) {
     <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;table-layout:fixed;"><tr>
       ${DASH_CH.map((ch) => dashChannelCell(ch, data)).join("")}
     </tr></table>
-    <div style="font-size:10px;color:#a0a5ad;padding:5px 4px 0;">▲▼ 전일 대비 · 댓글은 그날 새로 모은 건수(유튜브는 시트 전체) · 출처별은 많은 순 ${DASH_TOP}곳</div>
+    <div style="font-size:10px;color:#a0a5ad;padding:5px 4px 0;">▲▼ 전일 대비 · 댓글은 그날 새로 모은 건수(유튜브는 시트 전체) · 출처별은 많은 순</div>
   </td>
   </tr>
 </table>`;
@@ -225,7 +233,9 @@ function dashText(data) {
     ...(data.detail
       ? ["■ 채널 상세 (게시글/댓글)"].concat(DASH_CH.map(({ label }) => {
           const list = data.detail[label] || [];
-          const items = list.slice(0, DASH_TOP).map((x) => `${x.name} ${num(x.posts)}/${num(x.comments)}`);
+          const items = list.slice(0, DASH_TOP).map((x) =>
+            label === "유튜브" ? `${x.name} 영상 ${num(x.videos)}${x.posts ? `(+${num(x.posts)})` : ""}/${num(x.comments)}` : `${x.name} ${num(x.posts)}/${num(x.comments)}`,
+          );
           if (list.length > DASH_TOP) items.push(`외 ${list.length - DASH_TOP}곳`);
           return `  - ${label}: ${items.join(", ") || "해당 없음"}`;
         }))
