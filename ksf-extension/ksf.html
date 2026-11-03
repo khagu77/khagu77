@@ -16,34 +16,78 @@
         <div class="tools"><a class="tool" href="ksf-db.html">🗄 데이터 DB · 대시보드</a><a class="tool" href="ksf.html#settings">⚙ 설정</a></div>
         <div class="sub">아반떼 · 그랜저 · 싼타페 동호회의 '코세페'에 대한 반응을 차종별로 긍정 · 중립 · 부정 · 단순비난으로</div>
       </div>
+      <nav class="menu steps" id="steps">
+        <a data-tab="1"><span class="num">1</span>🎯 목적·기간·키워드</a>
+        <a data-tab="2"><span class="num">2</span>🔍 게시글 수집</a>
+        <a data-tab="3"><span class="num">3</span>💬 댓글 수집</a>
+        <a data-tab="4"><span class="num">4</span>🧠 성향 분석</a>
+        <a data-tab="5"><span class="num">5</span>📊 보고서·DB</a>
+      </nav>
     </div>
   </header>
   <main>
-
+    <div class="workbar" id="workBar"></div>
     <div id="login" class="login">로그인 상태 확인 중…</div>
+    <div id="summary" class="summary"></div>
+    <div id="log" class="log" hidden></div>
+    <div class="buttons"><button id="diag" class="small" hidden>진단 파일 받기 (개발자에게 보내기)</button></div>
 
-    <section>
-      <h2>1. 기간 정하고 게시물 찾기</h2>
-      <div class="hint">대상 차종 동호회에서 검색어(코리아세일페스타 · 코세페 · K-세일 페스타 · 할인 · 보상 등)를 하나씩 검색해, 기간 안의 <b>코리아 세일 페스타 관련 글</b>을 찾습니다.
-        제목·미리보기에 코세페 단어가 있으면 체크하고, 할인 이야기만 있는 글은 본문·댓글까지 읽어 확인합니다. 찾은 글은 앞서 찾은 글에 더해집니다.</div>
-      <div class="row">
-        <label class="inline">시작일 <input type="date" id="startDate"></label>
-        <label class="inline">끝 날짜 <input type="date" id="endDate"></label>
-        <span class="hint">(기본: 11/1(일) ~ 11/8(일) · 회신 기한 11/9(월) 오후)</span>
+    <!-- ===================== 1. 목적 · 기간 · 키워드 ===================== -->
+    <section class="tab" data-tab="1">
+      <label for="purpose">보고서 작성 목적 <span class="hint">— AI 가 게시물 관련성 판독 · 댓글 성향 분석 · PPT 요약 작성 때 모두 이 목적에 맞춰 판단합니다</span></label>
+      <textarea id="purpose" rows="4"></textarea>
+      <div class="grid2">
+        <div>
+          <label for="issueName">이슈명 <span class="hint">(보고서 제목 · 파일명에 씀. 예: 코리아 세일 페스타)</span></label>
+          <input type="text" id="issueName" class="full">
+        </div>
+        <div>
+          <label>수집 기간</label>
+          <div class="row">
+            <input type="datetime-local" id="startDate"> ~ <input type="datetime-local" id="endDate">
+          </div>
+          <div class="row">
+            <button class="small" id="rangeKsf" title="11/1(일) 0시 ~ 11/8(일) 24시">코세페 기간 (11/1~11/8)</button>
+            <button class="small range" data-hours="24">최근 24시간</button>
+            <button class="small range" data-hours="48">최근 48시간</button>
+            <button class="small range" data-hours="168">최근 7일</button>
+          </div>
+        </div>
       </div>
-      <div class="row"><span class="hint" id="cafeNames"></span></div>
-      <div class="row"><span class="hint" id="jobInfo"></span></div>
+      <label for="keywords">수집 키워드 <span class="hint">(조합 키워드 가능)</span> <button id="suggestKw" class="small pill-btn"><span class="cost-ico">💰 </span>목적으로 키워드 추천</button></label>
+      <textarea id="keywords" rows="5" spellcheck="false"></textarea>
+      <div class="hint">한 줄 = 검색어 하나(줄끼리는 '또는') · 한 줄 안의 띄어 쓴 단어 = 모두 들어간 글('그리고') · <b>A|B</b> = A 또는 B · <b>-단어</b> = 그 말이 들어간 글 빼기<br>
+        예) <code>코세페|코리아세일페스타 보상</code> → "코세페 보상", "코리아세일페스타 보상" 으로 검색</div>
+      <div class="hint kwprev" id="kwPreview"></div>
+      <label>모니터링 동호회 <span class="hint">(<a href="#settings" class="opensettings">설정</a>에서 바꿀 수 있음)</span></label>
+      <div class="hint" id="cafeNames"></div>
+
+      <details class="panel" id="panelAi">
+        <summary><h2>Claude AI 설정</h2><span class="panel-state" id="aiState"></span></summary>
+        <div class="hint">AI 가 글·댓글마다 <b>어느 차종에 대한 반응인지 나누고, 차종마다 코리아 세일 페스타에 대한 긍정·중립·부정·단순비난</b>을 판단합니다
+          (일반적인 말투의 긍부정이 아니라 위 목적·코세페에 대한 반응 기준 · 첨부 분류 예시를 기준으로 씀). 끄면 단어 규칙으로 어림합니다.</div>
+        <fieldset class="ai">
+          <div class="row">
+            <label class="inline">Anthropic API 키 <input type="password" id="aiKey" class="key" placeholder="sk-ant-…" autocomplete="off" spellcheck="false"></label>
+            <button id="aiSave" class="small">저장</button>
+            <button id="aiTest" class="small" title="키가 맞는지 확인합니다 (요금 없음)">키 확인</button>
+            <label class="inline">모델 <select id="aiModel"></select></label>
+          </div>
+          <label class="inline"><input type="checkbox" id="aiOn"> Claude AI 로 판단하기 <span class="hint">(유료 · 키를 저장하면 자동으로 켜짐)</span></label>
+          <div id="aiStatus" class="hint"></div>
+          <div class="hint">API 키는 이 PC 크롬에만 저장되고, 판단을 위해 글의 제목·본문·댓글이 Anthropic(Claude)으로 보내집니다.
+            API 키는 <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> 에서 만들 수 있습니다.</div>
+        </fieldset>
+      </details>
 
       <details id="settings">
-        <summary>설정 (동호회 · 검색어 · 관련 단어 · 차종 이름 · 저장 위치)</summary>
+        <summary>설정 (동호회 · 관련 단어 · 차종 이름 · 저장 위치 · 알림음)</summary>
         <label for="cafeList">동호회 목록 <span class="hint">(한 줄에 하나: <b>차종 | 동호회명 | 영문 카페 주소</b> · 차종 이름이 그대로 보고서의 차종 줄이 됨)</span></label>
         <textarea id="cafeList" rows="10" spellcheck="false"></textarea>
         <table id="cafeInfo" class="compact">
           <thead><tr><th>차종</th><th>동호회명</th><th>영문 주소</th><th>카페 번호 <span class="hint">(찾을 때 자동으로 알아냄, 직접 넣어도 됨)</span></th></tr></thead>
           <tbody></tbody>
         </table>
-        <label for="queries">검색어 <span class="hint">(쉼표로 구분 · 동호회마다 하나씩 검색)</span></label>
-        <textarea id="queries" rows="2" spellcheck="false"></textarea>
         <label for="ksfWords">코세페 단어 <span class="hint">(제목·미리보기에 있으면 '관련 글'로 체크)</span></label>
         <textarea id="ksfWords" rows="2" spellcheck="false"></textarea>
         <label for="saleWords">할인 단어 <span class="hint">(코세페 단어가 없어도 이 단어가 있으면 본문·댓글까지 읽어 확인 · AI 가 코세페 글인지 최종 판단)</span></label>
@@ -54,8 +98,6 @@
         <textarea id="exclude" rows="1" spellcheck="false"></textarea>
         <label for="aiRules">AI 추가 규칙 (메모) <span class="hint">(판단할 때마다 AI 에게 함께 전달 · 담당자 기준이 생기면 여기에 적어 두세요)</span></label>
         <textarea id="aiRules" rows="3" spellcheck="false"></textarea>
-        <label for="pptTitle">보고서 제목 <span class="hint">(PPT 슬라이드 제목 · 엑셀 요약 시트 제목)</span></label>
-        <input type="text" id="pptTitle" class="full" spellcheck="false">
         <label for="searchUrl">카페 검색 주소 형식 <span class="hint">(검색이 안 되면 카페에서 직접 검색한 주소창 주소를 그대로 붙여 넣으세요)</span></label>
         <input type="text" id="searchUrl" class="full" spellcheck="false">
         <label class="inline">검색어마다 최대 <input type="number" id="maxPages" min="1" max="100" class="tiny"> 페이지까지 봅니다 <span class="hint">(시작일보다 오래된 글만 나오면 그 전에 멈춤)</span></label>
@@ -64,95 +106,154 @@
         <div class="row"><span id="folderName" class="folder-name"></span><button id="pickFolder" class="small">폴더 선택</button><button id="clearFolder" class="small" hidden>다운로드 폴더로</button></div>
         <div class="hint">크롬 보안상 폴더 이름만 보이고, 크롬을 새로 켠 뒤 처음 저장할 때 '파일 수정 허용'을 한 번 물을 수 있습니다(허용을 누르세요).</div>
         <label class="inline"><input type="checkbox" id="saveAsk"> 폴더를 고르지 않았을 때: 받을 때마다 저장 위치 묻기</label>
-        <label class="inline"><input type="checkbox" id="soundOn" checked> 끝나면 알림음 '딩동댕' (게시물 찾기 · 본문 읽기 · AI 판단 · TOP5 정리 · 엑셀·PPT 만들기)</label>
+        <label class="inline"><input type="checkbox" id="soundOn" checked> 끝나면 알림음 '딩동댕' (게시물 찾기 · 댓글 수집 · AI 판단 · TOP5 정리 · 보고서 초안 · 엑셀·PPT 만들기)</label>
         <div class="buttons"><button id="resetSettings" class="small">설정 처음 값으로</button></div>
       </details>
-
-      <div class="buttons">
-        <button id="search" class="primary">게시물 찾기</button>
-        <button id="stop" disabled>중지</button>
-      </div>
-      <div id="summary" class="summary"></div>
-      <div id="log" class="log" hidden></div>
-      <div class="buttons"><button id="diag" class="small" hidden>진단 파일 받기 (개발자에게 보내기)</button></div>
+      <div class="buttons"><button class="primary gotab" data-go="2">다음: 게시글 수집 →</button></div>
     </section>
 
-    <details class="panel" id="panelAi">
-      <summary><h2>2. Claude AI 설정 (차종별 반응 판단)</h2><span class="panel-state" id="aiState"></span></summary>
-      <div class="hint">AI 가 글·댓글마다 <b>어느 차종에 대한 반응인지 나누고, 차종마다 코리아 세일 페스타에 대한 긍정·중립·부정·단순비난</b>을 판단합니다
-        (일반적인 말투의 긍부정이 아니라 코세페에 대한 반응 기준 · 첨부 분류 예시를 기준으로 씀). 끄면 단어 규칙으로 어림합니다.</div>
-      <fieldset class="ai">
-        <div class="row">
-          <label class="inline">Anthropic API 키 <input type="password" id="aiKey" class="key" placeholder="sk-ant-…" autocomplete="off" spellcheck="false"></label>
-          <button id="aiSave" class="small">저장</button>
-          <button id="aiTest" class="small" title="키가 맞는지 확인합니다 (요금 없음)">키 확인</button>
-          <label class="inline">모델 <select id="aiModel"></select></label>
-        </div>
-        <label class="inline"><input type="checkbox" id="aiOn"> Claude AI 로 판단하기 <span class="hint">(유료 · 키를 저장하면 자동으로 켜짐)</span></label>
-        <div id="aiStatus" class="hint"></div>
-        <div class="hint">API 키는 이 PC 크롬에만 저장되고, 판단을 위해 글의 제목·본문·댓글이 Anthropic(Claude)으로 보내집니다.
-          API 키는 <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> 에서 만들 수 있습니다.</div>
-      </fieldset>
-    </details>
-
-    <section id="resultBox" hidden>
-      <h2>3. 결과 확인 · 본문·댓글 읽기 · 판단</h2>
-      <div class="hint">체크된 글만 집계·엑셀에 들어갑니다. 코세페와 관계없는 글은 체크를 풀거나 삭제하세요.</div>
+    <!-- ===================== 2. 게시글 수집 ===================== -->
+    <section class="tab" data-tab="2">
+      <div class="hint" id="jobInfo"></div>
+      <div class="buttons">
+        <button id="search" class="primary">게시글 수집 시작</button>
+        <button id="judgePosts" title="본문을 읽은 글을 AI 가 코세페 글인지(관련성) · 차종별 글 성향 · 요약으로 다시 판독"><span class="cost-ico">💰 </span>AI 관련성·성향 판독</button>
+        <button id="stop" class="stopbtn" disabled>중지</button>
+      </div>
+      <div class="statline" id="postStat"></div>
       <div class="row">
-        <label class="inline">차종 <select id="carFilter"><option value="">전체</option></select></label>
+        <div class="seg" id="carSeg"></div>
         <label class="inline">보기 <select id="viewFilter">
-          <option value="">전체</option><option value="checked">체크한 글</option><option value="unchecked">체크 안 한 글</option>
+          <option value="">전체</option><option value="checked">체크한 글</option><option value="unchecked">체크 안 한 글 (AI 가 관련 없다고 본 글 포함)</option>
           <option value="unread">본문 안 읽은 글</option>
         </select></label>
         <label class="inline">정렬 <select id="sortBy"><option value="">차종 → 동호회 → 작성일</option><option value="date">작성일 → 동호회</option></select></label>
-        <button id="selAll" class="small">보이는 글 모두 선택</button>
-        <button id="selNone" class="small">보이는 글 모두 해제</button>
+        <select id="carFilter" hidden><option value="">전체</option></select>
+        <button id="selAll" class="small">보이는 글 모두 체크</button>
+        <button id="selNone" class="small">모두 체크 해제</button>
         <button id="selDelete" class="small danger">선택 삭제</button>
         <button id="clearAll" class="small danger">결과 모두 지우기</button>
       </div>
       <div class="tablewrap">
         <table id="results" class="ksf">
-          <colgroup><col class="w-cb"><col class="w-car"><col class="w-day"><col class="w-title"><col class="w-ops"><col><col class="w-note"><col class="w-del"></colgroup>
-          <thead><tr><th><input type="checkbox" id="checkAll" title="보이는 글 모두 체크/해제"></th><th>차종 · 동호회</th><th>작성일</th><th>제목</th><th>반응 (차종별)</th><th>내용 요약</th><th>비고</th><th></th></tr></thead>
+          <colgroup><col class="w-cb"><col class="w-car"><col class="w-src"><col class="w-title"><col class="w-day"><col class="w-num"><col class="w-tone"><col><col class="w-del"></colgroup>
+          <thead><tr><th><input type="checkbox" id="checkAll" title="보이는 글 모두 체크/해제"></th><th>차종</th><th>출처</th><th>제목 <span class="hint">(누르면 원문)</span></th><th>작성시간</th><th>댓글</th><th>게시글 성향</th><th>AI 판독</th><th></th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
       <div id="resultCount" class="hint"></div>
-
-      <h3>본문·댓글 읽기 → 차종별 반응 판단</h3>
-      <div class="hint">① 체크한 글(과 할인 이야기라 확인할 글)을 하나씩 열어 본문과 <b>댓글·답글</b>을 모두 읽습니다(글 하나에 10~20초 · 이미 읽은 글은 다시 열지 않음).
-        ② AI 가 글마다 코세페 글인지 정하고(직접 체크·해제한 글은 그대로), 글·댓글마다 <b>언급한 차종별로</b> 코세페에 대한 성향과 주요 내용을 판단합니다.
-        차종 이름이 없으면 그 동호회 차종, 여러 차종을 말하면 차종마다 따로 셉니다. 답글은 앞 댓글을 함께 보고 판단합니다.
-        기간 밖에 쓴 댓글은 빠집니다.</div>
-      <div class="hint cost-legend">💰 = 누르면 Claude AI 비용이 드는 버튼 (실행 전에 예상 비용을 보여주고 확인을 받음)</div>
       <div class="buttons">
-        <button id="readBodies" class="primary">본문·댓글 읽고 판단하기</button>
-        <button id="judge" title="본문·댓글은 다시 읽지 않고, 아직 판단하지 않은 글·댓글만 판단합니다">차종별 반응 판단하기</button>
-        <button id="rejudge" class="small" title="기준을 바꿨을 때: 이미 판단한 것도 모두 다시">처음부터 다시 판단하기</button>
+        <button id="dlPosts" class="primary">게시글 목록 엑셀 받기</button>
+        <button id="dlPostsSenti" class="primary green">게시글 + 성향 엑셀 받기</button>
+        <button class="gotab" data-go="3">다음: 체크한 글 댓글 수집 →</button>
       </div>
+      <div id="postsMsg" class="hint"></div>
+    </section>
 
-      <h3>차종별 반응 현황</h3>
-      <div id="statState" class="hint"></div>
+    <!-- ===================== 3. 댓글 수집 ===================== -->
+    <section class="tab" data-tab="3">
+      <div class="hint">체크한 글(과 할인 이야기라 확인할 글)을 하나씩 열어 본문과 <b>댓글·답글</b>을 모두 읽습니다(글 하나에 10~20초 · 댓글 페이지도 끝까지).
+        삭제 댓글과 기간 밖에 쓴 댓글은 빠집니다. 기간 중에 수집했다면 마지막에 <b>새 댓글 다시 수집</b>으로 그 뒤에 달린 댓글을 더 모으세요(이미 판단한 댓글은 그대로).</div>
+      <div class="buttons">
+        <button id="readBodies" class="primary">본문·댓글 수집 시작</button>
+        <button id="recollect" title="이미 읽은 체크한 글을 다시 열어 그 뒤에 달린 댓글만 더합니다">새 댓글 다시 수집</button>
+        <button id="stop2" class="stopbtn" disabled>중지</button>
+      </div>
+      <div class="statline" id="cmtStat"></div>
       <div class="tablewrap">
-        <table id="statTable" class="compact">
-          <thead><tr><th>차종</th><th>게시글</th><th>댓글</th><th>반응 수</th><th>긍정</th><th>중립</th><th>부정</th><th>단순비난</th></tr></thead>
+        <table id="cmtTable" class="compact">
+          <thead><tr><th>차종</th><th>출처</th><th>제목</th><th>작성시간</th><th>댓글 (기간 안)</th><th>상태</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
+      <div class="buttons">
+        <button id="dlComments" class="primary">댓글 엑셀 받기 (raw data)</button>
+        <button class="gotab" data-go="4">다음: 성향 분석 →</button>
+      </div>
+      <div id="commentsMsg" class="hint"></div>
+    </section>
 
-      <h3>차종별 긍정 · 부정 주요 내용 TOP5 <span class="hint">(보고서 3페이지 · 많이 이슈화되고 이야기된 내용 순)</span></h3>
+    <!-- ===================== 4. 성향 분석 ===================== -->
+    <section class="tab" data-tab="4">
+      <div class="hint">성향 기준: 긍정 / 중립 / 부정 / 단순비난 — 일반적인 말투가 아니라 <b>보고서 작성 목적(코리아 세일 페스타)에 대한 태도</b>로, <b>차종별로</b> 판정합니다
+        (차종 이름이 없으면 그 동호회 차종 · 여러 차종을 말하면 차종마다 따로 · 답글은 앞 댓글을 함께 봄).</div>
+      <div class="hint cost-legend">💰 = 누르면 Claude AI 비용이 드는 버튼 (실행 전에 예상 비용을 보여주고 확인을 받음)</div>
+      <div class="buttons">
+        <button id="judge" class="primary">AI 성향 분석 시작</button>
+        <button id="rejudge">처음부터 다시 분석</button>
+        <button id="stop3" class="stopbtn" disabled>중지</button>
+      </div>
+      <div class="statline big" id="toneHead"></div>
+      <details class="panel" id="reBox">
+        <summary>🔁 성향 분석이 마음에 안 들면 — 지시사항을 주고 재분석</summary>
+        <textarea id="reInstr" rows="3" placeholder="예) 기존 구매자 보상 이야기에 '저도요' 처럼 동조만 한 답글도 부정으로 / 할인 금액만 묻는 댓글은 중립"></textarea>
+        <div class="buttons"><button id="reanalyze"><span class="cost-ico">💰 </span>이 지시사항으로 처음부터 다시 분석</button></div>
+      </details>
+      <div class="tablewrap">
+        <table id="statTable" class="compact">
+          <thead><tr><th>차종</th><th>게시글</th><th>댓글</th><th>반응</th><th>긍정</th><th>중립</th><th>부정</th><th>단순비난</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="statState" class="hint"></div>
+      <h3>댓글별 성향 <span class="hint">— 틀린 판정은 바로 고칠 수 있습니다 (고친 것은 보고서·엑셀·TOP5 에 반영)</span></h3>
+      <div class="row">
+        <div class="seg" id="cCarSeg"></div>
+        <div class="seg" id="cToneSeg"></div>
+        <input type="text" id="cSearch" placeholder="댓글 내용으로 찾기" class="search">
+      </div>
+      <div class="tablewrap">
+        <table id="cList" class="compact">
+          <colgroup><col class="w-car"><col class="w-kind"><col><col class="w-post"><col class="w-tone"></colgroup>
+          <thead><tr><th>차종</th><th>구분</th><th>댓글</th><th>게시글</th><th>성향</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="row"><span id="cCount" class="hint"></span><button id="cMore" class="small" hidden>더 보기</button></div>
+      <div class="buttons">
+        <button id="dlSentiment" class="primary">성향 분석 엑셀 받기</button>
+        <button class="gotab" data-go="5">다음: 보고서 작성 →</button>
+      </div>
+      <div id="sentimentMsg" class="hint"></div>
+    </section>
+
+    <!-- ===================== 5. 보고서 · DB ===================== -->
+    <section class="tab" data-tab="5">
+      <h3>① 차종별 긍정 · 부정 주요 내용 TOP5 <span class="hint">(보고서 3페이지 · 많이 이슈화되고 이야기된 내용 순)</span></h3>
       <div id="topState" class="hint"></div>
       <div class="buttons"><button id="groupTop" title="AI 가 원문을 다시 검수(틀린 성향은 고침)하고, 같은 이슈끼리 묶어 많이 이야기된 순으로 TOP5 문구·개수·비율을 정리합니다">주요 내용 TOP5 정리</button></div>
       <div id="topBox"></div>
 
-      <h3>엑셀 · PPT 받기</h3>
-      <div class="hint"><b>엑셀 만들기</b>를 누르면 아래 5개 파일을 한꺼번에 만들어 <b>데이터 DB</b>에 오늘 파일로 저장하고, 📥 받기 버튼이 반짝이며 알림음이 납니다(누르면 받음).
-        게시물·댓글 4종은 <b>이슈 모니터링 보고서 작성 프로그램과 같은 양식</b>입니다(차종마다 시트 하나).<br>
-        · <b>게시물 리스트</b>(로우데이터: No · 출처 · 제목 · 작성시간 · Link · 동호회 차종별 시트) · <b>게시물 성향 분석</b>(같은 양식 + 성향 · 반응 차종별 시트)<br>
-        · <b>댓글 raw data</b>(domain · text · 작성일 · 게시글 URL · 동호회 차종별 시트) · <b>댓글 성향 분석</b>(+ 성향 · 반응 차종별 시트, 여러 차종을 말한 댓글은 차종마다 한 줄)<br>
-        · <b>차종별 반응 요약</b>: 차종별 성향 비율 · 차종별 긍정/부정 TOP5 · 성향별 주요 반응 원문 · 반응 전체(판단 근거) · 판단 기준</div>
+      <h3>② 보고서 초안 <span class="hint">(보고서 1·2페이지 · AI 가 쓰고, 고칠 수 있음)</span></h3>
+      <div class="buttons"><button id="writeReport" class="primary">AI 보고서 초안 작성</button><button id="resetReport" class="small">초안 지우기</button></div>
+      <div id="reportMsg" class="hint"></div>
+      <div class="report-edit">
+        <label>제목 <input type="text" id="rTitle" class="full"></label>
+        <label>모니터링 채널 <input type="text" id="rChannels" class="full"></label>
+        <label>요약 1 (이슈 발생 시점 · 전체 여론 흐름) <input type="text" id="rSum1" class="full"></label>
+        <label>요약 2 (주요 여론 내용 · 차종별 특징 · 반대 성향 여론) <input type="text" id="rSum2" class="full"></label>
+        <label>머리 문장 판단 표현 <span class="hint">(비우면 비율로 자동: 높은 편 · 압도적으로 높은 편 …)</span> <input type="text" id="rHeadline" class="full"></label>
+        <div class="hint" id="rHeadPreview"></div>
+        <div class="quotes-grid" id="rQuotes"></div>
+      </div>
+
+      <h3>③ PPT 보고서 받기 <span class="hint">(1페이지 요약·차트·표 · 2페이지 성향별 주요 댓글 · 3페이지 차종별 TOP5)</span></h3>
+      <div class="hint">보고서 PPT 양식 파일(첨부 샘플처럼 1~3페이지가 있는 파일)을 고르면 그 양식 그대로 채웁니다. 1페이지 표·차트의 채널 줄은 차종(아반떼·그랜저·싼타페) 줄로 바뀝니다.
+        3페이지 그랜저·싼타페 줄에 표가 없으면 아반떼 줄 표를 복제해 넣습니다. 고른 파일은 바뀌지 않습니다.</div>
+      <div class="row">
+        <label class="inline">보고서 PPT 양식 <input type="file" id="pptFile" accept=".pptx"></label>
+        <label class="inline"><input type="checkbox" id="onlySlide"> 3페이지(TOP5)만 받기</label>
+        <button id="savePpt" class="primary" disabled>PPT 만들기 (1~3페이지)</button>
+        <button id="getPpt" class="getbtn" disabled>📥 PPT 받기</button>
+      </div>
+      <div id="pptInfo" class="hint"></div>
+
+      <h3>④ 엑셀 만들기 · 데이터 DB 저장</h3>
+      <div class="hint">아래 5개 파일을 한꺼번에 만들어 <b>데이터 DB</b>에 오늘 파일로 저장하고(대시보드 숫자도 함께), 📥 받기 버튼이 반짝이며 알림음이 납니다(누르면 받음).
+        게시물·댓글 4종은 <b>이슈 모니터링 보고서 작성 프로그램과 같은 양식</b>(차종마다 시트)입니다.</div>
       <div class="buttons">
         <button id="makeFiles" class="primary" disabled>엑셀 만들기 (데이터 DB 저장)</button>
+        <a class="tool-link" href="ksf-db.html">🗄 데이터 DB · 대시보드 열기 →</a>
       </div>
       <div class="buttons getrow">
         <button id="getSummary" class="getbtn" disabled>📥 차종별 반응 요약</button>
@@ -162,15 +263,6 @@
         <button id="getCommentsSenti" class="getbtn" disabled>📥 댓글 성향 분석</button>
       </div>
       <div id="saveInfo" class="hint"></div>
-      <div class="hint" style="margin-top:14px"><b>PPT</b>: 보고서 PPT(첨부 양식 3페이지 '순위 · 내용 · 개수 · 비율' 표가 있는 파일)를 고르면, 그 양식 그대로 차종별 긍정·부정 TOP5 표를 채웁니다.
-        그랜저·싼타페 줄에 표가 없으면 아반떼 줄 표를 복제해 넣습니다. 고른 파일은 바뀌지 않습니다.</div>
-      <div class="row">
-        <label class="inline">보고서 PPT <input type="file" id="pptFile" accept=".pptx"></label>
-        <label class="inline"><input type="checkbox" id="onlySlide"> TOP5 슬라이드만 남기기</label>
-        <button id="savePpt" disabled>PPT 3페이지 채우기</button>
-        <button id="getPpt" class="getbtn" disabled>📥 PPT 받기</button>
-      </div>
-      <div id="pptInfo" class="hint"></div>
     </section>
 
     <p class="note">
@@ -187,5 +279,6 @@
   <script src="ui.js"></script>
   <script src="db-store.js"></script>
   <script src="ksf.js"></script>
+  <script src="ksf-tabs.js"></script>
 </body>
 </html>

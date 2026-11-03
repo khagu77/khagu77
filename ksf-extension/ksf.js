@@ -19,7 +19,19 @@ const DEFAULT_CAFES = [
   "싼타페 | 싼타페MX5클럽 | choids",
   "싼타페 | 싼타페MX5패밀리 | trailer",
 ].join("\n");
-const DEFAULT_QUERIES = "코리아세일페스타, 코리아 세일 페스타, 코세페, K세일페스타, K-세일 페스타, 세일페스타, 세일 페스타, 할인, 프로모션, 특별 할인, 보상";
+// 수집 키워드 (조합): 한 줄 = 검색어 하나 · 띄어 쓴 단어 = 모두 들어간 글 · A|B = A 또는 B · -단어 = 빼기
+const DEFAULT_KEYWORDS = [
+  "코리아세일페스타|코세페|K세일페스타|세일페스타",
+  "코리아 세일 페스타",
+  "K-세일 페스타",
+  "할인|프로모션|특가|보상",
+  "11월 할인|혜택|조건",
+  "-보험",
+].join("\n");
+const DEFAULT_PURPOSE =
+  "11/1(일)~11/8(일) '코리아 세일 페스타(K-세일 페스타)' 기간 현대차 할인 프로모션에 대해, 대상 차종(아반떼·그랜저·싼타페) 동호회 내 고객 반응을 차종별로 확인하고자 함.\n" +
+  "일반적인 말투의 긍부정이 아니라 '코리아 세일 페스타'에 대한 반응 기준으로 긍정·부정을 분류하고, 기존 구매자 보상 요구·역차별 불만, 할인을 계기로 한 구매 검토 등 차종별로 많이 이야기된 주요 내용을 파악함.";
+const DEFAULT_ISSUE = "코리아 세일 페스타";
 // 코세페 단어: 있으면 '관련 글'로 체크
 const DEFAULT_KSF_WORDS = "코리아세일페스타, 코리아 세일 페스타, 코세페, 세일페스타, 세일 페스타, K세일, K-세일, K 세일, 케이세일, KSF";
 // 할인 단어: 코세페 단어가 없어도 기간 안의 할인 이야기는 코세페 반응일 수 있어 본문까지 읽어 확인 (AI 가 최종 판단)
@@ -32,8 +44,8 @@ const DEFAULT_CAR_WORDS = [
 ].join("\n");
 const DEFAULT_EXCLUDE = "팝니다, 삽니다, 판매합니다, 공동구매, 보험 할인, 보험료, 썬팅, 틴팅, 블랙박스";
 const DEFAULT_AI_RULES = "";
-const DEFAULT_START = "2026-11-01";
-const DEFAULT_END = "2026-11-08";
+const DEFAULT_START = "2026-11-01T00:00";
+const DEFAULT_END = "2026-11-08T23:59";
 const DEFAULT_TITLE = "■ 코리아 세일 페스타 관련 차종별 동호회 여론 동향";
 const DEFAULT_SEARCH_URL = "https://cafe.naver.com/f-e/cafes/{cafeId}/menus/0?viewType=L&ta=ARTICLE_COMMENT&page={page}&q={q}";
 const DEFAULT_MAX_PAGES = 10;
@@ -67,16 +79,17 @@ let running = false;
 let stopRequested = false;
 let diagnostics = [];
 let aiSpend = { won: 0, input: 0, output: 0 };
+let report = null; // 보고서 초안 { title, channels, summary: [2], headline, short: {성향: [글]}, long: {성향: [글]}, at }
 let tops = null; // 주요 내용 TOP5 묶음 { sig, by, cars: { 차종: { 긍정: [{ label, keys:[반응 키] }], 부정: [...] } }, at }
 
 // ---------------------------------------------------------------------------
 // 설정
 // ---------------------------------------------------------------------------
 
-const SETTING_IDS = ["cafeList", "queries", "ksfWords", "saleWords", "carWords", "exclude", "aiRules", "pptTitle", "searchUrl", "maxPages"];
+const SETTING_IDS = ["purpose", "issueName", "keywords", "cafeList", "ksfWords", "saleWords", "carWords", "exclude", "aiRules", "searchUrl", "maxPages"];
 const SETTING_DEFAULTS = {
-  cafeList: DEFAULT_CAFES, queries: DEFAULT_QUERIES, ksfWords: DEFAULT_KSF_WORDS, saleWords: DEFAULT_SALE_WORDS, carWords: DEFAULT_CAR_WORDS,
-  exclude: DEFAULT_EXCLUDE, aiRules: DEFAULT_AI_RULES, pptTitle: DEFAULT_TITLE, searchUrl: DEFAULT_SEARCH_URL, maxPages: DEFAULT_MAX_PAGES,
+  purpose: DEFAULT_PURPOSE, issueName: DEFAULT_ISSUE, keywords: DEFAULT_KEYWORDS, cafeList: DEFAULT_CAFES, ksfWords: DEFAULT_KSF_WORDS, saleWords: DEFAULT_SALE_WORDS, carWords: DEFAULT_CAR_WORDS,
+  exclude: DEFAULT_EXCLUDE, aiRules: DEFAULT_AI_RULES, searchUrl: DEFAULT_SEARCH_URL, maxPages: DEFAULT_MAX_PAGES,
 };
 
 async function loadSettings() {
@@ -87,12 +100,14 @@ async function loadSettings() {
   for (const id of SETTING_IDS) $(`#${id}`).value = set[id] ?? SETTING_DEFAULTS[id];
   $("#saveAsk").checked = !!s.saveAsk;
   $("#tabFallback").checked = s.ksfTabFallback ?? true;
-  $("#onlySlide").checked = s.ksfOnlySlide ?? true;
+  $("#onlySlide").checked = !!s.ksfOnlySlide;
   $("#soundOn").checked = s.ksfSound ?? true;
   clubIds = { ...(s.ksfClubIds || {}) };
   for (const [id, slug] of Object.entries(await loadCafeSlugs())) if (!clubIds[slug.toLowerCase()]) clubIds[slug.toLowerCase()] = id;
-  $("#startDate").value = s.ksfStart || DEFAULT_START;
-  $("#endDate").value = s.ksfEnd || DEFAULT_END;
+  // 예전(날짜만) 값은 그날 0시 · 끝 날짜는 23:59 로
+  const dt = (v, t) => (/^\d{4}-\d{2}-\d{2}$/.test(v || "") ? `${v}T${t}` : v);
+  $("#startDate").value = dt(s.ksfStart, "00:00") || DEFAULT_START;
+  $("#endDate").value = dt(s.ksfEnd, "23:59") || DEFAULT_END;
   const sel = $("#aiModel");
   sel.innerHTML = "";
   for (const [id, label] of AI_MODELS) sel.add(new Option(label, id));
@@ -185,8 +200,35 @@ function carWords() {
   return out;
 }
 
+// 조합 키워드 → 검색어 목록 · 빼는 말
+// 한 줄 = 검색어 하나(줄끼리 '또는') · 띄어 쓴 단어 = 모두 들어간 글 · A|B = A 또는 B · -단어 = 그 말이 있는 글 빼기
+function keywordPlan(text = $("#keywords").value) {
+  const queries = [];
+  const minus = [];
+  for (const raw of String(text || "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const parts = line.split(/\s+/).filter(Boolean);
+    const terms = [];
+    for (const p of parts) {
+      if (p.startsWith("-") && p.length > 1) minus.push(p.slice(1));
+      else terms.push(p.split("|").map((x) => x.trim()).filter(Boolean));
+    }
+    if (!terms.length) continue;
+    let combos = [[]];
+    for (const alts of terms) combos = combos.flatMap((c) => alts.map((a) => [...c, a]));
+    for (const c of combos) queries.push(c.join(" "));
+  }
+  return { queries: [...new Set(queries)], minus: [...new Set(minus)] };
+}
+
 function queries() {
-  return [...new Set(String($("#queries").value).split(/[,\n]/).map((q) => q.trim()).filter(Boolean))];
+  return keywordPlan().queries;
+}
+
+function timeOf(v) {
+  const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/);
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] || 0), Number(m[5] || 0)) : null;
 }
 
 function dayOf(v) {
@@ -194,11 +236,11 @@ function dayOf(v) {
   return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
 }
 
-// 기간: { start: 시작일 0시, end: 끝 날짜 다음 날 0시 }
+// 기간: { start: 시작 시각, end: 끝 시각 다음 1분 (그 분까지 포함) }
 function period() {
-  const start = dayOf($("#startDate").value) || new Date(0);
-  const e = dayOf($("#endDate").value);
-  const end = e ? new Date(e.getFullYear(), e.getMonth(), e.getDate() + 1) : new Date(8640000000000000);
+  const start = timeOf($("#startDate").value) || new Date(0);
+  const e = timeOf($("#endDate").value);
+  const end = e ? new Date(e.getTime() + 60000) : new Date(8640000000000000);
   return { start, end };
 }
 
@@ -207,12 +249,18 @@ function inPeriodTime(time, p = period()) {
   return time >= p.start.getTime() && time < p.end.getTime();
 }
 
+// "11/1(일) 00:00 ~ 11/8(일) 23:59"
 function periodText() {
   const f = (v) => {
-    const d = dayOf(v);
-    return d ? `${d.getMonth() + 1}/${d.getDate()}(${"일월화수목금토"[d.getDay()]})` : "?";
+    const d = timeOf(v);
+    return d ? `${d.getMonth() + 1}/${d.getDate()}(${"일월화수목금토"[d.getDay()]}) ${pad(d.getHours())}:${pad(d.getMinutes())}` : "?";
   };
   return `${f($("#startDate").value)} ~ ${f($("#endDate").value)}`;
+}
+
+// 보고서 제목 (보고서 초안의 제목 → 없으면 '이슈명 관련 여론 동향')
+function reportTitle() {
+  return (report?.title || "").trim() || `${($("#issueName").value || DEFAULT_ISSUE).trim()} 관련 차종별 동호회 여론 동향`;
 }
 
 function renderCafeInfo() {
@@ -316,7 +364,7 @@ function judge(text) {
   const t = compactText(text);
   const ksf = wordList($("#ksfWords").value).some((w) => hasWord(t, w));
   const sale = wordList($("#saleWords").value).some((w) => hasWord(t, w));
-  const exc = wordList($("#exclude").value).some((w) => hasWord(t, w));
+  const exc = wordList(`${$("#exclude").value}\n${keywordPlan().minus.join("\n")}`).some((w) => hasWord(t, w));
   return { related: ksf && !exc, candidate: (ksf || sale) && !exc, ksf, sale, exc };
 }
 
@@ -385,15 +433,31 @@ function ruleOps(text, homeCar) {
 }
 
 // 표·엑셀에 쓰는 판단 (AI 결과가 있으면 그것, 없으면 규칙)
+// 담당자가 화면에서 고친 성향(holder.manual = { 차종: 성향 })을 덮어쓴다 - 보고서·엑셀·TOP5 에 그대로 반영
+function withManual(ops, manual) {
+  if (!manual || !Object.keys(manual).length) return ops;
+  const out = ops.map((o) => ({ ...o }));
+  for (const [car, tone] of Object.entries(manual)) {
+    const theme = (o) => (/^(긍정|부정)$/.test(tone) ? (o && o.tone === tone && o.theme ? o.theme : tone === "부정" ? "기타 부정 의견" : "기타 긍정 의견") : "");
+    const o = out.find((x) => x.car === car);
+    if (o) Object.assign(o, { tone, theme: theme(o), reason: `담당자 수정${o.reason ? ` (AI: ${o.tone})` : ""}`, manual: true });
+    else out.push({ car, tone, theme: theme(null), reason: "담당자 수정", manual: true });
+  }
+  return out;
+}
+
 function postOps(x) {
-  if (x.a?.by === "ai" && x.a.v === JUDGE_VERSION) return x.a.ops;
-  return ruleOps(`${x.title}\n${x.body || x.text || ""}`, x.car);
+  const ops = x.a?.by === "ai" && x.a.v === JUDGE_VERSION ? x.a.ops : ruleOps(`${x.title}\n${x.body || x.text || ""}`, x.car);
+  return withManual(ops, x.manual);
 }
 
 function commentOps(x, c) {
-  if (c.a?.by === "ai" && c.a.v === JUDGE_VERSION) return c.a.ops;
-  return ruleOps(c.content, x.car);
+  const ops = c.a?.by === "ai" && c.a.v === JUDGE_VERSION ? c.a.ops : ruleOps(c.content, x.car);
+  return withManual(ops, c.manual);
 }
+
+// 판단이 AI(또는 담당자)로 정해졌는지 (잠정치 표시용)
+const judged = (h) => h.a?.by === "ai" || (h.manual && Object.keys(h.manual).length);
 
 // ---------------------------------------------------------------------------
 // 카페 번호 알아내기: 카페 첫 화면(cafe.naver.com/영문주소)을 열어 화면 속 /cafes/번호/ 단서를 모은다
@@ -754,11 +818,12 @@ async function search(resume = null) {
         const parsed = parseCafeDate(x.dateText);
         if (parsed) dated++;
         const day = parsed ? new Date(parsed.date.getFullYear(), parsed.date.getMonth(), parsed.date.getDate()) : null;
-        if (day && day < p.start) {
+        const startDay = new Date(p.start.getFullYear(), p.start.getMonth(), p.start.getDate());
+        if (day && (day < startDay || (parsed.hasTime && parsed.date < p.start))) {
           older++;
           continue;
         }
-        if (day && day >= p.end) continue;
+        if (day && (parsed.hasTime ? parsed.date >= p.end : day >= p.end)) continue;
         const key = `${job.slug}/${x.articleId}`.toLowerCase();
         const have = items.find((it) => it.key === key);
         if (have) {
@@ -899,9 +964,11 @@ async function readBodies() {
       stopRequested = false;
       return;
     }
-    if (!aiOn()) playChime();
   }
-  await judgeAll();
+  // 다음 단계(성향 분석)는 ④ 탭에서. AI 를 안 쓰면 규칙으로 바로 어림
+  if (!aiOn()) await judgeAll();
+  playChime();
+  setSummary(`${$("#summary").textContent} · 다음: ④ 성향 분석 탭에서 '${aiOn() ? "💰 " : ""}AI 성향 분석 시작'`, $("#summary").className.includes("err") ? "err" : "ok");
 }
 
 // ---------------------------------------------------------------------------
@@ -969,16 +1036,23 @@ ${TONE_RULES}
 
 [반드시] 댓글에 없는 사실을 지어내지 않습니다. 닉네임·개인정보는 쓰지 않습니다.`;
 
+// 보고서 작성 목적 · 이슈명 · 기간 (모든 AI 지시문 맨 앞에) + 담당자 추가 규칙 · 재분석 지시사항
+function purposeText() {
+  const purpose = String($("#purpose")?.value || "").trim();
+  return `[보고서 작성 목적 - 모든 판단은 이 목적에 맞춰서]\n${purpose || DEFAULT_PURPOSE}\n이슈명: ${($("#issueName")?.value || DEFAULT_ISSUE).trim()} · 모니터링 기간: ${periodText()}\n\n`;
+}
+
 function aiExtra() {
   const extra = String($("#aiRules")?.value || "").trim();
-  return extra ? `\n\n[담당자 추가 규칙 - 위 규칙보다 우선]\n${extra}` : "";
+  const re = String($("#reInstr")?.value || "").trim();
+  return (extra ? `\n\n[담당자 추가 규칙 - 위 규칙보다 우선]\n${extra}` : "") + (re ? `\n\n[재분석 지시사항 - 담당자가 준 것, 가장 우선]\n${re}` : "");
 }
 
 function fillSystem(text) {
   const cars = targetCars();
   const words = carWords();
   const carText = cars.map((c) => `${c}(${(words[c] || []).map((w) => w.w).join("·")})`).join(", ");
-  return text.replace("{{cars}}", carText).replace("{{period}}", periodText()) + aiExtra();
+  return purposeText() + text.replace("{{cars}}", carText).replace("{{period}}", periodText()) + aiExtra();
 }
 
 function opsSchema() {
@@ -1171,14 +1245,14 @@ function commentTargets(force = false) {
 }
 
 // 판단: AI 를 켰으면 ① 글(코세페 글인지 · 요약 · 차종별 반응) → ② 체크한 글의 댓글(차종별 반응). 끄면 규칙(어림).
-async function judgeAll({ force = false } = {}) {
+async function judgeAll({ force = false, postsOnly = false } = {}) {
   if (running) return;
   if (!aiOn()) {
     for (const x of items) if (x.checked && !x.summary) x.summary = ruleSummary(x);
     tops = null;
     await saveItems();
     renderResults();
-    setSummary("✔ 규칙(단어)으로 차종별 반응을 어림했습니다. 보고에 쓰려면 Claude AI 를 켜고 '💰 차종별 반응 판단하기'를 눌러 주세요.", "ok");
+    setSummary("✔ 규칙(단어)으로 차종별 반응을 어림했습니다. 보고에 쓰려면 Claude AI 를 켜고 '💰 AI 성향 분석 시작'을 눌러 주세요.", "ok");
     return;
   }
   const model = $("#aiModel").value;
@@ -1186,7 +1260,7 @@ async function judgeAll({ force = false } = {}) {
   // 댓글 수는 글 판단 뒤 체크가 바뀔 수 있어 어림 (지금 체크·확인 대상 글의 댓글)
   const willComments = sortedItems()
     .filter((x) => x.bodyRead && (x.checked || (!x.touched && x.candidate)))
-    .flatMap((x) => (x.commentList || []).filter((c) => inPeriodTime(c.date) && (force || !(c.a?.by === "ai" && c.a.v === JUDGE_VERSION))));
+    .flatMap((x) => (postsOnly ? [] : x.commentList || []).filter((c) => inPeriodTime(c.date) && (force || !(c.a?.by === "ai" && c.a.v === JUDGE_VERSION))));
   if (!posts.length && !willComments.length) {
     renderResults();
     setSummary("판단할 글·댓글이 없습니다 (모두 판단했습니다). 기준을 바꿨으면 '다시 판단하기'를 눌러 주세요.", "ok");
@@ -1216,7 +1290,7 @@ async function judgeAll({ force = false } = {}) {
   await saveItems();
   // ② 댓글 (체크한 글만)
   let cr = { failed: 0, fatal: null };
-  if (!pr.fatal && !stopRequested) {
+  if (!pr.fatal && !stopRequested && !postsOnly) {
     const todo = commentTargets(force);
     const cb = [];
     for (let i = 0; i < todo.length; i += COMMENT_BATCH) cb.push(todo.slice(i, i + COMMENT_BATCH));
@@ -1551,7 +1625,7 @@ async function groupThemes() {
     let out = null;
     for (let attempt = 1; attempt <= 3 && !out; attempt++) {
       try {
-        const { msg, parsed } = await callAi(client, model, GROUP_SYSTEM + aiExtra(), GROUP_SCHEMA,
+        const { msg, parsed } = await callAi(client, model, purposeText() + GROUP_SYSTEM + aiExtra(), GROUP_SCHEMA,
           `차종: ${j.car} · 성향: ${j.tone} · 반응 ${input.length}개\n\n${JSON.stringify(input)}`);
         chargeAi(msg, model, usage);
         const fixes = (parsed.fixes || []).filter((f) => j.rr[Number(f.id)] && f.tone !== j.tone && TONES.includes(f.tone));
@@ -1628,30 +1702,32 @@ function renderResults() {
   const tbody = $("#results tbody");
   tbody.innerHTML = "";
   rowEls.clear();
-  $("#resultBox").hidden = !items.length && !running;
   const list = visibleItems();
   const frag = document.createDocumentFragment();
   for (const item of list.slice(0, 1500)) frag.appendChild(buildRow(item));
   tbody.appendChild(frag);
+  if (!items.length) tbody.innerHTML = `<tr><td colspan="9" class="hint">아직 찾은 글이 없습니다. 위 '게시글 수집 시작'을 눌러 주세요.</td></tr>`;
   if (list.length > 1500) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="8" class="hint">… 화면에는 1,500개까지만 보입니다 (위 차종·보기로 좁혀 보세요).</td>`;
+    tr.innerHTML = `<td colspan="9" class="hint">… 화면에는 1,500개까지만 보입니다 (위 차종·보기로 좁혀 보세요).</td>`;
     tbody.appendChild(tr);
   }
   updateCounts();
+  if (typeof renderTabs === "function") renderTabs();
 }
 
 function buildRow(item) {
   const tr = document.createElement("tr");
   tr.innerHTML =
-    `<td><input type="checkbox"></td><td class="nowrap"></td><td class="nowrap"></td><td><a target="_blank" rel="noopener"></a></td>` +
-    `<td class="ops"></td><td class="sum"></td><td class="note"></td><td><button class="small del">삭제</button></td>`;
-  tr.querySelector("input").addEventListener("change", (e) => {
+    `<td><input type="checkbox" class="pick"></td><td class="nowrap car"></td><td class="src"></td><td class="ttl"><a target="_blank" rel="noopener"></a></td>` +
+    `<td class="nowrap"></td><td class="num"></td><td class="tone-cell"></td><td class="judge"></td><td><button class="small del">삭제</button></td>`;
+  tr.querySelector(".pick").addEventListener("change", (e) => {
     item.checked = e.target.checked;
     item.touched = true;
     tr.className = item.checked ? "" : "off";
     updateCounts();
     saveItemsSoon();
+    if (typeof renderTabs === "function") renderTabs();
   });
   tr.querySelector(".del").addEventListener("click", () => {
     items = items.filter((x) => x !== item);
@@ -1669,41 +1745,60 @@ function toneBadge(tone, text = tone) {
   return Object.assign(document.createElement("b"), { className: `tone tone-${tone}`, textContent: text });
 }
 
+// 성향 고르기 (담당자 수정 → holder.manual[차종]) · AI(규칙) 판정과 같게 고르면 수정 표시를 지움
+function toneSelect(holder, op, onChange) {
+  const sel = document.createElement("select");
+  sel.className = `tone-sel s-${op.tone}${op.manual ? " manual" : ""}`;
+  for (const t of TONES) sel.add(new Option(t, t, false, t === op.tone));
+  sel.title = op.manual ? `담당자 수정 · ${op.reason || ""}` : op.reason || "";
+  sel.addEventListener("change", () => {
+    holder.manual = { ...(holder.manual || {}) };
+    holder.manual[op.car] = sel.value;
+    // 원래 판정과 같으면 수정 표시를 지운다
+    const base = (holder.a?.by === "ai" ? holder.a.ops : null)?.find((o) => o.car === op.car);
+    if (base && base.tone === sel.value) delete holder.manual[op.car];
+    sel.className = `tone-sel s-${sel.value}${holder.manual[op.car] ? " manual" : ""}`;
+    saveItemsSoon();
+    renderStatsSoon();
+    onChange?.();
+  });
+  return sel;
+}
+
 function fillRow(tr, item) {
   tr.className = item.checked ? "" : "off";
-  tr.querySelector("input").checked = item.checked;
-  tr.children[1].replaceChildren(Object.assign(document.createElement("div"), { textContent: item.car }), Object.assign(document.createElement("div"), { className: "hint", textContent: item.cafeName }));
-  tr.children[2].textContent = item.date ? formatDateTime(new Date(item.date), item.hasTime) : "날짜 모름";
+  tr.querySelector(".pick").checked = item.checked;
+  tr.children[1].textContent = item.car;
+  tr.children[2].textContent = item.cafeName;
   const a = tr.querySelector("a");
   a.href = articleUrl(item);
   a.textContent = item.title;
   a.title = articleUrl(item);
-  // 반응: 글의 차종별 성향 + 댓글 성향 건수
-  const cell = tr.children[4];
+  tr.children[4].textContent = item.date ? formatDateTime(new Date(item.date), item.hasTime) : "날짜 모름";
+  tr.children[5].textContent = item.commentsRead ? (item.commentList || []).length.toLocaleString() : typeof item.comments === "number" ? item.comments.toLocaleString() : "";
+  // 게시글 성향: 차종마다 고르기 (본문을 읽은 뒤)
+  const cell = tr.children[6];
   cell.replaceChildren();
   if (item.bodyRead && item.body) {
-    const line = document.createElement("div");
-    line.append("글 ");
-    for (const o of postOps(item)) line.append(toneBadge(o.tone, `${o.car} ${o.tone}`), " ");
-    cell.append(line);
-    const cs = (item.commentList || []).filter((c) => inPeriodTime(c.date)).flatMap((c) => commentOps(item, c));
-    if (cs.length) {
-      const n = toneCounts(cs);
-      const l2 = document.createElement("div");
-      l2.append(`댓글 ${cs.length} `);
-      for (const t of TONES) if (n[t]) l2.append(toneBadge(t, `${t[0] === "단" ? "비난" : t} ${n[t]}`), " ");
-      cell.append(l2);
+    const ops = postOps(item);
+    for (const o of ops) {
+      const line = document.createElement("div");
+      line.className = "tone-line";
+      if (ops.length > 1 || o.car !== item.car) line.append(Object.assign(document.createElement("span"), { className: "hint", textContent: `${o.car} ` }));
+      line.append(toneSelect(item, o, () => fillRow(tr, item)));
+      cell.append(line);
     }
+  } else cell.append(Object.assign(document.createElement("span"), { className: "hint", textContent: "본문 읽은 뒤" }));
+  // AI 판독: 관련 여부 + 요약 (없으면 규칙 메모)
+  const j = tr.children[7];
+  j.replaceChildren();
+  if (item.a?.by === "ai") {
+    j.append(Object.assign(document.createElement("b"), { className: item.ksf === false ? "j-no" : "j-yes", textContent: item.ksf === false ? "무관 " : "관련 " }), item.summary || "");
+  } else {
+    const notes = [item.bodyNote || item.note, item.summary].filter(Boolean);
+    j.append(Object.assign(document.createElement("span"), { className: "hint", textContent: notes.join(" · ") || (item.bodyRead ? "AI 판독 전" : "본문 읽기 전") }));
   }
-  tr.children[5].textContent = item.summary || "";
-  const notes = [];
-  if (item.bodyNote) notes.push(item.bodyNote);
-  else if (item.note) notes.push(item.note);
-  if (item.bodyRead && !item.bodyNote) notes.push(`본문 읽음 · 댓글 ${(item.commentList || []).length}개`);
-  if (item.a?.by === "ai") notes.push(`AI 판단${item.ksf === false ? " (코세페 글이 아니라고 판단 - 체크 해제)" : ""}`);
-  else if (item.bodyRead) notes.push("규칙 어림");
-  notes.push(`검색어: ${item.queries.join(", ")}`);
-  tr.children[6].replaceChildren(...notes.map((t) => Object.assign(document.createElement("div"), { textContent: t })));
+  j.title = `검색어: ${item.queries.join(", ")}`;
 }
 
 function renderRow(item) {
@@ -1720,17 +1815,20 @@ function updateCounts() {
   const coin = aiOn() ? "💰 " : "";
   const left = items.filter((x) => !x.bodyRead && (x.checked || (!x.touched && x.candidate))).length;
   $("#readBodies").textContent = left
-    ? `본문·댓글 읽고 판단하기 (${left.toLocaleString()}개 · 약 ${formatDuration(left * SEC_PER_ARTICLE)})`
-    : "본문·댓글 읽고 판단하기 (모두 읽음)";
+    ? `본문·댓글 수집 시작 (${left.toLocaleString()}개 · 약 ${formatDuration(left * SEC_PER_ARTICLE)})`
+    : "본문·댓글 수집 (모두 읽음)";
   $("#readBodies").disabled = !items.length || running;
-  $("#judge").textContent = `${coin}차종별 반응 판단하기`;
-  $("#rejudge").textContent = `${coin}처음부터 다시 판단하기`;
+  $("#recollect").disabled = !items.some((x) => x.checked && x.bodyRead) || running;
+  $("#judge").textContent = `${coin}AI 성향 분석 시작`;
+  $("#rejudge").textContent = `${coin}처음부터 다시 분석`;
   $("#groupTop").textContent = `${coin}주요 내용 TOP5 정리`;
-  for (const id of ["judge", "rejudge", "groupTop"]) $(`#${id}`).disabled = !n || running;
+  $("#writeReport").textContent = `${coin}AI 보고서 초안 작성`;
+  for (const id of ["judge", "rejudge", "groupTop", "judgePosts", "writeReport", "reanalyze"]) $(`#${id}`).disabled = !n || running;
   $("#makeFiles").disabled = !n || running;
   $("#savePpt").disabled = !n || running;
   $("#selDelete").disabled = !n || running;
   $("#selDelete").textContent = n ? `선택 삭제 (${n}개)` : "선택 삭제";
+  for (const el of document.querySelectorAll(".cost-ico")) el.hidden = !aiOn();
   const vis = visibleItems();
   $("#checkAll").checked = !!vis.length && vis.every((x) => x.checked);
   renderStatsSoon();
@@ -1762,13 +1860,17 @@ function renderStats() {
     }
     tbody.append(tr);
   }
-  const unjudged = rs.filter((r) => !(r.c ? r.c.a?.by === "ai" : r.x.a?.by === "ai")).length;
+  const unjudged = rs.filter((r) => !judged(r.c || r.x)).length;
   $("#statState").textContent = !rs.length
     ? "아직 반응이 없습니다 (체크한 글의 본문·댓글을 읽으면 계산됩니다)."
     : unjudged
-      ? `잠정치: 반응 ${rs.length.toLocaleString()}개 중 ${unjudged.toLocaleString()}개는 규칙(단어)으로 어림한 값입니다${aiOn() ? " - '💰 차종별 반응 판단하기'를 누르면 AI 로 판단" : ""}.`
+      ? `잠정치: 반응 ${rs.length.toLocaleString()}개 중 ${unjudged.toLocaleString()}개는 규칙(단어)으로 어림한 값입니다${aiOn() ? " - '💰 AI 성향 분석 시작'을 누르면 AI 로 판단" : ""}.`
       : `✔ 반응 ${rs.length.toLocaleString()}개 모두 AI 로 판단했습니다.`;
   $("#statState").className = `hint ${rs.length && !unjudged ? "ok" : ""}`;
+  const all = stats[0];
+  $("#toneHead").textContent = all.n
+    ? `분석한 반응 ${all.n.toLocaleString()}개 (게시글 ${all.posts.toLocaleString()} · 댓글 ${all.comments.toLocaleString()}) · 부정 여론(부정+단순비난) ${fmtPct(all.ratio["부정"] + all.ratio["단순비난"])} vs 긍정 ${fmtPct(all.ratio["긍정"])}`
+    : "";
   // TOP5
   const t = topThemes(rs);
   const box = $("#topBox");
@@ -1846,7 +1948,7 @@ function saveItemsSoon() {
 // ---------------------------------------------------------------------------
 
 function fileStem() {
-  const p = (id) => String($(`#${id}`).value || "").replace(/-/g, "").slice(4);
+  const p = (id) => String($(`#${id}`).value || "").slice(0, 10).replace(/-/g, "").slice(4);
   return `${today()}_${OUT_NAME}_${p("startDate")}-${p("endDate")}`;
 }
 
@@ -1867,14 +1969,14 @@ function buildExcel() {
   const tone = (t) => ({ v: t, s: `tone-${t}` });
   const pct = (v, s = "pct") => ({ v: Math.round(v * 10000) / 10000, s });
   const num = (v) => ({ v, s: "center" });
-  const cond = `모니터링 기간 ${$("#startDate").value} ~ ${$("#endDate").value} · 모니터링 채널: 차종별 주요 동호회 (${cafes().map((c) => c.name).join(", ")}) · ` +
+  const cond = `모니터링 기간 ${periodText()} · 모니터링 채널: 차종별 주요 동호회 (${cafes().map((c) => c.name).join(", ")}) · ` +
     `게시글 ${list.length.toLocaleString()}개 · 댓글 ${reportComments(list).length.toLocaleString()}개 · ${formatDateTime(new Date())} 작성`;
-  const unjudged = rs.filter((r) => !(r.c ? r.c.a?.by === "ai" : r.x.a?.by === "ai")).length;
+  const unjudged = rs.filter((r) => !judged(r.c || r.x)).length;
 
   // ① 요약: 차종별 성향 · 차종별 주요 내용 TOP5 (보고서 3p) · 성향별 대표 반응
   const S = [];
   const merges = [];
-  S.push([null, { v: `${$("#pptTitle").value.replace(/^■\s*/, "") || OUT_NAME}`, s: "title" }]);
+  S.push([null, { v: reportTitle(), s: "title" }]);
   merges.push("B1:K1");
   S.push([null, { v: cond, s: "note" }]);
   merges.push("B2:K2");
@@ -1977,8 +2079,8 @@ function buildExcel() {
 // [엑셀 만들기]를 누르면 모두 만들어 데이터 DB 에 오늘 파일로 저장하고, 📥 받기 버튼이 반짝이며 알림음 (누르면 받음)
 // ---------------------------------------------------------------------------
 
-const FILE_BASE = "코리아 세일 페스타_동호회";
-const fileBase = () => `${today()}_${FILE_BASE}`;
+const FILE_BASE = "동호회";
+const fileBase = () => `${today()}_${($("#issueName").value || DEFAULT_ISSUE).replace(/[\\/:*?"<>|]/g, " ").trim()}_${FILE_BASE}`;
 const CAR_COLORS = ["#002c5f", "#00809d", "#a2652a", "#6b6b45", "#7b3fe4"];
 let pending = {}; // 종류 → { name, bytes } (받기 버튼을 누르면 저장)
 
@@ -2078,14 +2180,19 @@ function dashSnapshot() {
     start: $("#startDate").value,
     end: $("#endDate").value,
     period: periodText(),
-    title: ($("#pptTitle").value || "").replace(/^■\s*/, ""),
+    title: reportTitle(),
+    summary: (report?.summary || []).filter(Boolean),
+    headline: report?.headline || "",
+    // 성향별 대표 댓글 (보고서 1페이지와 같은 것 · 초안이 없으면 자동으로 고른 것)
+    short: Object.fromEntries(TONES.map((t) => [t, (typeof pptReportData === "function" ? pptReportData().short[t] : report?.short?.[t] || []).slice(0, 3)])),
+    channels: typeof pptReportData === "function" ? pptReportData().channelsLabel : "",
     cafes: cafes().map((c) => ({ car: c.car, name: c.name })),
     posts: total.posts,
     comments: total.comments,
     reactions: total.n,
     tone: total.tone,
     ratio: total.ratio,
-    unjudged: rs.filter((r) => !(r.c ? r.c.a?.by === "ai" : r.x.a?.by === "ai")).length,
+    unjudged: rs.filter((r) => !judged(r.c || r.x)).length,
     topsAi: top.fresh,
     cars: targetCars().map((car, i) => {
       const s = stats.find((x) => x.car === car);
@@ -2107,7 +2214,7 @@ async function makeFiles() {
   const unread = list.filter((x) => !x.bodyRead).length;
   if (unread && !(await askConfirm(`본문·댓글을 아직 읽지 않은 글이 ${unread}개 있습니다. 이 글들의 댓글은 빠집니다.\n그대로 만들까요?`))) return;
   const rs = reactions(list);
-  const unjudged = rs.filter((r) => !(r.c ? r.c.a?.by === "ai" : r.x.a?.by === "ai")).length;
+  const unjudged = rs.filter((r) => !judged(r.c || r.x)).length;
   if (unjudged && aiOn() && !(await askConfirm(`반응 ${rs.length}개 중 ${unjudged}개는 아직 AI 로 판단하지 않은 규칙 어림입니다 (성향 칸이 어림값).\n그대로 만들까요? ([취소] 후 '💰 차종별 반응 판단하기')`))) return;
   $("#saveInfo").className = "hint";
   $("#saveInfo").textContent = "엑셀 만드는 중…";
@@ -2179,15 +2286,19 @@ async function savePpt() {
   $("#pptInfo").textContent = "PPT 만드는 중…";
   readyButton($("#getPpt"), false);
   try {
+    if (!$("#onlySlide").checked && !report?.summary?.some(Boolean) && aiOn() &&
+      (await askConfirm("1페이지 2줄 요약·대표 댓글(보고서 초안)이 아직 없습니다.\n· [확인]: 먼저 💰 AI 보고서 초안을 쓰고 PPT 만들기\n· [취소]: 요약 없이(대표 댓글은 자동으로 골라) 만들기"))) {
+      await writeReport();
+    }
     const { bytes, filled } = await PptFill.fill(new Uint8Array(await file.arrayBuffer()), {
-      cars, title: $("#pptTitle").value.trim(), onlyThis: $("#onlySlide").checked,
+      cars, title: `■ ${reportTitle()}`, onlyThis: $("#onlySlide").checked, report: pptReportData(),
     });
     const name = `${fileBase()}_차종별 반응 보고서.pptx`;
     pending.ppt = { name, bytes };
     await dbSaveDay("ppt", today(), name, bytes, "auto", `TOP5 표 ${filled.length}개`, null).catch(() => {});
     readyButton($("#getPpt"), true);
     $("#pptInfo").className = "hint ok";
-    $("#pptInfo").textContent = `✔ PPT 를 만들었습니다 - 표 ${filled.length}개 채움 (${filled.join(" · ")})${t.fresh ? "" : " · TOP5 는 같은 문구끼리 센 값"} · 데이터 DB 에도 저장. 반짝이는 📥 PPT 받기를 누르세요.`;
+    $("#pptInfo").textContent = `✔ PPT 를 만들었습니다 - ${filled.join(" · ")} 채움${t.fresh ? "" : " · TOP5 는 같은 문구끼리 센 값"} · 데이터 DB 에도 저장. 반짝이는 📥 PPT 받기를 누르세요.`;
     playChime();
   } catch (e) {
     $("#pptInfo").className = "hint err";
@@ -2210,7 +2321,7 @@ function startBusy() {
   running = true;
   stopRequested = false;
   $("#search").disabled = true;
-  $("#stop").disabled = false;
+  for (const b of document.querySelectorAll(".stopbtn")) b.disabled = false;
   updateCounts();
 }
 
@@ -2218,8 +2329,9 @@ function endBusy() {
   running = false;
   hideBusy();
   $("#search").disabled = false;
-  $("#stop").disabled = true;
+  for (const b of document.querySelectorAll(".stopbtn")) b.disabled = true;
   updateCounts();
+  if (typeof renderTabs === "function") renderTabs();
 }
 
 async function checkLogin() {
@@ -2254,7 +2366,7 @@ async function init() {
       if (id === "searchUrl") $("#searchUrl").value = normalizeSearchUrl($("#searchUrl").value);
       await saveSettings();
       if (id === "cafeList") renderCafeInfo();
-      if (["queries", "maxPages"].includes(id)) updateJobInfo();
+      if (["keywords", "maxPages"].includes(id)) updateJobInfo();
       if (["cafeList", "carWords"].includes(id)) renderResults();
       if (["ksfWords", "saleWords", "exclude"].includes(id)) {
         for (const x of items) {
@@ -2287,9 +2399,9 @@ async function init() {
     const r = await loadResume("ksf");
     search(r && (await askConfirm(`중단된 게시물 찾기가 있습니다 (${r.jobs.length}개 중 ${r.next}개 완료 · 기간 ${r.start || "?"} ~ ${r.end || "?"}).\n\n· [확인]: 이어서 찾기\n· [취소]: 처음부터 다시 찾기`)) ? r : null);
   });
-  $("#stop").addEventListener("click", () => {
+  for (const b of document.querySelectorAll(".stopbtn")) b.addEventListener("click", () => {
     stopRequested = true;
-    $("#stop").disabled = true;
+    for (const x of document.querySelectorAll(".stopbtn")) x.disabled = true;
     setSummary("중지하는 중… (지금 하는 것까지 마칩니다)");
   });
   $("#carFilter").addEventListener("change", renderResults);

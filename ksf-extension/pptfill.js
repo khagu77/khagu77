@@ -7,8 +7,8 @@
 //  - 표의 1~5위 줄에 내용 · 개수 · 비율을 쓴다 (모자라면 빈칸, 양식의 '예시)' 글은 지움).
 //  - 제목을 바꾸고, 원하면 나머지 슬라이드는 뺀다(쓰지 않게 된 차트·노트 등은 함께 지움).
 //
-// PptFill.fill(bytes, { cars: { 아반떼: { pos: [{ label, count, ratio }], neg: [...] }, ... }, title, onlyThis })
-//   → Promise<Uint8Array>
+// PptFill.fill(bytes, { cars: { 아반떼: { pos: [{ label, count, ratio }], neg: [...] }, ... }, title, onlyThis, report })
+//   → Promise<{ bytes, filled }>  (report 를 주면 1·2페이지도 채움 - fillReportSlides)
 (function (global) {
   const A = "http://schemas.openxmlformats.org/drawingml/2006/main";
   const P = "http://schemas.openxmlformats.org/presentationml/2006/main";
@@ -165,7 +165,265 @@
     files.set("[Content_Types].xml", Zip.bytes(ser(ct)));
   }
 
-  async function fill(bytes, { cars = {}, title = "", onlyThis = true } = {}) {
+
+  // ======================================================================
+  // 1·2페이지 (이슈 모니터링 보고서 작성 프로그램의 report-pptx.js 를 차종 줄로 바꿔 가져온 것)
+  //  1p: 제목 · 모니터링 기간/채널 · 2줄 요약 · 머리 문장(부정 vs 긍정) · 차종별 표 · 100% 누적 막대 차트 · 성향별 주요 내용(짧은 인용)
+  //  2p: 성향별 주요 댓글 여론(긴 인용, 1p 에 쓴 댓글은 빼고)
+  // 도형은 양식의 이름(제목 9 · 직사각형 25/31/21 · 표 15/17/16 · 차트)으로 찾는다
+  // ======================================================================
+  const SENTI = ["긍정", "중립", "부정", "단순비난"];
+  const xesc = (t) => String(t ?? "").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  function shapeRange(xml, name) {
+    const at = xml.indexOf(`name="${name}"`);
+    if (at < 0) return null;
+    const starts = [xml.lastIndexOf("<p:sp>", at), xml.lastIndexOf("<p:graphicFrame>", at)];
+    const start = Math.max(...starts);
+    const tag = start === starts[0] ? "</p:sp>" : "</p:graphicFrame>";
+    return [start, xml.indexOf(tag, at) + tag.length];
+  }
+  function replaceShape(xml, name, fn) {
+    const r = shapeRange(xml, name);
+    if (!r) return xml;
+    return xml.slice(0, r[0]) + fn(xml.slice(r[0], r[1])) + xml.slice(r[1]);
+  }
+  const runsOf = (p) => [...p.matchAll(/<a:r>(.*?)<\/a:r>/gs)].map((m) => m[1]);
+  const rPrOf = (run) => (run.match(/<a:rPr[^>]*\/>|<a:rPr[^>]*>.*?<\/a:rPr>/s) || [""])[0];
+  function rewriteParagraph(p, parts) {
+    const runs = runsOf(p);
+    const pPr = (p.match(/<a:pPr[^>]*\/>|<a:pPr[^>]*>.*?<\/a:pPr>/s) || [""])[0];
+    const end = (p.match(/<a:endParaRPr[^>]*\/>|<a:endParaRPr[^>]*>.*?<\/a:endParaRPr>/s) || [""])[0];
+    const body = parts.map(([i, t]) => `<a:r>${rPrOf(runs[Math.min(i, runs.length - 1)] || "")}<a:t>${xesc(t)}</a:t></a:r>`).join("");
+    return `<a:p>${pPr}${body}${end}</a:p>`;
+  }
+  function setParagraphs(xml, texts) {
+    const m = xml.match(/<([ap]):txBody>(.*?)<\/\1:txBody>/s);
+    if (!m) return xml;
+    const paras = m[2].match(/<a:p>.*?<\/a:p>|<a:p\/>/gs) || [];
+    const before = paras.length ? m[2].slice(0, m[2].indexOf(paras[0])) : m[2];
+    const ps = texts.map((t, i) => rewriteParagraph(paras[Math.min(i, paras.length - 1)] || "<a:p></a:p>", Array.isArray(t) ? t : [[0, t]]));
+    return xml.replace(m[0], `<${m[1]}:txBody>${before}${ps.join("")}</${m[1]}:txBody>`);
+  }
+  function mapTableRows(xml, fn) {
+    let i = -1;
+    return xml.replace(/<a:tr h="(\d+)">(.*?)<\/a:tr>/gs, (all, h, inner) => {
+      i++;
+      let j = -1;
+      const cells = [];
+      const out = inner.replace(/<a:tc(?: [^>]*)?>.*?<\/a:tc>/gs, (tc) => {
+        j++;
+        cells.push(tc);
+        return `@@TC${j}@@`;
+      });
+      const res = fn(i, cells, +h);
+      if (res === false) return ""; // 줄 지우기
+      const r = res || {};
+      return `<a:tr h="${r.height || h}">${out.replace(/@@TC(\d+)@@/g, (_, k) => (r.cells || cells)[+k])}</a:tr>`;
+    });
+  }
+  const SUMMARY_LINE = 70;
+  const textWidth = (t) => [...String(t)].reduce((w, ch) => w + (/[ᄀ-ᇿ㄰-㆏가-힯一-鿿　-〿]/.test(ch) ? 1 : 0.55), 0);
+  const rpct = (x) => `${(Math.round(x * 1000) / 10).toFixed(1)}%`;
+  const rnum = (n) => Number(n || 0).toLocaleString("en-US");
+  const pad2 = (n) => String(n).padStart(2, "0");
+  // PPT 서체에 없는 이모지 등은 까만 네모로 보이므로 뺀다 · 답글 앞 @닉네임도 뺀다
+  const pptSafe = (text) => String(text || "")
+    .replace(/^\s*@\S+\s*/, "")
+    .replace(/[\p{Extended_Pictographic}\u{1F000}-\u{1FAFF}\u{1F1E6}-\u{1F1FF}\u{E000}-\u{F8FF}︀-️​-‍⁠⃣�]/gu, "")
+    .replace(/[\uD800-\uDFFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  function fitQuotes(list, budget, maxEach = 150) {
+    const out = [];
+    const used = [];
+    let len = 0;
+    for (const raw of list || []) {
+      let t = pptSafe(raw).replace(/[‘’]/g, "'");
+      if (!t) continue;
+      const chars = Array.from(t);
+      if (chars.length > maxEach) t = `${chars.slice(0, maxEach - 1).join("")}…`;
+      const piece = `‘${t}’`;
+      if (out.length && len + piece.length + 2 > budget) break;
+      out.push(piece);
+      used.push(raw);
+      len += piece.length + 2;
+    }
+    return { text: out.join(", "), used };
+  }
+  const quoteKey = (t) => String(t || "").replace(/[\s‘’'"“”]/g, "");
+  function headlinePhrase(neg, pos) {
+    const hi = Math.max(neg, pos);
+    const lo = Math.min(neg, pos);
+    if (hi - lo < 0.03) return "비슷한 수준";
+    if (hi >= lo * 5 || hi - lo >= 0.4) return "압도적으로 높은 편";
+    if (hi >= lo * 2) return "높은 편";
+    return "다소 높은 편";
+  }
+  const md = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+  const hm = (d) => `${pad2(d.getHours())}시 ${pad2(d.getMinutes())}분`;
+
+  // 차트 원본 데이터(PPT '데이터 편집' 때 보이는 엑셀)도 같은 값으로: 2행부터 이름(글자)·값을 새로 쓴다
+  async function fixChartWorkbook(bytes, cats, vals) {
+    const emb = await Zip.read(bytes);
+    const path = "xl/worksheets/sheet1.xml";
+    let sh = Zip.text(emb.get(path));
+    const cols = ["B", "C", "D", "E"];
+    const rowXml = (k) => {
+      const r = k + 2;
+      return `<row r="${r}"><c r="A${r}" t="inlineStr"><is><t>${xesc(cats[k])}</t></is></c>${cols.map((c, si) => `<c r="${c}${r}" s="1"><v>${Math.round((vals[si][k] || 0) * 1000) / 1000}</v></c>`).join("")}</row>`;
+    };
+    sh = sh.replace(/<sheetData>(.*?)<\/sheetData>/s, (all, inner) => {
+      const first = (inner.match(/<row r="1"[^>]*>.*?<\/row>|<row r="1"[^>]*\/>/s) || [""])[0];
+      return `<sheetData>${first}${cats.map((_, k) => rowXml(k)).join("")}</sheetData>`;
+    }).replace(/<dimension ref="[^"]*"\/>/, `<dimension ref="A1:E${cats.length + 1}"/>`);
+    emb.set(path, Zip.bytes(sh));
+    return Zip.write(emb);
+  }
+
+  // report: { title, summary[], headline, from, to, channelsLabel, rows[차종], stats{전체|차종: {posts, comments, n, 긍정…}}, short{성향:[글]}, long{성향:[글]} }
+  async function fillReportSlides(files, slides, report) {
+    const done = [];
+    const all = report.stats["전체"] || { posts: 0, comments: 0, n: 0 };
+    const rate = (st, s) => (st && st.n ? (st[s] || 0) / st.n : 0);
+    const negAll = rate(all, "부정") + rate(all, "단순비난");
+    const posAll = rate(all, "긍정");
+    const titleParts = [[0, " ■"], [1, ` ${report.title}`]];
+    const s1 = slides.find((s) => /name="표 15"/.test(Zip.text(files.get(s.part))) && /name="표 17"/.test(Zip.text(files.get(s.part))));
+    const s2 = slides.find((s) => s !== s1 && /name="표 16"/.test(Zip.text(files.get(s.part))));
+    const page1Shown = {};
+    if (s1) {
+      let x1 = Zip.text(files.get(s1.part));
+      x1 = replaceShape(x1, "제목 9", (x) => setParagraphs(x, [titleParts]));
+      const from = new Date(report.from);
+      const to = new Date(report.to);
+      x1 = replaceShape(x1, "직사각형 25", (x) => setParagraphs(x, [`모니터링 기간 : ${md(from)} ${hm(from)} ~ ${md(to)} ${hm(to)}`, `모니터링 채널 : ${report.channelsLabel}`]));
+      const sumLines = (report.summary.length ? report.summary : [""]).slice(0, 3).map((t) => ` ${pptSafe(t)}`);
+      x1 = replaceShape(x1, "직사각형 31", (x) => {
+        x = setParagraphs(x, sumLines);
+        const lines = sumLines.reduce((n, t) => n + Math.max(1, Math.ceil(textWidth(t) / SUMMARY_LINE)), 0);
+        if (lines <= 3) return x;
+        const sz = Math.max(1000, Math.floor((1400 * 3) / lines / 50) * 50);
+        return x.replace(/(<a:(?:rPr|endParaRPr)[^>]*?) sz="\d+"/g, `$1 sz="${sz}"`);
+      });
+      const phrase = report.headline || headlinePhrase(negAll, posAll);
+      const headParts = negAll >= posAll
+        ? [[0, "부정 여론"], [1, "(부정+단순비난)"], [6, `이 긍정 여론 比 ${phrase} `], [10, "("], [11, rpct(negAll)], [12, " vs "], [13, rpct(posAll)], [14, ")"]]
+        : [[0, "긍정 여론"], [6, "이 부정 여론"], [1, "(부정+단순비난)"], [6, ` 比 ${phrase} `], [10, "("], [13, rpct(posAll)], [12, " vs "], [11, rpct(negAll)], [14, ")"]];
+      x1 = replaceShape(x1, "직사각형 21", (x) => setParagraphs(x, [headParts]));
+      // 차종별 표: 머리 '채널'→'차종', 전체 줄, 차종 줄 (양식의 채널 4줄을 차종 수만큼)
+      const rows = report.rows;
+      x1 = replaceShape(x1, "표 15", (x) => {
+        // 차종 줄 수 맞추기: 모자라면 마지막 줄을 복제, 남으면 지움 · 세로 합친 칸 수도 맞춤
+        const trs = x.match(/<a:tr h="\d+">.*?<\/a:tr>/gs) || [];
+        const body = trs.slice(2);
+        if (body.length && rows.length > body.length) {
+          const extra = Array.from({ length: rows.length - body.length }, () => body[body.length - 1]).join("");
+          x = x.replace(body[body.length - 1], body[body.length - 1] + extra);
+        }
+        x = x.replace(/rowSpan="\d+"/, `rowSpan="${rows.length}"`);
+        const valsOf = (st) => (st && (st.posts || st.n) ? [rnum(st.posts), rnum(st.comments), ...SENTI.map((s) => (st.n ? rpct(rate(st, s)) : "-"))] : ["-", "-", "-", "-", "-", "-"]);
+        return mapTableRows(x, (i, cells) => {
+          if (i === 0) return { cells: cells.map((c, j) => (j === 0 ? setParagraphs(c, ["차종"]) : c)) };
+          if (i === 1) {
+            const v = valsOf(report.stats["전체"]);
+            return { cells: cells.map((c, j) => (j >= 2 ? setParagraphs(c, [v[j - 2]]) : c)) };
+          }
+          const name = rows[i - 2];
+          if (!name) return false;
+          const v = valsOf(report.stats[name]);
+          return { cells: cells.map((c, j) => (j === 0 && i === 2 ? setParagraphs(c, ["동호회"]) : j === 1 ? setParagraphs(c, [name]) : j >= 2 ? setParagraphs(c, [v[j - 2]]) : c)) };
+        });
+      });
+      // 성향별 주요 내용 (짧은 인용)
+      x1 = replaceShape(x1, "표 17", (x) => mapTableRows(x, (i, cells) => {
+        if (i === 0) return null;
+        const s = SENTI[i - 1];
+        const fit = fitQuotes(report.short[s] || [], 230, 90);
+        page1Shown[s] = fit.used;
+        return { cells: cells.map((c, j) => (j === 1 ? setParagraphs(c, [rpct(rate(all, s))]) : j === 2 ? setParagraphs(c, [fit.text || "-"]) : c)) };
+      }));
+      files.set(s1.part, Zip.bytes(x1));
+      done.push("1p");
+      // 차트 (가로 100% 누적 막대, 아래→위: 마지막 차종 … 첫 차종, 전 차종)
+      const rels = files.get(relsPath(s1.part)) ? Zip.text(files.get(relsPath(s1.part))) : "";
+      const chartTarget = (rels.match(/Target="([^"]*charts\/chart\d+\.xml)"/) || [])[1];
+      if (chartTarget) {
+        const chartPart = resolve(s1.part, chartTarget);
+        const cats = [...rows].reverse().concat(["전 차종"]);
+        const vals = SENTI.map((s) => cats.map((c) => rate(report.stats[c === "전 차종" ? "전체" : c], s)));
+        let chart = Zip.text(files.get(chartPart));
+        const lblTpl = (chart.match(/<c:dLbls>.*?<\/c:dLbls>/s) || [""])[0];
+        const last = cats.length + 1;
+        chart = chart.replace(/(\$[A-E]\$2:\$[A-E]\$)\d+/g, `$1${last}`);
+        chart = chart.replace(/<c:cat>.*?<\/c:cat>/gs, (cat) => cat.replace(/<c:strCache>.*?<\/c:strCache>/s,
+          `<c:strCache><c:ptCount val="${cats.length}"/>${cats.map((c, k) => `<c:pt idx="${k}"><c:v>${xesc(c)}</c:v></c:pt>`).join("")}</c:strCache>`));
+        let si = -1;
+        chart = chart.replace(/<c:ser>.*?<\/c:ser>/gs, (ser) => {
+          si++;
+          const v = vals[si] || [];
+          ser = ser.replace(/<c:val>(.*?)<\/c:val>/s, (a, inner) => `<c:val>${inner.replace(/<c:numCache>(.*?)<\/c:numCache>/s, (b, nc) => {
+            const fmt = (nc.match(/<c:formatCode>.*?<\/c:formatCode>/s) || [""])[0];
+            return `<c:numCache>${fmt}<c:ptCount val="${cats.length}"/>${v.map((x, k) => `<c:pt idx="${k}"><c:v>${Math.round((x || 0) * 1000) / 1000}</c:v></c:pt>`).join("")}</c:numCache>`;
+          })}</c:val>`);
+          if (!/<c:dLbls>/.test(ser) && lblTpl) ser = ser.replace(/(<c:invertIfNegative[^>]*\/>)/, `$1${lblTpl}`);
+          // 막대가 너무 짧은(5% 미만) 칸은 수치가 삐져나오므로 숨김
+          const hide = v.map((x, k) => ((x > 0 && x < 0.05) || !x ? `<c:dLbl><c:idx val="${k}"/><c:delete val="1"/></c:dLbl>` : "")).join("");
+          return ser.replace(/<c:dLbls>(?:<c:dLbl>.*?<\/c:dLbl>)*/s, `<c:dLbls>${hide}`);
+        });
+        files.set(chartPart, Zip.bytes(chart));
+        const crels = files.get(relsPath(chartPart)) ? Zip.text(files.get(relsPath(chartPart))) : "";
+        const embT = (crels.match(/Target="([^"]*embeddings\/[^"]+\.xlsx)"/) || [])[1];
+        if (embT) {
+          const embPart = resolve(chartPart, embT);
+          if (files.has(embPart)) files.set(embPart, await fixChartWorkbook(files.get(embPart), cats, vals).catch(() => files.get(embPart)));
+        }
+        done.push("1p 차트");
+      }
+    }
+    if (s2) {
+      let x2 = Zip.text(files.get(s2.part));
+      x2 = replaceShape(x2, "제목 9", (x) => setParagraphs(x, [titleParts]));
+      const TOTAL_CHARS = 2700;
+      const long = Object.fromEntries(SENTI.map((s) => {
+        const keys = new Set((page1Shown[s] || []).map(quoteKey));
+        return [s, (report.long[s] || []).filter((t) => !keys.has(quoteKey(t)))];
+      }));
+      const have = SENTI.map((s) => long[s].reduce((n, t) => n + String(t).length + 4, 0));
+      const budgets = SENTI.map((s, k) => Math.min(have[k], Math.max(260, Math.round(TOTAL_CHARS / 4))));
+      let spare = TOTAL_CHARS - budgets.reduce((a, b) => a + b, 0);
+      for (let pass = 0; pass < 3 && spare > 20; pass++) {
+        const hungry = SENTI.map((_, k) => k).filter((k) => have[k] > budgets[k]);
+        if (!hungry.length) break;
+        const addN = Math.floor(spare / hungry.length);
+        for (const k of hungry) {
+          const take = Math.min(addN, have[k] - budgets[k]);
+          budgets[k] += take;
+          spare -= take;
+        }
+      }
+      const texts = SENTI.map((s, k) => fitQuotes(long[s], budgets[k]).text || "-");
+      x2 = replaceShape(x2, "표 16", (x) => {
+        let bodyTotal = 0;
+        x.replace(/<a:tr h="(\d+)">/g, (_, h) => (bodyTotal += +h));
+        bodyTotal -= +(x.match(/<a:tr h="(\d+)">/) || [0, 255664])[1];
+        const weights = texts.map((t) => Math.max(t.length, 420));
+        const wsum = weights.reduce((a, b) => a + b, 0);
+        return mapTableRows(x, (i, cells) => {
+          if (i === 0) return { cells: cells.map((c) => (/전 채널/.test(c) ? c.replace(/전 채널/g, "전 차종") : c)) };
+          const s = SENTI[i - 1];
+          return {
+            height: Math.round((bodyTotal * weights[i - 1]) / wsum),
+            cells: cells.map((c, j) => (j === 0 ? setParagraphs(c, [s, `(${rpct(rate(all, s))})`]) : setParagraphs(c, [texts[i - 1]]))),
+          };
+        });
+      });
+      files.set(s2.part, Zip.bytes(x2));
+      done.push("2p");
+    }
+    return done;
+  }
+
+  async function fill(bytes, { cars = {}, title = "", onlyThis = false, report = null } = {}) {
     const files = await Zip.read(bytes);
     if (!files.has("ppt/presentation.xml")) throw new Error("PowerPoint(.pptx) 파일이 아닙니다");
     const pres = parse(files.get("ppt/presentation.xml"));
@@ -229,6 +487,7 @@
       if (titleSp) setShapeText(titleSp, title);
     }
     files.set(target.part, Zip.bytes(ser(doc)));
+    if (report && !onlyThis) filled.push(...(await fillReportSlides(files, slides, report)));
     if (onlyThis && slides.length > 1) {
       for (const s of slides) {
         if (s === target) continue;

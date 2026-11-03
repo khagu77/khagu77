@@ -36,7 +36,7 @@ def test_manifest_and_files():
     assert "ksf.html" in (EXT_DIR / "background.js").read_text()
 
 
-@pytest.mark.parametrize("name", ["ksf.js", "ksf-db.js", "dashboard.js", "pptfill.js", "xlsx.js", "xlsx-out.js", "zip.js", "db-store.js"])
+@pytest.mark.parametrize("name", ["ksf.js", "ksf-tabs.js", "ksf-db.js", "dashboard.js", "pptfill.js", "xlsx.js", "xlsx-out.js", "zip.js", "db-store.js"])
 def test_syntax(name):
     subprocess.run(["node", "--check", str(EXT_DIR / name)], check=True)
 
@@ -62,3 +62,19 @@ def test_dashboard_banner_is_pinned():
     src = (EXT_DIR / "dashboard.js").read_text()
     m = re.search(r'DASH_BANNER_URL = "https://raw\.githubusercontent\.com/khagu77/khagu77/([0-9a-f]{40})/ksf-extension/icons/dash-banner\.jpg"', src)
     assert m, "고정 주소가 없습니다"
+
+
+def test_keyword_combos():
+    """조합 키워드: 줄 = 검색어 · 띄어쓰기 = 그리고 · A|B = 또는 · -단어 = 빼기 (이슈 보고서 프로그램과 같은 규칙)."""
+    src = (EXT_DIR / "ksf.js").read_text()
+    start = src.index("function keywordPlan(")
+    end = src.index("\nfunction queries()", start)
+    js = src[start:end].replace('text = $("#keywords").value', "text")
+    js += """
+const r = keywordPlan("코세페|코리아세일페스타 보상\\n할인\\n-보험\\n# 메모");
+console.log(JSON.stringify(r));
+"""
+    out = subprocess.run(["node", "-e", js], check=True, capture_output=True, text=True).stdout
+    r = json.loads(out)
+    assert r["queries"] == ["코세페 보상", "코리아세일페스타 보상", "할인"]
+    assert r["minus"] == ["보험"]

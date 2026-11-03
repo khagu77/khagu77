@@ -419,3 +419,59 @@ body.theme-ksf .dbtable .pill { background: #002c5f; }
 .fileline .k { width: 118px; flex: none; font-weight: 700; font-size: 12.5px; }
 .fileline .fname { flex: 1; min-width: 160px; font-size: 12.5px; word-break: break-all; font-weight: 400; }
 .fileline .chip { margin-left: 6px; font-size: 11px; padding: 0 6px; border: 1px solid var(--border); border-radius: 999px; }
+/* ---- 5단계 탭 (이슈 모니터링 보고서 작성 프로그램과 같은 흐름) ---- */
+body.theme-ksf .topbar-in { padding-bottom: 0; }
+nav.steps { margin-top: 22px; flex-wrap: wrap; }
+nav.steps a { cursor: pointer; background: rgba(0, 18, 42, 0.55); color: rgba(255, 255, 255, 0.85); margin-right: 2px; }
+nav.steps a:hover { background: rgba(0, 18, 42, 0.75); color: #fff; }
+nav.steps a.on { background: var(--card); color: var(--text); }
+body.theme-ksf main { margin-top: 0; border-top: none; border-radius: 0 0 12px 12px; }
+.workbar { padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); font-size: 13px; margin-bottom: 10px; }
+section.tab { margin-top: 6px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+input[type="datetime-local"] { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 13px; }
+button.pill-btn { border-radius: 999px; margin-left: 8px; background: #eef2ff; border-color: #c7d2fe; color: #3730a3; font-weight: 700; }
+.kwprev { margin-top: 6px; font-size: 12px; line-height: 1.6; }
+.statline { margin: 10px 0; font-size: 13.5px; line-height: 1.8; }
+.statline.big { font-weight: 700; font-size: 15px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg-btn { border: 0; border-radius: 0; padding: 5px 12px; font-size: 13px; border-right: 1px solid var(--border); background: var(--card); }
+.seg-btn:last-child { border-right: 0; }
+.seg-btn.on { background: #002c5f; color: #fff; font-weight: 700; }
+.seg-btn.t-긍정 { color: #0070c0; } .seg-btn.t-중립 { color: #00a046; } .seg-btn.t-부정 { color: #e00000; } .seg-btn.t-단순비난 { color: #bf8f00; }
+.seg-btn.on.t-긍정, .seg-btn.on.t-중립, .seg-btn.on.t-부정, .seg-btn.on.t-단순비난 { color: #fff; }
+.t-긍정 { color: #0070c0; } .t-중립 { color: #00a046; } .t-부정 { color: #e00000; } .t-단순비난 { color: #bf8f00; }
+input.search { min-width: 220px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); }
+button.green { background: #0b6e4f; border-color: #0b6e4f; color: #fff; font-weight: 600; }
+/* 게시글 표 */
+#results.ksf col.w-car { width: 6%; }
+#results.ksf col.w-src { width: 11%; }
+#results.ksf col.w-title { width: 28%; }
+#results.ksf col.w-day { width: 10%; }
+#results.ksf col.w-num { width: 4.5%; }
+#results.ksf col.w-tone { width: 10%; }
+#results.ksf col.w-del { width: 5%; }
+#results.ksf td.num { text-align: right; }
+#results.ksf td.judge { font-size: 12.5px; }
+#results.ksf td.judge b.j-yes { color: #4f46e5; }
+#results.ksf td.judge b.j-no { color: var(--muted); }
+.tone-line { display: flex; align-items: center; gap: 4px; margin: 1px 0; }
+select.tone-sel { font-weight: 700; padding: 3px 6px; min-width: 88px; }
+select.tone-sel.s-긍정 { color: #0070c0; } select.tone-sel.s-중립 { color: #00a046; } select.tone-sel.s-부정 { color: #e00000; } select.tone-sel.s-단순비난 { color: #bf8f00; }
+select.tone-sel.manual { outline: 2px solid #f59e0b; outline-offset: 1px; }
+/* 댓글별 성향 */
+#cList col.w-car { width: 7%; } #cList col.w-kind { width: 6%; } #cList col.w-post { width: 22%; } #cList col.w-tone { width: 11%; }
+#cList td.post a { color: #4f46e5; text-decoration: none; font-size: 12.5px; }
+#cList tr.unjudged td { background: rgba(245, 158, 11, 0.07); }
+.hint.small { font-size: 11.5px; }
+#cmtTable a { color: var(--blue-text); text-decoration: none; }
+#cmtTable tr.off td { opacity: 0.5; }
+/* 보고서 초안 */
+.report-edit label { margin: 10px 0 4px; }
+.report-edit input.full { display: block; width: 100%; margin-top: 4px; font-weight: 400; }
+.quotes-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-top: 10px; }
+.quotes-grid .qbox textarea { margin-top: 4px; font: 12.5px/1.5 -apple-system, "Malgun Gothic", sans-serif; }
+@media (max-width: 860px) { .quotes-grid { grid-template-columns: 1fr; } }
+a.tool-link { align-self: center; color: var(--blue-text); font-weight: 700; text-decoration: none; }
+#viewFilter { max-width: 260px; }

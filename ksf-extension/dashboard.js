@@ -105,9 +105,10 @@ function dashHtml(d, prev, banner, fluid = false) {
   <tr>
   <td width="230" rowspan="2" bgcolor="#002c5f" style="width:230px;vertical-align:top;background:#002c5f;background-color:#002c5f;padding:0;color:#ffffff;">
     <div style="padding:14px 14px 12px;${fluid ? "" : "width:202px;"}">
-    <div style="font-size:11px;color:#c3cfdd;line-height:1.35;">코리아 세일 페스타(K-세일 페스타)<br>차종별 동호회 반응</div>
+    <div style="font-size:11px;color:#c3cfdd;line-height:1.35;">${desc(d.title || "코리아 세일 페스타(K-세일 페스타) 차종별 동호회 반응")}</div>
     <div style="color:#ffffff;font-family:'Arial Black','Helvetica Neue',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.05;margin-top:4px;letter-spacing:0.3px;">DASHBOARD</div>
-    <div style="font-size:13px;font-weight:700;color:#ffffff;margin-top:8px;">${desc(d.period)}</div>
+    <div style="font-size:10px;color:#c3cfdd;margin-top:8px;">모니터링 기간</div>
+    <div style="font-size:12.5px;font-weight:700;color:#ffffff;line-height:1.35;">${desc(d.period)}</div>
     <div style="font-size:10px;color:#c3cfdd;margin-top:1px;">${asOfText} 기준${prev ? ` · ${desc(prev.dateText)} 대비` : ""}</div>
     <table width="100%" cellpadding="0" cellspacing="0" bgcolor="#002c5f" style="margin-top:8px;border-top:1px solid #4d6b8f;background:#002c5f;background-color:#002c5f;"><tr>
       ${big("게시글", d.posts, prev?.posts)}${big("댓글", d.comments, prev?.comments)}${big("반응", d.reactions, prev?.reactions)}
@@ -116,14 +117,16 @@ function dashHtml(d, prev, banner, fluid = false) {
     ${dashBar(d.tone, d.reactions, 12)}
     <div style="margin-top:5px;line-height:1.7;">${dashLegend(d, 11, true)}</div>
     <div style="font-size:11px;color:#ffd166;font-weight:700;margin-top:8px;line-height:1.45;">${desc(dashVerdict(d).text)}</div>
-    <div style="font-size:10px;color:#b8c5d6;margin-top:8px;line-height:1.5;">모니터링 채널: 주요 모니터링 동호회 ${dnum(d.cafes.length)}곳<br>(${d.cars.map((c) => `${desc(c.car)} ${dnum(c.cafes)}`).join(" · ")})${d.unjudged ? `<br><span style="color:#ffd166;">※ 잠정치: ${dnum(d.unjudged)}건은 AI 판단 전</span>` : ""}</div>
+    <div style="font-size:10px;color:#b8c5d6;margin-top:8px;line-height:1.5;">모니터링 채널: ${desc(d.channels || `주요 모니터링 동호회 ${d.cafes.length}곳`)}${d.unjudged ? `<br><span style="color:#ffd166;">※ 잠정치: ${dnum(d.unjudged)}건은 AI 판단 전</span>` : ""}</div>
     </div>
   </td>
   <td style="vertical-align:top;padding:10px 8px 0 6px;background:transparent;">
+    ${(d.summary || []).length ? `<div style="margin:0 4px 8px;padding:8px 10px;border:1px solid #d9dde3;border-left:4px solid #002c5f;border-radius:6px;background:#f8fafc;">${d.summary.map((t) => `<div style="font-size:12.5px;font-weight:700;color:#1b1d21;line-height:1.5;">• ${desc(t)}</div>`).join("")}</div>` : ""}
     ${banner ? `<div style="margin:0 4px 8px;"><img src="${banner}" width="${fluid ? "" : W - 8}" alt="AVANTE · SANTA FE · GRANDEUR" style="display:block;border:0;border-radius:8px;${fluid ? "width:100%;max-width:100%;height:auto;max-height:150px;object-fit:cover;" : ""}"></div>` : ""}
     <table width="${fluid ? "100%" : W}" cellpadding="0" cellspacing="0" style="width:${fluid ? "100%" : `${W}px`};border-collapse:collapse;table-layout:fixed;"><tr>
       ${d.cars.map((c) => dashCarCell(c, prev, fluid)).join("")}
     </tr></table>
+    ${dashQuotes(d, fluid ? "100%" : W)}
   </td>
   </tr>
   <tr><td align="right" style="vertical-align:bottom;text-align:right;padding:6px 12px 8px 6px;background:transparent;">
@@ -132,12 +135,30 @@ function dashHtml(d, prev, banner, fluid = false) {
 </table></div>`;
 }
 
+// 성향별 주요 내용 (보고서 1페이지와 같은 대표 댓글 · 원문)
+function dashQuotes(d, width) {
+  const has = d.short && DASH_TONES.some(([t]) => (d.short[t] || []).length);
+  if (!has) return "";
+  const clip = (t) => {
+    const a = Array.from(String(t || "").replace(/\s+/g, " ").trim());
+    return a.length > 80 ? `${a.slice(0, 79).join("")}…` : a.join("");
+  };
+  const rows = DASH_TONES.map(([t, c]) =>
+    `<tr><td width="58" style="width:58px;padding:5px 6px;border-top:1px solid #eef0f3;vertical-align:top;white-space:nowrap;"><b style="font-size:11px;color:${c};">${t}</b><div style="font-size:10px;color:#6b7079;">${dpct(d.ratio[t])}</div></td>` +
+    `<td style="padding:5px 6px;border-top:1px solid #eef0f3;font-size:11px;color:#1b1d21;line-height:1.5;vertical-align:top;">${(d.short[t] || []).map((q) => `‘${desc(clip(q))}’`).join(", ") || '<span style="color:#a0a5ad;">-</span>'}</td></tr>`,
+  ).join("");
+  return `<div style="margin:8px 4px 0;border:1px solid #e3e6eb;border-radius:8px;background:#ffffff;overflow:hidden;">` +
+    `<div style="padding:5px 8px;font-size:11px;font-weight:800;color:#002c5f;background:#f6f8fa;">성향별 주요 댓글 여론 (전 차종)</div>` +
+    `<table width="${width}" cellpadding="0" cellspacing="0" style="width:${typeof width === "number" ? `${width - 10}px` : width};border-collapse:collapse;table-layout:fixed;">${rows}</table></div>`;
+}
+
 // 서식 없는 곳에 붙여 넣을 때 (글자만)
 function dashText(d, prev) {
   const diff = (v, pv) => (pv === null || pv === undefined ? "" : v - pv > 0 ? ` (▲${dnum(v - pv)})` : v - pv < 0 ? ` (▼${dnum(pv - v)})` : " (변동 없음)");
   const tones = (s) => DASH_TONES.map(([t]) => `${t} ${dpct(s.ratio[t])}`).join(" · ");
   const lines = [
-    `[코리아 세일 페스타 차종별 동호회 반응] DASHBOARD - ${d.period} (${new Date(d.at).toLocaleString()} 기준)`,
+    `[${d.title || "코리아 세일 페스타 차종별 동호회 반응"}] DASHBOARD - ${d.period} (${new Date(d.at).toLocaleString()} 기준)`,
+    ...(d.summary || []).map((t) => `• ${t}`),
     `■ 전체: 게시글 ${dnum(d.posts)}${diff(d.posts, prev?.posts)} / 댓글 ${dnum(d.comments)}${diff(d.comments, prev?.comments)} / 반응 ${dnum(d.reactions)} · ${tones(d)}`,
     `  → ${dashVerdict(d).text}`,
   ];
@@ -148,6 +169,7 @@ function dashText(d, prev) {
     lines.push(`  - 긍정: ${c.pos.slice(0, DASH_TOP).map((r, i) => `${i + 1}) ${r.label} ${dnum(r.count)}건(${dpct(r.ratio)})`).join(", ") || "해당 없음"}`);
     lines.push(`  - 부정: ${c.neg.slice(0, DASH_TOP).map((r, i) => `${i + 1}) ${r.label} ${dnum(r.count)}건(${dpct(r.ratio)})`).join(", ") || "해당 없음"}`);
   }
+  if (d.short) for (const [t] of DASH_TONES) if ((d.short[t] || []).length) lines.push(`■ ${t} 주요 댓글: ${d.short[t].map((q) => `‘${String(q).replace(/\s+/g, " ").slice(0, 80)}’`).join(", ")}`);
   if (d.unjudged) lines.push(`※ 잠정치: ${dnum(d.unjudged)}건은 AI 판단 전`);
   return lines.join("\n");
 }
