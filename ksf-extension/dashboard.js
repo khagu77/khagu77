@@ -41,7 +41,7 @@ function dashBar(tone, total, height = 10) {
 
 function dashLegend(s, size = 11, onDark = false) {
   return DASH_TONES.map(([t, c]) =>
-    `<span style="white-space:nowrap;font-size:${size}px;color:${onDark ? "#ffffff" : "#1b1d21"};"><span style="color:${onDark && t === "부정" ? "#ff8a80" : onDark && t === "긍정" ? "#7cc4ff" : onDark && t === "중립" ? "#7be0a4" : onDark ? "#ffd166" : c};font-weight:800;">●</span> ${t === "단순비난" ? "비난" : t} <b>${s.reactions || s.n ? dpct(s.ratio[t]) : "-"}</b></span>`,
+    `<span style="white-space:nowrap;font-size:${size}px;color:${onDark ? "#ffffff" : "#1b1d21"};"><span style="color:${onDark && t === "부정" ? "#ff8a80" : onDark && t === "긍정" ? "#7cc4ff" : onDark && t === "중립" ? "#7be0a4" : onDark ? "#ffd166" : c};font-weight:800;">●</span> ${t} <b>${s.reactions || s.n ? dpct(s.ratio[t]) : "-"}</b></span>`,
   ).join("&nbsp; ");
 }
 
@@ -75,7 +75,8 @@ function dashCarCell(c, prev, fluid) {
     `<div style="margin:0 4px;border:1px solid #e3e6eb;border-top:3px solid ${c.color};border-radius:8px;padding:7px 8px;background:#ffffff;">` +
     `<div><span style="display:inline-block;background:${c.color};color:#fff;font-weight:800;font-size:12px;padding:1px 10px;border-radius:999px;">${desc(c.car)}</span>` +
     `<span style="font-size:10px;color:#8a8f98;"> 동호회 ${dnum(c.cafes)}곳</span></div>` +
-    `<div style="font-size:9.5px;color:#8a8f98;margin-top:2px;line-height:1.3;">${desc((c.cafeNames || []).join(" · "))}</div>` +
+    // 동호회 이름 줄은 늘 2줄 높이 → 세 차종 칸의 게시글·댓글·반응 상자 높이가 나란히 맞음
+    `<div style="font-size:9.5px;color:#8a8f98;margin-top:2px;line-height:13px;height:26px;max-height:26px;overflow:hidden;">${desc((c.cafeNames || []).join(" · "))}</div>` +
     `<table width="100%" cellpadding="0" cellspacing="3" style="width:100%;border-collapse:separate;table-layout:fixed;margin-top:3px;"><tr>` +
     stat("게시글", c.posts, p?.posts) + stat("댓글", c.comments, p?.comments) + stat("반응", c.n, p?.n) +
     `</tr></table>` +
@@ -105,7 +106,7 @@ function dashHtml(d, prev, banner, fluid = false) {
   <tr>
   <td width="230" bgcolor="#002c5f" style="width:230px;vertical-align:top;background:#002c5f;background-color:#002c5f;padding:0;color:#ffffff;">
     <div style="padding:14px 14px 12px;${fluid ? "" : "width:202px;"}">
-    <div style="font-size:11px;color:#c3cfdd;line-height:1.35;">${desc(d.title || "코리아 세일 페스타(K-세일 페스타) 차종별 동호회 반응")}</div>
+    <div style="font-size:10.5px;color:#c3cfdd;line-height:1.35;letter-spacing:-0.7px;white-space:nowrap;">${desc(d.title || "코리아 세일 페스타 차종별 동호회 반응")}</div>
     <div style="color:#ffffff;font-family:'Arial Black','Helvetica Neue',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.05;margin-top:4px;letter-spacing:0.3px;">DASHBOARD</div>
     <div style="font-size:10px;color:#c3cfdd;margin-top:8px;">모니터링 기간</div>
     <div style="font-size:12.5px;font-weight:700;color:#ffffff;line-height:1.35;">${desc(d.period)}</div>
