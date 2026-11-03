@@ -199,8 +199,8 @@ function dashChannelCell({ label, color }, data, fluid = false) {
 // 왼쪽: 차량 이미지와 제목 · 날짜 · 합계 · 누적 / 오른쪽: 네 채널 칸
 function dashHtml(data, carSrc, fluid = false) {
   const total = data.posts.total;
-  const cSum = data.comments.channels.reduce((s, x) => s + (x.d.today || 0), 0);
   const cTotal = dashCommentTotal(data);
+  const ytC = data.comments.channels.find((x) => x.label === "유튜브");
   const yellow = (d) => (!d || d.diff == null ? "" : d.diff > 0 ? `▲${num(d.diff)}` : d.diff < 0 ? `▼${num(-d.diff)}` : "변동 없음");
   const W = (px) => (fluid ? "100%" : px); // 화면은 꽉 채우고, 메일은 픽셀 고정 (메일 프로그램이 칸 폭을 바꾸지 않게)
   const Wcss = (px) => (fluid ? "100%" : `${px}px`);
@@ -222,10 +222,10 @@ function dashHtml(data, carSrc, fluid = false) {
       <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;">게시물 합계</div>
         <div style="font-size:20px;font-weight:800;color:#ffffff;">${total ? num(total.today) : "-"}<span style="font-size:11px;color:#ffffff;">건</span></div>
         <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(total)}</div></td>
-      <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;">댓글 합계</div>
-        <div style="font-size:20px;font-weight:800;color:#ffffff;">${data.comments.channels.length ? num(cSum) : "-"}<span style="font-size:11px;color:#ffffff;">건</span></div>
+      <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;">오늘 새 댓글</div>
+        <div style="font-size:20px;font-weight:800;color:#ffffff;">${cTotal ? num(cTotal.today) : "-"}<span style="font-size:11px;color:#ffffff;">건</span></div>
         <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(cTotal)}</div>
-        <div style="font-size:10px;color:#c3cfdd;">유튜브 전체 포함</div></td>
+        ${ytC ? `<div style="font-size:10px;color:#c3cfdd;white-space:nowrap;">+ 유튜브 전체 ${num(ytC.d.today)}건</div>` : ""}</td>
     </tr></table>
     <div style="font-size:10px;color:#b8c5d6;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
     </div>
@@ -242,9 +242,9 @@ function dashHtml(data, carSrc, fluid = false) {
 </table></div>`;
 }
 
-// 댓글 합계와 전일 대비 (전일 기록이 있는 채널만 비교)
+// 댓글 합계와 전일 대비: 그날 새로 모은 댓글만 (언론·동호회·자동차 커뮤니티). 유튜브는 시트 전체라 따로 표시
 function dashCommentTotal(data) {
-  const ch = data.comments.channels;
+  const ch = data.comments.channels.filter((x) => x.label !== "유튜브");
   if (!ch.length) return null;
   const today = ch.reduce((s, x) => s + (x.d.today || 0), 0);
   if (ch.every((x) => x.d.prev == null)) return { today, diff: null };
@@ -265,7 +265,7 @@ function dashText(data) {
   return [
     `[팰리세이드(LX3) 전동 시트 관련 온라인 동향] DASHBOARD - ${prettyDate(data.date)}${data.period ? ` (수집 기간 ${data.period})` : ""}`,
     `■ 게시물: ${data.posts.total ? line("합계", data.posts.total) : "기록 없음"}${posts ? ` | ${posts}` : ""}`,
-    `■ 댓글: ${dashCommentTotal(data) ? `${line("합계", dashCommentTotal(data))} | ` : ""}${comments || "기록 없음"}`,
+    `■ 댓글: ${dashCommentTotal(data) ? `${line("오늘 새 댓글", dashCommentTotal(data))} | ` : ""}${comments || "기록 없음"}`,
     ...(data.detail
       ? ["■ 채널 상세 (게시글/댓글)"].concat(DASH_CH.map(({ label }) => {
           const list = data.detail[label] || [];
