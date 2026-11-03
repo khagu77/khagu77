@@ -236,6 +236,8 @@
         <label>머리 문장 판단 표현 <span class="hint">(비우면 비율로 자동: 높은 편 · 압도적으로 높은 편 …)</span> <input type="text" id="rHeadline" class="full"></label>
         <div class="hint" id="rHeadPreview"></div>
         <div class="quotes-grid" id="rQuotes"></div>
+        <label>시사점 <span class="hint">(SUMMARY 7번 · 한 줄에 하나 · AI 초안 때 함께 씀 · 비우면 숫자로 자동 작성)</span>
+          <textarea id="rInsights" rows="5"></textarea></label>
       </div>
 
       <h3>③ PPT 보고서 받기 <span class="hint">(1페이지 요약·차트·표 · 2페이지 성향별 주요 댓글 · 3페이지 차종별 TOP5)</span></h3>
@@ -264,6 +266,15 @@
         <button id="getCommentsSenti" class="getbtn" disabled>📥 댓글 성향 분석</button>
       </div>
       <div id="saveInfo" class="hint"></div>
+
+      <h3>⑤ SUMMARY <span class="hint">(메일 본문에 붙여 넣을 종합 결과 글 · PPT·엑셀을 만들 때 함께 새로 만들어짐)</span></h3>
+      <div class="buttons">
+        <button id="copySummary" class="getbtn" disabled>📋 SUMMARY 복사</button>
+        <button id="remakeSummary" class="small">지금 숫자로 다시 만들기</button>
+        <button id="dlSummaryTxt" class="small">📥 .txt 로 받기</button>
+        <span id="summaryInfo" class="hint"></span>
+      </div>
+      <textarea id="summaryText" rows="26" class="summary-text" spellcheck="false" placeholder="PPT 만들기 또는 엑셀 만들기를 누르면 여기에 SUMMARY 가 만들어집니다 (직접 고쳐도 됨)"></textarea>
     </section>
 
     <p class="note">

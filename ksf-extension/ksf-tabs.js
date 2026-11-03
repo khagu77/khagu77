@@ -313,14 +313,17 @@ const REPORT_RULES = `★ 보고서 작성 규칙 ★
    - 선정 우선순위: 목적(코세페 반응)에 딱 맞으면서 반응이 센 댓글(강한 감정, 직설적인 불만, 구체적인 금액·비교)을 앞에. 같은 말을 되풀이하는 댓글은 하나만, 차종·논점이 고루 보이게.
    - 'ㅋㅋㅋ'만 많거나 내용 없는 댓글, 개인 신상이 드러난 댓글은 고르지 않는다.
    - quotes_short (1페이지): 성향마다 4~7개, 짧고 센 것부터. 단 중립은 감정이 거의 없는 성의 있는 정보·질문 위주.
-   - quotes_long (2페이지): 성향마다 10~25개, 1페이지에 쓰지 않은 나머지 중 중요한 것부터. 1페이지와 겹치지 않게.`;
+   - quotes_long (2페이지): 성향마다 10~25개, 1페이지에 쓰지 않은 나머지 중 중요한 것부터. 1페이지와 겹치지 않게.
+6. insights (SUMMARY 의 시사점): 4~6개. 주어진 통계·차종별 TOP5·유형 구분별 숫자에 근거해 보고서 문체('~임', '~으로 판단됨', '~확인', '~필요')로 한 문장씩.
+   차종 간 차이(어느 차종의 부정 여론이 높은지), 가장 많이 이야기된 이슈와 그 의미, 유형 구분별 특징(예: 기존 출고자·출고 대기자 = 혜택 미적용자의 불만),
+   긍정 여론의 성격, 대응·검토가 필요한 점. 숫자는 통계와 반드시 일치. 근거 없는 추측 금지.`;
 
 const REPORT_SCHEMA = (() => {
   const ids = { type: "object", properties: Object.fromEntries(["긍정", "중립", "부정", "단순비난"].map((s) => [s, { type: "array", items: { type: "string" } }])), required: ["긍정", "중립", "부정", "단순비난"], additionalProperties: false };
   return {
     type: "object",
-    properties: { title: { type: "string" }, summary: { type: "array", items: { type: "string" } }, quotes_short: ids, quotes_long: ids },
-    required: ["title", "summary", "quotes_short", "quotes_long"],
+    properties: { title: { type: "string" }, summary: { type: "array", items: { type: "string" } }, quotes_short: ids, quotes_long: ids, insights: { type: "array", items: { type: "string" } } },
+    required: ["title", "summary", "quotes_short", "quotes_long", "insights"],
     additionalProperties: false,
   };
 })();
@@ -358,6 +361,8 @@ function statsForAi() {
   for (const car of targetCars()) {
     for (const t of ["긍정", "부정"]) lines.push(`${car} ${t}: ${top.cars[car][t].slice(0, 5).map((g) => `${g.label} ${g.count}건(${fmtPct(g.ratio)})`).join(" / ") || "없음"}`);
   }
+  lines.push("", "[유형 구분별 반응 (글쓴이 유형)]");
+  for (const t of typeStats()) lines.push(`${t.type}: ${t.n}건(${fmtPct(t.share)}) · 긍정 ${fmtPct(t.ratio["긍정"])} · 부정 여론 ${fmtPct(t.ratio["부정"] + t.ratio["단순비난"])}${t.top ? ` · 가장 많이 나온 여론 ${t.top.quote ? t.top.label : `[${t.top.tone}] ${t.top.label} ${t.top.count}건`}` : ""}`);
   lines.push("", "[수집 게시글 제목 일부]", ...reportItems().slice(0, 50).map((x) => `- (${x.car} ${x.cafeName}) ${x.title}`));
   return lines.join("\n");
 }
@@ -399,6 +404,7 @@ async function writeReport() {
     report = {
       title: String(parsed.title || "").trim() || reportTitle(), channels: report?.channels || channelsLabel(),
       summary: (parsed.summary || []).slice(0, 2).map((x) => String(x).trim()), headline: report?.headline || "", short, long, at: Date.now(),
+      insights: (parsed.insights || []).map((x) => String(x).replace(/^[-·•\s]+/, "").trim()).filter(Boolean).slice(0, 8),
     };
     await chrome.storage.local.set({ ksfReport: report }).catch(() => {});
     renderReportEdit();
@@ -432,6 +438,8 @@ function renderReportEdit() {
   setIf("#rSum1", (r.summary || [])[0]);
   setIf("#rSum2", (r.summary || [])[1]);
   setIf("#rHeadline", r.headline);
+  setIf("#rInsights", (r.insights || []).join("\n"));
+  if (!(r.insights || []).length) $("#rInsights").placeholder = `(비어 있으면 숫자로 자동 작성)\n${autoInsights().join("\n")}`;
   const all = carStats()[0];
   const neg = all.n ? all.ratio["부정"] + all.ratio["단순비난"] : 0;
   const pos = all.n ? all.ratio["긍정"] : 0;
@@ -479,6 +487,137 @@ function pptReportData() {
     short: Object.fromEntries(TONES.map((t) => [t, r.short?.[t]?.length ? r.short[t] : auto(t, 0, 6)])),
     long: Object.fromEntries(TONES.map((t) => [t, r.long?.[t]?.length ? r.long[t] : auto(t, 6, 30)])),
   };
+}
+
+// ---------------------------------------------------------------------------
+// SUMMARY: 메일 본문에 붙여 넣을 종합 결과 글 (PPT·엑셀을 만들 때 함께 새로 만듦 · 직접 고칠 수 있음)
+// ---------------------------------------------------------------------------
+
+const cnt = (n, total) => `${Number(n || 0).toLocaleString()}건 (${total ? fmtPct(n / total) : "0.0%"})`;
+const negOf = (r) => (r["부정"] || 0) + (r["단순비난"] || 0);
+const shortDate = (v) => {
+  const d = timeOf(v);
+  return d ? `'${String(d.getFullYear()).slice(2)}.${d.getMonth() + 1}.${d.getDate()}` : "?";
+};
+
+// 시사점 (AI 초안이 없을 때 숫자로)
+function autoInsights() {
+  const stats = carStats();
+  const all = stats[0];
+  if (!all.n) return [];
+  const cars = stats.filter((s) => targetCars().includes(s.car) && s.n);
+  const out = [];
+  const neg = negOf(all.ratio);
+  out.push(`코리아 세일 페스타 관련 대상 차종 동호회 반응 ${all.n.toLocaleString()}건 중 부정 여론(부정+단순비난) ${fmtPct(neg)}, 긍정 ${fmtPct(all.ratio["긍정"])}로 ${neg > all.ratio["긍정"] ? "부정 여론이 우세" : "긍정 여론이 우세"}함`);
+  if (cars.length > 1) {
+    const hi = cars.slice().sort((a, b) => negOf(b.ratio) - negOf(a.ratio))[0];
+    const lo = cars.slice().sort((a, b) => negOf(a.ratio) - negOf(b.ratio))[0];
+    out.push(`차종별로는 ${hi.car}의 부정 여론이 ${fmtPct(negOf(hi.ratio))}로 가장 높고, ${lo.car}가 ${fmtPct(negOf(lo.ratio))}로 가장 낮음`);
+  }
+  const top = topThemes();
+  const negTop = targetCars().map((c) => ({ c, g: top.cars[c]["부정"].find((g) => !/^기타/.test(g.label)) })).filter((x) => x.g).sort((a, b) => b.g.count - a.g.count)[0];
+  if (negTop) out.push(`가장 많이 이야기된 부정 이슈는 ${negTop.c}의 '${negTop.g.label}'(${negTop.g.count}건, ${negTop.c} 부정 반응의 ${fmtPct(negTop.g.ratio)})임`);
+  const ts = typeStats().filter((t) => t.n && t.type !== "유형 구분 외");
+  const unfair = ts.filter((t) => /기존 출고자|출고 대기자/.test(t.type));
+  const nUnfair = unfair.reduce((n, t) => n + t.n, 0);
+  if (nUnfair) {
+    const negN = unfair.reduce((n, t) => n + t.tone["부정"] + t.tone["단순비난"], 0);
+    out.push(`혜택 미적용자(기존 출고자·출고 대기자) 반응 ${nUnfair}건 중 부정 여론 ${fmtPct(negN / nUnfair)}로, 기존 구매자 형평성 관련 대응 검토 필요`);
+  }
+  const buyers = ts.filter((t) => /행사 기간 내 계약자|계약 예정자/.test(t.type));
+  const nBuy = buyers.reduce((n, t) => n + t.n, 0);
+  if (nBuy) out.push(`행사 기간 내 계약자·계약 예정자 반응 ${nBuy}건 중 긍정 ${fmtPct(buyers.reduce((n, t) => n + t.tone["긍정"], 0) / nBuy)}로, 할인을 계기로 한 구매 검토 여론 확인`);
+  return out;
+}
+
+function makeSummaryText() {
+  const list = reportItems();
+  const rs = reactions(list);
+  const stats = carStats(rs);
+  const all = stats[0];
+  const top = topThemes(rs);
+  const r = report || {};
+  const cafesList = cafes();
+  const L = [];
+  L.push(`■ ${reportTitle()} 결과`, "");
+  L.push("1. 개요");
+  L.push(` - 모니터링 기간 : ${periodText()}`);
+  L.push(` - 모니터링 대상 : 차종별 네이버 동호회 ${cafesList.length}곳 (${targetCars().map((c) => `${c} ${cafesList.filter((x) => x.car === c).length}곳`).join(" · ")})`);
+  for (const c of targetCars()) L.push(`   · ${c} : ${cafesList.filter((x) => x.car === c).map((x) => x.name).join(", ")}`);
+  L.push(` - 수집 결과 : 검색된 게시글 ${items.length.toLocaleString()}건 중 코세페 관련 게시글 ${list.length.toLocaleString()}건 선별 (${items.length ? fmtPct(list.length / items.length) : "-"}), 댓글·답글 ${all.comments.toLocaleString()}건`);
+  L.push(`   → 분석 반응 ${all.n.toLocaleString()}건 (게시글·댓글 × 언급 차종, 한 글이 여러 차종을 말하면 차종마다 집계)`);
+  const unj = rs.filter((x) => !judged(x.c || x.x)).length;
+  L.push(` - 성향 기준 : 일반적인 말투가 아닌 '코리아 세일 페스타'에 대한 반응 기준 (긍정 · 중립 · 부정 · 단순비난)${unj ? ` ※ ${unj}건은 AI 판단 전 잠정치` : ""}`);
+  L.push("");
+  L.push("2. 전체 여론");
+  for (const t of (r.summary || []).filter(Boolean)) L.push(` - ${t}`);
+  L.push(` - 긍정 ${cnt(all.tone["긍정"], all.n)} / 중립 ${cnt(all.tone["중립"], all.n)} / 부정 ${cnt(all.tone["부정"], all.n)} / 단순비난 ${cnt(all.tone["단순비난"], all.n)}`);
+  if (all.n) {
+    const neg = negOf(all.ratio);
+    L.push(`   → ${neg >= all.ratio["긍정"] ? "부정 여론(부정+단순비난)이 긍정 여론" : "긍정 여론이 부정 여론(부정+단순비난)"} 比 ${(r.headline || "").trim() || (Math.abs(neg - all.ratio["긍정"]) < 0.03 ? "비슷한 수준" : "높은 편")} (${fmtPct(Math.max(neg, all.ratio["긍정"]))} vs ${fmtPct(Math.min(neg, all.ratio["긍정"]))})`);
+  }
+  L.push("");
+  L.push("3. 차종별 성향");
+  for (const s of stats.filter((x) => targetCars().includes(x.car))) {
+    L.push(` - ${s.car} : 게시글 ${s.posts.toLocaleString()}건 · 댓글 ${s.comments.toLocaleString()}건 · 반응 ${s.n.toLocaleString()}건 (전체 반응의 ${all.n ? fmtPct(s.n / all.n) : "-"})`);
+    L.push(`   · 긍정 ${cnt(s.tone["긍정"], s.n)} / 중립 ${cnt(s.tone["중립"], s.n)} / 부정 ${cnt(s.tone["부정"], s.n)} / 단순비난 ${cnt(s.tone["단순비난"], s.n)}`);
+    if (s.n) L.push(`   → 부정 여론 ${fmtPct(negOf(s.ratio))} vs 긍정 ${fmtPct(s.ratio["긍정"])}`);
+  }
+  L.push("");
+  L.push(`4. 차종별 긍정 · 부정 주요 내용 TOP${TOP_N} (많이 이야기된 순 · 괄호 안은 그 차종 긍정/부정 반응 중 비중)`);
+  for (const c of targetCars()) {
+    L.push(` - ${c}`);
+    for (const t of ["긍정", "부정"]) {
+      const gs = top.cars[c][t].slice(0, TOP_N);
+      L.push(`   · ${t} (${top.cars[c].total[t].toLocaleString()}건)${gs.length ? "" : " : 해당 없음"}`);
+      gs.forEach((g, i) => L.push(`     ${i + 1}) ${g.label} ${g.count.toLocaleString()}건 (${fmtPct(g.ratio)})`));
+    }
+  }
+  L.push("");
+  L.push("5. 유형 구분별 반응 (글쓴이 유형 · 괄호 안은 전체 반응 중 비중)");
+  for (const t of typeStats(rs)) {
+    L.push(` - ${t.type} : ${cnt(t.n, all.n)}${t.n ? ` · 긍정 ${fmtPct(t.ratio["긍정"])} / 부정 여론 ${fmtPct(negOf(t.ratio))}` : ""}`);
+    if (t.top) L.push(`   · 가장 많이 나온 여론 : ${t.top.quote ? t.top.label : `[${t.top.tone}] ${t.top.label} (${t.top.count}건)`}`);
+  }
+  for (const [t, , note] of PTYPES) L.push(`   ※ ${t} : ${note}`);
+  L.push("");
+  L.push("6. 성향별 주요 댓글");
+  const pr = pptReportData();
+  for (const t of TONES) {
+    const qs = (pr.short[t] || []).slice(0, 4).map((q) => `‘${String(q).replace(/\s+/g, " ").trim().slice(0, 90)}’`);
+    L.push(` - ${t} (${all.n ? fmtPct(all.ratio[t]) : "-"}) : ${qs.join(", ") || "-"}`);
+  }
+  L.push("");
+  L.push("7. 시사점");
+  const ins = (r.insights || []).filter(Boolean).length ? r.insights.filter(Boolean) : autoInsights();
+  for (const t of ins) L.push(` - ${t}`);
+  return L.join("\n");
+}
+
+async function refreshSummary(reason = "") {
+  const text = makeSummaryText();
+  $("#summaryText").value = text;
+  await chrome.storage.local.set({ ksfSummaryText: text, ksfSummaryAt: Date.now() }).catch(() => {});
+  await dbSaveDay("summaryText", today(), `${fileBase()}_SUMMARY.txt`, Zip.bytes(text), "auto", "메일 붙여넣기용 SUMMARY", null).catch(() => {});
+  readyButton($("#copySummary"), true);
+  $("#summaryInfo").className = "hint ok";
+  $("#summaryInfo").textContent = `✔ ${reason ? `${reason} · ` : ""}SUMMARY 를 만들었습니다 (${new Date().toLocaleString()}) · 📋 복사 → 메일 본문에 붙여 넣기`;
+}
+
+function copySummary() {
+  const text = $("#summaryText").value;
+  if (!text.trim()) return;
+  const done = () => {
+    readyButton($("#copySummary"), false);
+    $("#copySummary").disabled = false;
+    $("#summaryInfo").className = "hint ok";
+    $("#summaryInfo").textContent = "✔ 복사했습니다. 메일 본문에 붙여 넣으세요 (Ctrl+V / ⌘V).";
+  };
+  navigator.clipboard.writeText(text).then(done).catch(() => {
+    $("#summaryText").select();
+    document.execCommand("copy");
+    done();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -555,5 +694,24 @@ function pptReportData() {
   $("#dlComments").addEventListener("click", () => (prepareFolder(), downloadNow(() => makeCommentsFile(false), "#commentsMsg")));
   $("#dlSentiment").addEventListener("click", () => (prepareFolder(), downloadNow(() => makeCommentsFile(true), "#sentimentMsg")));
   for (const id of ["purpose", "issueName"]) $(`#${id}`).addEventListener("input", () => renderWorkBar());
+  $("#rInsights").addEventListener("input", () => {
+    report = { ...(report || {}), insights: $("#rInsights").value.split("\n").map((x) => x.trim()).filter(Boolean) };
+    saveReportSoon();
+  });
+  const saved = await chrome.storage.local.get(["ksfSummaryText", "ksfSummaryAt"]).catch(() => ({}));
+  if (saved.ksfSummaryText) {
+    $("#summaryText").value = saved.ksfSummaryText;
+    $("#copySummary").disabled = false;
+    $("#summaryInfo").textContent = `${new Date(saved.ksfSummaryAt).toLocaleString()}에 만든 SUMMARY`;
+  }
+  $("#summaryText").addEventListener("input", () => chrome.storage.local.set({ ksfSummaryText: $("#summaryText").value }).catch(() => {}));
+  $("#copySummary").addEventListener("click", copySummary);
+  $("#remakeSummary").addEventListener("click", () => refreshSummary("지금 숫자로"));
+  $("#dlSummaryTxt").addEventListener("click", async () => {
+    if (!$("#summaryText").value.trim()) await refreshSummary();
+    prepareFolder();
+    const where = await saveBytes(new Blob(["\ufeff" + $("#summaryText").value], { type: "text/plain;charset=utf-8" }), `${fileBase()}_SUMMARY.txt`);
+    $("#summaryInfo").textContent = `✔ ${where}에 저장`;
+  });
   renderTabs();
 })();

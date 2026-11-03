@@ -2357,6 +2357,7 @@ async function makeFiles() {
     pending = { ...pending, ...files };
     for (const kind of Object.keys(files)) readyButton($(GET_BUTTONS[kind]), true);
     $("#saveInfo").className = "hint ok";
+    if (typeof refreshSummary === "function") await refreshSummary("엑셀과 함께");
     $("#saveInfo").textContent = `✔ 엑셀 5개를 만들었습니다 (게시글 ${list.length.toLocaleString()}개 · 댓글 ${snap.comments.toLocaleString()}개 · 반응 ${rs.length.toLocaleString()}개)${dbNote}. 반짝이는 📥 버튼을 눌러 받으세요.`;
     playChime();
   } catch (e) {
@@ -2409,6 +2410,7 @@ async function savePpt() {
     pending.ppt = { name, bytes };
     await dbSaveDay("ppt", today(), name, bytes, "auto", `TOP5 표 ${filled.length}개`, null).catch(() => {});
     readyButton($("#getPpt"), true);
+    if (typeof refreshSummary === "function") await refreshSummary("PPT 와 함께");
     $("#pptInfo").className = "hint ok";
     $("#pptInfo").textContent = `✔ PPT 를 만들었습니다 - ${filled.join(" · ")} 채움${t.fresh ? "" : " · TOP5 는 같은 문구끼리 센 값"} · 데이터 DB 에도 저장. 반짝이는 📥 PPT 받기를 누르세요.`;
     playChime();

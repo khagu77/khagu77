@@ -485,3 +485,4 @@ select.type-sel.manual { outline: 2px solid #f59e0b; outline-offset: 1px; }
 #cList col.w-post { width: 18%; }
 #results.ksf col.w-tone { width: 13%; }
 .seg-btn { white-space: nowrap; }
+textarea.summary-text { font: 13px/1.6 "Malgun Gothic", "Apple SD Gothic Neo", ui-monospace, monospace; white-space: pre; overflow-x: auto; }

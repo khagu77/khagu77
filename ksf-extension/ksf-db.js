@@ -1,6 +1,6 @@
 // 데이터 DB 화면: 맨 위 대시보드(dashboard.js) · 날짜별 파일(받기 · 수정본 올리기 · 삭제) · 작업 데이터 백업 받기·불러오기
 
-const KINDS = ["summary", "posts", "postsSenti", "comments", "commentsSenti", "ppt"];
+const KINDS = ["summary", "posts", "postsSenti", "comments", "commentsSenti", "ppt", "summaryText"];
 const BACKUP_KEYS = ["ksfItems", "ksfClubIds", "ksfSettings", "ksfStart", "ksfEnd", "ksfTops", "ksfAiSpend", "ksfDashLive"];
 const COUNT_FIELDS = [["posts", "게시글"], ["comments", "댓글"], ["reactions", "반응"]];
 let pickFor = null; // { kind, date }
@@ -51,7 +51,8 @@ async function render() {
         const get = Object.assign(document.createElement("button"), { className: "small", textContent: "받기" });
         get.addEventListener("click", async () => {
           prepareFolder();
-          const data = kind === "ppt" ? new Blob([rec.bytes], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" }) : rec.bytes;
+          const data = kind === "ppt" ? new Blob([rec.bytes], { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation" })
+            : kind === "summaryText" ? new Blob(["\ufeff", rec.bytes], { type: "text/plain;charset=utf-8" }) : rec.bytes;
           setInfo(`✔ ${await saveBytes(data, rec.name)}에 ${rec.name} 을(를) 저장했습니다.`, "ok");
         });
         const up = Object.assign(document.createElement("button"), { className: "small", textContent: "수정본 올리기" });
@@ -119,10 +120,10 @@ async function onPicked(file) {
   if (!file || !pickFor) return;
   const { kind, date } = pickFor;
   try {
-    const ext = kind === "ppt" ? ".pptx" : ".xlsx";
+    const ext = kind === "ppt" ? ".pptx" : kind === "summaryText" ? ".txt" : ".xlsx";
     if (!file.name.toLowerCase().endsWith(ext)) throw new Error(`${ext} 파일을 골라 주세요.`);
     const bytes = new Uint8Array(await file.arrayBuffer());
-    await Zip.read(bytes); // 깨진 파일인지 확인
+    if (kind !== "summaryText") await Zip.read(bytes); // 깨진 파일인지 확인
     // 수정본: 파일만 바꾸고, 대시보드 숫자(stats)는 그대로 둔다
     await dbSaveDay(kind, date, file.name, bytes, "upload", "담당자 수정본", null);
     setInfo(`✔ ${prettyDate(date)} ${DB_KINDS[kind].short} 파일을 ${file.name}(으)로 바꿨습니다.`, "ok");

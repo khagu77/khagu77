@@ -9,7 +9,8 @@ const DB_KINDS = {
   postsSenti: { label: "게시물 성향 분석 (게시물 리스트_성향분석 포함)", short: "게시물 성향 분석" },
   comments: { label: "댓글 raw data (로우데이터)", short: "댓글 raw data" },
   commentsSenti: { label: "댓글 성향 분석", short: "댓글 성향 분석" },
-  ppt: { label: "보고서 PPT (3p 차종별 TOP5)", short: "보고서 PPT" },
+  ppt: { label: "보고서 PPT (1~3p)", short: "보고서 PPT" },
+  summaryText: { label: "SUMMARY (메일 붙여넣기용 글)", short: "SUMMARY 글" },
 };
 
 function finalDb() {
