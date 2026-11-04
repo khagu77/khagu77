@@ -204,10 +204,10 @@ function dashHtml(data, carSrc, fluid = false) {
   // 증감: 흰 둥근 박스 안에 증가는 빨강 ▲, 감소는 파랑 ▼ (변동 없으면 회색 -)
   const pill = (d) => {
     if (!d || d.diff == null) return "";
-    const [t, c] = d.diff > 0 ? [`▲${num(d.diff)}`, "#d93025"] : d.diff < 0 ? [`▼${num(-d.diff)}`, "#1a5fd0"] : ["-", "#8a8f98"];
+    const [t, c] = d.diff > 0 ? [`▲${num(d.diff)}`, "#d93025"] : d.diff < 0 ? [`▼${num(-d.diff)}`, "#1a5fd0"] : ["-", "#5f6670"];
     // 변동 없음(-)은 박스를 넓혀 가운데에
-    const wide = d.diff === 0 ? "width:30px;text-align:center;padding:0;" : "padding:0 6px;";
-    return `<span style="display:inline-block;background:#ffffff;color:${c};font-size:10px;font-weight:800;line-height:14px;${wide}border-radius:999px;vertical-align:middle;white-space:nowrap;">${t}</span>`;
+    const wide = d.diff === 0 ? "width:30px;text-align:center;padding:0;font-size:14px;font-weight:900;" : "padding:0 6px;font-size:10px;font-weight:800;";
+    return `<span style="display:inline-block;background:#ffffff;color:${c};line-height:14px;height:14px;overflow:hidden;${wide}border-radius:999px;vertical-align:middle;white-space:nowrap;">${t}</span>`;
   };
   const W = (px) => (fluid ? "100%" : px); // 화면은 꽉 채우고, 메일은 픽셀 고정 (메일 프로그램이 칸 폭을 바꾸지 않게)
   const Wcss = (px) => (fluid ? "100%" : `${px}px`);
