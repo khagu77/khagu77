@@ -368,3 +368,8 @@ button.x-del:hover { border-color: var(--red); }
 @media (prefers-color-scheme: dark) { #tab-db h2 { color: #8ab4ff; border-left-color: #8ab4ff; background: rgba(138, 180, 255, 0.1); } }
 /* 안전 우려 게시글 총 건수 */
 .big-total { font-size: 22px; font-weight: 800; color: #d93025; margin: 4px 0 2px; }
+/* 안전 우려 게시글 표: 날짜·건수·전일 대비·버튼 칸은 줄바꿈 없이, 게시글 칸만 줄바꿈 (담당자 지적 2026-11-04: 표가 밀려 찌그러짐) */
+#safetyTable { width: 100%; }
+#safetyTable th, #safetyTable td { white-space: nowrap; vertical-align: top; }
+#safetyTable td.note { white-space: normal; width: 100%; min-width: 240px; overflow-wrap: anywhere; }
+#safetyTable td.actions button { padding: 4px 10px; font-size: 12px; }
