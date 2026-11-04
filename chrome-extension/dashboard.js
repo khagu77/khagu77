@@ -205,7 +205,9 @@ function dashHtml(data, carSrc, fluid = false) {
   const pill = (d) => {
     if (!d || d.diff == null) return "";
     const [t, c] = d.diff > 0 ? [`▲${num(d.diff)}`, "#d93025"] : d.diff < 0 ? [`▼${num(-d.diff)}`, "#1a5fd0"] : ["-", "#8a8f98"];
-    return `<span style="display:inline-block;background:#ffffff;color:${c};font-size:10px;font-weight:800;line-height:14px;padding:0 6px;border-radius:999px;vertical-align:middle;white-space:nowrap;">${t}</span>`;
+    // 변동 없음(-)은 박스를 넓혀 가운데에
+    const wide = d.diff === 0 ? "width:30px;text-align:center;padding:0;" : "padding:0 6px;";
+    return `<span style="display:inline-block;background:#ffffff;color:${c};font-size:10px;font-weight:800;line-height:14px;${wide}border-radius:999px;vertical-align:middle;white-space:nowrap;">${t}</span>`;
   };
   const W = (px) => (fluid ? "100%" : px); // 화면은 꽉 채우고, 메일은 픽셀 고정 (메일 프로그램이 칸 폭을 바꾸지 않게)
   const Wcss = (px) => (fluid ? "100%" : `${px}px`);
@@ -234,7 +236,7 @@ function dashHtml(data, carSrc, fluid = false) {
       <td align="right" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:middle;text-align:right;background-color:#002c5f;white-space:nowrap;"><b style="font-size:14px;color:#ffffff;">${num(ytC.d.today)}</b><span style="font-size:10px;color:#ffffff;">건</span> ${pill(ytC.d)}</td>
     </tr></table>` : ""}
     <div style="font-size:10px;color:#b8c5d6;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
-    <div style="font-size:8px;color:#ffffff;letter-spacing:0.5px;margin-top:10px;">By <b style="font-weight:800;color:#ffffff;">LINESQUARE</b></div>
+    <div style="font-size:8px;color:#ffffff;letter-spacing:-0.1px;margin-top:10px;">By <b style="font-weight:800;color:#ffffff;">LINESQUARE</b></div>
     </div>
   </td>
   <td style="vertical-align:top;padding:10px 8px 0 6px;height:1px;background:transparent;border-radius:0 11px 0 0;">
