@@ -175,9 +175,9 @@ function dashTrend(series, color, width) {
   const pts = xs.map((x, i) => `${x.toFixed(1)},${ys[i].toFixed(1)}`).join(" ");
   let s = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;" font-family="${DASH_FONT.replace(/"/g, "")}">`;
   s += `<line x1="${L}" y1="${h - B}" x2="${w - R}" y2="${h - B}" stroke="#e3e6eb" stroke-width="1"/>`;
-  s += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  s += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="0.8" stroke-dasharray="1.5 1.5" stroke-linejoin="round"/>`;
   xs.forEach((x, i) => {
-    s += `<circle cx="${x.toFixed(1)}" cy="${ys[i].toFixed(1)}" r="1.8" fill="${color}"/>`;
+    s += `<circle cx="${x.toFixed(1)}" cy="${ys[i].toFixed(1)}" r="1.4" fill="${color}"/>`;
     s += `<text x="${x.toFixed(1)}" y="${(ys[i] - 4).toFixed(1)}" font-size="8" font-weight="700" text-anchor="middle" fill="#1b1d21">${v[i]}</text>`;
     s += `<text x="${x.toFixed(1)}" y="${h - 3}" font-size="7.5" text-anchor="middle" fill="#8a8f98">${+yms[i].slice(4)}월</text>`;
   });
