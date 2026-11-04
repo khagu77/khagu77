@@ -130,7 +130,7 @@ async function dashDetail(buzzRec, rawRec, prevRaw = null) {
 }
 
 // 메일 프로그램이 칸 폭을 멋대로 바꾸지 않게 폭을 픽셀로 고정 (전체 960 = 왼쪽 200 + 오른쪽 760)
-const DASH_CELL = 216; // 네 칸 모두 같은 폭
+const DASH_CELL = 226; // 네 칸 모두 같은 폭
 
 // 이름을 정해진 폭(대략 글자 수, 영문·숫자는 0.6자)에 맞게 미리 줄임 — 메일에서는 자동 줄임이 안 됨
 // (그룹웨어 메일 편집기가 '…' 문자·title 속성이 든 붙여 넣기를 거부해서 '..' 만 씀)
@@ -173,31 +173,38 @@ function dashChannelCell({ label, color }, data, fluid = false) {
   // 유튜브는 지켜보는 영상 전체 수 (오늘 새로 넣은 영상은 +n)
   const plus = (n) => (n ? `<span style="color:#d93025;font-size:10px;font-weight:700;"> +${num(n)}</span>` : "");
   const first = (x) => (yt ? `${n0(x.videos)}${plus(x.posts)}` : n0(x.posts));
-  const W1 = yt ? 28 : 24; // 글(영상) 칸 폭
-  const W2 = yt ? 66 : 36; // 댓글 칸 폭 (유튜브는 채널별 전일 대비를 작게 같이)
+  const W1 = yt ? 24 : 36; // 새게시물(영상) 칸 폭
+  const W2 = yt ? 40 : 36; // 댓글 칸 폭 (유튜브는 다섯 자리까지)
+  const hasDiff = yt && list.some((x) => x.prevComments != null); // 유튜브 채널별 전일 대비 칸 (전날 파일이 있을 때)
+  const W3 = hasDiff ? 30 : 0; // 유튜브 채널별 전일 대비 칸
   const cw = DASH_CELL;
   const pct = "25%";
-  // 이름 칸에 들어가는 글자 수 (한글 1자 ≈ 11.6px; 칸 폭 − 여백 − 숫자 칸)
-  const nameEm = Math.max(4, (cw - 34 - W1 - W2) / 11);
+  // 숫자 칸은 왼쪽 여백 2px만 (메일에서는 여백이 칸 폭에 더해짐)
+  const numPad = "padding:2px 0 2px 2px;";
+  // 이름 칸에 들어가는 글자 수 (한글 1자 ≈ 11px): 칸 폭 − 카드 여백·테두리(24) − 이름 칸 여백(6) − 숫자 칸(폭+2)
+  const nameEm = Math.max(4, (cw - 30 - (W1 + 2) - (W2 + 2) - (W3 ? W3 + 2 : 0)) / 11);
   // 유튜브 채널별 댓글 전일 대비 (아주 작게, 증가 빨강·감소 파랑, 변동 없으면 표시 안 함)
+  // 댓글 수와 줄이 맞도록 옆 칸에 따로 (변동 없으면 회색 '( - )')
   const ytDiff = (x) => {
     if (x.prevComments == null) return "";
     const d = x.comments - x.prevComments;
-    if (!d) return "";
-    return ` <span style="font-size:8px;font-weight:700;color:${d > 0 ? "#d93025" : "#1a5fd0"};letter-spacing:-0.3px;">(${d > 0 ? "▲" : "▼"}${num(Math.abs(d))})</span>`;
+    const [t, c] = d > 0 ? [`▲${num(d)}`, "#d93025"] : d < 0 ? [`▼${num(-d)}`, "#1a5fd0"] : [" - ", "#8a8f98"];
+    return `<span style="font-size:8px;font-weight:700;color:${c};letter-spacing:-0.3px;">(${t})</span>`;
   };
   const row = (x) =>
     `<tr><td style="${cellStyle}color:#1b1d21;white-space:nowrap;overflow:hidden;line-height:1.3;">${fluid ? `<a data-alias="${esc(x.name)}" style="color:inherit;text-decoration:none;cursor:pointer;">` : ""}${esc(dashClip(dashShort(x.name), nameEm))}${fluid ? "</a>" : ""}` +
     `</td>` +
-    `<td width="${W1}" style="${cellStyle}width:${W1}px;text-align:right;font-weight:700;color:#1b1d21;white-space:nowrap;">${first(x)}</td>` +
-    `<td width="${W2}" style="${cellStyle}width:${W2}px;text-align:right;font-weight:700;color:${color};white-space:nowrap;">${n0(x.comments)}${yt ? ytDiff(x) : ""}</td></tr>`;
+    `<td width="${W1}" style="${cellStyle}${numPad}width:${W1}px;text-align:right;font-weight:700;color:#1b1d21;white-space:nowrap;">${first(x)}</td>` +
+    `<td width="${W2}" style="${cellStyle}${numPad}width:${W2}px;text-align:right;font-weight:700;color:${color};white-space:nowrap;">${n0(x.comments)}</td>` +
+    (hasDiff ? `<td width="${W3}" style="${cellStyle}${numPad}width:${W3}px;text-align:left;white-space:nowrap;">${ytDiff(x)}</td>` : "") +
+    `</tr>`;
   const rest = list.slice(DASH_TOP);
   const sum = (arr, f) => arr.reduce((s, x) => s + x[f], 0);
-  const head = (t, w) => `<td width="${w}" style="width:${w}px;padding:2px 3px;font-size:10px;color:#8a8f98;text-align:right;white-space:nowrap;">${t}</td>`;
+  const head = (t, w) => `<td width="${w}" style="width:${w}px;padding:2px 0 2px 2px;font-size:10px;color:#8a8f98;text-align:right;white-space:nowrap;letter-spacing:-0.4px;">${t}</td>`;
   const detail = data.detail
     ? `<table width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;table-layout:fixed;margin-top:6px;">` +
-      `<tr><td style="padding:2px 3px;font-size:10px;color:#8a8f98;white-space:nowrap;">${unitName}별 (${list.length})</td>${head(yt ? "영상" : "글", W1)}${head("댓글", W2)}</tr>` +
-      (list.length ? list.slice(0, DASH_TOP).map(row).join("") : `<tr><td colspan="3" style="${cellStyle}color:#a0a5ad;">해당 없음</td></tr>`) +
+      `<tr><td style="padding:2px 3px;font-size:10px;color:#8a8f98;white-space:nowrap;">${unitName}별 (${list.length})</td>${head(yt ? "영상" : "새게시물", W1)}${head("댓글", W2)}${hasDiff ? head("", W3) : ""}</tr>` +
+      (list.length ? list.slice(0, DASH_TOP).map(row).join("") : `<tr><td colspan="${hasDiff ? 4 : 3}" style="${cellStyle}color:#a0a5ad;">해당 없음</td></tr>`) +
       (rest.length
         ? `<tr><td style="${cellStyle}color:#8a8f98;">외 ${rest.length}곳</td><td style="${cellStyle}text-align:right;color:#8a8f98;">${num(sum(rest, yt ? "videos" : "posts"))}${yt && sum(rest, "posts") ? ` +${num(sum(rest, "posts"))}` : ""}</td>` +
           `<td style="${cellStyle}text-align:right;color:#8a8f98;">${num(sum(rest, "comments"))}</td></tr>`
