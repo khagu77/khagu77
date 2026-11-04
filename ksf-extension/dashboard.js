@@ -59,7 +59,7 @@ function dashCarCell(c, prev, fluid) {
   const stat = (label, v, pv) =>
     `<td width="33%" style="width:33%;padding:4px 5px;background:#f6f8fa;border-radius:6px;white-space:nowrap;">` +
     `<div style="font-size:10px;color:#6b7079;font-weight:600;">${label}</div>` +
-    `<div style="white-space:nowrap;"><b style="font-size:16px;color:#1b1d21;">${dnum(v)}</b><span style="font-size:10px;color:#6b7079;">건</span></div>` +
+    `<div style="white-space:nowrap;"><b style="font-size:16px;color:#1b1d21;">${dnum(v)}</b><span style="font-size:10px;color:#6b7079;padding-left:3px;">건</span></div>` +
     `<div style="line-height:1.2;">${p ? dashDiff(v, pv) : "&nbsp;"}</div></td>`;
   const list = (title, rows, total, color) => {
     const head = `<tr><td colspan="3" style="padding:6px 2px 2px;font-size:11px;font-weight:800;color:${color};border-bottom:1px solid ${color};">${title} <span style="font-weight:400;color:#8a8f98;">(${dnum(total)})</span></td></tr>`;
@@ -99,7 +99,7 @@ function dashHtml(d, prev, banner, fluid = false) {
   const big = (label, v, pv) =>
     `<td bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background:#002c5f;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;">${label}</div>` +
     // 숫자 흰 글씨: 네이버 메일 편집기가 글자색을 지우는 경우가 있어 <font color> 와 글자마다 흰색을 함께 지정
-    `<div style="font-size:19px;font-weight:800;color:#ffffff;white-space:nowrap;"><font color="#ffffff" style="color:#ffffff;"><b style="font-weight:800;color:#ffffff;">${dnum(v)}</b><span style="font-size:10px;font-weight:400;color:#ffffff;">건</span></font></div>` +
+    `<div style="font-size:19px;font-weight:800;color:#ffffff;white-space:nowrap;"><font color="#ffffff" style="color:#ffffff;"><b style="font-weight:800;color:#ffffff;">${dnum(v)}</b><span style="font-size:10px;font-weight:400;color:#ffffff;padding-left:3px;">건</span></font></div>` +
     `<div>${prev ? dashDiff(v, pv, true) : "&nbsp;"}</div></td>`;
   const W = DASH_CELL * d.cars.length;
   return `<div style="${fluid ? "display:block;" : "display:inline-block;"}border:1px solid #d9dde3;border-radius:12px;overflow:hidden;background:#ffffff;">
@@ -181,7 +181,7 @@ function dashTypes(d, width) {
       ? `${t.top.quote ? "" : `<b style="color:${toneColor[t.top.tone] || "#1b1d21"};">[${t.top.tone}]</b> `}<span style="color:#1b1d21;">${desc(t.top.label)}</span>${t.top.quote ? "" : ` <span style="color:#8a8f98;">${dnum(t.top.count)}건</span>`}`
       : '<span style="color:#a0a5ad;">-</span>';
     return `<tr>${td(`<b style="font-size:11px;color:${color};white-space:nowrap;" title="${desc(note)}">${type}</b>`, 112)}` +
-      td(`<b style="font-size:12px;color:#1b1d21;">${dnum(t.n)}</b><span style="font-size:10px;color:#6b7079;">건 ${t.n ? dpct(t.share) : ""}</span>`, 74, "white-space:nowrap;") +
+      td(`<b style="font-size:12px;color:#1b1d21;">${dnum(t.n)}</b><span style="font-size:10px;color:#6b7079;padding-left:3px;">건 ${t.n ? dpct(t.share) : ""}</span>`, 74, "white-space:nowrap;") +
       td(`${dashBar(t.tone, t.n, 7)}<div style="font-size:9.5px;color:#6b7079;margin-top:2px;white-space:nowrap;">${t.n ? `<span style="color:#0070c0;">긍 ${dpct(t.ratio["긍정"])}</span> · <span style="color:#e00000;">부 ${dpct((t.ratio["부정"] || 0) + (t.ratio["단순비난"] || 0))}</span>` : "&nbsp;"}</div>`, 120) +
       td(`<span style="font-size:11px;line-height:1.45;">${top}</span>`) + "</tr>";
   }).join("");
