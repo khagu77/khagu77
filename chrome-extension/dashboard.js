@@ -151,7 +151,7 @@ function dashChannelCell({ label, color }, data, fluid = false) {
     `<td width="50%" style="width:50%;padding:4px 6px;background:#f6f8fa;border-radius:6px;white-space:nowrap;">` +
     `<div style="font-size:10px;color:#6b7079;font-weight:600;white-space:nowrap;">${title}</div>` +
     `<div style="white-space:nowrap;"><b style="font-size:17px;color:#1b1d21;white-space:nowrap;">${x ? num(x.d.today) : "-"}</b>` +
-    `<span style="font-size:11px;color:#6b7079;">건</span></div>` +
+    `<span style="font-size:11px;color:#6b7079;margin-left:2px;">건</span></div>` +
     `<div style="white-space:nowrap;line-height:1.2;">${x ? dashSmallBadge(x.d) : "&nbsp;"}</div></td>`;
   const cellStyle = "padding:2px 3px;font-size:11px;border-top:1px solid #eef0f3;";
   const n0 = (v) => (v ? num(v) : `<span style="color:#c4c8ce;">0</span>`);
@@ -227,13 +227,13 @@ function dashHtml(data, carSrc, fluid = false) {
     ${data.period ? `<div style="font-size:10px;color:#c3cfdd;margin-top:1px;">수집 ${esc(data.period)}</div>` : ""}
     <table width="100%" cellpadding="0" cellspacing="0" bgcolor="#002c5f" style="margin-top:8px;border-top:1px solid #4d6b8f;background:#002c5f;background-color:#002c5f;"><tr>
       <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;line-height:1.3;">오늘의 신규<br>게시물 수</div>
-        <div style="font-size:20px;font-weight:800;color:#ffffff;white-space:nowrap;">${total ? num(total.today) : "-"}<span style="font-size:11px;color:#ffffff;">건</span> ${pill(total)}</div></td>
+        <div style="font-size:20px;font-weight:800;color:#ffffff;white-space:nowrap;">${total ? num(total.today) : "-"}<span style="font-size:11px;color:#ffffff;margin-left:2px;">건</span> ${pill(total)}</div></td>
       <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;line-height:1.3;">오늘의 신규<br>댓글 수</div>
-        <div style="font-size:20px;font-weight:800;color:#ffffff;white-space:nowrap;">${cTotal ? num(cTotal.today) : "-"}<span style="font-size:11px;color:#ffffff;">건</span> ${pill(cTotal)}</div></td>
+        <div style="font-size:20px;font-weight:800;color:#ffffff;white-space:nowrap;">${cTotal ? num(cTotal.today) : "-"}<span style="font-size:11px;color:#ffffff;margin-left:2px;">건</span> ${pill(cTotal)}</div></td>
     </tr></table>
     ${ytC ? `<table width="100%" cellpadding="0" cellspacing="0" bgcolor="#002c5f" style="margin-top:8px;border-top:1px solid #4d6b8f;background:#002c5f;background-color:#002c5f;"><tr>
       <td bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:middle;background-color:#002c5f;white-space:nowrap;"><span style="display:inline-block;background:#ff0000;color:#ffffff;border-radius:3px;font-size:6px;line-height:10px;height:10px;padding:0 3px;vertical-align:middle;">▶</span> <span style="font-size:10px;color:#c3cfdd;vertical-align:middle;">유튜브 댓글 (전체)</span></td>
-      <td align="right" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:middle;text-align:right;background-color:#002c5f;white-space:nowrap;"><b style="font-size:14px;color:#ffffff;">${num(ytC.d.today)}</b><span style="font-size:10px;color:#ffffff;">건</span> ${pill(ytC.d)}</td>
+      <td align="right" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:middle;text-align:right;background-color:#002c5f;white-space:nowrap;"><b style="font-size:14px;color:#ffffff;">${num(ytC.d.today)}</b><span style="font-size:10px;color:#ffffff;margin-left:2px;">건</span> ${pill(ytC.d)}</td>
     </tr></table>` : ""}
     <div style="font-size:10px;color:#b8c5d6;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
     <div style="font-size:8px;color:#ffffff;letter-spacing:-0.1px;margin-top:10px;">By <b style="font-weight:800;font-style:italic;color:#ffffff;"><i>LINESQUARE</i></b></div>
