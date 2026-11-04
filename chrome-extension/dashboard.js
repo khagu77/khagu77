@@ -227,7 +227,7 @@ function dashHtml(data, carSrc, fluid = false) {
         <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(cTotal)}</div></td>
     </tr></table>
     ${ytC ? `<table width="100%" cellpadding="0" cellspacing="0" bgcolor="#002c5f" style="margin-top:8px;border-top:1px solid #4d6b8f;background:#002c5f;background-color:#002c5f;"><tr>
-      <td bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:middle;background-color:#002c5f;white-space:nowrap;"><span style="font-size:10px;color:#c3cfdd;">유튜브 댓글 (전체)</span></td>
+      <td bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:middle;background-color:#002c5f;white-space:nowrap;"><span style="display:inline-block;background:#ff0000;color:#ffffff;border-radius:3px;font-size:6px;line-height:10px;height:10px;padding:0 3px;vertical-align:middle;">▶</span> <span style="font-size:10px;color:#c3cfdd;vertical-align:middle;">유튜브 댓글 (전체)</span></td>
       <td align="right" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:middle;text-align:right;background-color:#002c5f;white-space:nowrap;"><b style="font-size:14px;color:#ffffff;">${num(ytC.d.today)}</b><span style="font-size:10px;color:#ffffff;">건</span> <span style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(ytC.d)}</span></td>
     </tr></table>` : ""}
     <div style="font-size:10px;color:#b8c5d6;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
