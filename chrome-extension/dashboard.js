@@ -220,11 +220,9 @@ function dashHtml(data, carSrc, fluid = false) {
     ${data.period ? `<div style="font-size:10px;color:#c3cfdd;margin-top:1px;">수집 ${esc(data.period)}</div>` : ""}
     <table width="100%" cellpadding="0" cellspacing="0" bgcolor="#002c5f" style="margin-top:8px;border-top:1px solid #4d6b8f;background:#002c5f;background-color:#002c5f;"><tr>
       <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;line-height:1.3;">오늘의 신규<br>게시물 수</div>
-        <div style="font-size:20px;font-weight:800;color:#ffffff;">${total ? num(total.today) : "-"}<span style="font-size:11px;color:#ffffff;">건</span></div>
-        <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(total)}</div></td>
+        <div style="font-size:20px;font-weight:800;color:#ffffff;white-space:nowrap;">${total ? num(total.today) : "-"}<span style="font-size:11px;color:#ffffff;">건</span> <span style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(total)}</span></div></td>
       <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;line-height:1.3;">오늘의 신규<br>댓글 수</div>
-        <div style="font-size:20px;font-weight:800;color:#ffffff;">${cTotal ? num(cTotal.today) : "-"}<span style="font-size:11px;color:#ffffff;">건</span></div>
-        <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(cTotal)}</div></td>
+        <div style="font-size:20px;font-weight:800;color:#ffffff;white-space:nowrap;">${cTotal ? num(cTotal.today) : "-"}<span style="font-size:11px;color:#ffffff;">건</span> <span style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(cTotal)}</span></div></td>
     </tr></table>
     ${ytC ? `<table width="100%" cellpadding="0" cellspacing="0" bgcolor="#002c5f" style="margin-top:8px;border-top:1px solid #4d6b8f;background:#002c5f;background-color:#002c5f;"><tr>
       <td bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:middle;background-color:#002c5f;white-space:nowrap;"><span style="display:inline-block;background:#ff0000;color:#ffffff;border-radius:3px;font-size:6px;line-height:10px;height:10px;padding:0 3px;vertical-align:middle;">▶</span> <span style="font-size:10px;color:#c3cfdd;vertical-align:middle;">유튜브 댓글 (전체)</span></td>
