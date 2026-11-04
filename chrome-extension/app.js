@@ -347,7 +347,18 @@ async function collectYoutube(result, isStopped, onProgress) {
   const initialData = extractJsonAfter(html, "ytInitialData");
   result.title = player?.videoDetails?.title || "";
   result.author = player?.videoDetails?.author || "";
-  if (!initialData) throw new CollectError("영상 정보를 읽지 못함 (삭제/비공개 영상일 수 있음)");
+  // 삭제·비공개 영상: 유튜브가 재생 불가 상태를 알려 줌 → 그날을 그 영상의 삭제 시점으로 기록
+  const ps = player?.playabilityStatus;
+  if (ps?.status && ps.status !== "OK") {
+    const e = new CollectError(`삭제·비공개 영상 (${ps.reason || ps.status})`);
+    e.gone = true;
+    throw e;
+  }
+  if (!initialData) {
+    const e = new CollectError("영상 정보를 읽지 못함 (삭제/비공개 영상일 수 있음)");
+    e.gone = true;
+    throw e;
+  }
 
   const firstToken = findCommentsToken(initialData);
   if (!firstToken) throw new CollectError("댓글을 찾지 못함 (댓글이 꺼진 영상이거나 비공개 영상일 수 있음)");
@@ -793,6 +804,7 @@ async function collectOne(url, row) {
       row.status(`완료 (${result.method})`, "ok");
     } catch (e) {
       result.error = e.message || String(e);
+      result.gone = !!e.gone;
       row.status(`실패: ${result.error}`, "err");
     }
     row.done(result);
@@ -810,6 +822,7 @@ async function collectOne(url, row) {
       );
     } catch (e) {
       result.error = e.message || String(e);
+      result.gone = !!e.gone;
       row.status(`실패: ${result.error}`, "err");
     }
     row.done(result);
@@ -926,6 +939,11 @@ async function run(state) {
         news: results.some((r) => r.platform === "news") ? out.rows.news.length : undefined,
         community: results.some((r) => r.platform === "community") ? out.rows.comm.length : undefined,
         youtube: out.rows.ytTouched ? out.rows.yt.length : undefined,
+        // 삭제·비공개로 수집 안 된 유튜브 영상 (같은 날 다시 수집하면 이번에 된 영상은 빠짐)
+        ytGone: {
+          gone: results.filter((r) => r.platform === "youtube" && r.gone).map((r) => r.articleId),
+          ok: results.filter((r) => r.platform === "youtube" && !r.error).map((r) => r.articleId),
+        },
       });
       await showDiffs();
       template = null;

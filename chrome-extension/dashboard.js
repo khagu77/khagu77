@@ -33,7 +33,9 @@ async function dashData() {
   const rawLast = (raw[ri >= 0 ? ri : 0]?.summary || "").split("\n").slice(1).join(" · ");
   // 유튜브 채널별 전일 대비용: 그 전 날짜 중 유튜브 건수가 기록된 댓글 파일
   const prevRaw = ri >= 0 ? raw.slice(ri + 1).find((x) => x.bytes && x.stats?.youtube != null) : null;
-  const detail = await dashDetail(cur, raw[ri >= 0 ? ri : -1], prevRaw).catch(() => null);
+  // 유튜브 영상 삭제·비공개 시점 (날짜별 댓글 파일을 차례로 비교)
+  const gone = ri >= 0 ? await dashYtGone(raw.slice(ri)).catch(() => null) : null;
+  const detail = await dashDetail(cur, raw[ri >= 0 ? ri : -1], prevRaw, gone).catch(() => null);
   return {
     date,
     detail,
@@ -60,7 +62,53 @@ function dashUrlKey(u) {
   return u.toLowerCase().replace(/^https?:\/\//, "").replace(/^(www|m)\./, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
 }
 
-async function dashDetail(buzzRec, rawRec, prevRaw = null) {
+// 댓글 파일의 유튜브 영상 ID 목록 (한 번 읽으면 최종 DB 기록에 같이 저장해 다음부터는 빠르게)
+async function dashYtVids(rec) {
+  if (Array.isArray(rec.ytVids)) return rec.ytVids;
+  if (!rec.bytes) return null;
+  const wb = await XlsxTemplate.Workbook.open(rec.bytes);
+  if (!wb.sheetNames().includes("유튜브")) return null;
+  const ids = new Set();
+  for (const r of await wb.readRows("유튜브")) {
+    if (r.r <= 1 || !r.cells.E) continue;
+    const k = dashUrlKey(r.cells.E);
+    if (k.startsWith("yt:")) ids.add(k.slice(3));
+  }
+  rec.ytVids = [...ids];
+  await dbTx("readwrite", (st) => st.put(rec)).catch(() => {});
+  return rec.ytVids;
+}
+
+// 유튜브 영상 삭제·비공개 시점: 살아 있던 영상(시트에 있고 삭제·비공개로 확인되지 않음)이
+// 다음 날 시트에서 빠졌거나 수집 때 삭제·비공개로 확인된 날. 다시 살아나면 지우고, 또 삭제되면 그 날짜로 (가장 최근 삭제 기준)
+// recs: 그날부터 과거로 (최신이 앞). 결과 { today: [영상ID], byMonth: { YYYYMM: 개수 } } — 지금도 삭제 상태인 영상만
+async function dashYtGone(recs) {
+  const asc = recs.filter((x) => x.stats?.youtube != null || x.stats?.ytGoneIds).slice().reverse();
+  const lastGone = new Map(); // 영상ID → 가장 최근 삭제 날짜 (YYYYMMDD)
+  let alivePrev = null;
+  for (const rec of asc) {
+    const vids = await dashYtVids(rec).catch(() => null);
+    const goneNow = new Set(rec.stats?.ytGoneIds || []);
+    const alive = vids ? new Set(vids.filter((id) => !goneNow.has(id))) : null;
+    if (alive) {
+      // 살아 있던 영상이 빠지거나 삭제·비공개로 확인됨 → 삭제 시점
+      if (alivePrev) for (const id of alivePrev) if (!alive.has(id)) lastGone.set(id, rec.date);
+      // 다시 살아난 영상은 삭제 기록 지움
+      for (const id of alive) lastGone.delete(id);
+    }
+    for (const id of goneNow) if (!lastGone.has(id)) lastGone.set(id, rec.date);
+    if (alive) alivePrev = alive;
+  }
+  const byMonth = {};
+  const today = [];
+  for (const [id, d] of lastGone) {
+    byMonth[d.slice(0, 6)] = (byMonth[d.slice(0, 6)] || 0) + 1;
+    if (d === recs[0].date) today.push(id);
+  }
+  return { today, byMonth, list: [...lastGone] };
+}
+
+async function dashDetail(buzzRec, rawRec, prevRaw = null, gone = null) {
   const out = Object.fromEntries(DASH_CH.map(({ label }) => [label, new Map()]));
   const bump = (ch, name, field, n = 1) => {
     if (!out[ch]) return;
@@ -139,12 +187,28 @@ async function dashDetail(buzzRec, rawRec, prevRaw = null) {
         for (const [k, v] of out["유튜브"]) v.prevComments = prevCount.get(k) || 0;
       }
     }
+    // 달별·채널별 삭제·비공개 영상 수 (그래프 아래 작은 글씨)
+    if (gone?.list) {
+      gone.byMonthCh = {};
+      for (const [id, d] of gone.list) {
+        const ym = d.slice(0, 6);
+        const name = where.get(`yt:${id}`)?.name || "기타 영상";
+        gone.byMonthCh[ym] = gone.byMonthCh[ym] || {};
+        gone.byMonthCh[ym][name] = (gone.byMonthCh[ym][name] || 0) + 1;
+      }
+    }
+    // 오늘 삭제·비공개된 영상을 채널별로
+    for (const id of gone?.today || []) {
+      const v = bump("유튜브", where.get(`yt:${id}`)?.name || "기타 영상", null);
+      if (v) v.goneToday = (v.goneToday || 0) + 1;
+    }
   }
   if (!hasPosts && !hasComments) return null;
   const res = Object.fromEntries(
     Object.entries(out).map(([ch, m]) => [ch, [...m.entries()].map(([name, { vids, ...v }]) => ({ name, ...v, videos: vids.size })).sort((a, b) => b.posts + b.comments - (a.posts + a.comments) || a.name.localeCompare(b.name))]),
   );
   res._monthly = monthly;
+  res._ytGone = gone;
   return res;
 }
 
@@ -164,7 +228,7 @@ function dashYm(v) {
 }
 
 // 채널 칸 안의 작은 꺾은선 (월별 게시글 수, 점마다 수치) — 메일에서도 보이게 SVG 를 직접 씀
-function dashTrend(series, color, width) {
+function dashTrend(series, color, width, goneByMonth = null) {
   const yms = Object.keys(series);
   if (yms.length < 2) return "";
   const v = yms.map((k) => series[k]);
@@ -180,8 +244,24 @@ function dashTrend(series, color, width) {
     s += `<circle cx="${x.toFixed(1)}" cy="${ys[i].toFixed(1)}" r="1.4" fill="${color}"/>`;
     s += `<text x="${x.toFixed(1)}" y="${(ys[i] - 4).toFixed(1)}" font-size="8" font-weight="700" text-anchor="middle" fill="#1b1d21">${v[i]}</text>`;
     s += `<text x="${x.toFixed(1)}" y="${h - 3}" font-size="7.5" text-anchor="middle" fill="#8a8f98">${+yms[i].slice(4)}월</text>`;
+    // 그달 삭제·비공개된 영상 (가장 최근 삭제 기준)
+    const g = goneByMonth?.[yms[i]];
+    const gy = ys[i] + 9 > h - B - 1 ? ys[i] - 12 : ys[i] + 9; // 점이 바닥 근처면 위로
+    if (g) s += `<text x="${x.toFixed(1)}" y="${gy.toFixed(1)}" font-size="7" font-weight="700" text-anchor="middle" fill="#1a5fd0">삭제${g}</text>`;
   });
   return s + "</svg>";
+}
+
+// 유튜브 그래프 아래: 달별로 어느 채널에서 몇 개 삭제·비공개됐는지 (가장 최근 삭제 기준)
+function dashGoneLine(gone) {
+  const m = gone?.byMonthCh;
+  if (!m || !Object.keys(m).length) return "";
+  const parts = Object.keys(m)
+    .filter((ym) => ym >= DASH_TREND_FROM)
+    .sort()
+    .map((ym) => `${+ym.slice(4)}월 ` + Object.entries(m[ym]).map(([n, c]) => `${esc(dashShort(n))} ${c}`).join(", "));
+  if (!parts.length) return "";
+  return `<div style="font-size:8px;color:#1a5fd0;letter-spacing:-0.3px;line-height:1.35;margin:1px 3px 0;">삭제·비공개 · ${parts.join(" · ")}</div>`;
 }
 
 // 메일 프로그램이 칸 폭을 멋대로 바꾸지 않게 폭을 픽셀로 고정 (전체 960 = 왼쪽 200 + 오른쪽 760)
@@ -217,17 +297,18 @@ function dashChannelCell({ label, color }, data, fluid = false) {
   const c = data.comments.channels.find((x) => x.label === label);
   const list = data.detail?.[label] || [];
   const unitName = yt ? "채널" : label === "언론" ? "언론사" : label === "동호회" ? "동호회" : "사이트";
-  const stat = (title, x) =>
+  const stat = (title, x, note = "") =>
     `<td width="50%" style="width:50%;padding:4px 6px;background:#f6f8fa;border-radius:6px;white-space:nowrap;">` +
     `<div style="font-size:10px;color:#6b7079;font-weight:600;white-space:nowrap;">${title}</div>` +
     `<div style="white-space:nowrap;"><b style="font-size:17px;color:#1b1d21;white-space:nowrap;">${x ? num(x.d.today) : "-"}</b>` +
     `<span style="font-size:11px;color:#6b7079;margin-left:2px;">건</span></div>` +
-    `<div style="white-space:nowrap;line-height:1.2;">${x ? dashSmallBadge(x.d) : "&nbsp;"}</div></td>`;
+    `<div style="white-space:nowrap;line-height:1.2;">${x ? dashSmallBadge(x.d) : "&nbsp;"}${note}</div></td>`;
   const cellStyle = "padding:2px 3px;font-size:11px;border-top:1px solid #eef0f3;";
   const n0 = (v) => (v ? num(v) : `<span style="color:#c4c8ce;">0</span>`);
   // 유튜브는 지켜보는 영상 전체 수 (오늘 새로 넣은 영상은 +n)
   const plus = (n) => (n ? `<span style="color:#d93025;font-size:10px;font-weight:700;"> +${num(n)}</span>` : "");
-  const first = (x) => (yt ? `${n0(x.videos)}${plus(x.posts)}` : n0(x.posts));
+  const minus = (n) => (n ? `<span style="color:#1a5fd0;font-size:10px;font-weight:700;"> -${num(n)}</span>` : "");
+  const first = (x) => (yt ? `${n0(x.videos)}${plus(x.posts)}${minus(x.goneToday)}` : n0(x.posts));
   const W1 = yt ? 24 : 36; // 새게시물(영상) 칸 폭
   const W2 = yt ? 40 : 36; // 댓글 칸 폭 (유튜브는 다섯 자리까지)
   const hasDiff = yt && list.some((x) => x.prevComments != null); // 유튜브 채널별 전일 대비 칸 (전날 파일이 있을 때)
@@ -272,11 +353,11 @@ function dashChannelCell({ label, color }, data, fluid = false) {
     `<div style="margin:0 4px;border:1px solid #e3e6eb;border-top:3px solid ${color};border-radius:8px;padding:6px 7px;background:#ffffff;">` +
     `<div style="display:inline-block;background:${color};color:#fff;font-weight:700;font-size:11px;padding:1px 8px;border-radius:999px;">${esc(label)}</div>` +
     `<table width="100%" cellpadding="0" cellspacing="3" style="width:100%;border-collapse:separate;table-layout:fixed;margin-top:3px;"><tr>` +
-    stat(yt ? "새 영상" : "게시글", p) +
+    stat(yt ? "새 영상" : "게시글", p, yt && data.detail?._ytGone?.today?.length ? ` <span style="font-size:9px;font-weight:700;color:#1a5fd0;">(삭제 ${data.detail._ytGone.today.length})</span>` : "") +
     stat(yt ? "댓글(전체)" : "댓글", c) +
     `</tr></table>` +
     (data.detail?._monthly?.[label]
-      ? `<div style="font-size:9px;color:#8a8f98;margin:4px 0 0 3px;">월별 게시글 수</div>${dashTrend(data.detail._monthly[label], color, cw - 26)}`
+      ? `<div style="font-size:9px;color:#8a8f98;margin:4px 0 0 3px;">월별 게시글 수</div>${dashTrend(data.detail._monthly[label], color, cw - 26, yt ? data.detail._ytGone?.byMonth : null)}${yt ? dashGoneLine(data.detail._ytGone) : ""}`
       : "") +
     detail +
     `</div></td>`

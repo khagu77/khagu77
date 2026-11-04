@@ -52,6 +52,12 @@ async function dbSaveDay(kind, date, name, bytes, source, summary = "", stats = 
     merged = { ...(old?.stats || {}) };
     for (const [k, v] of Object.entries(stats)) {
       if (v === undefined || v === null) continue;
+      if (k === "ytGone") {
+        // 삭제·비공개 유튜브 영상 ID: 같은 날 기록에 더하고, 이번에 수집된 영상은 뺌
+        const ok = new Set(v.ok || []);
+        merged.ytGoneIds = [...new Set([...(merged.ytGoneIds || []), ...(v.gone || [])])].filter((id) => !ok.has(id));
+        continue;
+      }
       merged[k] = k === "youtube" ? v : (merged[k] || 0) + v;
     }
   }
