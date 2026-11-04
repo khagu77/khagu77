@@ -71,6 +71,7 @@ async function dashDetail(buzzRec, rawRec, prevRaw = null) {
     return v;
   };
   const where = new Map(); // 글 열쇠 → { ch, name } (게시물 리스트 전체에서)
+  let monthly = null; // { 채널: { YYYYMM: 건수 } }
   let hasPosts = false;
   if (buzzRec?.bytes) {
     const wb = await XlsxTemplate.Workbook.open(buzzRec.bytes);
@@ -78,6 +79,22 @@ async function dashDetail(buzzRec, rawRec, prevRaw = null) {
     const sheet = names.includes("채널별 버즈량 현황") ? "채널별 버즈량 현황" : names[0];
     const rows = (await wb.readRows(sheet)).filter((r) => r.r > 3 && r.cells.G);
     for (const r of rows) where.set(dashUrlKey(r.cells.G), { ch: String(r.cells.C || "동호회").trim(), name: r.cells.D });
+    // 월별 채널별 게시글 수 (게시일 기준, DASH_TREND_FROM 부터 그날이 속한 달까지)
+    const endYm = String(buzzRec.date || "").slice(0, 6);
+    if (endYm) {
+      const yms = [];
+      for (let ym = DASH_TREND_FROM; ym <= endYm; ) {
+        yms.push(ym);
+        const y = +ym.slice(0, 4), m = +ym.slice(4);
+        ym = m === 12 ? `${y + 1}01` : `${y}${pad(m + 1)}`;
+      }
+      monthly = Object.fromEntries(DASH_CH.map(({ label }) => [label, Object.fromEntries(yms.map((ym) => [ym, 0]))]));
+      for (const r of rows) {
+        const ym = dashYm(r.cells.E);
+        const ch = String(r.cells.C || "동호회").trim();
+        if (ym && monthly[ch] && ym in monthly[ch]) monthly[ch][ym]++;
+      }
+    }
     // 그날 새로 넣은 글 = 마지막 순번부터 그날 건수만큼
     const posts = buzzRec.stats?.posts;
     if (posts != null) {
@@ -124,9 +141,47 @@ async function dashDetail(buzzRec, rawRec, prevRaw = null) {
     }
   }
   if (!hasPosts && !hasComments) return null;
-  return Object.fromEntries(
+  const res = Object.fromEntries(
     Object.entries(out).map(([ch, m]) => [ch, [...m.entries()].map(([name, { vids, ...v }]) => ({ name, ...v, videos: vids.size })).sort((a, b) => b.posts + b.comments - (a.posts + a.comments) || a.name.localeCompare(b.name))]),
   );
+  res._monthly = monthly;
+  return res;
+}
+
+// 월별 그래프 시작 달
+const DASH_TREND_FROM = "202603";
+
+// 게시일 칸 값(엑셀 날짜 숫자 · 날짜 · 글자) → "YYYYMM"
+function dashYm(v) {
+  if (v == null || v === "") return "";
+  if (v instanceof Date) return `${v.getFullYear()}${pad(v.getMonth() + 1)}`;
+  if (typeof v === "number" || /^\d+(\.\d+)?$/.test(String(v))) {
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(Number(v)) * 86400000);
+    return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}`;
+  }
+  const m = String(v).match(/(\d{4})\s*[.\-/년]\s*(\d{1,2})/);
+  return m ? `${m[1]}${pad(+m[2])}` : "";
+}
+
+// 채널 칸 안의 작은 꺾은선 (월별 게시글 수, 점마다 수치) — 메일에서도 보이게 SVG 를 직접 씀
+function dashTrend(series, color, width) {
+  const yms = Object.keys(series);
+  if (yms.length < 2) return "";
+  const v = yms.map((k) => series[k]);
+  const w = width, h = 74, L = 9, R = 9, T = 14, B = 14;
+  const mx = Math.max(1, ...v);
+  const xs = v.map((_, i) => L + (i * (w - L - R)) / (v.length - 1));
+  const ys = v.map((n) => T + (h - T - B) * (1 - n / mx));
+  const pts = xs.map((x, i) => `${x.toFixed(1)},${ys[i].toFixed(1)}`).join(" ");
+  let s = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;" font-family="${DASH_FONT.replace(/"/g, "")}">`;
+  s += `<line x1="${L}" y1="${h - B}" x2="${w - R}" y2="${h - B}" stroke="#e3e6eb" stroke-width="1"/>`;
+  s += `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  xs.forEach((x, i) => {
+    s += `<circle cx="${x.toFixed(1)}" cy="${ys[i].toFixed(1)}" r="1.8" fill="${color}"/>`;
+    s += `<text x="${x.toFixed(1)}" y="${(ys[i] - 4).toFixed(1)}" font-size="8" font-weight="700" text-anchor="middle" fill="#1b1d21">${v[i]}</text>`;
+    s += `<text x="${x.toFixed(1)}" y="${h - 3}" font-size="7.5" text-anchor="middle" fill="#8a8f98">${+yms[i].slice(4)}월</text>`;
+  });
+  return s + "</svg>";
 }
 
 // 메일 프로그램이 칸 폭을 멋대로 바꾸지 않게 폭을 픽셀로 고정 (전체 960 = 왼쪽 200 + 오른쪽 760)
@@ -220,6 +275,9 @@ function dashChannelCell({ label, color }, data, fluid = false) {
     stat(yt ? "새 영상" : "게시글", p) +
     stat(yt ? "댓글(전체)" : "댓글", c) +
     `</tr></table>` +
+    (data.detail?._monthly?.[label]
+      ? `<div style="font-size:9px;color:#8a8f98;margin:4px 0 0 3px;">월별 게시글 수</div>${dashTrend(data.detail._monthly[label], color, cw - 26)}`
+      : "") +
     detail +
     `</div></td>`
   );
