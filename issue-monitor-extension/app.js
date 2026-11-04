@@ -517,6 +517,8 @@ function renderResults() {
   tbody.textContent = "";
   state.rows.forEach((r, i) => {
     // 자동 학습 기준값이 없는 행(예전 버전 결과·불러온 엑셀·데일리 DB): 처음 보여 준 값을 기준으로, 이후 고친 것부터 학습
+    // 이미 수집한 결과에도 노란색 보강 적용 (담당자가 직접 끈 행은 그대로)
+    if (!r.highlight && !r.highlightOff && seatHighlight(r)) r.highlight = true;
     if (!r.ai) r.ai = { car: r.car, category: r.category, summary: r.summary, highlight: !!r.highlight };
     if (r.aiReport === undefined) r.aiReport = !!r.report;
     const sum = el("input", { type: "text", value: r.summary, title: r.summary, oninput: (e) => (r.summary = e.target.value, e.target.title = e.target.value, saveLastResult(), learnRow(r)) });
@@ -559,6 +561,8 @@ function renderResults() {
           checked: !!r.highlight,
           onchange: (e) => {
             r.highlight = e.target.checked;
+            if (r.highlight) delete r.highlightOff;
+            else r.highlightOff = true; // 직접 끈 노란색은 자동으로 다시 켜지 않는다
             tr.classList.toggle("yellow", r.highlight);
             saveLastResult();
             learnRow(r);
@@ -1785,6 +1789,7 @@ function finalizeRow(row, it, src) {
     kind: src.kind,
     title: it.title,
     excerpt: String(it.body || "").slice(0, 400),
+    menu: it.menu || "", // 게시판 이름 (차종 근거)
     views: it.views ?? null,
     ccount: it.ccount ?? null,
     report: false,
@@ -1792,9 +1797,22 @@ function finalizeRow(row, it, src) {
     viaSearch: !!((src.cafe && src.cafe.viaSearch) || it.via === "검색"),
     ...row,
   };
+  if (!out.highlight && seatHighlight(out)) out.highlight = true; // 전동 시트 리콜 등 노란색 보강
   // 자동 학습용: AI(또는 키워드)가 처음 정한 값 (담당자가 고친 것과 비교)
   out.ai = { car: out.car, category: out.category, summary: out.summary, highlight: !!out.highlight };
   return out;
+}
+
+// 노란색(집중 관리) 보강: 설정의 노란색 항목 중 '시트' 항목 차종(ME1·LX3·MX5·JX 등, PE 포함)에서
+// 제목·주요 내용에 시트와 리콜·끼임·멈춤·오작동·고장 등이 함께 나오면 AI 판정과 별개로 노란색
+// (담당자 지적 2026-11-04: 아이오닉9 오너스 ioniq9owners/49343·49312 전동 시트 리콜 글이 노란색에서 빠짐)
+const SEAT_HL_RE = /(시트|좌석)[^,.·]{0,14}(리콜|끼임|끼이|멈추지|안\s?멈|멈춤|무상\s?수리|시정\s?조치)|(리콜|무상\s?수리|시정\s?조치)[^,.·]{0,14}(시트|좌석)|전동\s?시트[^,.·]{0,14}(오작동|작동\s?(오류|불량|안)|고장|불량|업데이트)/;
+function seatHighlight(r) {
+  const base = String(r.car || "").split(" ")[0];
+  if (!base || base === "-") return false;
+  const cars = ((state.settings && state.settings.highlights) || []).filter((h) => /시트/.test(h.topic || "")).map((h) => String(h.car || "").split(" ")[0]);
+  if (!cars.includes(base)) return false;
+  return SEAT_HL_RE.test(`${r.title || ""}\n${r.summary || ""}`);
 }
 
 // 차종을 모르거나("-") PE 여부 등이 애매한 카페 글: 작성자 닉네임 → '게시글 보기'(작성자의 다른 글)를 열어 차종 코드를 다시 정한다.
@@ -1821,6 +1839,49 @@ function applyGenTags(src, items, judged) {
     j.car_code = newest;
     j.car_uncertain = false;
     log(`${src.name}: 「${it.title}」 '디 올 뉴' 표시로 최신 세대 ${newest} 로 정함`);
+  }
+}
+
+// 차종을 끝내 못 정한 글: 게시판 이름에 차명·코드가 있으면 그 차로 (담당자 지적 2026-11-04:
+// 아이오닉 멤버스 cafeclip/1324266·1324254·1324299 — 게시판이 '아이오닉5 정비'인데 차종 "-")
+// 카페 기본 차종 중 같은 차가 있으면 그 표기(세대·PE)를 쓰고, 연식이 보이면 코드표 적용 시기로 고른다
+function boardCarCode(menu, carHint, yearText) {
+  const codes = state.carCodeList || parseCarCodes(state.settings.carCodes);
+  // 가장 길게 맞는 차명의 차 하나 (예: '아이오닉5 정비' → 아이오닉5(NE). 그 안에 든 짧은 '아이오닉'(AE)은 무시)
+  const t = normalizeCarSlang(String(menu || "")).replace(/\s+/g, "").toUpperCase();
+  const best = new Map();
+  for (const { code, names } of codes) {
+    for (const n of [code, ...names]) {
+      const nn = n.replace(/\s+/g, "").toUpperCase();
+      if (nn.length < 3 || !t.includes(nn)) continue;
+      const b = code.split(" ")[0];
+      best.set(b, Math.max(best.get(b) || 0, nn.length));
+    }
+  }
+  if (!best.size) return "";
+  const top = Math.max(...best.values());
+  const bases = [...best.keys()].filter((b) => best.get(b) === top);
+  if (bases.length !== 1) return "";
+  const base = bases[0];
+  const hints = String(carHint || "").split("/").map((x) => x.trim()).filter((h) => h.split(" ")[0] === base);
+  const yr = findModelYear(yearText || "");
+  const y = yr && /(\d{2})/.test(yr) ? 2000 + +yr.match(/(\d{2})/)[1] : 0;
+  if (y && hints.length > 1 && state.codeYears) {
+    // 연식이 보이면: 그 해에 나온 세대 중 가장 늦게 나온 것 (예: 25년식 아이오닉5 → NE PE)
+    const ok = hints.filter((h) => (state.codeYears[h] || 0) <= y).sort((a, b) => (state.codeYears[b] || 0) - (state.codeYears[a] || 0));
+    if (ok.length) return ok[0];
+  }
+  return hints[0] || titleCarCodes(String(menu || ""), codes).find((c) => c.split(" ")[0] === base) || base;
+}
+function applyBoardCars(src, items, judged) {
+  for (const it of items) {
+    const j = judged.get(it.key);
+    if (!j || !j.relevant || (j.car_code && j.car_code.trim() !== "-") || !it.menu) continue;
+    const code = boardCarCode(it.menu, it.carHint, `${it.title}\n${it.body || ""}\n${it.comments || ""}`);
+    if (!code) continue;
+    j.car_code = code;
+    j.car_uncertain = false;
+    log(`${src.name}: 「${it.title}」 게시판 '${it.menu}' 로 차종을 ${code} 로 정함`);
   }
 }
 
@@ -1858,7 +1919,7 @@ async function refineUncertainCars(src, items, judged, ctx) {
         }
       }
       log(`${src.name}: 「${it.title}」 작성자(${it.writer.nick || "닉네임 모름"})의 다른 글 ${titles.length}개 제목${texts.length ? `, ${texts.length}개 본문·댓글` : ""} 확인`);
-      asks.push({ key: it.key, needCar: it.needCar, title: it.title, carNow: judged.get(it.key).car_code, carHint: it.carHint, nick: it.writer.nick, authorTitles: titles, authorTexts: texts, comments: it.comments });
+      asks.push({ key: it.key, needCar: it.needCar, title: it.title, menu: it.menu || "", carNow: judged.get(it.key).car_code, carHint: it.carHint, nick: it.writer.nick, authorTitles: titles, authorTexts: texts, comments: it.comments });
     } catch (e) {
       if (e instanceof StopError || e instanceof BlockedError) throw e;
       log(`${src.name} 작성자 글 확인 실패: ${e.message}`, "err");
@@ -1942,7 +2003,7 @@ async function processSource(src, posts, readBody, ctx) {
         key: post.articleId,
         source: src.name,
         carHint: src.car || "",
-        menu: post.menu || "",
+        menu: post.menu || info.board || "",
         needCar: src.kind === "cafe" && requiresCarBoard(src.cafe && src.cafe.id, post.menuId, post.menu),
         title: info.title || post.title,
         body: info.body || "",
@@ -1977,6 +2038,7 @@ async function processSource(src, posts, readBody, ctx) {
     }
     if (src.kind === "cafe") await refineUncertainCars(src, items, judged, ctx);
     applyGenTags(src, items, judged);
+    applyBoardCars(src, items, judged);
     for (const it of items) {
       const j = judged.get(it.key);
       let row;
@@ -1987,7 +2049,7 @@ async function processSource(src, posts, readBody, ctx) {
         const text = `${it.title}\n${it.body}`;
         const cat = keywordCategory(text);
         if (!cat) continue;
-        const car = guessCarCode(text, parseCarCodes(settings.carCodes)) || (it.needCar ? "" : firstHint(it.carHint)) || "-";
+        const car = guessCarCode(text, parseCarCodes(settings.carCodes)) || boardCarCode(it.menu, it.carHint, text) || (it.needCar ? "" : firstHint(it.carHint)) || "-";
         row = { car, category: cat, summary: it.title, highlight: keywordHighlight(car, text, settings.highlights), byKeyword: true, year: findModelYear(`${text}\n${it.comments || ""}`) };
       }
       const fin = finalizeRow(row, it, src);

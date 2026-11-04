@@ -343,6 +343,8 @@ function readArticleInFrame() {
   return {
     href: location.href,
     title: pick([".title_text", ".ArticleTitle .title_text", "h3.title_text", ".tit-box .title"]),
+    // 게시판 이름 (예: "아이오닉5 정비") — 차종 판단 근거 (담당자 지적 2026-11-04)
+    board: pick(["a.link_board", ".ArticleTitle a.link_board", ".article_header a[href*='/menus/']", ".tit-box .link_board"]).replace(/\s+/g, " ").replace(/[>›]\s*$/, "").trim(),
     date: pick([".article_info .date", ".WriterInfo .date", ".ArticleWriterProfile .date", ".article_info", ".tit-box .date"]),
     body: pick([".se-main-container", ".ContentRenderer", ".article_viewer", ".article_container .content", "#tbody", "#postContent"]),
     // 댓글(지금 보이는 첫 페이지, 최대 30개): 본문에 차종이 없을 때 댓글로 유추
@@ -464,6 +466,22 @@ function articlesFromJson(datas, clubId) {
     });
   }
   return [...found.values()];
+}
+
+// 글 정보 JSON 에서 게시판 이름 (article.menu.name / menuName)
+function menuNameFromJson(datas, articleId) {
+  let name = "";
+  for (const data of datas || []) {
+    walkJson(data, (o) => {
+      if (name) return;
+      const a = o.article && typeof o.article === "object" ? o.article : o;
+      const id = a.id ?? a.articleId;
+      if (id !== undefined && String(id) !== String(articleId)) return;
+      const n = (a.menu && (a.menu.name || a.menu.menuName)) || a.menuName || "";
+      if (typeof n === "string" && n.trim()) name = n.trim();
+    });
+  }
+  return name;
 }
 
 function articleBodyFromJson(datas, articleId) {
@@ -775,6 +793,7 @@ class NaverCollector {
           comments: formatComments(comments, writerNick),
           views: (frames.find((f) => f.views) || {}).views ?? countsFromJson(datas, post.articleId).views,
           ccount: countsFromJson(datas, post.articleId).ccount ?? (frames.find((f) => f.ccount) || {}).ccount ?? null,
+          board: (frames.find((f) => f.board) || {}).board || menuNameFromJson(datas, post.articleId),
         };
       }
       const signals = await this.tab.run(pageSignalsInFrame);
