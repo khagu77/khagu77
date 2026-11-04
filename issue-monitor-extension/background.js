@@ -40,7 +40,7 @@ async function openApp(auto) {
       }
     }
   }
-  await chrome.tabs.create({ url, active: !auto });
+  await chrome.tabs.create({ url: auto ? `${url}&t=${Date.now()}` : url, active: !auto });
 }
 
 // 띄워 둔 수집 화면이 지금 쉬고 있는지 (수집·PPT 캡처 중이 아니면 true, 2초 안에 대답이 없으면 false)

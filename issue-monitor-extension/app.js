@@ -2,7 +2,9 @@
 
 const $ = (sel) => document.querySelector(sel);
 const params = new URLSearchParams(location.search);
-const AUTO = params.get("auto") === "1";
+// 자동 수집으로 열린 화면 (?auto=1&t=…). 새로고침해도 같은 자동 수집을 다시 시작하지 않도록 t(열린 시각)로 한 번만 (담당자 지적 2026-11-04)
+let AUTO = params.get("auto") === "1";
+const AUTO_TOKEN = params.get("t") || "";
 const WEEKLY_AUTO = params.get("weekly") === "1"; // 마지막 근무일 정해진 시각: 주간 보고서 자동 작성
 
 const state = {
@@ -2863,7 +2865,20 @@ async function cleanStrayWorker() {
   await checkLogin();
   await renderBaseOptions();
   const autoCp = AUTO ? await loadCheckpoint() : null;
-  if (AUTO && autoCp && autoCp.auto && Date.now() - autoCp.at < 12 * 3600000) {
+  const autoResume = AUTO && autoCp && autoCp.auto && Date.now() - autoCp.at < 12 * 3600000;
+  if (AUTO && !autoResume) {
+    // 이 화면(같은 자동 수집 요청)으로 이미 자동 수집을 시작했으면 → 새로고침이므로 다시 수집하지 않고 보통 화면으로
+    const { autoTokens = [], lastAutoStartAt = 0 } = await chrome.storage.local.get(["autoTokens", "lastAutoStartAt"]);
+    const handled = AUTO_TOKEN ? autoTokens.includes(AUTO_TOKEN) : Date.now() - lastAutoStartAt < 20 * 3600000;
+    if (handled) {
+      AUTO = false;
+      history.replaceState(null, "", location.pathname);
+      log("이 화면의 자동 수집은 이미 끝났습니다. 새로고침해도 다시 수집하지 않습니다 (다시 하려면 [수집 시작]).");
+    } else {
+      await chrome.storage.local.set({ autoTokens: [AUTO_TOKEN || `none-${Date.now()}`, ...autoTokens].slice(0, 20), lastAutoStartAt: Date.now() });
+    }
+  }
+  if (autoResume) {
     // 자동 수집이 중간에 멈췄던 경우: 처음부터 다시 하지 않고 남은 곳만 이어서
     log("지난 자동 수집이 중간에 멈춰서, 끝난 곳은 건너뛰고 남은 곳만 이어서 수집합니다");
     await sleep(3000);
