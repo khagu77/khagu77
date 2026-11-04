@@ -32,16 +32,9 @@ async function dashData() {
   const lastSerial = (cur?.summary || "").match(/마지막 순번 ([\d,]+)/)?.[1] || "";
   const rawLast = (raw[ri >= 0 ? ri : 0]?.summary || "").split("\n").slice(1).join(" · ");
   const detail = await dashDetail(cur, raw[ri >= 0 ? ri : -1]).catch(() => null);
-  // 유튜브 신규 댓글 = 그날 유튜브 시트 전체 건수 − 전날 건수 (지워진 댓글이 더 많으면 음수). 전일 대비용으로 전날 것도
-  const ytRecs = ri >= 0 ? raw.slice(ri).filter((x, k) => k === 0 || x.stats?.youtube != null) : [];
-  const ytAt = (k) => ytRecs[k]?.stats?.youtube;
-  const ytNew = ytAt(0) != null && ytAt(1) != null ? ytAt(0) - ytAt(1) : null;
-  const ytNewPrev = ytAt(1) != null && ytAt(2) != null ? ytAt(1) - ytAt(2) : null;
   return {
     date,
     detail,
-    ytNew,
-    ytNewPrev,
     period: cur?.rangeEnd && prevEnd ? `${hhmm(prevEnd)} ~ ${hhmm(cur.rangeEnd)}` : "",
     posts: b,
     comments: r,
@@ -226,14 +219,17 @@ function dashHtml(data, carSrc, fluid = false) {
     <div style="font-size:13px;font-weight:700;color:#ffffff;">${esc(prettyDate(data.date))}</div>
     ${data.period ? `<div style="font-size:10px;color:#c3cfdd;margin-top:1px;">수집 ${esc(data.period)}</div>` : ""}
     <table width="100%" cellpadding="0" cellspacing="0" bgcolor="#002c5f" style="margin-top:8px;border-top:1px solid #4d6b8f;background:#002c5f;background-color:#002c5f;"><tr>
-      <td width="42%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;line-height:1.3;">오늘의 신규<br>게시물 수</div>
+      <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;line-height:1.3;">오늘의 신규<br>게시물 수</div>
         <div style="font-size:20px;font-weight:800;color:#ffffff;">${total ? num(total.today) : "-"}<span style="font-size:11px;color:#ffffff;">건</span></div>
         <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(total)}</div></td>
-      <td width="58%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;line-height:1.3;">오늘의 신규<br>댓글 수</div>
+      <td width="50%" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:top;background-color:#002c5f;"><div style="font-size:10px;color:#c3cfdd;line-height:1.3;">오늘의 신규<br>댓글 수</div>
         <div style="font-size:20px;font-weight:800;color:#ffffff;">${cTotal ? num(cTotal.today) : "-"}<span style="font-size:11px;color:#ffffff;">건</span></div>
-        <div style="font-size:11px;font-weight:700;color:#ffd166;white-space:nowrap;">${yellow(cTotal)}${data.ytNew != null ? `<span style="font-size:9px;font-weight:400;color:#c3cfdd;letter-spacing:-0.6px;white-space:nowrap;"> (유튜브 신규 ${num(data.ytNew)}건)</span>` : ""}</div>
-        ${ytC ? `<div style="font-size:10px;color:#c3cfdd;white-space:nowrap;">+ 유튜브 전체 ${num(ytC.d.today)}건</div>` : ""}</td>
+        <div style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(cTotal)}</div></td>
     </tr></table>
+    ${ytC ? `<table width="100%" cellpadding="0" cellspacing="0" bgcolor="#002c5f" style="margin-top:8px;border-top:1px solid #4d6b8f;background:#002c5f;background-color:#002c5f;"><tr>
+      <td bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:middle;background-color:#002c5f;white-space:nowrap;"><span style="font-size:10px;color:#c3cfdd;">유튜브 댓글 (전체)</span></td>
+      <td align="right" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:middle;text-align:right;background-color:#002c5f;white-space:nowrap;"><b style="font-size:14px;color:#ffffff;">${num(ytC.d.today)}</b><span style="font-size:10px;color:#ffffff;">건</span> <span style="font-size:11px;font-weight:700;color:#ffd166;">${yellow(ytC.d)}</span></td>
+    </tr></table>` : ""}
     <div style="font-size:10px;color:#b8c5d6;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
     <div style="font-size:8px;color:#ffffff;letter-spacing:0.5px;margin-top:10px;">By <b style="font-weight:800;color:#ffffff;">LINESQUARE</b></div>
     </div>
@@ -250,14 +246,13 @@ function dashHtml(data, carSrc, fluid = false) {
 </table></div>`;
 }
 
-// 오늘의 신규 댓글 수와 전일 대비: 언론·동호회·자동차 커뮤니티는 그날 새로 모은 댓글
-// 유튜브는 신규 댓글 수(전날 대비 늘어난 건수, 음수 가능)를 더함 (전날 기록이 없으면 유튜브는 빼고)
+// 오늘의 신규 댓글 수와 전일 대비: 언론·동호회·자동차 커뮤니티에서 그날 새로 모은 댓글만 (유튜브는 따로 표시)
 function dashCommentTotal(data) {
   const ch = data.comments.channels.filter((x) => x.label !== "유튜브");
-  if (!ch.length && data.ytNew == null) return null;
-  const today = ch.reduce((s, x) => s + (x.d.today || 0), 0) + (data.ytNew || 0);
-  if (ch.every((x) => x.d.prev == null) || (data.ytNew != null && data.ytNewPrev == null)) return { today, diff: null };
-  const prev = ch.reduce((s, x) => s + (x.d.prev || 0), 0) + (data.ytNew != null ? data.ytNewPrev : 0);
+  if (!ch.length) return null;
+  const today = ch.reduce((s, x) => s + (x.d.today || 0), 0);
+  if (ch.every((x) => x.d.prev == null)) return { today, diff: null };
+  const prev = ch.reduce((s, x) => s + (x.d.prev || 0), 0);
   return { today, diff: today - prev };
 }
 
@@ -274,7 +269,7 @@ function dashText(data) {
   return [
     `[팰리세이드(LX3) 전동 시트 관련 온라인 동향] DASHBOARD - ${prettyDate(data.date)}${data.period ? ` (수집 기간 ${data.period})` : ""}`,
     `■ 게시물: ${data.posts.total ? line("오늘의 신규 게시물 수", data.posts.total) : "기록 없음"}${posts ? ` | ${posts}` : ""}`,
-    `■ 댓글: ${dashCommentTotal(data) ? `${line("오늘의 신규 댓글 수", dashCommentTotal(data))}${data.ytNew != null ? ` (유튜브 신규 ${num(data.ytNew)}건)` : ""} | ` : ""}${comments || "기록 없음"}`,
+    `■ 댓글: ${dashCommentTotal(data) ? `${line("오늘의 신규 댓글 수(유튜브 제외)", dashCommentTotal(data))} | ` : ""}${comments || "기록 없음"}`,
     ...(data.detail
       ? ["■ 채널 상세 (게시글/댓글)"].concat(DASH_CH.map(({ label }) => {
           const list = data.detail[label] || [];
