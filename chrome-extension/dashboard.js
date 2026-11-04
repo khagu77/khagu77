@@ -264,8 +264,15 @@ function dashTrend(series, color, width, goneByMonth = null) {
     s += `<text x="${x.toFixed(1)}" y="${h - 3}" font-size="7.5" text-anchor="middle" fill="#8a8f98">${+yms[i].slice(4)}월</text>`;
     // 그달 삭제·비공개된 영상 (가장 최근 삭제 기준)
     const g = goneByMonth?.[yms[i]];
-    const gy = ys[i] + 9 > h - B - 1 ? ys[i] - 12 : ys[i] + 9; // 점이 바닥 근처면 위로
-    if (g) s += `<text x="${x.toFixed(1)}" y="${gy.toFixed(1)}" font-size="7" font-weight="700" text-anchor="middle" fill="#1a5fd0">삭제${g}</text>`;
+    const gy = ys[i] + 11 > h - B - 1 ? ys[i] - 14 : ys[i] + 11; // 점이 바닥 근처면 위로
+    if (g) {
+      // 파란 둥근 박스에 흰 글씨
+      const label = `삭제${g}`;
+      const bw = 15 + String(g).length * 4.2;
+      const bx = Math.min(Math.max(x, bw / 2 + 1), w - bw / 2 - 1); // 그래프 밖으로 안 나가게
+      s += `<rect x="${(bx - bw / 2).toFixed(1)}" y="${(gy - 7).toFixed(1)}" width="${bw.toFixed(1)}" height="9" rx="4.5" fill="#1a5fd0"/>`;
+      s += `<text x="${bx.toFixed(1)}" y="${(gy - 0.3).toFixed(1)}" font-size="6.5" font-weight="700" text-anchor="middle" fill="#ffffff">${label}</text>`;
+    }
   });
   return s + "</svg>";
 }
@@ -277,9 +284,9 @@ function dashGoneLine(gone) {
   const parts = Object.keys(m)
     .filter((ym) => ym >= DASH_TREND_FROM)
     .sort()
-    .map((ym) => `${+ym.slice(4)}월 ` + Object.entries(m[ym]).map(([n, c]) => `${esc(dashShort(n))} ${c}`).join(", "));
+    .map((ym) => `${+ym.slice(4)}월 ` + Object.entries(m[ym]).map(([n, c]) => `'${esc(dashShort(n))}' ${c}건`).join(", "));
   if (!parts.length) return "";
-  return `<div style="font-size:8px;color:#1a5fd0;letter-spacing:-0.3px;line-height:1.35;margin:1px 3px 0;">삭제·비공개 · ${parts.join(" · ")}</div>`;
+  return `<div style="font-size:8px;color:#1a5fd0;letter-spacing:-0.3px;line-height:1.35;margin:1px 3px 0;">■ 삭제·비공개 : ${parts.join(" · ")}</div>`;
 }
 
 // 메일 프로그램이 칸 폭을 멋대로 바꾸지 않게 폭을 픽셀로 고정 (전체 960 = 왼쪽 200 + 오른쪽 760)
