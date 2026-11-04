@@ -306,8 +306,8 @@ function dashHtml(data, carSrc, fluid = false) {
   return `<div style="${fluid ? "display:block;" : "display:inline-block;"}border:1px solid #d9dde3;border-radius:12px;overflow:hidden;background:#ffffff;">
 <table${fluid ? ' width="100%"' : ""} cellpadding="0" cellspacing="0" style="${fluid ? "width:100%;" : ""}border-collapse:collapse;border:0;font-family:${DASH_FONT};background:transparent;background-color:transparent;">
   <tr>
-  <td width="228" rowspan="2" bgcolor="#002c5f" style="width:228px;vertical-align:top;background:#002c5f;background-color:#002c5f;padding:0;color:#ffffff;border-radius:11px 0 0 11px;">
-    <div style="padding:14px 14px 12px;${fluid ? "" : "width:200px;"}">
+  <td width="228" bgcolor="#002c5f" style="width:228px;vertical-align:top;background:#002c5f;background-color:#002c5f;padding:0;color:#ffffff;border-radius:11px 0 0 0;">
+    <div style="padding:14px 14px 4px;${fluid ? "" : "width:200px;"}">
     <div style="font-size:11px;color:#c3cfdd;line-height:1.35;">팰리세이드(LX3) 전동 시트<br>관련 온라인 동향</div>
     <div style="color:#ffffff;font-family:'Arial Black','Helvetica Neue',Arial,sans-serif;font-size:22px;font-weight:900;line-height:1.05;margin-top:4px;letter-spacing:0.3px;">DASHBOARD</div>
     ${carSrc ? `<div align="center" style="text-align:center;margin:8px 0 6px;"><img src="${carSrc}" width="138" alt="PALISADE" style="display:inline-block;border:0;"></div>` : `<div style="height:8px;line-height:8px;font-size:1px;">&nbsp;</div>`}
@@ -324,7 +324,6 @@ function dashHtml(data, carSrc, fluid = false) {
       <td align="right" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:middle;text-align:right;background-color:#002c5f;white-space:nowrap;"><b style="font-size:14px;color:#ffffff;">${num(ytC.d.today)}</b><span style="font-size:10px;color:#ffffff;margin-left:2px;">건</span> ${pill(ytC.d)}</td>
     </tr></table>` : ""}
     <div style="font-size:10px;color:#b8c5d6;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
-    <div style="font-size:8px;color:#ffffff;letter-spacing:-0.1px;margin-top:10px;">By <b style="font-weight:800;font-style:italic;color:#ffffff;"><i>LINESQUARE</i></b></div>
     </div>
   </td>
   <td style="vertical-align:top;padding:10px 8px 0 6px;height:1px;background:transparent;border-radius:0 11px 0 0;">
@@ -333,7 +332,9 @@ function dashHtml(data, carSrc, fluid = false) {
     </tr></table>
   </td>
   </tr>
-  <tr><td align="right" style="vertical-align:bottom;text-align:right;padding:6px 12px 8px 6px;background:transparent;border-radius:0 0 11px 0;">
+  <tr><td width="228" bgcolor="#002c5f" style="width:228px;vertical-align:bottom;background:#002c5f;background-color:#002c5f;padding:0;color:#ffffff;border-radius:0 0 0 11px;">
+    <div style="padding:6px 14px 10px;font-size:8px;color:#ffffff;letter-spacing:-0.1px;">By <b style="font-weight:800;font-style:italic;color:#ffffff;"><i>LINESQUARE</i></b></div>
+  </td><td align="right" style="vertical-align:bottom;text-align:right;padding:6px 12px 8px 6px;background:transparent;border-radius:0 0 11px 0;">
     <div align="right" style="font-size:10px;color:#4a4f57;text-align:right;">※ <span style="color:#d93025;font-weight:700;">▲</span><span style="color:#1a5fd0;font-weight:700;">▼</span> 전일 대비 · 댓글은 그날 새로 모은 건수(유튜브는 시트 전체) · 출처별은 많은 순</div>
   </td></tr>
 </table></div>`;
