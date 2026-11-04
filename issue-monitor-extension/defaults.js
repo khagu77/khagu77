@@ -384,7 +384,7 @@ const MODELS = [
 ];
 
 // 예전 버전에서 저장한 설정에 새 기본값을 보태 준다
-const SETTINGS_VERSION = 16;
+const SETTINGS_VERSION = 17;
 function migrateSettings(s) {
   if ((s.settingsVersion || 1) < 2 && typeof s.keywords === "string") {
     const add = "출고 대기, 출고대기, 출고 기다, 검수 업체, 검수업체, 검수 대행, 검수대행, 광고, 홍보, 오일교환, 오일 교환".split(", ");
@@ -425,6 +425,10 @@ function migrateSettings(s) {
   if ((s.settingsVersion || 1) < 12) {
     // 용어 통일: 방지턱 주행 시 → 요철 등 주행 시
     if (s.terms && !/방지턱/.test(s.terms)) s.terms = `${s.terms.replace(/\s+$/, "")}\n과속방지턱, 방지턱 > 요철 등`;
+  }
+  if ((s.settingsVersion || 1) < 17 && Array.isArray(s.cafes)) {
+    // 차종끼리 카페 묶기 (담당자 요청 2026-11-04)
+    s.cafes = regroupCafes(s.cafes, s.carCodes || DEFAULT_CAR_CODES);
   }
   if ((s.settingsVersion || 1) < 16 && typeof s.keywords === "string") {
     // 신차 이미지 유출 키워드 → 품질, 위장막 시험주행·스파이샷 → 제외 (담당자 지정 2026-11-03)
@@ -496,6 +500,54 @@ function migrateSettings(s) {
   }
   s.settingsVersion = SETTINGS_VERSION;
   return s;
+}
+
+// 카페 목록을 차종끼리 묶기 (담당자 요청 2026-11-04: 새로 추가한 NX5 클럽이 맨 아래 → 클럽 투싼·올뉴투싼 매니아 옆으로)
+// 차종 = 코드표에서 그 코드의 첫 차명 (예: NX4 PE·NX5 → 투싼, CN7·CN8 → 아반떼, FE·NH2 → 넥쏘, 고성능 N 은 따로 '아반떼N').
+// 차종 칸이 비었으면 카페 이름에서 코드·차명을 찾는다. 서로 다른 차종이 섞인 카페(전기차 동호회·제네시스 클럽·N 클럽 등)와 차종을 모르는 카페는 자리 그대로.
+// 순서는 그대로 두고, 같은 차종 카페가 앞에 있으면 그 무리의 맨 뒤로 옮긴다 (이미 묶여 있으면 바뀌지 않음).
+function cafeFamilyMap(codeText) {
+  const map = new Map();
+  for (const line of String(codeText || "").split("\n")) {
+    const m = line.trim().match(/^([^#:][^:]*):\s*([^,(]+)/);
+    if (!m) continue;
+    const code = m[1].trim();
+    let fam = m[2]
+      .replace(/(차세대|신형|디\s*올\s*뉴|더\s*뉴|올\s*뉴|\d세대)\s*/g, "")
+      .replace(/\s+/g, "")
+      .replace(/(EV|일렉트릭|전기차)$/i, "");
+    if (/ N$/.test(code) && !/N$/.test(fam)) fam += "N";
+    if (fam && !map.has(code)) map.set(code, fam);
+  }
+  return map;
+}
+function cafeFamily(cafe, map) {
+  const codes = String(cafe.car || "").split("/").map((x) => x.trim()).filter(Boolean);
+  const look = (c) => map.get(c) || map.get(c.replace(/ (PE|EV|FCEV|LWB|계열)$/, "")) || map.get(`${c.replace(/ (PE|EV)$/, "")} PE`) || null;
+  if (codes.length) {
+    // 코드가 여러 개여도 모두 같은 차종이면 그 차종 (예: NX4 PE / NX5 / NX4 → 투싼), 서로 다른 차종이 섞였으면 자리 그대로
+    const fams = new Set(codes.map(look).filter(Boolean));
+    return fams.size === 1 ? [...fams][0] : null;
+  }
+  const name = String(cafe.name || "");
+  for (const [code, fam] of map) if (/^[A-Z]{1,3}\d?[A-Z]?\d?$/.test(code) && new RegExp(`(^|[^A-Za-z0-9])${code}([^A-Za-z0-9]|$)`).test(name)) return fam;
+  const compact = name.replace(/\s+/g, "");
+  let best = null;
+  for (const fam of new Set(map.values())) if (fam.length >= 2 && compact.includes(fam) && (!best || fam.length > best.length)) best = fam;
+  return best;
+}
+// onlyNew=true: 새로 추가한 카페(_new 표시)만 옮기고, 나머지는 담당자가 끌어서 정한 순서 그대로
+function regroupCafes(cafes, codeText, onlyNew = false) {
+  const map = cafeFamilyMap(codeText);
+  const out = [];
+  for (const c of cafes || []) {
+    const fam = onlyNew && !c._new ? null : cafeFamily(c, map);
+    let at = -1;
+    if (fam) for (let i = out.length - 1; i >= 0; i--) if (cafeFamily(out[i], map) === fam) { at = i; break; }
+    if (at >= 0 && at !== out.length - 1) out.splice(at + 1, 0, c);
+    else out.push(c);
+  }
+  return out;
 }
 
 async function loadSettings() {

@@ -2675,14 +2675,56 @@ function renderSettings() {
   renderHighlightTable();
 }
 
+// 카페 순서 끌어서 바꾸기 (담당자 요청 2026-11-04): 왼쪽 ⠿ 손잡이를 잡고 원하는 줄 위·아래로 놓는다
+let cafeDragFrom = -1;
+function cafeDragRow(tr, i) {
+  const handle = el("td", { class: "drag-handle", text: "⠿", title: "끌어서 순서 바꾸기" });
+  handle.addEventListener("mousedown", () => (tr.draggable = true));
+  tr.addEventListener("dragstart", (e) => {
+    cafeDragFrom = i;
+    tr.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(i));
+  });
+  tr.addEventListener("dragend", () => {
+    tr.draggable = false;
+    tr.classList.remove("dragging");
+    for (const x of document.querySelectorAll("#cafeTable tr.drop-before, #cafeTable tr.drop-after")) x.classList.remove("drop-before", "drop-after");
+  });
+  tr.addEventListener("dragover", (e) => {
+    if (cafeDragFrom < 0) return;
+    e.preventDefault();
+    const r = tr.getBoundingClientRect();
+    const after = e.clientY > r.top + r.height / 2;
+    tr.classList.toggle("drop-after", after);
+    tr.classList.toggle("drop-before", !after);
+  });
+  tr.addEventListener("dragleave", () => tr.classList.remove("drop-before", "drop-after"));
+  tr.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const from = cafeDragFrom;
+    cafeDragFrom = -1;
+    if (from < 0) return;
+    const r = tr.getBoundingClientRect();
+    let to = i + (e.clientY > r.top + r.height / 2 ? 1 : 0);
+    const [moved] = draft.cafes.splice(from, 1);
+    if (from < to) to--;
+    delete moved._new; // 직접 옮긴 카페는 저장할 때 자동으로 다시 옮기지 않는다
+    draft.cafes.splice(to, 0, moved);
+    renderCafeTable();
+    $("#saveResult").textContent = "순서를 바꿨습니다 — [저장]을 눌러 주세요";
+  });
+  return handle;
+}
+
 function renderCafeTable() {
   const tbody = $("#cafeTable tbody");
   tbody.textContent = "";
   draft.cafes.forEach((c, i) => {
-    tbody.append(
-      el(
-        "tr",
-        {},
+    const tr = el("tr", {});
+    tbody.append(tr);
+    tr.append(
+        cafeDragRow(tr, i),
         el("td", {}, el("input", { type: "checkbox", checked: c.on !== false, onchange: (e) => (c.on = e.target.checked) })),
         el("td", {}, textInput(c, "name", "예: 팰리세이드 피플")),
         el("td", {}, textInput(c, "id", "예: allumpc")),
@@ -2690,7 +2732,6 @@ function renderCafeTable() {
         el("td", { style: "text-align:center" }, el("input", { type: "checkbox", checked: !!c.viaSearch, onchange: (e) => (c.viaSearch = e.target.checked) })),
         el("td", { style: "min-width:260px" }, textInput(c, "boards", "비우면 전체 · 예: 101, 31, 그룹:현대차 EV")),
         el("td", {}, delButton(draft.cafes, i, renderCafeTable))
-      )
     );
   });
 }
@@ -2729,7 +2770,7 @@ function renderHighlightTable() {
 }
 
 $("#addCafe").addEventListener("click", () => {
-  draft.cafes.push({ name: "", id: "", car: "", on: true });
+  draft.cafes.push({ name: "", id: "", car: "", on: true, _new: true });
   renderCafeTable();
 });
 $("#addCommunity").addEventListener("click", () => {
@@ -2764,6 +2805,9 @@ function readSettingsForm() {
     if (m) c.id = m[1];
   }
   draft.cafes = draft.cafes.filter((c) => c.id || c.name);
+  // 새로 추가한 카페는 [저장] 때 같은 차종 카페 옆으로 (담당자 요청 2026-11-04). 끌어서 정한 순서는 그대로
+  draft.cafes = regroupCafes(draft.cafes, draft.carCodes, true);
+  for (const c of draft.cafes) delete c._new;
   draft.communities = draft.communities.filter((c) => c.url || c.name);
   draft.highlights = draft.highlights.filter((h) => h.car || h.topic);
 }

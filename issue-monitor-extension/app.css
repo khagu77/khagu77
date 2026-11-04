@@ -373,3 +373,9 @@ button.x-del:hover { border-color: var(--red); }
 #safetyTable th, #safetyTable td { white-space: nowrap; vertical-align: top; }
 #safetyTable td.note { white-space: normal; width: 100%; min-width: 240px; overflow-wrap: anywhere; }
 #safetyTable td.actions button { padding: 4px 10px; font-size: 12px; }
+
+/* 설정 카페 표: 끌어서 순서 바꾸기 */
+#cafeTable td.drag-handle { cursor: grab; color: var(--muted); font-size: 16px; text-align: center; user-select: none; width: 22px; }
+#cafeTable tr.dragging { opacity: 0.45; }
+#cafeTable tr.drop-before td { box-shadow: inset 0 3px 0 var(--blue); }
+#cafeTable tr.drop-after td { box-shadow: inset 0 -3px 0 var(--blue); }
