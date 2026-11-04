@@ -182,8 +182,8 @@ function dashChannelCell({ label, color }, data, fluid = false) {
   // 숫자 칸은 왼쪽 여백 2px만 (메일에서는 여백이 칸 폭에 더해짐)
   const numPad = "padding:2px 0 2px 2px;";
   // 이름 칸에 들어가는 글자 수 (한글 1자 ≈ 11px): 칸 폭 − 카드 여백·테두리(24) − 이름 칸 여백(6) − 숫자 칸(폭+2)
-  // 유튜브 채널 이름은 자간을 좁혀 더 길게
-  const nameEm = Math.max(4, (cw - 30 - (W1 + 2) - (W2 + 2) - (W3 ? W3 + 2 : 0)) / (yt ? 10.4 : 11));
+  // 이름은 자간을 좁혀 더 길게
+  const nameEm = Math.max(4, (cw - 30 - (W1 + 2) - (W2 + 2) - (W3 ? W3 + 2 : 0)) / 10.4);
   // 유튜브 채널별 댓글 전일 대비 (아주 작게, 증가 빨강·감소 파랑, 변동 없으면 표시 안 함)
   // 댓글 수와 줄이 맞도록 옆 칸에 따로 (변동 없으면 회색 '( - )')
   const ytDiff = (x) => {
@@ -193,11 +193,11 @@ function dashChannelCell({ label, color }, data, fluid = false) {
     return `<span style="font-size:8px;font-weight:700;color:${c};letter-spacing:-0.3px;">(${t})</span>`;
   };
   const row = (x) =>
-    `<tr><td style="${cellStyle}color:#1b1d21;white-space:nowrap;overflow:hidden;line-height:1.3;${yt ? "letter-spacing:-0.5px;" : ""}">${fluid ? `<a data-alias="${esc(x.name)}" style="color:inherit;text-decoration:none;cursor:pointer;">` : ""}${esc(dashClip(dashShort(x.name), nameEm))}${fluid ? "</a>" : ""}` +
+    `<tr><td style="${cellStyle}color:#1b1d21;white-space:nowrap;overflow:hidden;line-height:1.3;letter-spacing:-0.5px;">${fluid ? `<a data-alias="${esc(x.name)}" style="color:inherit;text-decoration:none;cursor:pointer;">` : ""}${esc(dashClip(dashShort(x.name), nameEm))}${fluid ? "</a>" : ""}` +
     `</td>` +
     `<td width="${W1}" style="${cellStyle}${numPad}width:${W1}px;text-align:right;font-weight:700;color:#1b1d21;white-space:nowrap;">${first(x)}</td>` +
     `<td width="${W2}" style="${cellStyle}${numPad}width:${W2}px;text-align:right;font-weight:700;color:${color};white-space:nowrap;">${n0(x.comments)}</td>` +
-    (hasDiff ? `<td width="${W3}" style="${cellStyle}${numPad}width:${W3}px;text-align:left;white-space:nowrap;">${ytDiff(x)}</td>` : "") +
+    (hasDiff ? `<td width="${W3}" style="${cellStyle}${numPad}width:${W3}px;text-align:center;white-space:nowrap;">${ytDiff(x)}</td>` : "") +
     `</tr>`;
   const rest = list.slice(DASH_TOP);
   const sum = (arr, f) => arr.reduce((s, x) => s + x[f], 0);
