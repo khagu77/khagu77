@@ -79,12 +79,20 @@ async function dashYtVids(rec) {
   return rec.ytVids;
 }
 
+// 따로 확인된 유튜브 영상 삭제·비공개 기록 (최종 DB 에 그때의 댓글 파일이 없는 경우)
+const DASH_YT_GONE_KNOWN = [
+  // 인싸 케이 영상 2건 비공개 처리 또는 삭제 — 이로 인해 유튜브 전체 댓글 수 감소
+  { id: "GtWQuSuVazI", date: "20261001" },
+  { id: "ceSOHGdclns", date: "20261001" },
+];
+
 // 유튜브 영상 삭제·비공개 시점: 살아 있던 영상(시트에 있고 삭제·비공개로 확인되지 않음)이
 // 다음 날 시트에서 빠졌거나 수집 때 삭제·비공개로 확인된 날. 다시 살아나면 지우고, 또 삭제되면 그 날짜로 (가장 최근 삭제 기준)
 // recs: 그날부터 과거로 (최신이 앞). 결과 { today: [영상ID], byMonth: { YYYYMM: 개수 } } — 지금도 삭제 상태인 영상만
 async function dashYtGone(recs) {
   const asc = recs.filter((x) => x.stats?.youtube != null || x.stats?.ytGoneIds).slice().reverse();
   const lastGone = new Map(); // 영상ID → 가장 최근 삭제 날짜 (YYYYMMDD)
+  const lastAlive = new Map(); // 영상ID → 마지막으로 살아 있던 날짜
   let alivePrev = null;
   for (const rec of asc) {
     const vids = await dashYtVids(rec).catch(() => null);
@@ -94,10 +102,20 @@ async function dashYtGone(recs) {
       // 살아 있던 영상이 빠지거나 삭제·비공개로 확인됨 → 삭제 시점
       if (alivePrev) for (const id of alivePrev) if (!alive.has(id)) lastGone.set(id, rec.date);
       // 다시 살아난 영상은 삭제 기록 지움
-      for (const id of alive) lastGone.delete(id);
+      for (const id of alive) {
+        lastGone.delete(id);
+        lastAlive.set(id, rec.date);
+      }
     }
     for (const id of goneNow) if (!lastGone.has(id)) lastGone.set(id, rec.date);
     if (alive) alivePrev = alive;
+  }
+  // 따로 확인된 삭제 기록 (최종 DB 에 그때 파일이 없을 때): 그 뒤로 살아 있던 적이 없고 더 최근 삭제 기록도 없으면 반영
+  for (const { id, date } of DASH_YT_GONE_KNOWN) {
+    if (date > recs[0].date) continue;
+    if ((lastAlive.get(id) || "") > date) continue;
+    if ((lastGone.get(id) || "") >= date) continue;
+    lastGone.set(id, date);
   }
   const byMonth = {};
   const today = [];
