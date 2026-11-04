@@ -31,7 +31,9 @@ async function dashData() {
   const prevEnd = buzz.slice(bi + 1).find((x) => x.rangeEnd)?.rangeEnd;
   const lastSerial = (cur?.summary || "").match(/마지막 순번 ([\d,]+)/)?.[1] || "";
   const rawLast = (raw[ri >= 0 ? ri : 0]?.summary || "").split("\n").slice(1).join(" · ");
-  const detail = await dashDetail(cur, raw[ri >= 0 ? ri : -1]).catch(() => null);
+  // 유튜브 채널별 전일 대비용: 그 전 날짜 중 유튜브 건수가 기록된 댓글 파일
+  const prevRaw = ri >= 0 ? raw.slice(ri + 1).find((x) => x.bytes && x.stats?.youtube != null) : null;
+  const detail = await dashDetail(cur, raw[ri >= 0 ? ri : -1], prevRaw).catch(() => null);
   return {
     date,
     detail,
@@ -58,13 +60,13 @@ function dashUrlKey(u) {
   return u.toLowerCase().replace(/^https?:\/\//, "").replace(/^(www|m)\./, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
 }
 
-async function dashDetail(buzzRec, rawRec) {
+async function dashDetail(buzzRec, rawRec, prevRaw = null) {
   const out = Object.fromEntries(DASH_CH.map(({ label }) => [label, new Map()]));
   const bump = (ch, name, field, n = 1) => {
     if (!out[ch]) return;
     const k = String(name || "기타").trim() || "기타";
     const v = out[ch].get(k) || { posts: 0, comments: 0, vids: new Set() };
-    v[field] += n;
+    if (field) v[field] += n;
     out[ch].set(k, v);
     return v;
   };
@@ -106,6 +108,19 @@ async function dashDetail(buzzRec, rawRec) {
       if (rows.length) hasComments = true;
       // 유튜브: 지켜보는 영상(시트에 있는 영상 전체) 수도 채널별로
       for (const r of rows) bump("유튜브", nameOf(r.cells.E, "기타 영상"), "comments").vids.add(dashUrlKey(r.cells.E));
+    }
+    // 유튜브 채널별 전일 대비: 전날 파일의 유튜브 시트를 채널별로 세어 둠
+    if (prevRaw?.bytes && names.includes("유튜브")) {
+      const pwb = await XlsxTemplate.Workbook.open(prevRaw.bytes);
+      if (pwb.sheetNames().includes("유튜브")) {
+        const prevCount = new Map();
+        for (const r of (await pwb.readRows("유튜브")).filter((r) => r.r > 1 && has(r))) {
+          const k = String(nameOf(r.cells.E, "기타 영상") || "기타").trim() || "기타";
+          prevCount.set(k, (prevCount.get(k) || 0) + 1);
+        }
+        for (const [k, c] of prevCount) bump("유튜브", k, null); // 전날에만 있던 채널도 (오늘 0건)
+        for (const [k, v] of out["유튜브"]) v.prevComments = prevCount.get(k) || 0;
+      }
     }
   }
   if (!hasPosts && !hasComments) return null;
@@ -158,17 +173,24 @@ function dashChannelCell({ label, color }, data, fluid = false) {
   // 유튜브는 지켜보는 영상 전체 수 (오늘 새로 넣은 영상은 +n)
   const plus = (n) => (n ? `<span style="color:#d93025;font-size:10px;font-weight:700;"> +${num(n)}</span>` : "");
   const first = (x) => (yt ? `${n0(x.videos)}${plus(x.posts)}` : n0(x.posts));
-  const W1 = yt ? 34 : 24; // 글(영상) 칸 폭
-  const W2 = 36; // 댓글 칸 폭
+  const W1 = yt ? 28 : 24; // 글(영상) 칸 폭
+  const W2 = yt ? 66 : 36; // 댓글 칸 폭 (유튜브는 채널별 전일 대비를 작게 같이)
   const cw = DASH_CELL;
   const pct = "25%";
   // 이름 칸에 들어가는 글자 수 (한글 1자 ≈ 11.6px; 칸 폭 − 여백 − 숫자 칸)
   const nameEm = Math.max(4, (cw - 34 - W1 - W2) / 11);
+  // 유튜브 채널별 댓글 전일 대비 (아주 작게, 증가 빨강·감소 파랑, 변동 없으면 표시 안 함)
+  const ytDiff = (x) => {
+    if (x.prevComments == null) return "";
+    const d = x.comments - x.prevComments;
+    if (!d) return "";
+    return ` <span style="font-size:8px;font-weight:700;color:${d > 0 ? "#d93025" : "#1a5fd0"};letter-spacing:-0.3px;">(${d > 0 ? "▲" : "▼"}${num(Math.abs(d))})</span>`;
+  };
   const row = (x) =>
     `<tr><td style="${cellStyle}color:#1b1d21;white-space:nowrap;overflow:hidden;line-height:1.3;">${fluid ? `<a data-alias="${esc(x.name)}" style="color:inherit;text-decoration:none;cursor:pointer;">` : ""}${esc(dashClip(dashShort(x.name), nameEm))}${fluid ? "</a>" : ""}` +
     `</td>` +
     `<td width="${W1}" style="${cellStyle}width:${W1}px;text-align:right;font-weight:700;color:#1b1d21;white-space:nowrap;">${first(x)}</td>` +
-    `<td width="${W2}" style="${cellStyle}width:${W2}px;text-align:right;font-weight:700;color:${color};white-space:nowrap;">${n0(x.comments)}</td></tr>`;
+    `<td width="${W2}" style="${cellStyle}width:${W2}px;text-align:right;font-weight:700;color:${color};white-space:nowrap;">${n0(x.comments)}${yt ? ytDiff(x) : ""}</td></tr>`;
   const rest = list.slice(DASH_TOP);
   const sum = (arr, f) => arr.reduce((s, x) => s + x[f], 0);
   const head = (t, w) => `<td width="${w}" style="width:${w}px;padding:2px 3px;font-size:10px;color:#8a8f98;text-align:right;white-space:nowrap;">${t}</td>`;
