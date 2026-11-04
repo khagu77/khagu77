@@ -236,7 +236,7 @@ function dashHtml(data, carSrc, fluid = false) {
       <td align="right" bgcolor="#002c5f" style="padding-top:6px;color:#ffffff;vertical-align:middle;text-align:right;background-color:#002c5f;white-space:nowrap;"><b style="font-size:14px;color:#ffffff;">${num(ytC.d.today)}</b><span style="font-size:10px;color:#ffffff;">건</span> ${pill(ytC.d)}</td>
     </tr></table>` : ""}
     <div style="font-size:10px;color:#b8c5d6;margin-top:6px;line-height:1.5;">누적 게시물 순번 ${esc(data.lastSerial || "-")}${data.rawLast ? `<br>댓글 연번 ${esc(data.rawLast)}` : ""}</div>
-    <div style="font-size:8px;color:#ffffff;letter-spacing:-0.1px;margin-top:10px;">By <b style="font-weight:800;color:#ffffff;">LINESQUARE</b></div>
+    <div style="font-size:8px;color:#ffffff;letter-spacing:-0.1px;margin-top:10px;">By <b style="font-weight:800;font-style:italic;color:#ffffff;"><i>LINESQUARE</i></b></div>
     </div>
   </td>
   <td style="vertical-align:top;padding:10px 8px 0 6px;height:1px;background:transparent;border-radius:0 11px 0 0;">
