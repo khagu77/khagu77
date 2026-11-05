@@ -466,6 +466,10 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     /^\(?\s*글\s*\d+\s*개\s*,\s*댓글\s*\d+\s*개\s*,\s*방문\s*\d+\s*회/,
     /^카페\s*활동\s*예의를\s*지켜\s*주세요/,
     /카페\s*운영\s*회칙에\s*의거\s*활동\s*정지\s*또는\s*탈퇴/,
+    // 아이오닉9 오너스 질문 게시판 빈 질문 양식 (담당자 재지적 2026-11-05: ioniq9owners/49363 — 위 안내문만 빠지고 아래 양식이 남음)
+    //   "질문에 필요할 경우 작성해주세요. / ⎯⎯⎯ / 1. 구동방식: / 2. 인승: / 3. 색상: / 4. 등급: / 5. 기타: / ⎯⎯⎯" (값을 적은 칸은 남김)
+    /^질문에\s*필요할\s*경우\s*작성해\s*주세요/,
+    /^\d+\s*[.)]\s*(구동\s*방식|인승|색상|등급|기타|트림|연식|옵션|주행\s*거리)\s*[:：]\s*$/,
     // 카페 경고 안내문 (담당자 지정 2026-10-30: allfm01/2171489)
     //   "[ 경 고 ] / 스팸광고 아이디들은 즉시 강퇴하고 글삭제합니다. / 타차량 비하분쟁, 욕설 명예훼손, 카페규정 위반 회원은 영구강퇴 조치합니다"
     /^[\[［【(]\s*경\s*고\s*[\]］】)]$/,
@@ -485,12 +489,20 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     const t = text(l);
     if (!l.media && t && (FORM_ANY.some((r) => r.test(t)) || userHit(t))) extraBoiler.add(i);
   });
-  // 고정 안내문 바로 뒤에 붙은 구분선·빈 줄도 같이 뺀다
+  // 고정 안내문 바로 뒤에 붙은 구분선·빈 줄·빈 질문 양식 줄도 같이 뺀다 (값을 적은 양식 줄은 남김)
   for (const i of [...extraBoiler].sort((a, b) => a - b)) {
     for (let j = i + 1; j < lines.length && !extraBoiler.has(j); j++) {
       const l = lines[j];
-      if (l.media || (text(l) && !isDivider(l))) break;
+      if (l.media || (text(l) && !isDivider(l) && !isEmptyFormLine(text(l)))) break;
       extraBoiler.add(j);
+    }
+  }
+  // 고정 안내문 바로 앞의 구분선도 (안내문이 구분선 사이에 끼어 있을 때 윗선이 남지 않게)
+  for (const i of [...extraBoiler]) {
+    for (let j = i - 1; j >= 0 && !extraBoiler.has(j); j--) {
+      const l = lines[j];
+      if (l.media || (text(l) && !isDivider(l))) break;
+      if (isDivider(l)) extraBoiler.add(j);
     }
   }
   if (extraBoiler.size) {
