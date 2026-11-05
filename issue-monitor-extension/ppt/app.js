@@ -1346,6 +1346,15 @@ async function buildRawWork(opts = {}) {
       hist.unshift({ id: `raw-${Date.now()}`, at: Date.now(), name: fileName, bytes: res.bytes, where, detail: res.sheets.map((s) => (s.count ? `${s.name} ${s.count}행 (연번 ${s.from}~${s.to})` : `${s.name} 0행`)).join(" · "), rows: res.sheets.reduce((n, s) => n + (s.count || 0), 0) });
       await kvSet("rawHistory", hist.slice(0, 15));
     } catch {}
+    // 안전 우려 게시글 모음용: 이 보고 날짜 RAW 의 최근 행 보관 (앞 날짜 RAW 와 비교해 그날 행을 정확히 알기 위해)
+    try {
+      const date = `${y}-${pad(m)}-${pad(d)}`;
+      const recentRows = await Raw.readRows(res.bytes, Raw.toSerial(y, m, d) - 40);
+      const all = (await kvGet("rawRecent")) || {};
+      all[date] = recentRows;
+      const keep = Object.keys(all).sort().reverse().slice(0, 150);
+      await kvSet("rawRecent", Object.fromEntries(keep.map((k) => [k, all[k]])));
+    } catch {}
     showRawInfo(saved);
     const detail = res.sheets.map((s) => (s.count ? `${s.name} ${s.count}행 (연번 ${s.from}~${s.to})` : `${s.name} 0행`)).join(" · ") + (res.skipped ? ` · 이미 RAW 에 있던 글 ${res.skipped}건은 빼고 붙임` : "");
     setSummary(`RAW data 저장했습니다: ${where} — ${detail}`, "ok");

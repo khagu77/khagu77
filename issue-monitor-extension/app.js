@@ -796,24 +796,59 @@ function refreshPptRawInfo(saved) {
     if (w && typeof w.showRawInfo === "function") w.showRawInfo(saved);
   } catch {}
 }
+// RAW 파일의 보고 날짜별 최근 행 보관 (안전 우려 게시글 모음용, 담당자 요청 2026-11-05)
+// RAW 는 날마다 그날 행이 덧붙는 누적 파일 → 앞뒤 날짜 파일을 비교하면 그날 보고된 행이 정확히 나온다
+// kv "rawRecent": { "2026-10-13": [{cafe, car, serial, kind, url, main}…] } (보고 날짜 40일 전 게시일부터만)
+async function registerRawRecent(date, bytes) {
+  if (!date || typeof Raw === "undefined") return 0;
+  const [y, m, d] = date.split("-").map(Number);
+  const rows = await Raw.readRows(bytes, Raw.toSerial(y, m, d) - 40);
+  const all = (await pptKv("readonly", (st) => st.get("rawRecent"))) || {};
+  all[date] = rows;
+  const keep = Object.keys(all).sort().reverse().slice(0, 150);
+  await pptKv("readwrite", (st) => st.put(Object.fromEntries(keep.map((k) => [k, all[k]])), "rawRecent"));
+  rawRowsCache = null;
+  return rows.length;
+}
+
 $("#rawUpload").addEventListener("change", async (ev) => {
-  const f = ev.target.files[0];
+  const files = [...ev.target.files].sort((a, b) => (a.name < b.name ? -1 : 1));
   ev.target.value = "";
-  if (!f) return;
-  try {
-    const bytes = await readRawUpload(f);
-    const now = Date.now();
-    const hist = (await pptKv("readonly", (st) => st.get("rawHistory"))) || [];
-    hist.unshift({ id: `raw-${now}`, at: now, name: f.name, bytes, edited: true, detail: "담당자 수정본 (직접 올림)", rows: 0 });
-    await pptKv("readwrite", (st) => st.put(hist.slice(0, 15), "rawHistory"));
-    const saved = { name: f.name, bytes, savedAt: fmtDateTime(new Date(now)) };
+  if (!files.length) return;
+  const ok = [];
+  const bad = [];
+  let newest = null;
+  const latest = await pptKv("readonly", (st) => st.get("rawLatest"));
+  const latestDate = latest ? DailyPpt.dateFromName(latest.name) : "";
+  setSummary(`RAW 파일 ${files.length}개 읽는 중… (큰 파일이라 조금 걸립니다)`);
+  for (const f of files) {
+    try {
+      const bytes = await readRawUpload(f);
+      const date = DailyPpt.dateFromName(f.name);
+      const now = Date.now();
+      const hist = (await pptKv("readonly", (st) => st.get("rawHistory"))) || [];
+      hist.unshift({ id: `raw-${now}-${ok.length}`, at: now, name: f.name, bytes, edited: true, detail: `담당자가 올린 파일${date ? ` (${date} 보고)` : ""}`, rows: 0, date });
+      hist.sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.at - a.at);
+      await pptKv("readwrite", (st) => st.put(hist.slice(0, 15), "rawHistory"));
+      if (date) await registerRawRecent(date, bytes);
+      if (!newest || (date || "") >= (newest.date || "")) newest = { f, bytes, date };
+      ok.push(`${f.name}${date ? "" : " (파일 이름에 날짜가 없어 안전 우려 모음에는 쓰지 않음)"}`);
+    } catch (e) {
+      bad.push(`${f.name}: ${e.message || e}`);
+    }
+  }
+  // 다음 RAW 이어 쓰기 기준: 올린 파일 중 가장 최근 날짜가 지금 기준보다 같거나 새로우면 그 파일로
+  let baseMsg = "";
+  if (newest && (!latestDate || !newest.date || newest.date >= latestDate)) {
+    const saved = { name: newest.f.name, bytes: newest.bytes, savedAt: fmtDateTime(new Date()) };
     await pptKv("readwrite", (st) => st.put(saved, "rawLatest"));
     refreshPptRawInfo(saved);
-    alert(`✅ RAW 수정본을 데일리 DB 에 보관했습니다\n${f.name}\n\n다음 RAW data 는 이 파일 끝에 이어 씁니다.`);
-  } catch (e) {
-    alert(`⚠ ${e.message || e}`);
-  }
+    baseMsg = `\n\n다음 RAW data 는 ${newest.f.name} 끝에 이어 씁니다.`;
+  } else if (newest) baseMsg = `\n\n다음 RAW 이어 쓰기 기준은 더 최근 파일(${latest.name}) 그대로입니다.`;
+  setSummary(`RAW 파일 ${ok.length}개 보관${bad.length ? ` · 실패 ${bad.length}개` : ""}`);
+  alert(`${ok.length ? `✅ RAW 파일 ${ok.length}개를 데일리 DB 에 보관했습니다 (안전 우려 게시글 모음에도 반영)\n${ok.join("\n")}` : ""}${bad.length ? `\n\n⚠ 올리지 못한 파일\n${bad.join("\n")}` : ""}${baseMsg}`);
   renderRawHistory();
+  renderSafety();
 });
 $("#rawOne").addEventListener("change", async (ev) => {
   const f = ev.target.files[0];
@@ -1057,11 +1092,27 @@ async function addSoloSafety(days, byUrl, entries) {
     if (!fullDaily[k]) continue;
     for (const r of fullDaily[k].rows || []) full.get(k).push(toRow(r, Raw.dateSerial(r.date)));
   }
+  // 보고 날짜별 RAW 파일이 있으면: 그날 파일 − 바로 앞 날짜 파일 = 그날 보고된 행 (정확)
+  const recent = (await pptKv("readonly", (st) => st.get("rawRecent"))) || {};
+  const rdates = Object.keys(recent).sort();
+  const exact = new Set(Object.keys(fullDaily));
+  for (const k of keys) {
+    if (exact.has(k) || !recent[k]) continue;
+    const prev = rdates.filter((x) => x < k).pop();
+    const before = prev ? new Set(recent[prev].map((r) => urlKey(r.url))) : null;
+    const prevDay = keys.filter((x) => x < k).pop();
+    for (const r of recent[k]) {
+      if (before ? before.has(urlKey(r.url)) : prevDay ? keyOfSerial(r.serial) < prevDay : false) continue;
+      full.get(k).push(toRow(r, r.serial));
+    }
+    exact.add(k);
+  }
+  // 그것도 없는 날: 최종 RAW data 에서 (같은 글이 데일리 DB 에 있으면 그 날짜, 없으면 게시일 다음 보고일)
   const rawRows = await rawRowsFrom(serialOfKey(keys[0]) - 4);
   for (const r of rawRows) {
     const known = byUrl.get(urlKey(r.url));
     let k = known ? known.dayKey : keys.find((x) => x > keyOfSerial(r.serial)); // 게시일 다음 보고일
-    if (!k || fullDaily[k] || !full.has(k)) continue;
+    if (!k || exact.has(k) || !full.has(k)) continue;
     full.get(k).push(toRow(r, r.serial));
   }
   for (const k of keys) {
