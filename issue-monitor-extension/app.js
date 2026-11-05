@@ -1019,8 +1019,66 @@ async function safetyByDay() {
   for (const { row, dayKey } of byUrl.values()) {
     if (isSafetyRow(row)) days.get(dayKey).rows.push(row);
   }
+  // 1인용(나눠 쓰기)으로 수집한 날: 내 몫만 데일리 DB 에 있으므로, 그날 전체 데이터에서 안전 우려 글을 더 찾는다 (담당자 요청 2026-11-05)
+  //  - 그날 PPT 작성 때 첨부한 전체(통합) 엑셀이 보관돼 있으면 그것 (fullDaily, v1.10.52 부터 보관)
+  //  - 없으면(그 전 날짜) 최종 RAW data 엑셀에서 그날 몫의 행 (같은 글이 데일리 DB 에 있으면 그 날짜, 없으면 게시일 다음 보고일)
+  //  - 전체 수집한 날은 지금처럼 연보라색으로 표시된 글만
+  try {
+    await addSoloSafety(days, byUrl, list);
+  } catch (e) {
+    console.warn("안전 우려: 전체 데이터 반영 실패", e);
+  }
   for (const d of days.values()) d.rows.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.ts || 0) - (b.ts || 0));
   return [...days.values()].sort((a, b) => (a.dayKey < b.dayKey ? 1 : -1));
+}
+
+let rawRowsCache = null;
+async function rawRowsFrom(minSerial) {
+  const raw = await pptKv("readonly", (st) => st.get("rawLatest"));
+  if (!raw || !raw.bytes || typeof Raw === "undefined") return [];
+  const sig = `${raw.name}:${raw.bytes.length}:${minSerial}`;
+  if (rawRowsCache && rawRowsCache.sig === sig) return rawRowsCache.rows;
+  const rows = await Raw.readRows(raw.bytes, minSerial);
+  rawRowsCache = { sig, rows };
+  return rows;
+}
+async function addSoloSafety(days, byUrl, entries) {
+  const keys = [...days.keys()].sort();
+  if (!keys.length) return;
+  const keyOfSerial = (n) => {
+    const d = new Date(Date.UTC(1899, 11, 30) + n * 86400000);
+    return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
+  };
+  const serialOfKey = (k) => Raw.toSerial(...k.split("-").map(Number));
+  const toRow = (r, serial) => ({ community: r.cafe, car: r.car, date: serial ? new Date(Date.UTC(1899, 11, 30) + serial * 86400000 + new Date().getTimezoneOffset() * 60000) : null, category: r.kind || "품질", url: r.url, summary: r.main, title: "", highlight: false, report: false, fromFull: true });
+  const full = new Map(keys.map((k) => [k, []]));
+  const fullDaily = (await pptKv("readonly", (st) => st.get("fullDaily"))) || {};
+  for (const k of keys) {
+    if (!fullDaily[k]) continue;
+    for (const r of fullDaily[k].rows || []) full.get(k).push(toRow(r, Raw.dateSerial(r.date)));
+  }
+  const rawRows = await rawRowsFrom(serialOfKey(keys[0]) - 4);
+  for (const r of rawRows) {
+    const known = byUrl.get(urlKey(r.url));
+    let k = known ? known.dayKey : keys.find((x) => x > keyOfSerial(r.serial)); // 게시일 다음 보고일
+    if (!k || fullDaily[k] || !full.has(k)) continue;
+    full.get(k).push(toRow(r, r.serial));
+  }
+  for (const k of keys) {
+    const day = days.get(k);
+    const dbUrls = new Set([...byUrl.values()].filter((x) => x.dayKey === k).map((x) => urlKey(x.row.url)));
+    const extras = full.get(k).filter((r) => r.url && !dbUrls.has(urlKey(r.url)));
+    const solo = entries.some((e) => e.solo && new Date(e.range.end).toDateString() === new Date(`${k}T00:00`).toDateString()) || extras.length >= 2;
+    if (!solo) continue;
+    day.solo = true;
+    const have = new Set(day.rows.map((r) => urlKey(r.url)));
+    for (const r of extras) {
+      const kk = urlKey(r.url);
+      if (have.has(kk) || !isSafetyRow(r)) continue;
+      have.add(kk);
+      day.rows.push(r);
+    }
+  }
 }
 const safetyFileName = (d) => `${d.dayKey.slice(2).replace(/-/g, "")}_안전 우려 이슈 관련.xlsx`;
 async function saveSafetyDay(d) {
@@ -1049,7 +1107,7 @@ async function renderSafety() {
   days.forEach((d, i) => {
     tbody.append(
       el("tr", {},
-        el("td", { text: `${d.dayKey}(${dow(d.dayKey)})` }),
+        el("td", {}, `${d.dayKey}(${dow(d.dayKey)})`, d.solo ? el("div", { class: "hint", text: "1인용 · 전체 데이터 기준", title: "1인용으로 수집한 날: 그날 전체(통합) 엑셀 또는 최종 RAW data 에서 안전 우려 글을 찾아 함께 넣었습니다" }) : null),
         el("td", {}, el("b", { class: d.rows.length ? "count-red" : "", text: `${d.rows.length}건` })),
         diffCell(i),
         el("td", { class: "hint note", text: d.rows.map((r) => `${r.car} ${r.summary}`).join(" · ") }),
@@ -2449,6 +2507,7 @@ async function runCollection() {
     stopped: state.stopRequested,
     blocked: state.naverBlocked || "",
     auto: AUTO,
+    solo: settings.collectMode === "solo", // 1인용 수집 (안전 우려 모음은 그날 전체 엑셀 기준)
     rows: serializeRows(state.rows),
   });
   await renderBaseOptions();

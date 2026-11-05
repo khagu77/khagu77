@@ -240,5 +240,59 @@
     return { bytes: await Zip.write(files), sheets: result, dupDates: [...dupDates], skipped };
   }
 
-  global.Raw = { append, isGenesis, dateSerial, toSerial };
+  // RAW 엑셀 읽기 (안전 우려 게시글 모음용, 담당자 요청 2026-11-05): 게시일이 minSerial 이후인 행만
+  // → [{ cafe, car, serial, kind, url, main }]. 큰 파일이라 XML 을 문자열로 훑는다
+  async function readRows(rawBytes, minSerial = 0) {
+    const files = await Zip.read(rawBytes);
+    const unesc = (s) =>
+      String(s || "")
+        .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+        .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(+d))
+        .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+    const textOf = (xml) => unesc([...String(xml || "").matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((m) => m[1]).join(""));
+    let shared = null;
+    const sharedAt = (i) => {
+      if (!shared) {
+        shared = [];
+        if (files.has("xl/sharedStrings.xml")) for (const m of Zip.text(files.get("xl/sharedStrings.xml")).matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)) shared.push(textOf(m[1]));
+      }
+      return shared[i] ?? "";
+    };
+    const out = [];
+    for (const sh of sheetPaths(files)) {
+      if (!/현대|제네시스|genesis/i.test(sh.name)) continue;
+      const xml = Zip.text(files.get(sh.path));
+      const rels = files.has(sh.rels) ? Zip.text(files.get(sh.rels)) : "";
+      const target = {};
+      for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+        const id = (m[0].match(/Id="([^"]*)"/) || [])[1];
+        const t = (m[0].match(/Target="([^"]*)"/) || [])[1];
+        if (id && t) target[id] = unesc(t);
+      }
+      const link = {};
+      for (const m of xml.matchAll(/<hyperlink\b[^>]*>/g)) {
+        const ref = (m[0].match(/ref="([A-Z]+\d+)"/) || [])[1];
+        const id = (m[0].match(/r:id="([^"]*)"/) || [])[1];
+        if (ref && id && target[id]) link[ref] = target[id];
+      }
+      for (const rm of xml.matchAll(/<row\b[^>]*\br="(\d+)"[^>]*>([\s\S]*?)<\/row>/g)) {
+        const rn = rm[1];
+        const cell = {};
+        for (const cm of rm[2].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+          const col = ((cm[1].match(/r="([A-Z]+)\d+"/) || [])[1]) || "";
+          if (!"BCDEFG".includes(col) || col.length !== 1) continue;
+          const inner = cm[2] || "";
+          const type = (cm[1].match(/t="([^"]*)"/) || [])[1] || "";
+          const v = (inner.match(/<v>([^<]*)<\/v>/) || [])[1];
+          cell[col] = type === "s" ? sharedAt(+v) : type === "inlineStr" ? textOf(inner) : unesc(v ?? textOf(inner));
+        }
+        const serial = dateSerial(cell.D);
+        if (!serial || serial < minSerial) continue;
+        out.push({ cafe: cell.B || "", car: cell.C || "", serial, kind: cell.E || "", url: link[`F${rn}`] || cell.F || "", main: cell.G || "" });
+      }
+    }
+    return out;
+  }
+
+  global.Raw = { append, readRows, isGenesis, dateSerial, toSerial };
 })(typeof window !== "undefined" ? window : self);

@@ -362,6 +362,16 @@ async function restoreItemsFromProgress() {
   if (n) setSummary(`화면이 다시 열려 오늘 작성하던 글 ${n}건을 불러왔습니다. 이어서 [PPT 받기]·[RAW data 엑셀 파일 받기]를 할 수 있습니다.`, "ok");
 }
 
+async function saveFullDaily(rows) {
+  if (!rows || !rows.length) return;
+  const { y, m, d } = reportDate();
+  const date = `${y}-${pad(m)}-${pad(d)}`;
+  const all = (await kvGet("fullDaily").catch(() => null)) || {};
+  all[date] = { at: Date.now(), rows: rows.map((r) => ({ cafe: r.cafe, car: r.car, date: r.date, kind: r.kind, url: r.url, main: r.main })) };
+  const keep = Object.keys(all).sort().reverse().slice(0, 120);
+  await kvSet("fullDaily", Object.fromEntries(keep.map((k) => [k, all[k]])));
+}
+
 async function onExcelFile() {
   const file = $("#excelFile").files[0];
   if (!file) return;
@@ -381,6 +391,8 @@ async function loadExcelBytes(bytes, label) {
     for (const m of marked) if (!m.title && titleByUrl.has(normUrl(m.url))) m.title = titleByUrl.get(normUrl(m.url));
     excelItems = marked;
     excelAllRows = await Excel.readAllRows(bytes).catch(() => []);
+    // 안전 우려 게시글 모음용: 보고 날짜별 전체(통합) 엑셀 행을 보관 (1인용일 때 다른 담당자 몫까지, 담당자 요청 2026-11-05)
+    saveFullDaily(excelAllRows).catch(() => {});
     // '총 N개' 는 + 표시 개수로 채워 둔다 (작성 개수만 정하면 되게)
     if (marked.length) {
       $("#countTotal").value = String(Math.min(12, marked.length));
