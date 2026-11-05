@@ -498,8 +498,8 @@ def test_lx3(tmp_path: Path):
         page.locator("#settings summary").click()
         assert len(page.input_value("#cafeList").split("\n")) == 12 and "16624720" in page.input_value("#cafeList")
 
-        # 유튜브 목록: 기본 23개 · 추가 · 삭제 · 기본으로 되돌리기
-        assert page.locator("#ytList li").count() == 23
+        # 유튜브 목록: 기본 21개 · 추가 · 삭제 · 기본으로 되돌리기
+        assert page.locator("#ytList li").count() == 21
         assert page.locator("#ytList li a").first.inner_text() == "https://www.youtube.com/watch?v=qCzKGyMaDq4"
         page.evaluate("youtube.length = 0; saveYoutube()")
         page.fill("#ytInput", "https://youtu.be/abcdefghijk https://www.youtube.com/watch?v=zzzzzzzzzzz&t=3 엉뚱한주소")

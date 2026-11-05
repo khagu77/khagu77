@@ -92,7 +92,6 @@ const DASH_YT_GONE_KNOWN = [
 async function dashYtGone(recs) {
   const asc = recs.filter((x) => x.stats?.youtube != null || x.stats?.ytGoneIds).slice().reverse();
   const lastGone = new Map(); // 영상ID → 가장 최근 삭제 날짜 (YYYYMMDD)
-  const lastAlive = new Map(); // 영상ID → 마지막으로 살아 있던 날짜
   let alivePrev = null;
   for (const rec of asc) {
     const vids = await dashYtVids(rec).catch(() => null);
@@ -102,19 +101,15 @@ async function dashYtGone(recs) {
       // 살아 있던 영상이 빠지거나 삭제·비공개로 확인됨 → 삭제 시점
       if (alivePrev) for (const id of alivePrev) if (!alive.has(id)) lastGone.set(id, rec.date);
       // 다시 살아난 영상은 삭제 기록 지움
-      for (const id of alive) {
-        lastGone.delete(id);
-        lastAlive.set(id, rec.date);
-      }
+      for (const id of alive) lastGone.delete(id);
     }
     for (const id of goneNow) if (!lastGone.has(id)) lastGone.set(id, rec.date);
     if (alive) alivePrev = alive;
   }
-  // 따로 확인된 삭제 기록 (최종 DB 에 그때 파일이 없을 때): 그 뒤로 살아 있던 적이 없고 더 최근 삭제 기록도 없으면 반영
+  // 따로 확인된 삭제 기록은 그 날짜를 그대로 씀 (삭제된 영상은 수집 실패 때 이전 댓글이 시트에 남아
+  // '살아 있는 것'처럼 보이다가 나중에 목록에서 빠지는 날 다시 잡히므로, 확인된 날짜가 우선)
   for (const { id, date } of DASH_YT_GONE_KNOWN) {
     if (date > recs[0].date) continue;
-    if ((lastAlive.get(id) || "") > date) continue;
-    if ((lastGone.get(id) || "") >= date) continue;
     lastGone.set(id, date);
   }
   const byMonth = {};

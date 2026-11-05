@@ -1137,6 +1137,15 @@ function renderFailBox() {
     drop.className = "small";
     drop.textContent = "목록에서 빼기";
     drop.addEventListener("click", async () => {
+      // 유튜브 영상은 매일 '유튜브 수집 목록'의 영상을 다시 모으므로, 그 목록에서도 빼야 다음 날 다시 실패하지 않음
+      const ytId = platformOf(f.url) === "youtube" ? parseYoutubeId(f.url) : "";
+      if (ytId) {
+        if (!confirm(`이 유튜브 영상을 '유튜브 수집 목록'에서도 뺄까요?\n(빼면 다음 수집부터 이 영상의 댓글은 모으지 않습니다)\n${f.url}`)) return;
+        const { lx3Youtube } = await chrome.storage.local.get("lx3Youtube").catch(() => ({}));
+        if (Array.isArray(lx3Youtube)) {
+          await chrome.storage.local.set({ lx3Youtube: lx3Youtube.filter((u) => parseYoutubeId(u) !== ytId && u !== ytId) }).catch(() => {});
+        }
+      }
       failedPosts = failedPosts.filter((x) => x !== f);
       await chrome.storage.local.set({ lx3FailedComments: failedPosts }).catch(() => {});
       renderFailBox();

@@ -28,8 +28,6 @@ const DEFAULT_YOUTUBE = [
   "Ya7tNSCWHKQ",
   "JQ0328NfbWc",
   "Z_IMxiszGII",
-  "GtWQuSuVazI",
-  "ceSOHGdclns",
   "fxKieGRWEd8",
   "Ee0tytsS_Ks",
 ].map((id) => `https://www.youtube.com/watch?v=${id}`);
@@ -165,6 +163,8 @@ async function loadSettings() {
   cafeNames = Object.fromEntries(Object.entries(s.lx3CafeNames || {}).map(([k, v]) => [k, cleanCafeName(v)]));
   cafeSlugs = await loadCafeSlugs();
   youtube = s.lx3Youtube || [...DEFAULT_YOUTUBE];
+  // 저장된 목록이 없으면 기본 목록을 저장해 둠 (댓글 수집 화면의 '목록에서 빼기'가 실제 목록에서 지울 수 있게)
+  if (!s.lx3Youtube) await chrome.storage.local.set({ lx3Youtube: youtube }).catch(() => {});
 }
 
 function saveSettings() {
@@ -1351,6 +1351,15 @@ function youtubeIdOf(url) {
   const m = String(url).match(/(?:[?&]v=|youtu\.be\/|\/shorts\/|\/live\/|\/embed\/)([\w-]{11})/);
   return m ? m[1] : null;
 }
+
+// 다른 화면(댓글 수집의 '목록에서 빼기')에서 유튜브 수집 목록을 바꾸면 이 화면에도 바로 반영
+chrome.storage.onChanged.addListener((ch, area) => {
+  if (area !== "local" || !ch.lx3Youtube || !Array.isArray(ch.lx3Youtube.newValue)) return;
+  if (JSON.stringify(ch.lx3Youtube.newValue) === JSON.stringify(youtube)) return;
+  youtube = [...ch.lx3Youtube.newValue];
+  renderYoutube();
+  updateCounts();
+});
 
 async function saveYoutube() {
   await chrome.storage.local.set({ lx3Youtube: youtube }).catch(() => {});
