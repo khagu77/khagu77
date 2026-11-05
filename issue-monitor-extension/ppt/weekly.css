@@ -42,3 +42,8 @@ button.btn-warn { color: #b45309; border-color: #f59e0b; }
 /* 파일 올리기 버튼 모양 */
 label.filebtn { display: inline-flex; align-items: center; padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); font-size: 13px; font-weight: 600; cursor: pointer; }
 label.filebtn:hover { border-color: var(--blue); }
+
+/* 보관함 페이지 나누기 */
+.pager { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 8px 0 4px; }
+.pager button { min-width: 30px; padding: 3px 8px; font-size: 12.5px; }
+.pager button.cur { background: var(--blue); color: #fff; border-color: var(--blue); font-weight: 700; opacity: 1; }

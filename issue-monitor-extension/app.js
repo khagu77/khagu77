@@ -647,7 +647,7 @@ const deserializeRows = (rows) => (rows || []).map((r) => ({ ...r, date: r.date 
 // 데일리 DB: 수집할 때마다 결과를 저장, 엑셀 받기·결과 보기·이어받기 기준
 // ---------------------------------------------------------------------------
 
-const DB_MAX = 400;
+const DB_MAX = Infinity; // 수집 기록은 영구 보관 (담당자 요청 2026-11-05)
 
 async function dbList() {
   const { dailyDb = [] } = await chrome.storage.local.get("dailyDb");
@@ -796,6 +796,82 @@ function refreshPptRawInfo(saved) {
     if (w && typeof w.showRawInfo === "function") w.showRawInfo(saved);
   } catch {}
 }
+// ---------------------------------------------------------------------------
+// 데일리 DB 표 페이지 나누기 (담당자 요청 2026-11-05: 기록은 영구 보관, 표는 10개씩 나눠 보기)
+// ---------------------------------------------------------------------------
+const PAGE_SIZE = 10;
+const dbPages = {};
+function pageOf(key, list, size = PAGE_SIZE) {
+  const pages = Math.max(1, Math.ceil(list.length / size));
+  const p = Math.min(Math.max(1, dbPages[key] || 1), pages);
+  dbPages[key] = p;
+  return { items: list.slice((p - 1) * size, p * size), p, pages, from: (p - 1) * size };
+}
+// 표 바로 아래에 « ‹ 1 2 3 › » 단추
+function renderPager(table, key, total, p, pages, rerender, size = PAGE_SIZE) {
+  const id = `pager-${key}`;
+  let box = document.getElementById(id);
+  if (!box) {
+    box = document.createElement("div");
+    box.id = id;
+    box.className = "pager";
+    table.after(box);
+  }
+  box.textContent = "";
+  box.hidden = pages <= 1;
+  if (pages <= 1) return;
+  const go = (n) => {
+    dbPages[key] = n;
+    rerender();
+  };
+  const btn = (label, n, cur = false, dis = false) => el("button", { type: "button", class: cur ? "cur" : "", text: label, disabled: dis || cur, onclick: () => go(n) });
+  box.append(btn("«", 1, false, p === 1), btn("‹", p - 1, false, p === 1));
+  const lo = Math.max(1, Math.min(p - 4, pages - 9));
+  for (let i = lo; i <= Math.min(pages, lo + 9); i++) box.append(btn(String(i), i, i === p));
+  box.append(btn("›", p + 1, false, p === pages), btn("»", pages, false, p === pages));
+  box.append(el("span", { class: "hint", text: ` ${total}개 중 ${(p - 1) * size + 1}–${Math.min(total, p * size)}` }));
+}
+
+// RAW 파일 보관 (영구, 담당자 요청 2026-11-05): 목록(가벼운 정보)은 "rawHistory", 파일 내용은 "rawFile:<id>" 에 따로
+// 예전처럼 목록 안에 파일 내용이 들어 있으면 처음 읽을 때 따로 옮긴다. 목록은 보고 날짜(파일 이름의 날짜) 최근 순
+const rawFileKey = (id) => `rawFile:${id}`;
+async function rawHistList() {
+  const hist = (await pptKv("readonly", (st) => st.get("rawHistory"))) || [];
+  let changed = false;
+  for (const h of hist) {
+    if (!h.id) {
+      h.id = `raw-${h.at}-${Math.random().toString(36).slice(2, 7)}`;
+      changed = true;
+    }
+    if (h.bytes) {
+      const b = h.bytes;
+      await pptKv("readwrite", (st) => st.put(b, rawFileKey(h.id)));
+      h.size = b.length;
+      delete h.bytes;
+      changed = true;
+    }
+    if (!h.date) {
+      const d = DailyPpt.dateFromName(h.name);
+      if (d) {
+        h.date = d;
+        changed = true;
+      }
+    }
+  }
+  if (changed) await pptKv("readwrite", (st) => st.put(hist, "rawHistory"));
+  return hist.sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.at - a.at);
+}
+const rawBytesOf = (h) => pptKv("readonly", (st) => st.get(rawFileKey(h.id)));
+// 같은 이름의 파일은 새 것으로 바꾼다
+async function rawHistAdd(meta, bytes) {
+  const list = await rawHistList();
+  for (const x of list.filter((x) => x.name === meta.name)) await pptKv("readwrite", (st) => st.delete(rawFileKey(x.id)));
+  const e = { ...meta, size: bytes.length };
+  await pptKv("readwrite", (st) => st.put(bytes, rawFileKey(e.id)));
+  await pptKv("readwrite", (st) => st.put([e, ...list.filter((x) => x.name !== meta.name)], "rawHistory"));
+  return e;
+}
+
 // RAW 파일의 보고 날짜별 최근 행 보관 (안전 우려 게시글 모음용, 담당자 요청 2026-11-05)
 // RAW 는 날마다 그날 행이 덧붙는 누적 파일 → 앞뒤 날짜 파일을 비교하면 그날 보고된 행이 정확히 나온다
 // kv "rawRecent": { "2026-10-13": [{cafe, car, serial, kind, url, main}…] } (보고 날짜 40일 전 게시일부터만)
@@ -805,8 +881,7 @@ async function registerRawRecent(date, bytes) {
   const rows = await Raw.readRows(bytes, Raw.toSerial(y, m, d) - 40);
   const all = (await pptKv("readonly", (st) => st.get("rawRecent"))) || {};
   all[date] = rows;
-  const keep = Object.keys(all).sort().reverse().slice(0, 150);
-  await pptKv("readwrite", (st) => st.put(Object.fromEntries(keep.map((k) => [k, all[k]])), "rawRecent"));
+  await pptKv("readwrite", (st) => st.put(all, "rawRecent")); // 영구 보관
   rawRowsCache = null;
   return rows.length;
 }
@@ -826,10 +901,7 @@ $("#rawUpload").addEventListener("change", async (ev) => {
       const bytes = await readRawUpload(f);
       const date = DailyPpt.dateFromName(f.name);
       const now = Date.now();
-      const hist = (await pptKv("readonly", (st) => st.get("rawHistory"))) || [];
-      hist.unshift({ id: `raw-${now}-${ok.length}`, at: now, name: f.name, bytes, edited: true, detail: `담당자가 올린 파일${date ? ` (${date} 보고)` : ""}`, rows: 0, date });
-      hist.sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.at - a.at);
-      await pptKv("readwrite", (st) => st.put(hist.slice(0, 15), "rawHistory"));
+      await rawHistAdd({ id: `raw-${now}-${ok.length}`, at: now, name: f.name, uploaded: true, detail: `담당자가 올린 파일${date ? ` (${date} 보고)` : ""}`, rows: 0, date }, bytes);
       if (date) await registerRawRecent(date, bytes);
       if (!newest || (date || "") >= (newest.date || "")) newest = { f, bytes, date };
       ok.push(`${f.name}${date ? "" : " (파일 이름에 날짜가 없어 안전 우려 모음에는 쓰지 않음)"}`);
@@ -858,14 +930,16 @@ $("#rawOne").addEventListener("change", async (ev) => {
   if (!f || !target) return;
   try {
     const bytes = await readRawUpload(f);
-    const hist = (await pptKv("readonly", (st) => st.get("rawHistory"))) || [];
+    const hist = await rawHistList();
     const latest = await pptKv("readonly", (st) => st.get("rawLatest"));
-    const i = hist.findIndex((x) => x.at === target.at && x.name === target.name);
+    const i = hist.findIndex((x) => x.id === target.id);
     if (i < 0) throw new Error("바꿀 RAW 기록을 찾지 못했습니다. 화면을 새로 고친 뒤 다시 해 주세요");
     const h = hist[i];
-    const wasBase = latest && latest.name === h.name && latest.bytes && h.bytes && latest.bytes.length === h.bytes.length;
-    hist[i] = { ...h, name: f.name, bytes, edited: true, origName: h.origName || h.name, editedAt: Date.now(), detail: `담당자 수정본${h.detail ? ` (처음: ${h.detail})` : ""}` };
+    const wasBase = latest && latest.name === h.name && latest.bytes && latest.bytes.length === h.size;
+    hist[i] = { ...h, name: f.name, size: bytes.length, edited: true, origName: h.origName || h.name, editedAt: Date.now(), detail: `담당자 수정본${h.detail ? ` (처음: ${h.detail})` : ""}`, date: DailyPpt.dateFromName(f.name) || h.date };
+    await pptKv("readwrite", (st) => st.put(bytes, rawFileKey(h.id)));
     await pptKv("readwrite", (st) => st.put(hist, "rawHistory"));
+    if (hist[i].date) await registerRawRecent(hist[i].date, bytes).catch(() => {});
     let msg = "";
     if (wasBase || i === 0 || confirm(`다음 RAW data 를 이 수정본 끝에 이어 쓸까요?\n${f.name}`)) {
       const saved = { name: f.name, bytes, savedAt: fmtDateTime(new Date()) };
@@ -881,24 +955,27 @@ $("#rawOne").addEventListener("change", async (ev) => {
 });
 
 async function renderRawHistory() {
-  const hist = (await pptKv("readonly", (st) => st.get("rawHistory"))) || [];
+  const hist = await rawHistList();
   const latest = await pptKv("readonly", (st) => st.get("rawLatest"));
   const tbody = $("#rawTable tbody");
   tbody.textContent = "";
   $("#rawEmpty").hidden = hist.length > 0;
   $("#rawTable").hidden = !hist.length;
-  for (const h of hist) {
-    const isBase = latest && latest.name === h.name && latest.bytes && h.bytes && latest.bytes.length === h.bytes.length;
+  const pg = pageOf("raw", hist);
+  renderPager($("#rawTable"), "raw", hist.length, pg.p, pg.pages, renderRawHistory);
+  for (const h of pg.items) {
+    const isBase = latest && latest.name === h.name && latest.bytes && latest.bytes.length === h.size;
     tbody.append(
       el("tr", {},
+        el("td", {}, el("b", { text: h.date || "-" })),
         el("td", { text: fmtDateTime(new Date(h.at)) }),
-        el("td", {}, h.edited ? el("span", { class: "badge-edit", text: "담당자 수정본" }) : null, ` ${h.name}${isBase ? "  ← 다음 RAW 이어 쓰기 기준" : ""}`),
-        el("td", {}, h.edited && !h.rows ? "-" : el("b", { class: "count-red", text: `${h.rows || 0}건` })),
+        el("td", {}, h.edited ? el("span", { class: "badge-edit", text: "담당자 수정본" }) : h.uploaded ? el("span", { class: "badge-edit", text: "올린 파일" }) : null, ` ${h.name}${isBase ? "  ← 다음 RAW 이어 쓰기 기준" : ""}`),
+        el("td", {}, (h.edited || h.uploaded) && !h.rows ? "-" : el("b", { class: "count-red", text: `${h.rows || 0}건` })),
         el("td", { class: "hint", text: h.detail || "" }),
         el("td", { class: "actions" },
           el("button", { class: "btn-get", text: "받기", onclick: async (ev) => {
             const btn = ev.currentTarget;
-            const where = await saveBytesFile(h.name, h.bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            const where = await saveBytesFile(h.name, await rawBytesOf(h), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
             Celebrate.done(btn);
             await Celebrate.after();
             alert(`✅ RAW data 파일 저장 완료\n\n저장 위치: ${where}`);
@@ -909,13 +986,17 @@ async function renderRawHistory() {
           } }),
           isBase ? null : el("button", { text: "이어 쓸 기준으로", title: "다음 RAW 를 이 파일 끝에 이어 씁니다", onclick: async () => {
             if (!confirm(`다음 RAW data 를 이 파일 끝에 이어 쓸까요?\n${h.name}`)) return;
-            await pptKv("readwrite", (st) => st.put({ name: h.name, bytes: h.bytes, savedAt: fmtDateTime(new Date(h.at)) }, "rawLatest"));
+            const bytes = await rawBytesOf(h);
+            if (!bytes) return alert("이 RAW 파일 내용을 찾지 못했습니다");
+            await pptKv("readwrite", (st) => st.put({ name: h.name, bytes, savedAt: fmtDateTime(new Date(h.at)) }, "rawLatest"));
+            refreshPptRawInfo({ name: h.name, savedAt: fmtDateTime(new Date(h.at)) });
             renderRawHistory();
           } }),
           el("button", { class: "danger", text: "삭제", title: isBase ? "다음 RAW 이어 쓰기 기준 파일은 지울 수 없습니다 (다른 파일을 기준으로 바꾼 뒤 지우세요)" : "이 RAW 파일 기록 지우기", disabled: !!isBase, onclick: async () => {
             if (!confirm(`RAW data 파일 기록을 지울까요?\n${h.name}\n(저장 폴더의 파일은 그대로입니다)`)) return;
-            const list = (await pptKv("readonly", (st) => st.get("rawHistory"))) || [];
-            await pptKv("readwrite", (st) => st.put(list.filter((x) => !(x.at === h.at && x.name === h.name)), "rawHistory"));
+            const list = await rawHistList();
+            await pptKv("readwrite", (st) => st.delete(rawFileKey(h.id)));
+            await pptKv("readwrite", (st) => st.put(list.filter((x) => x.id !== h.id), "rawHistory"));
             renderRawHistory();
           } })
         )
@@ -961,7 +1042,9 @@ async function renderDailyPpts() {
   $("#pptEmpty").hidden = days.length > 0;
   $("#pptTable").hidden = !days.length;
   const dow = (k) => "일월화수목금토"[new Date(`${k}T00:00`).getDay()];
-  for (const day of days) {
+  const pptPg = pageOf("ppt", days);
+  renderPager($("#pptTable"), "ppt", days.length, pptPg.p, pptPg.pages, renderDailyPpts);
+  for (const day of pptPg.items) {
     const f = day.final;
     tbody.append(
       el("tr", {},
@@ -982,7 +1065,7 @@ async function renderDailyPpts() {
         el("td", { class: "actions" },
           el("button", { class: "btn-get", text: "받기", onclick: async (ev) => {
             const btn = ev.currentTarget;
-            const where = await saveBytesFile(f.name, f.bytes, PPT_MIME);
+            const where = await saveBytesFile(f.name, await DailyPpt.bytesOf(f.id), PPT_MIME);
             Celebrate.done(btn);
             await Celebrate.after();
             alert(`✅ PPT 저장 완료\n\n저장 위치: ${where}`);
@@ -1155,7 +1238,10 @@ async function renderSafety() {
     const d = days[i].rows.length - prev.rows.length;
     return el("td", { title: `전일(${prev.dayKey}) ${prev.rows.length}건 대비` }, d === 0 ? el("span", { class: "cost-same", text: "– 0" }) : el("span", { class: d > 0 ? "cost-up" : "cost-down", text: `${d > 0 ? "▲" : "▼"} ${Math.abs(d)}건` }));
   };
-  days.forEach((d, i) => {
+  const sfPg = pageOf("safety", days);
+  renderPager($("#safetyTable"), "safety", days.length, sfPg.p, sfPg.pages, renderSafety);
+  sfPg.items.forEach((d, j) => {
+    const i = sfPg.from + j; // 전일 대비는 전체 목록 기준
     tbody.append(
       el("tr", {},
         el("td", {}, `${d.dayKey}(${dow(d.dayKey)})`, d.solo ? el("div", { class: "hint", text: "1인용 · 전체 데이터 기준", title: "1인용으로 수집한 날: 그날 전체(통합) 엑셀 또는 최종 RAW data 에서 안전 우려 글을 찾아 함께 넣었습니다" }) : null),
@@ -1217,6 +1303,10 @@ async function renderDb() {
   renderRawHistory();
   renderDailyPpts();
   renderSafety();
+  await renderDbOnly();
+}
+// 수집 기록 표만 다시 그리기 (페이지 넘길 때)
+async function renderDbOnly() {
   const list = await dbList();
   const tbody = $("#dbTable tbody");
   tbody.textContent = "";
@@ -1280,7 +1370,9 @@ async function renderDb() {
     return el("td", {}, `$${e.costUsd.toFixed(2)}`, mark);
   };
 
-  for (const e of list) {
+  const dbPg = pageOf("db", list);
+  renderPager($("#dbTable"), "db", list.length, dbPg.p, dbPg.pages, renderDbOnly);
+  for (const e of dbPg.items) {
     const rows = deserializeRows(e.rows);
     tbody.append(
       el(

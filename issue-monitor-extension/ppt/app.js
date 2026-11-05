@@ -368,8 +368,7 @@ async function saveFullDaily(rows) {
   const date = `${y}-${pad(m)}-${pad(d)}`;
   const all = (await kvGet("fullDaily").catch(() => null)) || {};
   all[date] = { at: Date.now(), rows: rows.map((r) => ({ cafe: r.cafe, car: r.car, date: r.date, kind: r.kind, url: r.url, main: r.main })) };
-  const keep = Object.keys(all).sort().reverse().slice(0, 120);
-  await kvSet("fullDaily", Object.fromEntries(keep.map((k) => [k, all[k]])));
+  await kvSet("fullDaily", all); // 영구 보관
 }
 
 async function onExcelFile() {
@@ -1340,11 +1339,13 @@ async function buildRawWork(opts = {}) {
     const where = await saveFile(saveDir, fileName, res.bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     const saved = { name: fileName, bytes: res.bytes, savedAt: nowText() };
     await kvSet("rawLatest", saved); // 다음 날은 이 파일에 이어서
-    // 데일리 DB 탭에서 보고 다시 받을 수 있게 RAW 파일 이력 (최근 15개)
+    // 데일리 DB 탭에서 보고 다시 받을 수 있게 RAW 파일 이력 (영구 보관: 목록은 "rawHistory", 파일 내용은 "rawFile:<id>")
     try {
-      const hist = (await kvGet("rawHistory")) || [];
-      hist.unshift({ id: `raw-${Date.now()}`, at: Date.now(), name: fileName, bytes: res.bytes, where, detail: res.sheets.map((s) => (s.count ? `${s.name} ${s.count}행 (연번 ${s.from}~${s.to})` : `${s.name} 0행`)).join(" · "), rows: res.sheets.reduce((n, s) => n + (s.count || 0), 0) });
-      await kvSet("rawHistory", hist.slice(0, 15));
+      const id = `raw-${Date.now()}`;
+      await kvSet(`rawFile:${id}`, res.bytes);
+      const hist = ((await kvGet("rawHistory")) || []).filter((x) => x.name !== fileName);
+      hist.unshift({ id, at: Date.now(), name: fileName, size: res.bytes.length, date: `${y}-${pad(m)}-${pad(d)}`, where, detail: res.sheets.map((s) => (s.count ? `${s.name} ${s.count}행 (연번 ${s.from}~${s.to})` : `${s.name} 0행`)).join(" · "), rows: res.sheets.reduce((n, s) => n + (s.count || 0), 0) });
+      await kvSet("rawHistory", hist);
     } catch {}
     // 안전 우려 게시글 모음용: 이 보고 날짜 RAW 의 최근 행 보관 (앞 날짜 RAW 와 비교해 그날 행을 정확히 알기 위해)
     try {
@@ -1352,8 +1353,7 @@ async function buildRawWork(opts = {}) {
       const recentRows = await Raw.readRows(res.bytes, Raw.toSerial(y, m, d) - 40);
       const all = (await kvGet("rawRecent")) || {};
       all[date] = recentRows;
-      const keep = Object.keys(all).sort().reverse().slice(0, 150);
-      await kvSet("rawRecent", Object.fromEntries(keep.map((k) => [k, all[k]])));
+      await kvSet("rawRecent", all); // 영구 보관
     } catch {}
     showRawInfo(saved);
     const detail = res.sheets.map((s) => (s.count ? `${s.name} ${s.count}행 (연번 ${s.from}~${s.to})` : `${s.name} 0행`)).join(" · ") + (res.skipped ? ` · 이미 RAW 에 있던 글 ${res.skipped}건은 빼고 붙임` : "");

@@ -188,7 +188,7 @@ async function loadWeek() {
     const f = day.final;
     let details = [];
     try {
-      details = await PptRead.read(f.bytes);
+      details = await PptRead.read(await DailyPpt.bytesOf(f.id));
     } catch {}
     const off = excludedDays.has(k);
     chips.push(`<button type="button" class="day ${off ? "off" : f.partial ? "warn" : "ok"}" data-day="${k}" title="${off ? "눌러서 다시 넣기" : "눌러서 이 날 보고서를 이번 주 작성에서 빼기"}">${off ? "✕ " : "✓ "}${md(k)}(${dow(k)}) ${esc(DailyPpt.KIND_LABEL[f.kind])} ${details.length}건${off ? " · 뺌" : f.partial ? " · ⚠ 일부만 있는 PPT(전체 PPT 를 데일리 DB 에 올려 주세요)" : ""}</button>`);
@@ -400,7 +400,7 @@ async function buildWeekly({ auto = false } = {}) {
     const where = await saveFile(dir, fileName, bytes);
     const hist = (await kvGet("weeklyHistory")) || [];
     hist.unshift({ at: Date.now(), start: DailyPpt.dateKey(week.start), end: endKey, name: fileName, bytes, count: picked.length, where });
-    await kvSet("weeklyHistory", hist.slice(0, 20));
+    await kvSet("weeklyHistory", hist); // 영구 보관
     await chrome.storage.local.set({ weeklyLastBuilt: endKey });
     renderHistory();
     const msg = `✅ 주간 보고서 저장 완료: ${where} (${picked.length}건 · 조회수·댓글 새로 읽음 ${refreshed}건${picked.length - refreshed ? `, 나머지는 일일 보고 때 값` : ""})`;
@@ -458,18 +458,48 @@ async function attachWeeklyFinal(file, target = null) {
     }
   }
   h.final = { name: file.name, bytes, at: Date.now(), count };
-  await kvSet("weeklyHistory", hist.slice(0, 20));
+  await kvSet("weeklyHistory", hist); // 영구 보관
   return `${h.start} ~ ${h.end} 주 최종본: ${file.name} (${count}건)`;
 }
 
 let wkTarget = null;
+let histPage = 1;
 async function renderHistory() {
   const hist = (await kvGet("weeklyHistory")) || [];
   const tbody = $("#histTable tbody");
   tbody.innerHTML = "";
   $("#histTable").hidden = !hist.length;
   $("#histEmpty").hidden = !!hist.length;
-  for (const h of hist) {
+  // 10주씩 나눠 보기 (담당자 요청 2026-11-05: 영구 보관)
+  const pages = Math.max(1, Math.ceil(hist.length / 10));
+  histPage = Math.min(Math.max(1, histPage), pages);
+  let pager = document.getElementById("histPager");
+  if (!pager) {
+    pager = document.createElement("div");
+    pager.id = "histPager";
+    pager.className = "pager";
+    $("#histTable").after(pager);
+  }
+  pager.innerHTML = "";
+  pager.hidden = pages <= 1;
+  const pbtn = (label, n, cur = false, dis = false) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    if (cur) b.className = "cur";
+    b.disabled = dis || cur;
+    b.addEventListener("click", () => {
+      histPage = n;
+      renderHistory();
+    });
+    return b;
+  };
+  if (pages > 1) {
+    pager.append(pbtn("‹", histPage - 1, false, histPage === 1));
+    for (let i = 1; i <= pages; i++) pager.append(pbtn(String(i), i, i === histPage));
+    pager.append(pbtn("›", histPage + 1, false, histPage === pages));
+  }
+  for (const h of hist.slice((histPage - 1) * 10, histPage * 10)) {
     const f = h.final || null;
     const tr = document.createElement("tr");
     const short = (t) => {

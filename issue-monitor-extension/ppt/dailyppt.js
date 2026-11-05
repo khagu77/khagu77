@@ -6,7 +6,6 @@
 // 그날의 최종본 = 전체(full) > 담당자 수정본 > 시스템 작성본 (나눠 쓴 일부 PPT 는 전체가 아니면 뒤로)
 (function (global) {
   const KEY = "dailyPpts";
-  const KEEP_DAYS = 70;
   const KIND_LABEL = { full: "전체 PPT(첨부)", edited: "담당자 수정본", system: "시스템 작성본" };
 
   function open() {
@@ -17,22 +16,40 @@
       req.onerror = () => reject(req.error);
     });
   }
+  // 목록(가벼운 정보)은 "dailyPpts", 파일 내용은 날짜·종류마다 따로 "dailyPpt:<id>" 에 (영구 보관, 담당자 요청 2026-11-05)
+  // 예전처럼 목록 안에 파일 내용이 들어 있으면 처음 읽을 때 따로 옮긴다
+  function kvReq(mode, fn) {
+    return open().then(
+      (db) =>
+        new Promise((resolve) => {
+          const tx = db.transaction("kv", mode);
+          const r = fn(tx.objectStore("kv"));
+          tx.oncomplete = () => resolve(r && r.result);
+          tx.onerror = () => resolve(null);
+        }),
+    );
+  }
+  const bytesKey = (id) => `dailyPpt:${id}`;
   async function get() {
-    const db = await open();
-    return new Promise((resolve) => {
-      const r = db.transaction("kv").objectStore("kv").get(KEY);
-      r.onsuccess = () => resolve(Array.isArray(r.result) ? r.result : []);
-      r.onerror = () => resolve([]);
-    });
+    const list = (await kvReq("readonly", (st) => st.get(KEY))) || [];
+    if (!Array.isArray(list)) return [];
+    if (list.some((e) => e.bytes)) {
+      for (const e of list) {
+        if (!e.bytes) continue;
+        const b = e.bytes;
+        await kvReq("readwrite", (st) => st.put(b, bytesKey(e.id)));
+        e.size = b.length;
+        delete e.bytes;
+      }
+      await put(list);
+    }
+    return list;
   }
   async function put(list) {
-    const db = await open();
-    return new Promise((resolve) => {
-      const tx = db.transaction("kv", "readwrite");
-      tx.objectStore("kv").put(list, KEY);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => resolve();
-    });
+    await kvReq("readwrite", (st) => st.put(list, KEY));
+  }
+  async function bytesOf(id) {
+    return kvReq("readonly", (st) => st.get(bytesKey(id)));
   }
 
   const pad = (n) => String(n).padStart(2, "0");
@@ -50,21 +67,24 @@
 
   const rank = (e) => (e.kind === "full" ? 3 : 0) + (e.partial ? 0 : 2) + (e.kind === "edited" ? 1 : 0);
 
-  // 같은 날짜·같은 종류는 새것으로 바꾼다
+  // 같은 날짜·같은 종류는 새것으로 바꾼다 (기간 제한 없이 영구 보관)
   async function add(entry) {
     const list = await get();
-    const e = { id: `${entry.date}-${entry.kind}-${Date.now()}`, at: Date.now(), partial: false, count: 0, ...entry };
-    const cut = dateKey(new Date(Date.now() - KEEP_DAYS * 86400000));
-    const next = [e, ...list.filter((x) => !(x.date === e.date && x.kind === e.kind) && x.date >= cut)];
-    await put(next);
+    const { bytes, ...meta } = entry;
+    const e = { id: `${entry.date}-${entry.kind}-${Date.now()}`, at: Date.now(), partial: false, count: 0, ...meta, size: bytes ? bytes.length : 0 };
+    if (bytes) await kvReq("readwrite", (st) => st.put(bytes, bytesKey(e.id)));
+    const old = list.filter((x) => x.date === e.date && x.kind === e.kind);
+    for (const x of old) await kvReq("readwrite", (st) => st.delete(bytesKey(x.id)));
+    await put([e, ...list.filter((x) => !(x.date === e.date && x.kind === e.kind))]);
     return e;
   }
 
   async function remove(id) {
+    await kvReq("readwrite", (st) => st.delete(bytesKey(id)));
     await put((await get()).filter((x) => x.id !== id));
   }
 
-  // 날짜별 묶음: [{ date, entries(최종본 순), final }]
+  // 날짜별 묶음: [{ date, entries(최종본 순), final }] (파일 내용은 bytesOf(id) 로)
   async function byDate() {
     const list = await get();
     const map = new Map();
@@ -85,5 +105,5 @@
     return d ? d.final : null;
   }
 
-  global.DailyPpt = { add, remove, byDate, finalOf, dateFromName, dateKey, KIND_LABEL };
+  global.DailyPpt = { add, remove, byDate, finalOf, bytesOf, dateFromName, dateKey, KIND_LABEL };
 })(typeof window !== "undefined" ? window : self);

@@ -379,3 +379,8 @@ button.x-del:hover { border-color: var(--red); }
 #cafeTable tr.dragging { opacity: 0.45; }
 #cafeTable tr.drop-before td { box-shadow: inset 0 3px 0 var(--blue); }
 #cafeTable tr.drop-after td { box-shadow: inset 0 -3px 0 var(--blue); }
+
+/* 데일리 DB 표 페이지 나누기 */
+.pager { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 8px 0 4px; }
+.pager button { min-width: 30px; padding: 3px 8px; font-size: 12.5px; }
+.pager button.cur { background: var(--blue); color: #fff; border-color: var(--blue); font-weight: 700; opacity: 1; }
