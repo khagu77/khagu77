@@ -36,9 +36,16 @@ async function dashData() {
   // 유튜브 영상 삭제·비공개 시점 (날짜별 댓글 파일을 차례로 비교)
   const gone = ri >= 0 ? await dashYtGone(raw.slice(ri)).catch(() => null) : null;
   const detail = await dashDetail(cur, raw[ri >= 0 ? ri : -1], prevRaw, gone).catch(() => null);
+  // 유튜브 신규 댓글 = 그날 유튜브 전체 − 전날 (줄었으면 0). 전일 대비용으로 전날 것도
+  const ytRecs = ri >= 0 ? raw.slice(ri).filter((x, k) => k === 0 || x.stats?.youtube != null) : [];
+  const ytAt = (k) => ytRecs[k]?.stats?.youtube;
+  const ytNew = ytAt(0) != null && ytAt(1) != null ? Math.max(0, ytAt(0) - ytAt(1)) : null;
+  const ytNewPrev = ytAt(1) != null && ytAt(2) != null ? Math.max(0, ytAt(1) - ytAt(2)) : null;
   return {
     date,
     detail,
+    ytNew,
+    ytNewPrev,
     period: cur?.rangeEnd && prevEnd ? `${hhmm(prevEnd)} ~ ${hhmm(cur.rangeEnd)}` : "",
     posts: b,
     comments: r,
@@ -441,13 +448,14 @@ function dashHtml(data, carSrc, fluid = false) {
 </table></div>`;
 }
 
-// 오늘의 신규 댓글 수와 전일 대비: 언론·동호회·자동차 커뮤니티에서 그날 새로 모은 댓글만 (유튜브는 따로 표시)
+// 오늘의 신규 댓글 수와 전일 대비: 언론·동호회·자동차 커뮤니티에서 그날 새로 모은 댓글 + 유튜브 신규
+// 유튜브는 신규 댓글 수(전날 대비 늘어난 건수, 줄었으면 0)를 더함
 function dashCommentTotal(data) {
   const ch = data.comments.channels.filter((x) => x.label !== "유튜브");
-  if (!ch.length) return null;
-  const today = ch.reduce((s, x) => s + (x.d.today || 0), 0);
+  if (!ch.length && data.ytNew == null) return null;
+  const today = ch.reduce((s, x) => s + (x.d.today || 0), 0) + (data.ytNew || 0);
   if (ch.every((x) => x.d.prev == null)) return { today, diff: null };
-  const prev = ch.reduce((s, x) => s + (x.d.prev || 0), 0);
+  const prev = ch.reduce((s, x) => s + (x.d.prev || 0), 0) + (data.ytNew != null ? data.ytNewPrev || 0 : 0);
   return { today, diff: today - prev };
 }
 
@@ -464,7 +472,7 @@ function dashText(data) {
   return [
     `[팰리세이드(LX3) 전동 시트 관련 온라인 동향] DASHBOARD - ${prettyDate(data.date)}${data.period ? ` (수집 기간 ${data.period})` : ""}`,
     `■ 게시물: ${data.posts.total ? line("오늘의 신규 게시물 수", data.posts.total) : "기록 없음"}${posts ? ` | ${posts}` : ""}`,
-    `■ 댓글: ${dashCommentTotal(data) ? `${line("오늘의 신규 댓글 수(유튜브 제외)", dashCommentTotal(data))} | ` : ""}${comments || "기록 없음"}`,
+    `■ 댓글: ${dashCommentTotal(data) ? `${line("오늘의 신규 댓글 수(유튜브 신규 포함)", dashCommentTotal(data))} | ` : ""}${comments || "기록 없음"}`,
     ...(data.detail
       ? ["■ 채널 상세 (게시글/댓글)"].concat(DASH_CH.map(({ label }) => {
           const list = data.detail[label] || [];

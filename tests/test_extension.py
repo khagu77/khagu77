@@ -702,6 +702,11 @@ def test_final_db(tmp_path: Path):
             page.locator("#dbInfo", has_text="✔").wait_for()
 
         def db_rows(kind):
+            # 화면이 표를 채우기 전에 읽지 않도록 줄이 나타날 때까지 잠깐 기다림 (없으면 빈 목록)
+            try:
+                page.locator(f"section[data-kind={kind}] tbody tr").first.wait_for(timeout=3000)
+            except Exception:
+                pass
             return page.locator(f"section[data-kind={kind}] tbody tr").all_inner_texts()
 
         # 1) 최종 DB 에 지금까지의 최종 파일 등록 (파일명 앞 날짜로)
