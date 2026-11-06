@@ -718,6 +718,8 @@ function expandCommentPage() {
     const href = e.getAttribute("href") || "";
     const js = `${href} ${e.getAttribute("onclick") || ""}`;
     if (/c_?page|cpage|comment|cmt/i.test(js)) return true;
+    // 뽐뿌: href="javascript:go_page( 'car', 981604, 2 )" — 이 글 번호를 넣어 부르는 쪽 넘김
+    if (artNo && new RegExp(`(^|[^\\d])${artNo}([^\\d]|$)`).test(js) && /page/i.test(js)) return true;
     if (!artNo || /^(#|javascript:)/i.test(href)) return false;
     try {
       const u = new URL(href, location.href);
@@ -741,6 +743,15 @@ function expandCommentPage() {
       sessionStorage.setItem(stKey, JSON.stringify({ ...st, pages: [...visited] }));
     } catch {}
   };
+  // 지금 보고 있는 쪽(쪽 번호 줄에서 링크가 아닌 번호, 예: 뽐뿌 <font class="page_inert">3</font>)도 본 쪽으로
+  for (const a of document.querySelectorAll("a")) {
+    if (!/^\d{1,3}$/.test(String(a.textContent || "").trim()) || !sameArticle(a) || !a.parentElement) continue;
+    for (const c of a.parentElement.children) {
+      const ct = String(c.textContent || "").trim();
+      if (c.tagName !== "A" && /^\d{1,3}$/.test(ct)) visited.add(ct);
+    }
+  }
+  saveSt();
   const bodyLen = String((document.body && document.body.innerText) || "").length;
   // 지난번 '더보기'를 눌렀을 때와 화면 길이가 같으면 이 쪽은 다 펼친 것 → 다음 쪽 번호로
   const moreDone = st.lens[location.href] === bodyLen;
@@ -750,7 +761,8 @@ function expandCommentPage() {
     if (!t || t.length > 30) continue;
     // '더보기' 버튼, 또는 댓글 영역 안의 댓글 쪽 번호(2, 3, …) — 한 번에 하나씩 눌러 쌓는다
     const isMore = MORE.test(t) && (inComment(e) || /댓글|코멘트/.test(t));
-    const isPage = /^\d{1,3}$/.test(t) && +t > 1 && (inComment(e) || sameArticle(e)) && !e.closest("[aria-current], .on, .active, .current, strong") && !visited.has(t);
+    // 쪽 번호: 댓글 영역 안의 2, 3, … 또는 이 글의 댓글 쪽을 부르는 번호(1쪽 포함 — 처음 화면이 몇 쪽이든 다 봄)
+    const isPage = /^\d{1,3}$/.test(t) && (sameArticle(e) || (+t > 1 && inComment(e))) && !e.closest("[aria-current], .on, .active, .current, strong") && !visited.has(t);
     if (!isMore && !isPage) continue;
     // 쪽 번호는 한 번만, '더보기'는 같은 버튼이 남아 있으면 매번 다시 누름 (뽐뿌 '다음 코멘트 더 보기')
     if (isPage && e.dataset.lx3Clicked) continue;
