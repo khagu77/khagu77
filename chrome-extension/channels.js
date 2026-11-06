@@ -810,6 +810,77 @@ const DELETED_COMMENT = /^(삭제된\s*댓글|삭제\s*된\s*댓글|블라인드
 // 1) 받아 온 화면 (+ 댓글 쪽 링크가 있으면 쪽마다)
 // 2) 화면에 보이는 댓글 수보다 모자라면 → 보이지 않는 틀(설정 시 뒤쪽 탭)로 열어 끝까지 내리고 '더보기'·댓글 쪽을 눌러 가며 다시
 // 3) 그래도 댓글 수가 보이는데 하나도 못 읽었으면 실패 (다시 수집 대상)
+// 뽐뿌: 댓글은 화면이 /zboard/comment.php?cmd=get_comment_json 에서 쪽(c_page)마다 받아 그림 → 그 목록을 직접 받는다
+// → { comments: [{ text, dateText, isReply }], total } (못 받으면 null)
+async function readPpomppuCommentsApi(url, { isStopped = () => false, onStatus } = {}) {
+  const u = safeUrl(url);
+  const id = u?.searchParams.get("id");
+  const no = u?.searchParams.get("no");
+  if (!id || !no) return null;
+  const get = async (page) => {
+    const q = new URL("https://www.ppomppu.co.kr/zboard/comment.php");
+    for (const [k, v] of Object.entries({ id, no, c_page: page, comment_mode: "sort_asc", cmd: "get_comment_json" })) q.searchParams.set(k, v);
+    const txt = await fetchText(q.toString(), { credentials: "include" });
+    return JSON.parse(txt);
+  };
+  const STR = (v) => (typeof v === "string" ? v : typeof v === "number" ? String(v) : "");
+  const strip = (h) => new DOMParser().parseFromString(`<div>${String(h).replace(/<br\s*\/?>/gi, "\n")}</div>`, "text/html").body.textContent.replace(/[ \t]+/g, " ").trim();
+  const DATE = /^(20\d{2}[-./]\d{1,2}[-./]\d{1,2}(\s+\d{1,2}:\d{2}(:\d{2})?)?|\d{2}[-./]\d{2}[-./]\d{2}(\s+\d{1,2}:\d{2}(:\d{2})?)?|\d{1,2}:\d{2}(:\d{2})?)$/;
+  const TEXT_KEYS = ["memo", "comment", "content", "contents", "c_memo", "comment_content", "c_content", "body", "text", "msg"];
+  const DATE_KEYS = ["regdate", "reg_date", "date", "wdate", "write_date", "created_at", "reg_time", "regtime", "datetime", "c_date"];
+  const toComment = (o) => {
+    let text = "";
+    for (const k of TEXT_KEYS) if (STR(o[k]).trim()) {
+      text = strip(o[k]);
+      if (text) break;
+    }
+    if (!text) {
+      // 칸 이름을 모르면 가장 긴 글자 칸 (주소·날짜 제외)
+      let best = "";
+      for (const v of Object.values(o)) {
+        const t = STR(v);
+        if (t.length > best.length && !/^https?:\/\//.test(t) && !DATE.test(t.trim())) best = t;
+      }
+      text = strip(best);
+    }
+    let dateText = "";
+    for (const k of DATE_KEYS) if (STR(o[k]).trim()) {
+      dateText = STR(o[k]).trim();
+      break;
+    }
+    if (!dateText) for (const v of Object.values(o)) if (DATE.test(STR(v).trim())) {
+      dateText = STR(v).trim();
+      break;
+    }
+    if (/^\d{10}$/.test(dateText)) {
+      const d = new Date(+dateText * 1000);
+      dateText = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+    }
+    const depth = +(o.depth ?? o.c_depth ?? o.re_level ?? o.level ?? 0) || 0;
+    return { text, dateText, isReply: depth > 0 };
+  };
+  // 댓글 안의 답글 목록까지 펼침
+  const flat = (list, out) => {
+    for (const o of list || []) {
+      if (!o || typeof o !== "object") continue;
+      out.push(toComment(o));
+      for (const v of Object.values(o)) if (Array.isArray(v) && v.length && typeof v[0] === "object") flat(v, out);
+    }
+    return out;
+  };
+  const first = await get(1);
+  if (!first || !Array.isArray(first.comments)) return null;
+  const totalPage = Math.min(100, parseInt(first.total_page, 10) || 1);
+  const comments = flat(first.comments, []);
+  for (let p = 2; p <= totalPage && !isStopped(); p++) {
+    onStatus?.(`뽐뿌 댓글 목록 읽는 중… (${p}/${totalPage}쪽, ${comments.length}개)`);
+    await sleep(randomBetween([500, 1000]));
+    const res = await get(p).catch(() => null);
+    if (res && Array.isArray(res.comments)) flat(res.comments, comments);
+  }
+  return { comments: comments.filter((c) => c.text), total: parseInt(first.total_comment, 10) || 0 };
+}
+
 async function readCommunityComments(url, { isStopped = () => false, onStatus, tabFallback = false } = {}) {
   const ad = communityAdapter(url);
   const sel = { items: ad.commentItems, text: ad.commentText, date: ad.commentDate };
@@ -829,7 +900,17 @@ async function readCommunityComments(url, { isStopped = () => false, onStatus, t
       }
     }
   };
-  for (const pageUrl of commentPageLinks(doc, url)) {
+  // 뽐뿌는 댓글 목록 데이터를 직접 받음 (화면 버튼·쪽 번호를 누르지 않아도 전부)
+  if (ad.site === "뽐뿌" && !isStopped()) {
+    onStatus?.("뽐뿌 댓글 목록 읽는 중…");
+    const api = await readPpomppuCommentsApi(url, { isStopped, onStatus }).catch(() => null);
+    if (api && api.comments.length > comments.length) {
+      comments = api.comments;
+      how = "뽐뿌 댓글 목록";
+      expected = api.total || expected; // 목록이 알려 주는 전체 댓글 수
+    }
+  }
+  for (const pageUrl of how === "뽐뿌 댓글 목록" ? [] : commentPageLinks(doc, url)) {
     if (isStopped()) break;
     onStatus?.(`댓글 다음 쪽 읽는 중… (${comments.length}개)`);
     await sleep(randomBetween([800, 1600]));
