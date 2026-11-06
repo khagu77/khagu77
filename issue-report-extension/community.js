@@ -275,6 +275,15 @@ class CommunityCollector {
     let comments = fetched.comments;
     let how = fetched.how;
     let expected = Math.max(expectedCommentCount(doc), post.listCcount ?? post.ccount ?? 0);
+    // 뽐뿌: 댓글을 처음 화면에 다 넣지 않고 '다음 코멘트 더 보기'·쪽 번호를 누를 때 JSON 으로 받아 그린다 → 그 목록을 직접 1쪽부터 끝까지 받는다
+    if (ad.domain === "ppomppu.co.kr") {
+      const api = await readPpomppuCommentsApi(post.url, { isStopped: this.isStopped }).catch(() => null);
+      if (api && api.comments.length >= comments.length && api.comments.length) {
+        comments = api.comments;
+        how = "뽐뿌 댓글 목록";
+        expected = api.total || comments.length; // 화면 글자에서 센 수보다 정확
+      } else if (api && api.total) expected = Math.max(expected, api.total);
+    }
     const enough = () => comments.length > 0 && comments.length >= Math.ceil(expected * 0.8);
     let live = null;
     let aiNone = false;
@@ -381,15 +390,131 @@ function expandCommentPage() {
   }
   const text = String((document.body && document.body.innerText) || "");
   let expected = 0;
-  for (const m of text.replace(/\s+/g, " ").matchAll(/(?:댓글|코멘트|comment)s?\s*[\[(:：]?\s*(\d{1,4})\s*[\])]?(?:\s*개)?/gi)) expected = Math.max(expected, +m[1]);
+  for (const m of text.replace(/\s+/g, " ").matchAll(/(?:댓글|코멘트|comment)s?\s*[\[(:：]?\s*(\d{1,4})(?![\d.\-/:])\s*[\])]?(?:\s*개)?/gi)) expected = Math.max(expected, +m[1]);
   return { clicked, expected, text: text.slice(0, 60000) };
+}
+
+// 뽐뿌 댓글 목록(JSON): /zboard/comment.php?id=&no=&c_page=N&comment_mode=sort_asc&cmd=get_comment_json 을 1쪽부터 total_page 까지
+// 칸 이름을 다 확인하지 못해 본문·작성일·답글 여부를 넓게 찾는다. 못 받으면 null (→ 화면 읽기 방식으로)
+async function readPpomppuCommentsApi(url, { isStopped = () => false } = {}) {
+  let u;
+  try {
+    u = new URL(String(url).replace(/&amp;/g, "&"));
+  } catch {
+    return null;
+  }
+  const id = u.searchParams.get("id");
+  const no = u.searchParams.get("no");
+  if (!id || !no) return null;
+  const get = async (page) => {
+    const q = new URL("https://www.ppomppu.co.kr/zboard/comment.php");
+    for (const [k, v] of Object.entries({ id, no, c_page: page, comment_mode: "sort_asc", cmd: "get_comment_json" })) q.searchParams.set(k, v);
+    return JSON.parse(await fetchText(q.toString(), { credentials: "include" }));
+  };
+  const STR = (v) => (typeof v === "string" ? v : typeof v === "number" ? String(v) : "");
+  const strip = (h) =>
+    new DOMParser()
+      .parseFromString(`<div>${String(h).replace(/<br\s*\/?>/gi, "\n")}</div>`, "text/html")
+      .body.textContent.replace(/[ \t]+/g, " ")
+      .trim();
+  const DATE = /^(20\d{2}[-./]\d{1,2}[-./]\d{1,2}\.?(\s+\d{1,2}:\d{2}(:\d{2})?)?|\d{2}[-./]\d{2}[-./]\d{2}(\s+\d{1,2}:\d{2}(:\d{2})?)?|\d{1,2}:\d{2}(:\d{2})?)$/;
+  const TEXT_KEYS = ["memo", "comment", "content", "contents", "c_memo", "comment_content", "c_content", "body", "text", "msg"];
+  const DATE_KEYS = ["regdate", "reg_date", "date", "wdate", "write_date", "created_at", "reg_time", "regtime", "datetime", "c_date"];
+  const pad = (n) => String(n).padStart(2, "0");
+  const toComment = (o) => {
+    let text = "";
+    for (const k of TEXT_KEYS)
+      if (STR(o[k]).trim()) {
+        text = strip(o[k]);
+        if (text) break;
+      }
+    if (!text) {
+      let best = "";
+      for (const v of Object.values(o)) {
+        const t = STR(v);
+        if (t.length > best.length && !/^https?:\/\//.test(t) && !DATE.test(t.trim())) best = t;
+      }
+      text = strip(best);
+    }
+    let dateText = "";
+    for (const k of DATE_KEYS)
+      if (STR(o[k]).trim()) {
+        dateText = STR(o[k]).trim();
+        break;
+      }
+    if (!dateText)
+      for (const [k, v] of Object.entries(o))
+        if (/date|time|reg|created|wdt/i.test(k) && STR(v).trim()) {
+          dateText = STR(v).trim();
+          break;
+        }
+    if (!dateText)
+      for (const v of Object.values(o)) {
+        const t = STR(v).trim();
+        if (DATE.test(t) || /^\d{2}[-./]\d{2}\s+\d{1,2}:\d{2}/.test(t) || /^20\d{2}-\d{2}-\d{2}T/.test(t)) {
+          dateText = t;
+          break;
+        }
+      }
+    if (!dateText) {
+      const walk = (v, depth) => {
+        if (dateText || depth > 3 || !v || typeof v !== "object" || Array.isArray(v)) return;
+        for (const [k, x] of Object.entries(v)) {
+          const t = STR(x).trim();
+          if (t && (/date|time|reg|created/i.test(k) || DATE.test(t))) {
+            dateText = t;
+            return;
+          }
+          walk(x, depth + 1);
+        }
+      };
+      for (const x of Object.values(o)) walk(x, 1);
+    }
+    if (!dateText)
+      for (const v of Object.values(o)) {
+        const m = STR(v).match(/20\d{2}[-./]\d{1,2}[-./]\d{1,2}\.?\s+\d{1,2}:\d{2}(:\d{2})?|\b\d{2}[-./]\d{2}[-./]\d{2}\s+\d{1,2}:\d{2}(:\d{2})?/);
+        if (m) {
+          dateText = m[0];
+          break;
+        }
+      }
+    if (/^\d{13}$/.test(dateText)) dateText = String(Math.floor(+dateText / 1000));
+    if (/^20\d{2}-\d{2}-\d{2}T/.test(dateText)) dateText = dateText.replace("T", " ").slice(0, 19);
+    if (/^\d{2}[-./]\d{2}\s+\d{1,2}:\d{2}/.test(dateText)) dateText = `${new Date().getFullYear()}-${dateText.replace(/[./]/, "-")}`;
+    if (/^\d{10}$/.test(dateText)) {
+      const d = new Date(+dateText * 1000);
+      dateText = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    const depth = +(o.depth ?? o.c_depth ?? o.re_level ?? o.level ?? 0) || 0;
+    return { text, dateText, isReply: depth > 0 };
+  };
+  // 댓글 안에 답글 배열이 있으면 펼친다
+  const flat = (list, out) => {
+    for (const o of list || []) {
+      if (!o || typeof o !== "object") continue;
+      out.push(toComment(o));
+      for (const v of Object.values(o)) if (Array.isArray(v) && v.length && typeof v[0] === "object") flat(v, out);
+    }
+    return out;
+  };
+  const first = await get(1);
+  if (!first || !Array.isArray(first.comments)) return null;
+  const totalPage = Math.min(100, parseInt(first.total_page, 10) || 1);
+  const comments = flat(first.comments, []);
+  for (let p = 2; p <= totalPage && !isStopped(); p++) {
+    await sleep(randomBetween([500, 1000]));
+    const res = await get(p).catch(() => null);
+    if (res && Array.isArray(res.comments)) flat(res.comments, comments);
+  }
+  return { comments: comments.filter((c) => c.text), total: parseInt(first.total_comment, 10) || 0 };
 }
 
 // 화면에 보이는 댓글 수 ("댓글 18", "댓글 [18]", "Comment 18")
 function expectedCommentCount(doc) {
   const t = (doc.body ? doc.body.textContent : "").replace(/\s+/g, " ");
   let n = 0;
-  for (const m of t.matchAll(/(?:댓글|코멘트|comment)s?\s*[\[(:：]?\s*(\d{1,4})\s*[\])]?(?:\s*개)?/gi)) n = Math.max(n, +m[1]);
+  // '댓글 2026.11.05' 처럼 날짜가 붙은 숫자는 세지 않는다
+  for (const m of t.matchAll(/(?:댓글|코멘트|comment)s?\s*[\[(:：]?\s*(\d{1,4})(?![\d.\-/:])\s*[\])]?(?:\s*개)?/gi)) n = Math.max(n, +m[1]);
   return n;
 }
 

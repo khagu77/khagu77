@@ -788,8 +788,28 @@ PPOM_LIST = (
 )
 
 
+# 980300: 화면엔 첫 묶음 2개만, 나머지는 '다음 코멘트 더 보기'로 받는 댓글 목록(JSON) — 2쪽, 답글은 댓글 안 배열
+PPOM_JSON = {
+    "1": {"total_page": "2", "total_comment": "5", "c_page": 1, "comments": [
+        {"no": 1, "name": "가", "memo": "첫 댓글 가격 비싸요<br>정말로", "regdate": "2026-08-06 09:00:00", "depth": 0,
+         "replies": [{"no": 2, "memo": "답글 동의합니다", "regdate": "2026.08.06. 09:05", "depth": 1}]},
+        {"no": 3, "c_memo": "옵션 구성 아쉽네요", "wdate": "1786006800", "depth": 0},
+    ]},
+    "2": {"total_page": "2", "total_comment": "5", "c_page": 2, "comments": [
+        {"no": 4, "comment": "둘째 쪽 댓글 기본 모델 괜찮음", "date": "08-06 10:30", "re_level": "0"},
+    ]},
+}
+
+
 def ppom_page(path):
     m = re.search(r"no=(\d+)", path)
+    if "comment.php" in path and m and m.group(1) == "980300":
+        page = parse_qs(urlparse(path).query).get("c_page", ["1"])[0]
+        assert "cmd=get_comment_json" in path and "comment_mode=sort_asc" in path
+        return "application/json; charset=utf-8", json.dumps(PPOM_JSON[page], ensure_ascii=False).encode()
+    if m and m.group(1) == "980300" and "view.php" in path:
+        body = PPOM_HEAD + '<span>댓글 [5]</span><span>등록 2026.08.06</span><div class="comment_wrapper"><div class="mid-text-area">첫 댓글 가격 비싸요 정말로</div></div><div class="comment_wrapper"><div class="mid-text-area">옵션 구성 아쉽네요</div></div><a href="javascript:BbsCommentLoadMore.loadNext();">다음 코멘트 더 보기 ▼</a></body></html>'
+        return "text/html; charset=euc-kr", body.encode("euc-kr")
     body = ppom_view(m.group(1)) if "view.php" in path and m else PPOM_LIST
     return "text/html; charset=euc-kr", body.encode("euc-kr")
 
@@ -868,9 +888,9 @@ def test_community_comments_must_collect(tmp_path: Path):
               const kw = parseKeywords("아반떼 가격");
               const found = await mc.search(site, kw, { from: new Date(2026, 7, 5), to: new Date(2026, 7, 7) });
               out.list = found.map((f) => [f.title, f.ccount]);
-              for (const no of ["980149", "980162", "980135"]) {
+              for (const no of ["980149", "980162", "980135", "980300"]) {
                 const a = await mc.readArticle(post(no));
-                out[no] = { how: a.how, texts: a.comments.map((c) => c.text), dates: a.comments.map((c) => c.writtenAt) };
+                out[no] = { how: a.how, texts: a.comments.map((c) => c.text), dates: a.comments.map((c) => c.writtenAt), replies: a.comments.map((c) => c.isReply), expected: a.expected };
               }
               try { await make(false).readArticle(post("980170")); out.fail = "no error"; } catch (e) { out.fail = e.message; }
               out.logs = logs;
@@ -881,6 +901,13 @@ def test_community_comments_must_collect(tmp_path: Path):
         assert res["980149"]["how"] == "탭으로 열어 다시 읽음" and res["980149"]["texts"] == ["가격 실화냐 너무 비싸", "옵션 장사 오지네", "그래도 디자인은 좋음"], res
         assert res["980149"]["dates"][0] == "2026-08-06 09:00", res
         assert res["980162"]["texts"] == ["첫 댓글 비싸요", "둘째 댓글 기대돼요", "셋째 댓글 노조 탓", "넷째 댓글 그냥 그래"], res
+        # 뽐뿌 댓글 목록(JSON)을 1쪽부터 끝까지 직접 받음: 답글 펼침·작성일 여러 모양·전체 수는 total_comment
+        r3 = res["980300"]
+        assert r3["how"] == "뽐뿌 댓글 목록" and r3["expected"] == 5, r3
+        assert r3["texts"] == ["첫 댓글 가격 비싸요 정말로", "답글 동의합니다", "옵션 구성 아쉽네요", "둘째 쪽 댓글 기본 모델 괜찮음"], r3
+        assert r3["replies"] == [False, True, False, False], r3
+        assert r3["dates"][0] == "2026-08-06 09:00" and r3["dates"][1] == "2026-08-06 09:05" and re.match(r"20\d\d-\d\d-\d\d \d\d:\d\d", r3["dates"][2]) and r3["dates"][3].endswith("08-06 10:30"), r3
+        assert page.evaluate("expectedCommentCount(new DOMParser().parseFromString('<body>댓글 2026.11.05 작성 · 댓글 [12]</body>', 'text/html'))") == 12  # 날짜 숫자는 안 셈
         assert res["980135"]["how"] == "AI 화면 판독" and res["980135"]["texts"] == ["이 가격이면 안 산다", "투싼이 낫겠네"], res
         extract = [c for c in claude_calls if "★ 댓글 화면 판독 규칙 ★" in c["system"]]
         assert "한 글자도 바꾸거나" in extract[0]["system"] and "화면에 보이는 댓글 수: 2개" in extract[0]["user"]
