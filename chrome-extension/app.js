@@ -985,6 +985,10 @@ async function run(state) {
   failedPosts = [
     ...failedPosts.filter((f) => !tried.has(f.url)),
     ...results.filter((r) => r.error).map((r) => ({ url: r.url, error: r.error, at: Date.now() })),
+    // 화면의 댓글 수보다 적게 읽은 글도 '다시 수집' 대상으로 (그 글만 다시 모아 오늘 파일에 이어 씀)
+    ...results
+      .filter((r) => !r.error && r.expected && r.comments.length < r.expected * 0.8)
+      .map((r) => ({ url: r.url, error: `댓글 일부만 읽음 (화면 ${r.expected}개 중 ${r.comments.length}개)`, at: Date.now() })),
   ];
   await chrome.storage.local.set({ lx3FailedComments: failedPosts }).catch(() => {});
   renderFailBox();

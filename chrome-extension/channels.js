@@ -709,15 +709,19 @@ function expandCommentPage() {
   const se = document.scrollingElement || document.documentElement;
   if (se) se.scrollTop = se.scrollHeight;
   let clicked = false;
-  const MORE = /^(댓글\s*)?(더\s*보기|더보기|이전\s*댓글|댓글\s*더|다음\s*댓글|more|load more)(\s*[\[(]?\d*[\])]?)?\s*[▼+>]?$/i;
+  // 뽐뿌: '다음 코멘트 더 보기 ▼'
+  const MORE = /^(다음\s*)?(댓글\s*|코멘트\s*)?(더\s*보기|더보기|이전\s*댓글|댓글\s*더|다음\s*댓글|다음\s*코멘트|코멘트\s*더|more|load more)(\s*보기)?(\s*[\[(]?\d*[\])]?)?\s*[▼▽+>]?$/i;
   const inComment = (e) => /comment|cmt|reply|댓글/i.test(`${e.className || ""} ${e.id || ""} ${e.closest("[class*='comment'],[class*='cmt'],[class*='reply'],[id*='comment'],[id*='cmt']") ? "comment" : ""}`);
   for (const e of document.querySelectorAll("a, button, span[onclick], div[onclick]")) {
     const t = String(e.innerText || e.textContent || "").replace(/\s+/g, " ").trim();
-    if (!t || t.length > 30 || e.dataset.lx3Clicked) continue;
+    if (!t || t.length > 30) continue;
     // '더보기' 버튼, 또는 댓글 영역 안의 댓글 쪽 번호(2, 3, …) — 한 번에 하나씩 눌러 쌓는다
-    const isMore = MORE.test(t) && (inComment(e) || /댓글/.test(t));
+    const isMore = MORE.test(t) && (inComment(e) || /댓글|코멘트/.test(t));
     const isPage = /^\d{1,3}$/.test(t) && +t > 1 && inComment(e) && !e.closest("[aria-current], .on, .active, .current, strong");
     if (!isMore && !isPage) continue;
+    // 쪽 번호는 한 번만, '더보기'는 같은 버튼이 남아 있으면 매번 다시 누름 (뽐뿌 '다음 코멘트 더 보기')
+    if (isPage && e.dataset.lx3Clicked) continue;
+    if (isMore && (e.offsetParent === null || e.disabled)) continue;
     e.dataset.lx3Clicked = "1";
     try {
       e.click();
@@ -725,7 +729,7 @@ function expandCommentPage() {
     } catch {
       /* 무시 */
     }
-    if (isPage) break;
+    break; // 한 번에 하나만 누르고 다음 차례에 다시
   }
   const text = String((document.body && document.body.innerText) || "").replace(/\s+/g, " ");
   let expected = 0;
@@ -867,9 +871,10 @@ async function readCommentsLive(url, sel, expected, { isStopped, mode }) {
       for (const r of prep) if (r) best.expected = Math.max(best.expected, r.expected || 0);
       const clicked = prep.some((r) => r && r.clicked);
       const want = Math.max(expected || 0, best.expected);
-      stable = !added && !clicked ? stable + 1 : 0;
+      // 새 댓글이 안 나온 차례 수 ('더보기'를 눌러도 더 안 나오면 세 번째에 멈춤)
+      stable = !added ? stable + 1 : 0;
       if (best.comments.length && best.comments.length >= want && !clicked) break;
-      if (stable >= 2 && (best.comments.length || round >= 3)) break;
+      if (stable >= (clicked ? 3 : 2) && (best.comments.length || round >= 3)) break;
       await sleep(1500);
     }
     return best;
