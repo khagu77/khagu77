@@ -462,7 +462,38 @@ function channelCommentKey(url, date, content) {
 // 기존 '자동차 커뮤니티' 시트처럼 작성일을 엑셀 날짜 값(날짜만)으로
 function sheetDay(writtenAt) {
   const p = parseKoreanDate(writtenAt);
-  return p ? excelSerial(new Date(p.date.getFullYear(), p.date.getMonth(), p.date.getDate())) : writtenAt;
+  if (p) return excelSerial(new Date(p.date.getFullYear(), p.date.getMonth(), p.date.getDate()));
+  // '2026.11.05.' · '2026.11.06. 03:20' 처럼 끝에 점이 붙은 모양도 날짜 값으로
+  const m = String(writtenAt ?? "").match(/(20\d{2})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})/);
+  return m ? excelSerial(new Date(+m[1], +m[2] - 1, +m[3])) : writtenAt;
+}
+
+// 작성일 칸에 엑셀 날짜 값 넣기 (칸이 없으면 만들고, 서식은 그 시트의 다른 작성일 칸에서 가져옴)
+async function setDateCells(wb, name, updates) {
+  const path = wb._sheetPath(name);
+  let xml = await wb.text(path);
+  const sty = (xml.match(/<c r="C\d+"( s="\d+")?(?: t="n")?><v>\d+(?:\.\d+)?<\/v><\/c>/) || [])[1] || "";
+  let changed = 0;
+  for (const [ref, serial] of Object.entries(updates)) {
+    if (typeof serial !== "number") continue;
+    const cell = `<c r="${ref}"${sty}><v>${serial}</v></c>`;
+    const re = new RegExp(`<c r="${ref}"(\\s[^>]*?)?(?:/>|>[\\s\\S]*?</c>)`);
+    if (re.test(xml)) {
+      xml = xml.replace(re, cell);
+      changed++;
+      continue;
+    }
+    // 칸이 없으면 그 줄의 D 칸 앞에 넣음
+    const row = ref.slice(1);
+    const rowRe = new RegExp(`(<row\\b[^>]*\\br="${row}"[^>]*>)([\\s\\S]*?)(</row>)`);
+    xml = xml.replace(rowRe, (m, open, body, close) => {
+      changed++;
+      const i = body.search(new RegExp(`<c r="[D-Z]${row}"`));
+      return i >= 0 ? `${open}${body.slice(0, i)}${cell}${body.slice(i)}${close}` : `${open}${body}${cell}${close}`;
+    });
+  }
+  wb.texts.set(path, xml);
+  return changed;
 }
 
 // 언론·자동차 커뮤니티 시트: 이어 쓸 줄·마지막 연번·이미 있는 댓글 (시트가 없으면 null)
@@ -551,14 +582,14 @@ function buildRows(results, info, { merge = false } = {}) {
       for (const c of r.comments) {
         if (c.isDeleted || !c.content) continue;
         const key = channelCommentKey(r.sheetUrl, c.writtenAt, c.content);
-        if (keys2.has(key)) {
+        const uk = `${channelKey(r.sheetUrl)}|${compact(c.content)}`;
+        if (undated.has(uk)) {
+          if (c.writtenAt) out.fills[`C${undated.get(uk)}`] = sheetDay(c.writtenAt);
+          undated.delete(uk);
           duplicates++;
           continue;
         }
-        const uk = `${channelKey(r.sheetUrl)}|${compact(c.content)}`;
-        if (undated.has(uk)) {
-          if (c.writtenAt) out.fills[`C${undated.get(uk)}`] = String(c.writtenAt);
-          undated.delete(uk);
+        if (keys2.has(key)) {
           duplicates++;
           continue;
         }
@@ -625,7 +656,7 @@ async function buildOutput(results, tpl, opts = {}) {
     // 언론·자동차 커뮤니티 시트: 마지막 줄 다음에 (서식은 마지막 줄, 빈 시트면 머리글 아래 기본 서식)
     for (const [name, sheetInfo, list] of [[SHEET_NEWS, info.news, rows.news], [SHEET_COMM, info.comm, rows.comm]]) {
       // 작성일이 비어 있던 같은 댓글은 작성일 칸만 채움
-      if (list.fills && Object.keys(list.fills).length) await wb.setCellTexts(name, list.fills).catch(() => 0);
+      if (list.fills && Object.keys(list.fills).length) await setDateCells(wb, name, list.fills).catch(() => 0);
       if (!list.length) continue;
       if (!sheetInfo) throw new Error(`'${name}' 시트가 없어 ${name} 댓글 ${list.length}개를 쓰지 못했습니다`);
       await wb.replaceRowsAfter(name, sheetInfo.lastRow, list, sheetInfo.lastRow > 1 ? sheetInfo.lastRow : null, { focusFirstNew: true });
