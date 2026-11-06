@@ -393,12 +393,20 @@ function saveRuns() {
   return chrome.storage.local.set({ lx3Runs: runs }).catch(() => {});
 }
 
+// 직접 넣은 유튜브 영상 중 아직 엑셀에 넣지 않은 것 — 결과 표를 다시 채우거나 날짜가 바뀌어 비울 때도 남긴다
+// ('내용 비우기'를 직접 누를 때만 지움)
+const manualYt = (list) => list.filter((x) => x.note === "직접 넣은 영상" && !x.saved);
+function withManualYt(list, keep) {
+  const keys = new Set(list.map((x) => x.key));
+  return [...list, ...keep.filter((x) => !keys.has(x.key))];
+}
+
 // '이어서 작성'에서 고름: 그 기록을 결과 표로 불러오고 찾기 시작을 그 기록의 끝으로 ('없음'이면 다음 찾기는 새로)
 async function onRunSelect() {
   runId = $("#runSelect").value ? Number($("#runSelect").value) : null;
   const r = curRun();
   if (r) {
-    items = r.items.map((x) => ({ ...x, date: x.date ? new Date(x.date) : null, saved: false }));
+    items = withManualYt(r.items.map((x) => ({ ...x, date: x.date ? new Date(x.date) : null, saved: false })), manualYt(items));
     tableCleared = false;
     lastRange = { from: toLocalInput(new Date(r.from)), to: toLocalInput(new Date(r.to)) };
     markDuplicates();
@@ -611,11 +619,13 @@ async function search(resume = null) {
   const base = resume ? runs.find((r) => r.id === resume.runId) || null : curRun();
   const cont = !resume && !!base;
   // 이어서 찾기: 결과 표를 비웠어도 고른 수집 기록의 글로 시작 (기록에는 결과 표에서 고친 것이 반영돼 있음)
+  const keepYt = manualYt(items);
   items = resume
     ? resume.items.map((x) => ({ ...x, date: x.date ? new Date(x.date) : null }))
     : cont
       ? (tableCleared ? base.items : items.filter((x) => !x.saved)).map((x) => ({ ...x, date: x.date ? new Date(x.date) : null, saved: false }))
       : items.filter((x) => x.channel === "유튜브" && !x.saved);
+  items = withManualYt(items, keepYt);
   tableCleared = false;
   renderResults();
   const maxPages = Math.max(1, Number($("#maxPages").value) || DEFAULT_MAX_PAGES);
@@ -1444,7 +1454,7 @@ async function restoreLast() {
   if (last && !last.saved && !items.some((x) => x.saved)) runId = last.id;
   // 날짜가 바뀌었으면 지난 결과 표는 비운다 (찾아 둔 결과는 '이어서 작성'의 수집 기록에 그대로 있음)
   if (ymd(new Date(lx3Last.at)) !== ymd(new Date())) {
-    items = [];
+    items = manualYt(items); // 직접 넣고 아직 엑셀에 넣지 않은 유튜브 영상은 남김
     tableCleared = true;
     renderRunSelect();
     renderResults();

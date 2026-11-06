@@ -611,6 +611,8 @@ function findCommentsIn(root, sel) {
   const doc = root && root.querySelectorAll ? root : document;
   const T = (e) => String((e && (e.innerText || e.textContent)) || "").replace(/[ \t ]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
   if (sel && sel.items) {
+    // 칸 이름 후보를 모두 써 보고 댓글을 가장 많이 찾은 것을 씀 (원댓글만 잡는 이름이 먼저 걸려 답글을 놓치지 않게)
+    let best = null;
     for (const s of sel.items) {
       const out = [];
       for (const n of doc.querySelectorAll(s)) {
@@ -633,8 +635,9 @@ function findCommentsIn(root, sel) {
         }
         out.push({ text: t.slice(0, 2000), dateText, isReply: /re_|reply|depth|child|answer/i.test(String(n.className || "")) });
       }
-      if (out.length) return { comments: out, groups: [{ sig: s, n: out.length }], how: "칸 이름" };
+      if (out.length && (!best || out.length > best.comments.length)) best = { comments: out, groups: [{ sig: s, n: out.length }], how: "칸 이름" };
     }
+    if (best) return best;
   }
   const COMMENT = /comment|cmt|reply|댓글|memo/i;
   const TEXTY = /content|text|txt|memo|body|cont|desc|view/i;
