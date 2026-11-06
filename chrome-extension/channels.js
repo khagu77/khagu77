@@ -857,6 +857,29 @@ async function readPpomppuCommentsApi(url, { isStopped = () => false, onStatus }
       dateText = STR(v).trim();
       break;
     }
+    // 안쪽 객체까지 (칸 이름에 date·time·reg, 또는 날짜 모양 글자)
+    if (!dateText) {
+      const walk = (v, depth) => {
+        if (dateText || depth > 3 || !v || typeof v !== "object" || Array.isArray(v)) return;
+        for (const [k, x] of Object.entries(v)) {
+          const t = STR(x).trim();
+          if (t && (/date|time|reg|created/i.test(k) || DATE.test(t))) {
+            dateText = t;
+            return;
+          }
+          walk(x, depth + 1);
+        }
+      };
+      for (const x of Object.values(o)) walk(x, 1);
+    }
+    // HTML 안의 날짜 (예: '<span class="eng-day">2026-11-05 14:23</span>')
+    if (!dateText) for (const v of Object.values(o)) {
+      const m = STR(v).match(/20\d{2}[-./]\d{1,2}[-./]\d{1,2}\s+\d{1,2}:\d{2}(:\d{2})?|\b\d{2}[-./]\d{2}[-./]\d{2}\s+\d{1,2}:\d{2}(:\d{2})?/);
+      if (m) {
+        dateText = m[0];
+        break;
+      }
+    }
     if (/^\d{13}$/.test(dateText)) dateText = String(Math.floor(+dateText / 1000));
     if (/^20\d{2}-\d{2}-\d{2}T/.test(dateText)) dateText = dateText.replace("T", " ").slice(0, 19);
     if (/^\d{2}[-./]\d{2}\s+\d{1,2}:\d{2}/.test(dateText)) dateText = `${new Date().getFullYear()}-${dateText.replace(/[./]/, "-")}`;

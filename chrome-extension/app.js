@@ -436,6 +436,25 @@ function dayOf(v) {
 }
 
 // 언론·커뮤니티 댓글: 글(기사) 열쇠 + 작성일(날짜) + 내용
+// 댓글 엑셀의 모든 셀을 세로 가운데 정렬로 (이어 쓴 줄이 위로 붙어 보이지 않게) — 서식(styles.xml)의 셀 서식마다 vertical="center"
+async function centerVertically(wb) {
+  const path = "xl/styles.xml";
+  const xml = await wb.text(path);
+  if (!xml) return;
+  const fixed = xml.replace(/<cellXfs\b[^>]*>[\s\S]*?<\/cellXfs>/, (block) =>
+    block.replace(/<xf\b([^>]*?)(\/>|>([\s\S]*?)<\/xf>)/g, (m, attrs, end, inner) => {
+      const a = /applyAlignment=/.test(attrs) ? attrs.replace(/applyAlignment="[^"]*"/, 'applyAlignment="1"') : `${attrs} applyAlignment="1"`;
+      if (end === "/>") return `<xf${a}><alignment vertical="center"/></xf>`;
+      let body = inner || "";
+      if (/<alignment\b/.test(body)) {
+        body = body.replace(/<alignment\b([^>]*?)(\/?)>/, (am, aa, sl) => `<alignment${/vertical=/.test(aa) ? aa.replace(/vertical="[^"]*"/, 'vertical="center"') : `${aa} vertical="center"`}${sl}>`);
+      } else body = `<alignment vertical="center"/>${body}`;
+      return `<xf${a}>${body}</xf>`;
+    }),
+  );
+  if (fixed !== xml) wb.texts.set(path, fixed);
+}
+
 function channelCommentKey(url, date, content) {
   return `${channelKey(url)}|${dayOf(date)}|${compact(content)}`;
 }
@@ -453,12 +472,14 @@ async function analyzeExtraSheet(wb, name) {
   const lastRow = rows.reduce((m, r) => Math.max(m, r.r), 1);
   let lastSerial = 0;
   const keys = new Set();
+  const undated = new Map(); // 작성일이 빈 줄: 주소|내용 → 줄 번호 (다시 수집하면 새 줄 대신 작성일만 채움)
   for (const r of rows) {
     const n = parseInt(r.cells.A, 10);
     if (!isNaN(n)) lastSerial = Math.max(lastSerial, n);
     keys.add(channelCommentKey(r.cells.E, r.cells.C, r.cells.D));
+    if (r.cells.C === undefined || r.cells.C === "") undated.set(`${channelKey(String(r.cells.E || ""))}|${compact(r.cells.D)}`, r.r);
   }
-  return { lastRow, lastSerial, keys, count: rows.length };
+  return { lastRow, lastSerial, keys, undated, count: rows.length };
 }
 
 function rowHasData(row) {
@@ -522,13 +543,22 @@ function buildRows(results, info, { merge = false } = {}) {
   // 언론(네이버 뉴스)·자동차 커뮤니티: 이어 쓰기 (이미 있는 댓글은 뺌)
   const extra = (platform, sheetInfo, channelOf, dateOf = (w) => w) => {
     const keys2 = new Set(sheetInfo ? sheetInfo.keys : []);
+    const undated = new Map(sheetInfo?.undated || []);
     let n = sheetInfo ? sheetInfo.lastSerial : 0;
     const out = [];
+    out.fills = {}; // 작성일이 빈 같은 댓글: 줄을 더하지 않고 작성일 칸만 채움 { C12: "2026.11.05" }
     for (const r of results.filter((x) => x.platform === platform && !x.error)) {
       for (const c of r.comments) {
         if (c.isDeleted || !c.content) continue;
         const key = channelCommentKey(r.sheetUrl, c.writtenAt, c.content);
         if (keys2.has(key)) {
+          duplicates++;
+          continue;
+        }
+        const uk = `${channelKey(r.sheetUrl)}|${compact(c.content)}`;
+        if (undated.has(uk)) {
+          if (c.writtenAt) out.fills[`C${undated.get(uk)}`] = String(c.writtenAt);
+          undated.delete(uk);
           duplicates++;
           continue;
         }
@@ -594,10 +624,13 @@ async function buildOutput(results, tpl, opts = {}) {
     if (rows.ytTouched) await wb.replaceRowsAfter(SHEET_YT, 1, rows.yt, 2);
     // 언론·자동차 커뮤니티 시트: 마지막 줄 다음에 (서식은 마지막 줄, 빈 시트면 머리글 아래 기본 서식)
     for (const [name, sheetInfo, list] of [[SHEET_NEWS, info.news, rows.news], [SHEET_COMM, info.comm, rows.comm]]) {
+      // 작성일이 비어 있던 같은 댓글은 작성일 칸만 채움
+      if (list.fills && Object.keys(list.fills).length) await wb.setCellTexts(name, list.fills).catch(() => 0);
       if (!list.length) continue;
       if (!sheetInfo) throw new Error(`'${name}' 시트가 없어 ${name} 댓글 ${list.length}개를 쓰지 못했습니다`);
       await wb.replaceRowsAfter(name, sheetInfo.lastRow, list, sheetInfo.lastRow > 1 ? sheetInfo.lastRow : null, { focusFirstNew: true });
     }
+    await centerVertically(wb);
     return { bytes: await wb.save(), rows, info };
   }
   const rows = buildRows(results, null);
