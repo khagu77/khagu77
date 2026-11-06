@@ -848,10 +848,18 @@ async function readPpomppuCommentsApi(url, { isStopped = () => false, onStatus }
       dateText = STR(o[k]).trim();
       break;
     }
-    if (!dateText) for (const v of Object.values(o)) if (DATE.test(STR(v).trim())) {
+    // 칸 이름에 date·time·reg 가 들어간 칸 (뽐뿌 칸 이름을 몰라 넓게)
+    if (!dateText) for (const [k, v] of Object.entries(o)) if (/date|time|reg|created|wdt/i.test(k) && STR(v).trim()) {
       dateText = STR(v).trim();
       break;
     }
+    if (!dateText) for (const v of Object.values(o)) if (DATE.test(STR(v).trim()) || /^\d{2}[-./]\d{2}\s+\d{1,2}:\d{2}/.test(STR(v).trim()) || /^20\d{2}-\d{2}-\d{2}T/.test(STR(v))) {
+      dateText = STR(v).trim();
+      break;
+    }
+    if (/^\d{13}$/.test(dateText)) dateText = String(Math.floor(+dateText / 1000));
+    if (/^20\d{2}-\d{2}-\d{2}T/.test(dateText)) dateText = dateText.replace("T", " ").slice(0, 19);
+    if (/^\d{2}[-./]\d{2}\s+\d{1,2}:\d{2}/.test(dateText)) dateText = `${new Date().getFullYear()}-${dateText.replace(/[./]/, "-")}`;
     if (/^\d{10}$/.test(dateText)) {
       const d = new Date(+dateText * 1000);
       dateText = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
