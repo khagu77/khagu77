@@ -58,7 +58,8 @@ async function dbSaveDay(kind, date, name, bytes, source, summary = "", stats = 
         merged.ytGoneIds = [...new Set([...(merged.ytGoneIds || []), ...(v.gone || [])])].filter((id) => !ok.has(id));
         continue;
       }
-      merged[k] = k === "youtube" ? v : (merged[k] || 0) + v;
+      if (k === "_replace") continue;
+      merged[k] = k === "youtube" || stats._replace ? v : (merged[k] || 0) + v; // 수정본 올리기는 다시 센 값으로 바꿈
     }
   }
   const rec = { key, kind, date, name, bytes, savedAt: Date.now(), source, summary, stats: merged, rangeEnd: extra.rangeEnd ?? old?.rangeEnd ?? null };

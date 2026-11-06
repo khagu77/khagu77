@@ -113,6 +113,21 @@ async function onPicked(file) {
     if (!pickFor.date && existing && !confirm(`${prettyDate(date)}에 이미 파일(${existing.name})이 있습니다. 이 파일로 바꿀까요?`)) return;
     // 댓글 raw data: 유튜브 건수는 시트 전체라 올린 파일에서 다시 셈 (다른 채널 건수는 그날 수집한 그대로)
     const stats = kind === "raw" ? { youtube: await youtubeRowCount(bytes) } : null;
+    // 그날 언론·동호회·커뮤니티 건수 = 이 파일의 마지막 연번 − 전날 파일의 마지막 연번 (정리한 수정본 기준으로 다시 셈)
+    if (kind === "raw") {
+      const prev = (await dbList("raw")).find((r) => r.date < date && r.summary);
+      const lastOf = (sum, name) => {
+        const m = String(sum || "").match(new RegExp(`${name} ([\\d,]+)`));
+        return m ? Number(m[1].replace(/,/g, "")) : null;
+      };
+      if (prev) {
+        for (const [name, field] of [["언론", "news"], ["동호회", "comments"], ["자동차 커뮤니티", "community"]]) {
+          const a = lastOf(summary, name), b = lastOf(prev.summary, name);
+          if (a != null && b != null && a >= b) stats[field] = a - b;
+        }
+        stats._replace = true;
+      }
+    }
     await dbSaveDay(kind, date, file.name, bytes, "upload", summary, stats && stats.youtube != null ? stats : null);
     const msg = `✔ ${prettyDate(date)} ${DB_KINDS[kind].short}을(를) ${file.name}(으)로 ${pickFor.date ? "바꿨습니다" : "등록했습니다"}`;
     setInfo(`${msg} (${summary.replace(/\n/g, " ")}).`, "ok");
