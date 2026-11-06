@@ -711,17 +711,53 @@ function expandCommentPage() {
   let clicked = false;
   // 뽐뿌: '다음 코멘트 더 보기 ▼'
   const MORE = /^(다음\s*)?(댓글\s*|코멘트\s*)?(더\s*보기|더보기|이전\s*댓글|댓글\s*더|다음\s*댓글|다음\s*코멘트|코멘트\s*더|more|load more)(\s*보기)?(\s*[\[(]?\d*[\])]?)?\s*[▼▽+>]?$/i;
+  // 같은 게시글(주소의 글 번호가 같음)을 가리키는 링크 또는 댓글 쪽을 부르는 버튼 — 뽐뿌는 댓글 쪽 번호가 댓글 영역 밖에 있음
+  const here = new URL(location.href);
+  const artNo = here.searchParams.get("no") || here.searchParams.get("wr_id") || here.pathname.match(/\/(\d{4,})(?:\/|$)/)?.[1] || "";
+  const sameArticle = (e) => {
+    const href = e.getAttribute("href") || "";
+    const js = `${href} ${e.getAttribute("onclick") || ""}`;
+    if (/c_?page|cpage|comment|cmt/i.test(js)) return true;
+    if (!artNo || /^(#|javascript:)/i.test(href)) return false;
+    try {
+      const u = new URL(href, location.href);
+      return u.pathname === here.pathname && (u.searchParams.get("no") === artNo || u.searchParams.get("wr_id") === artNo || u.pathname.includes(artNo));
+    } catch {
+      return false;
+    }
+  };
+  // 이 글에서 이미 본 댓글 쪽·'더보기'를 눌렀을 때의 화면 길이 (글마다 따로, 3분 지나면 새로)
+  const stKey = `lx3Cmt:${here.pathname}:${artNo}`;
+  let st;
+  try {
+    st = JSON.parse(sessionStorage.getItem(stKey) || "null");
+  } catch {
+    st = null;
+  }
+  if (!st || Date.now() - st.at > 180000) st = { at: Date.now(), pages: [], lens: {} };
+  const visited = new Set(st.pages);
+  const saveSt = () => {
+    try {
+      sessionStorage.setItem(stKey, JSON.stringify({ ...st, pages: [...visited] }));
+    } catch {}
+  };
+  const bodyLen = String((document.body && document.body.innerText) || "").length;
+  // 지난번 '더보기'를 눌렀을 때와 화면 길이가 같으면 이 쪽은 다 펼친 것 → 다음 쪽 번호로
+  const moreDone = st.lens[location.href] === bodyLen;
   const inComment = (e) => /comment|cmt|reply|댓글/i.test(`${e.className || ""} ${e.id || ""} ${e.closest("[class*='comment'],[class*='cmt'],[class*='reply'],[id*='comment'],[id*='cmt']") ? "comment" : ""}`);
   for (const e of document.querySelectorAll("a, button, span[onclick], div[onclick]")) {
     const t = String(e.innerText || e.textContent || "").replace(/\s+/g, " ").trim();
     if (!t || t.length > 30) continue;
     // '더보기' 버튼, 또는 댓글 영역 안의 댓글 쪽 번호(2, 3, …) — 한 번에 하나씩 눌러 쌓는다
     const isMore = MORE.test(t) && (inComment(e) || /댓글|코멘트/.test(t));
-    const isPage = /^\d{1,3}$/.test(t) && +t > 1 && inComment(e) && !e.closest("[aria-current], .on, .active, .current, strong");
+    const isPage = /^\d{1,3}$/.test(t) && +t > 1 && (inComment(e) || sameArticle(e)) && !e.closest("[aria-current], .on, .active, .current, strong") && !visited.has(t);
     if (!isMore && !isPage) continue;
     // 쪽 번호는 한 번만, '더보기'는 같은 버튼이 남아 있으면 매번 다시 누름 (뽐뿌 '다음 코멘트 더 보기')
     if (isPage && e.dataset.lx3Clicked) continue;
-    if (isMore && (e.offsetParent === null || e.disabled)) continue;
+    if (isMore && (moreDone || e.offsetParent === null || e.disabled)) continue;
+    if (isPage) visited.add(t);
+    if (isMore) st.lens[location.href] = bodyLen;
+    saveSt();
     e.dataset.lx3Clicked = "1";
     try {
       e.click();
@@ -746,10 +782,11 @@ function commentPageLinks(doc, url) {
     const t = textOf(a);
     if (!/^\d{1,3}$/.test(t) || +t < 2) continue;
     const host = a.closest("[class*='comment' i],[class*='cmt' i],[id*='comment' i],[id*='cmt' i],[class*='reply' i]");
-    if (!host) continue;
     const href = a.getAttribute("href") || "";
     if (/^(#|javascript:)/i.test(href)) continue;
     const u = safeUrl(href, base);
+    // 댓글 영역 안의 숫자 링크, 또는 (뽐뿌처럼 쪽 번호가 영역 밖이어도) 같은 게시글을 가리키는 숫자 링크
+    if (!host && !(u && /c_?page|cpage|comment|cmt/i.test(u.search))) continue;
     if (u && channelKey(u.toString()) === key && u.toString() !== base.toString()) out.add(u.toString());
   }
   return [...out].slice(0, 50);
