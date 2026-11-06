@@ -233,7 +233,56 @@ def test_retry_and_resume(tmp_path: Path):
     server.shutdown()
 
 
-@pytest.mark.parametrize("name", ["cafe-common.js", "channels.js", "template.js", "xlsx.js", "bg-render.js", "db-store.js", "db.js", "app.css"])
+@pytest.mark.parametrize("name", ["cafe-common.js", "template.js", "xlsx.js", "bg-render.js", "db-store.js", "db.js", "app.css"])
 def test_shared_files_match(name):
     """LX3 수집기와 함께 쓰는 파일은 같은 내용 (한쪽만 고치지 않게)."""
     assert (EXT_DIR / name).read_bytes() == (ROOT / "chrome-extension" / name).read_bytes()
+
+
+PPOM_API = {
+    "1": {"c_page": 1, "total_page": 2, "total_comment": 5, "comments": [
+        {"no": 1, "memo": "첫 댓글<br>둘째 줄", "regdate": "2026-11-05 10:20:30", "depth": 0},
+        {"no": 2, "memo": "답글이에요", "regdate": "2026-11-05 10:25:00", "depth": 1},
+        {"no": 3, "comment": "<b>굵은</b> 댓글", "wdt": 1762306200, "depth": 0},
+    ]},
+    "2": {"c_page": 2, "total_page": 2, "total_comment": 5, "comments": [
+        {"no": 4, "memo": "둘째 쪽 하나", "info": {"reg_date": "2026-11-06 08:00:00"}},
+        {"no": 5, "memo": "둘째 쪽 둘", "regdate": "2026-11-06 09:00:00"},
+    ]},
+}
+
+
+def test_ppomppu_comment_list(tmp_path: Path):
+    """뽐뿌: 화면 버튼을 누르지 않고 댓글 목록(comment.php JSON)을 1쪽부터 끝까지 받아 모두 수집 (작성일·답글·HTML 정리)."""
+    from urllib.parse import parse_qs, urlparse
+    cafe = start_fake_cafe(tmp_path)
+    sites = start_fake_sites(tmp_path)
+    with sync_playwright() as p:
+        ctx, ext = open_ext(p, tmp_path, cafe.server_address[1], sites.server_address[1])
+        asked = []
+
+        def api(route):
+            q = parse_qs(urlparse(route.request.url).query)
+            asked.append(q)
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(PPOM_API.get(q["c_page"][0], {}), ensure_ascii=False))
+
+        ctx.route("https://www.ppomppu.co.kr/zboard/comment.php*", api)
+        page = ctx.new_page()
+        page.goto(f"{ext}/app.html")
+        page.check("#separate")
+        page.fill("#urls", "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980149")
+        with page.expect_download(timeout=180000) as dl:
+            page.click("#start")
+        raw = tmp_path / "raw.xlsx"
+        dl.value.save_as(raw)
+        progress = page.inner_text("#progress")
+        assert [q["c_page"][0] for q in asked] == ["1", "2"], asked
+        assert all(q["cmd"] == ["get_comment_json"] and q["id"] == ["car"] and q["no"] == ["980149"] for q in asked)
+        rows = [(r[1], r[2], r[3]) for r in list(load_workbook(raw)["자동차 커뮤니티"].values)[1:]]
+        assert [r[2] for r in rows] == ["첫 댓글 둘째 줄", "답글이에요", "굵은 댓글", "둘째 쪽 하나", "둘째 쪽 둘"], (rows, progress)
+        assert all(r[0] == "뽐뿌" for r in rows)
+        assert str(rows[0][1]).startswith("2026") and str(rows[3][1]).startswith("2026"), rows  # 작성일도 들어감
+        assert "뽐뿌 댓글 목록" in progress, progress
+        ctx.close()
+    cafe.shutdown()
+    sites.shutdown()

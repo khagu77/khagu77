@@ -611,6 +611,8 @@ function findCommentsIn(root, sel) {
   const doc = root && root.querySelectorAll ? root : document;
   const T = (e) => String((e && (e.innerText || e.textContent)) || "").replace(/[ \t ]+/g, " ").replace(/\s*\n\s*/g, "\n").trim();
   if (sel && sel.items) {
+    // 칸 이름 후보를 모두 써 보고 댓글을 가장 많이 찾은 것을 씀 (원댓글만 잡는 이름이 먼저 걸려 답글을 놓치지 않게)
+    let best = null;
     for (const s of sel.items) {
       const out = [];
       for (const n of doc.querySelectorAll(s)) {
@@ -633,8 +635,9 @@ function findCommentsIn(root, sel) {
         }
         out.push({ text: t.slice(0, 2000), dateText, isReply: /re_|reply|depth|child|answer/i.test(String(n.className || "")) });
       }
-      if (out.length) return { comments: out, groups: [{ sig: s, n: out.length }], how: "칸 이름" };
+      if (out.length && (!best || out.length > best.comments.length)) best = { comments: out, groups: [{ sig: s, n: out.length }], how: "칸 이름" };
     }
+    if (best) return best;
   }
   const COMMENT = /comment|cmt|reply|댓글|memo/i;
   const TEXTY = /content|text|txt|memo|body|cont|desc|view/i;
@@ -706,15 +709,67 @@ function expandCommentPage() {
   const se = document.scrollingElement || document.documentElement;
   if (se) se.scrollTop = se.scrollHeight;
   let clicked = false;
-  const MORE = /^(댓글\s*)?(더\s*보기|더보기|이전\s*댓글|댓글\s*더|다음\s*댓글|more|load more)(\s*[\[(]?\d*[\])]?)?\s*[▼+>]?$/i;
+  // 뽐뿌: '다음 코멘트 더 보기 ▼'
+  const MORE = /^(다음\s*)?(댓글\s*|코멘트\s*)?(더\s*보기|더보기|이전\s*댓글|댓글\s*더|다음\s*댓글|다음\s*코멘트|코멘트\s*더|more|load more)(\s*보기)?(\s*[\[(]?\d*[\])]?)?\s*[▼▽+>]?$/i;
+  // 같은 게시글(주소의 글 번호가 같음)을 가리키는 링크 또는 댓글 쪽을 부르는 버튼 — 뽐뿌는 댓글 쪽 번호가 댓글 영역 밖에 있음
+  const here = new URL(location.href);
+  const artNo = here.searchParams.get("no") || here.searchParams.get("wr_id") || here.pathname.match(/\/(\d{4,})(?:\/|$)/)?.[1] || "";
+  const sameArticle = (e) => {
+    const href = e.getAttribute("href") || "";
+    const js = `${href} ${e.getAttribute("onclick") || ""}`;
+    if (/c_?page|cpage|comment|cmt/i.test(js)) return true;
+    // 뽐뿌: href="javascript:go_page( 'car', 981604, 2 )" — 이 글 번호를 넣어 부르는 쪽 넘김
+    if (artNo && new RegExp(`(^|[^\\d])${artNo}([^\\d]|$)`).test(js) && /page/i.test(js)) return true;
+    if (!artNo || /^(#|javascript:)/i.test(href)) return false;
+    try {
+      const u = new URL(href, location.href);
+      return u.pathname === here.pathname && (u.searchParams.get("no") === artNo || u.searchParams.get("wr_id") === artNo || u.pathname.includes(artNo));
+    } catch {
+      return false;
+    }
+  };
+  // 이 글에서 이미 본 댓글 쪽·'더보기'를 눌렀을 때의 화면 길이 (글마다 따로, 3분 지나면 새로)
+  const stKey = `lx3Cmt:${here.pathname}:${artNo}`;
+  let st;
+  try {
+    st = JSON.parse(sessionStorage.getItem(stKey) || "null");
+  } catch {
+    st = null;
+  }
+  if (!st || Date.now() - st.at > 180000) st = { at: Date.now(), pages: [], lens: {} };
+  const visited = new Set(st.pages);
+  const saveSt = () => {
+    try {
+      sessionStorage.setItem(stKey, JSON.stringify({ ...st, pages: [...visited] }));
+    } catch {}
+  };
+  // 지금 보고 있는 쪽(쪽 번호 줄에서 링크가 아닌 번호, 예: 뽐뿌 <font class="page_inert">3</font>)도 본 쪽으로
+  for (const a of document.querySelectorAll("a")) {
+    if (!/^\d{1,3}$/.test(String(a.textContent || "").trim()) || !sameArticle(a) || !a.parentElement) continue;
+    for (const c of a.parentElement.children) {
+      const ct = String(c.textContent || "").trim();
+      if (c.tagName !== "A" && /^\d{1,3}$/.test(ct)) visited.add(ct);
+    }
+  }
+  saveSt();
+  const bodyLen = String((document.body && document.body.innerText) || "").length;
+  // 지난번 '더보기'를 눌렀을 때와 화면 길이가 같으면 이 쪽은 다 펼친 것 → 다음 쪽 번호로
+  const moreDone = st.lens[location.href] === bodyLen;
   const inComment = (e) => /comment|cmt|reply|댓글/i.test(`${e.className || ""} ${e.id || ""} ${e.closest("[class*='comment'],[class*='cmt'],[class*='reply'],[id*='comment'],[id*='cmt']") ? "comment" : ""}`);
   for (const e of document.querySelectorAll("a, button, span[onclick], div[onclick]")) {
     const t = String(e.innerText || e.textContent || "").replace(/\s+/g, " ").trim();
-    if (!t || t.length > 30 || e.dataset.lx3Clicked) continue;
+    if (!t || t.length > 30) continue;
     // '더보기' 버튼, 또는 댓글 영역 안의 댓글 쪽 번호(2, 3, …) — 한 번에 하나씩 눌러 쌓는다
-    const isMore = MORE.test(t) && (inComment(e) || /댓글/.test(t));
-    const isPage = /^\d{1,3}$/.test(t) && +t > 1 && inComment(e) && !e.closest("[aria-current], .on, .active, .current, strong");
+    const isMore = MORE.test(t) && (inComment(e) || /댓글|코멘트/.test(t));
+    // 쪽 번호: 댓글 영역 안의 2, 3, … 또는 이 글의 댓글 쪽을 부르는 번호(1쪽 포함 — 처음 화면이 몇 쪽이든 다 봄)
+    const isPage = /^\d{1,3}$/.test(t) && (sameArticle(e) || (+t > 1 && inComment(e))) && !e.closest("[aria-current], .on, .active, .current, strong") && !visited.has(t);
     if (!isMore && !isPage) continue;
+    // 쪽 번호는 한 번만, '더보기'는 같은 버튼이 남아 있으면 매번 다시 누름 (뽐뿌 '다음 코멘트 더 보기')
+    if (isPage && e.dataset.lx3Clicked) continue;
+    if (isMore && (moreDone || e.offsetParent === null || e.disabled)) continue;
+    if (isPage) visited.add(t);
+    if (isMore) st.lens[location.href] = bodyLen;
+    saveSt();
     e.dataset.lx3Clicked = "1";
     try {
       e.click();
@@ -722,7 +777,7 @@ function expandCommentPage() {
     } catch {
       /* 무시 */
     }
-    if (isPage) break;
+    break; // 한 번에 하나만 누르고 다음 차례에 다시
   }
   const text = String((document.body && document.body.innerText) || "").replace(/\s+/g, " ");
   let expected = 0;
@@ -739,10 +794,11 @@ function commentPageLinks(doc, url) {
     const t = textOf(a);
     if (!/^\d{1,3}$/.test(t) || +t < 2) continue;
     const host = a.closest("[class*='comment' i],[class*='cmt' i],[id*='comment' i],[id*='cmt' i],[class*='reply' i]");
-    if (!host) continue;
     const href = a.getAttribute("href") || "";
     if (/^(#|javascript:)/i.test(href)) continue;
     const u = safeUrl(href, base);
+    // 댓글 영역 안의 숫자 링크, 또는 (뽐뿌처럼 쪽 번호가 영역 밖이어도) 같은 게시글을 가리키는 숫자 링크
+    if (!host && !(u && /c_?page|cpage|comment|cmt/i.test(u.search))) continue;
     if (u && channelKey(u.toString()) === key && u.toString() !== base.toString()) out.add(u.toString());
   }
   return [...out].slice(0, 50);
@@ -754,6 +810,108 @@ const DELETED_COMMENT = /^(삭제된\s*댓글|삭제\s*된\s*댓글|블라인드
 // 1) 받아 온 화면 (+ 댓글 쪽 링크가 있으면 쪽마다)
 // 2) 화면에 보이는 댓글 수보다 모자라면 → 보이지 않는 틀(설정 시 뒤쪽 탭)로 열어 끝까지 내리고 '더보기'·댓글 쪽을 눌러 가며 다시
 // 3) 그래도 댓글 수가 보이는데 하나도 못 읽었으면 실패 (다시 수집 대상)
+// 뽐뿌: 댓글은 화면이 /zboard/comment.php?cmd=get_comment_json 에서 쪽(c_page)마다 받아 그림 → 그 목록을 직접 받는다
+// → { comments: [{ text, dateText, isReply }], total } (못 받으면 null)
+async function readPpomppuCommentsApi(url, { isStopped = () => false, onStatus } = {}) {
+  const u = safeUrl(url);
+  const id = u?.searchParams.get("id");
+  const no = u?.searchParams.get("no");
+  if (!id || !no) return null;
+  const get = async (page) => {
+    const q = new URL("https://www.ppomppu.co.kr/zboard/comment.php");
+    for (const [k, v] of Object.entries({ id, no, c_page: page, comment_mode: "sort_asc", cmd: "get_comment_json" })) q.searchParams.set(k, v);
+    const txt = await fetchText(q.toString(), { credentials: "include" });
+    return JSON.parse(txt);
+  };
+  const STR = (v) => (typeof v === "string" ? v : typeof v === "number" ? String(v) : "");
+  const strip = (h) => new DOMParser().parseFromString(`<div>${String(h).replace(/<br\s*\/?>/gi, "\n")}</div>`, "text/html").body.textContent.replace(/[ \t]+/g, " ").trim();
+  const DATE = /^(20\d{2}[-./]\d{1,2}[-./]\d{1,2}(\s+\d{1,2}:\d{2}(:\d{2})?)?|\d{2}[-./]\d{2}[-./]\d{2}(\s+\d{1,2}:\d{2}(:\d{2})?)?|\d{1,2}:\d{2}(:\d{2})?)$/;
+  const TEXT_KEYS = ["memo", "comment", "content", "contents", "c_memo", "comment_content", "c_content", "body", "text", "msg"];
+  const DATE_KEYS = ["regdate", "reg_date", "date", "wdate", "write_date", "created_at", "reg_time", "regtime", "datetime", "c_date"];
+  const toComment = (o) => {
+    let text = "";
+    for (const k of TEXT_KEYS) if (STR(o[k]).trim()) {
+      text = strip(o[k]);
+      if (text) break;
+    }
+    if (!text) {
+      // 칸 이름을 모르면 가장 긴 글자 칸 (주소·날짜 제외)
+      let best = "";
+      for (const v of Object.values(o)) {
+        const t = STR(v);
+        if (t.length > best.length && !/^https?:\/\//.test(t) && !DATE.test(t.trim())) best = t;
+      }
+      text = strip(best);
+    }
+    let dateText = "";
+    for (const k of DATE_KEYS) if (STR(o[k]).trim()) {
+      dateText = STR(o[k]).trim();
+      break;
+    }
+    // 칸 이름에 date·time·reg 가 들어간 칸 (뽐뿌 칸 이름을 몰라 넓게)
+    if (!dateText) for (const [k, v] of Object.entries(o)) if (/date|time|reg|created|wdt/i.test(k) && STR(v).trim()) {
+      dateText = STR(v).trim();
+      break;
+    }
+    if (!dateText) for (const v of Object.values(o)) if (DATE.test(STR(v).trim()) || /^\d{2}[-./]\d{2}\s+\d{1,2}:\d{2}/.test(STR(v).trim()) || /^20\d{2}-\d{2}-\d{2}T/.test(STR(v))) {
+      dateText = STR(v).trim();
+      break;
+    }
+    // 안쪽 객체까지 (칸 이름에 date·time·reg, 또는 날짜 모양 글자)
+    if (!dateText) {
+      const walk = (v, depth) => {
+        if (dateText || depth > 3 || !v || typeof v !== "object" || Array.isArray(v)) return;
+        for (const [k, x] of Object.entries(v)) {
+          const t = STR(x).trim();
+          if (t && (/date|time|reg|created/i.test(k) || DATE.test(t))) {
+            dateText = t;
+            return;
+          }
+          walk(x, depth + 1);
+        }
+      };
+      for (const x of Object.values(o)) walk(x, 1);
+    }
+    // HTML 안의 날짜 (예: '<span class="eng-day">2026-11-05 14:23</span>')
+    if (!dateText) for (const v of Object.values(o)) {
+      const m = STR(v).match(/20\d{2}[-./]\d{1,2}[-./]\d{1,2}\s+\d{1,2}:\d{2}(:\d{2})?|\b\d{2}[-./]\d{2}[-./]\d{2}\s+\d{1,2}:\d{2}(:\d{2})?/);
+      if (m) {
+        dateText = m[0];
+        break;
+      }
+    }
+    if (/^\d{13}$/.test(dateText)) dateText = String(Math.floor(+dateText / 1000));
+    if (/^20\d{2}-\d{2}-\d{2}T/.test(dateText)) dateText = dateText.replace("T", " ").slice(0, 19);
+    if (/^\d{2}[-./]\d{2}\s+\d{1,2}:\d{2}/.test(dateText)) dateText = `${new Date().getFullYear()}-${dateText.replace(/[./]/, "-")}`;
+    if (/^\d{10}$/.test(dateText)) {
+      const d = new Date(+dateText * 1000);
+      dateText = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+    }
+    const depth = +(o.depth ?? o.c_depth ?? o.re_level ?? o.level ?? 0) || 0;
+    return { text, dateText, isReply: depth > 0 };
+  };
+  // 댓글 안의 답글 목록까지 펼침
+  const flat = (list, out) => {
+    for (const o of list || []) {
+      if (!o || typeof o !== "object") continue;
+      out.push(toComment(o));
+      for (const v of Object.values(o)) if (Array.isArray(v) && v.length && typeof v[0] === "object") flat(v, out);
+    }
+    return out;
+  };
+  const first = await get(1);
+  if (!first || !Array.isArray(first.comments)) return null;
+  const totalPage = Math.min(100, parseInt(first.total_page, 10) || 1);
+  const comments = flat(first.comments, []);
+  for (let p = 2; p <= totalPage && !isStopped(); p++) {
+    onStatus?.(`뽐뿌 댓글 목록 읽는 중… (${p}/${totalPage}쪽, ${comments.length}개)`);
+    await sleep(randomBetween([500, 1000]));
+    const res = await get(p).catch(() => null);
+    if (res && Array.isArray(res.comments)) flat(res.comments, comments);
+  }
+  return { comments: comments.filter((c) => c.text), total: parseInt(first.total_comment, 10) || 0 };
+}
+
 async function readCommunityComments(url, { isStopped = () => false, onStatus, tabFallback = false } = {}) {
   const ad = communityAdapter(url);
   const sel = { items: ad.commentItems, text: ad.commentText, date: ad.commentDate };
@@ -773,7 +931,17 @@ async function readCommunityComments(url, { isStopped = () => false, onStatus, t
       }
     }
   };
-  for (const pageUrl of commentPageLinks(doc, url)) {
+  // 뽐뿌는 댓글 목록 데이터를 직접 받음 (화면 버튼·쪽 번호를 누르지 않아도 전부)
+  if (ad.site === "뽐뿌" && !isStopped()) {
+    onStatus?.("뽐뿌 댓글 목록 읽는 중…");
+    const api = await readPpomppuCommentsApi(url, { isStopped, onStatus }).catch(() => null);
+    if (api && api.comments.length > comments.length) {
+      comments = api.comments;
+      how = "뽐뿌 댓글 목록";
+      expected = api.total || expected; // 목록이 알려 주는 전체 댓글 수
+    }
+  }
+  for (const pageUrl of how === "뽐뿌 댓글 목록" ? [] : commentPageLinks(doc, url)) {
     if (isStopped()) break;
     onStatus?.(`댓글 다음 쪽 읽는 중… (${comments.length}개)`);
     await sleep(randomBetween([800, 1600]));
@@ -864,9 +1032,10 @@ async function readCommentsLive(url, sel, expected, { isStopped, mode }) {
       for (const r of prep) if (r) best.expected = Math.max(best.expected, r.expected || 0);
       const clicked = prep.some((r) => r && r.clicked);
       const want = Math.max(expected || 0, best.expected);
-      stable = !added && !clicked ? stable + 1 : 0;
+      // 새 댓글이 안 나온 차례 수 ('더보기'를 눌러도 더 안 나오면 세 번째에 멈춤)
+      stable = !added ? stable + 1 : 0;
       if (best.comments.length && best.comments.length >= want && !clicked) break;
-      if (stable >= 2 && (best.comments.length || round >= 3)) break;
+      if (stable >= (clicked ? 3 : 2) && (best.comments.length || round >= 3)) break;
       await sleep(1500);
     }
     return best;
