@@ -790,13 +790,26 @@ PPOM_LIST = (
 
 # 980300: 화면엔 첫 묶음 2개만, 나머지는 '다음 코멘트 더 보기'로 받는 댓글 목록(JSON) — 2쪽, 답글은 댓글 안 배열
 PPOM_JSON = {
-    "1": {"total_page": "2", "total_comment": "5", "c_page": 1, "comments": [
-        {"no": 1, "name": "가", "memo": "첫 댓글 가격 비싸요<br>정말로", "regdate": "2026-08-06 09:00:00", "depth": 0,
-         "replies": [{"no": 2, "memo": "답글 동의합니다", "regdate": "2026.08.06. 09:05", "depth": 1}]},
-        {"no": 3, "c_memo": "옵션 구성 아쉽네요", "wdate": "1786006800", "depth": 0},
+    # 1쪽: 담당자가 콘솔로 확인해 준 실제 뽐뿌 구조 (memo HTML · meta.time_detail · depth · sub_cmt 안의 sub_cmt · 이름·그림 HTML)
+    "1": {"total_page": "2", "total_comment": "6", "c_page": 1, "comments": [
+        {"no": 1, "depth": 0, "parent": 0, "name": "<b><a href=#><i class='nlevel lv5'></i>SirO_u</a></b>", "image": "<img src=//cdn3.ppomppu.co.kr/images/no_face.jpg>",
+         "memo": "<p>첫 댓글 가격 비싸요</p>\r\n<p>\r\n   <br>\r\n</p>\r\n<p>정말로&nbsp;</p>",
+         "org_comment_memo_html": "<div style='display:none'><textarea>첫 댓글 가격 비싸요</textarea></div>",
+         "vote_btn": {"show_btn": True, "alert_msg": "", "vote_count": 0}, "meta": {"time_display": "2026-08-06", "time_detail": "2026-08-06 09:00:01", "ip_display": ""},
+         "block_status": {"is_blocked": False, "is_spam": False, "block_message": ""},
+         "sub_cmt": [
+             {"no": 2, "depth": 1, "parent": 1, "name": "<b>아셋팜</b>", "memo": "<p>답글 동의합니다</p>", "meta": {"time_display": "2026-08-06", "time_detail": "2026-08-06 09:05:06"},
+              "block_status": {"is_blocked": False, "is_spam": False},
+              "sub_cmt": [{"no": 5, "depth": 2, "parent": 2, "name": "<b>SirO_u</b>", "memo": "<div>답글의 답글</div>\r\n<div>&nbsp;</div><div>둘째 줄</div>",
+                           "meta": {"time_display": "2026-08-06", "time_detail": "2026-08-06 09:26:29"}, "block_status": {"is_blocked": False}}]},
+         ]},
+        {"no": 3, "depth": 0, "name": "<b>차단된 분</b>", "memo": "차단된 댓글입니다", "meta": {"time_detail": "2026-08-06 09:10:00"}, "block_status": {"is_blocked": True, "is_spam": False}},
+        {"no": 6, "depth": 0, "name": "<b>지운 분</b>", "image": "<img src=//cdn3.ppomppu.co.kr/images/no_face.jpg>", "memo": "", "meta": {"time_detail": "2026-08-06 09:11:00"}, "block_status": {"is_blocked": False}},
+        {"no": 4, "depth": 0, "name": "<b>나</b>", "memo": "<p>옵션 구성 아쉽네요</p>", "meta": {"time_display": "2026-08-06", "time_detail": "2026-08-06 09:20:00"}, "block_status": {"is_blocked": False}},
     ]},
-    "2": {"total_page": "2", "total_comment": "5", "c_page": 2, "comments": [
-        {"no": 4, "comment": "둘째 쪽 댓글 기본 모델 괜찮음", "date": "08-06 10:30", "re_level": "0"},
+    # 2쪽: 칸 이름이 다른 경우(예비 방식)도 읽는다
+    "2": {"total_page": "2", "total_comment": "6", "c_page": 2, "comments": [
+        {"no": 7, "comment": "둘째 쪽 댓글 기본 모델 괜찮음", "date": "08-06 10:30", "re_level": "0"},
     ]},
 }
 
@@ -903,10 +916,11 @@ def test_community_comments_must_collect(tmp_path: Path):
         assert res["980162"]["texts"] == ["첫 댓글 비싸요", "둘째 댓글 기대돼요", "셋째 댓글 노조 탓", "넷째 댓글 그냥 그래"], res
         # 뽐뿌 댓글 목록(JSON)을 1쪽부터 끝까지 직접 받음: 답글 펼침·작성일 여러 모양·전체 수는 total_comment
         r3 = res["980300"]
-        assert r3["how"] == "뽐뿌 댓글 목록" and r3["expected"] == 5, r3
-        assert r3["texts"] == ["첫 댓글 가격 비싸요 정말로", "답글 동의합니다", "옵션 구성 아쉽네요", "둘째 쪽 댓글 기본 모델 괜찮음"], r3
-        assert r3["replies"] == [False, True, False, False], r3
-        assert r3["dates"][0] == "2026-08-06 09:00" and r3["dates"][1] == "2026-08-06 09:05" and re.match(r"20\d\d-\d\d-\d\d \d\d:\d\d", r3["dates"][2]) and r3["dates"][3].endswith("08-06 10:30"), r3
+        # 실제 구조: 본문 memo(HTML) · 작성일 meta.time_detail · 답글 sub_cmt(2단계까지) · 차단·지운 댓글은 뺌
+        assert r3["how"] == "뽐뿌 댓글 목록" and r3["expected"] == 6, r3
+        assert r3["texts"] == ["첫 댓글 가격 비싸요 정말로", "답글 동의합니다", "답글의 답글 둘째 줄", "옵션 구성 아쉽네요", "둘째 쪽 댓글 기본 모델 괜찮음"], r3
+        assert r3["replies"] == [False, True, True, False, False], r3
+        assert r3["dates"][:4] == ["2026-08-06 09:00", "2026-08-06 09:05", "2026-08-06 09:26", "2026-08-06 09:20"] and r3["dates"][4].endswith("08-06 10:30"), r3
         assert page.evaluate("expectedCommentCount(new DOMParser().parseFromString('<body>댓글 2026.11.05 작성 · 댓글 [12]</body>', 'text/html'))") == 12  # 날짜 숫자는 안 셈
         assert res["980135"]["how"] == "AI 화면 판독" and res["980135"]["texts"] == ["이 가격이면 안 산다", "투싼이 낫겠네"], res
         extract = [c for c in claude_calls if "★ 댓글 화면 판독 규칙 ★" in c["system"]]

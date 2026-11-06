@@ -284,7 +284,8 @@ class CommunityCollector {
         expected = api.total || comments.length; // 화면 글자에서 센 수보다 정확
       } else if (api && api.total) expected = Math.max(expected, api.total);
     }
-    const enough = () => comments.length > 0 && comments.length >= Math.ceil(expected * 0.8);
+    // 뽐뿌 댓글 목록을 받았으면 그게 전부 (차단·지운 댓글은 빠지므로 전체 수보다 적을 수 있음) → 탭·AI 판독은 하지 않음
+    const enough = () => how === "뽐뿌 댓글 목록" || (comments.length > 0 && comments.length >= Math.ceil(expected * 0.8));
     let live = null;
     let aiNone = false;
     if (!enough()) {
@@ -414,21 +415,27 @@ async function readPpomppuCommentsApi(url, { isStopped = () => false } = {}) {
   const STR = (v) => (typeof v === "string" ? v : typeof v === "number" ? String(v) : "");
   const strip = (h) =>
     new DOMParser()
-      .parseFromString(`<div>${String(h).replace(/<br\s*\/?>/gi, "\n")}</div>`, "text/html")
-      .body.textContent.replace(/[ \t]+/g, " ")
+      .parseFromString(`<div>${String(h).replace(/<br\s*\/?>|<\/(p|div|li|h\d)>/gi, "\n")}</div>`, "text/html")
+      .body.textContent.replace(/[ \t\u00a0]+/g, " ")
+      .replace(/\s*\n\s*/g, "\n")
       .trim();
   const DATE = /^(20\d{2}[-./]\d{1,2}[-./]\d{1,2}\.?(\s+\d{1,2}:\d{2}(:\d{2})?)?|\d{2}[-./]\d{2}[-./]\d{2}(\s+\d{1,2}:\d{2}(:\d{2})?)?|\d{1,2}:\d{2}(:\d{2})?)$/;
   const TEXT_KEYS = ["memo", "comment", "content", "contents", "c_memo", "comment_content", "c_content", "body", "text", "msg"];
   const DATE_KEYS = ["regdate", "reg_date", "date", "wdate", "write_date", "created_at", "reg_time", "regtime", "datetime", "c_date"];
   const pad = (n) => String(n).padStart(2, "0");
   const toComment = (o) => {
+    // 실제 뽐뿌 칸 (담당자 확인 2026-11-06): memo(HTML 본문), meta.time_detail('2026-11-05 14:05:01'), depth(0 댓글·1 이상 답글), sub_cmt(답글 배열), block_status
+    if (o.block_status && (o.block_status.is_blocked || o.block_status.is_spam)) return { text: "", dateText: "", isReply: false };
+    const meta = o.meta && typeof o.meta === "object" ? o.meta : {};
+    const metaDate = STR(meta.time_detail).trim() || STR(meta.time_display).trim();
     let text = "";
     for (const k of TEXT_KEYS)
       if (STR(o[k]).trim()) {
         text = strip(o[k]);
         if (text) break;
       }
-    if (!text) {
+    // 본문 칸(memo)이 있는데 비었으면 지워진 댓글 → 다른 칸(이름·그림 HTML 등)을 본문으로 잘못 쓰지 않는다
+    if (!text && !TEXT_KEYS.some((k) => k in o)) {
       let best = "";
       for (const v of Object.values(o)) {
         const t = STR(v);
@@ -436,8 +443,9 @@ async function readPpomppuCommentsApi(url, { isStopped = () => false } = {}) {
       }
       text = strip(best);
     }
-    let dateText = "";
-    for (const k of DATE_KEYS)
+    let dateText = metaDate;
+    if (!dateText)
+      for (const k of DATE_KEYS)
       if (STR(o[k]).trim()) {
         dateText = STR(o[k]).trim();
         break;
