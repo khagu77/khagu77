@@ -19,6 +19,8 @@ const DEFAULT_CAFES = [
   "싼타페 | 싼타페MX5클럽 | choids",
   "싼타페 | 싼타페MX5패밀리 | trailer",
 ].join("\n");
+// 담당자가 확인한 카페 번호 (자동 확인보다 우선 - 잘못 저장된 번호를 바로잡는다)
+const KNOWN_CLUB_IDS = { blackboxclub: "17638944" };
 // 수집 키워드 (조합): 한 줄 = 검색어 하나 · 띄어 쓴 단어 = 모두 들어간 글 · A|B = A 또는 B · -단어 = 빼기
 const DEFAULT_KEYWORDS = [
   "코리아세일페스타|코세페|K세일페스타|세일페스타",
@@ -105,6 +107,7 @@ async function loadSettings() {
   $("#soundOn").checked = s.ksfSound ?? true;
   clubIds = { ...(s.ksfClubIds || {}) };
   for (const [id, slug] of Object.entries(await loadCafeSlugs())) if (!clubIds[slug.toLowerCase()]) clubIds[slug.toLowerCase()] = id;
+  Object.assign(clubIds, KNOWN_CLUB_IDS);
   // 예전(날짜만) 값은 그날 0시 · 끝 날짜는 23:59 로
   const dt = (v, t) => (/^\d{4}-\d{2}-\d{2}$/.test(v || "") ? `${v}T${t}` : v);
   $("#startDate").value = dt(s.ksfStart, "00:00") || DEFAULT_START;
@@ -813,6 +816,7 @@ async function search(resume = null) {
     }
     renderCafeInfoIds();
     let prevKeys = "";
+    let oldPages = 0;
     for (let page = 1; page <= maxPages && !stopRequested; page++) {
       const res = await scanSearchPage(searchUrl(cafeId, job.q, page));
       pagesDone++;
@@ -865,9 +869,15 @@ async function search(resume = null) {
         added++;
         found++;
       }
-      log(`· ${label}: ${page}페이지 ${pageItems.length}개 중 새 글 ${added}개`);
+      log(`· ${label}: ${page}페이지 ${pageItems.length}개 중 새 글 ${added}개` + (older ? ` (기간 전 글 ${older}개)` : ""));
       renderResults();
-      if (dated && older === dated) break; // 이 페이지가 모두 시작일 이전 → 다음 페이지는 더 이전
+      // 검색 결과가 정확도순이면 작년·재작년 코세페 글이 앞쪽을 채우고 올해 글이 뒤 페이지에 나온다
+      // → 한 페이지가 모두 기간 전 글이어도 멈추지 않고, 3페이지 연속일 때만 멈춘다
+      oldPages = dated && older === dated ? oldPages + 1 : 0;
+      if (oldPages >= 3) {
+        log(`· ${label}: 3페이지 연속 기간 전 글뿐이라 여기서 멈춥니다`);
+        break;
+      }
       if (page < maxPages) await sleep(randomBetween(CAFE_PAGE_DELAY));
     }
     await saveItems();
