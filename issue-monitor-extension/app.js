@@ -3234,9 +3234,10 @@ async function cleanStrayWorker() {
     // 그 기록들을 합쳐 기준으로 쓰고, 그 기록이 끝난 시각 이후만 새로 수집 (주말에 미리 모은 것·고친 것 그대로)
     const since = Math.max(lastReportAt || 0, Date.now() - 10 * 86400000);
     const prior = (await dbList())
-      // 휴일 자동 수집 기록은 지난 자동 수집이 끝난 시각과 같은 시각에 끝나도 이어서 쓴다 (담당자 지적 2026-11-07:
-      // 주말 자동 수집이 전날 휴일 수집에 이어 쓰지 않고 새로 수집함 → 토 수집에 일 수집을 붙이고, 월 보고서는 주말 합본에 이어서)
-      .filter((e) => e.finishedAt > since && (e.rows || []).length && !e.stopped && e.range && e.range.end <= end.getTime() && (e.range.end > start.getTime() || (e.range.end === start.getTime() && e.auto && state.settings.workdayReport && !!dayOffReason(new Date(e.range.end), state.settings))))
+      // 지난 보고 이후의 휴일 자동 수집 기록은 모두 이어서 쓴다 (담당자 지적 2026-11-07:
+      // 주말 자동 수집이 전날 휴일 수집에 이어 쓰지 않고 새로 수집함 → 토 수집에 일 수집을 붙이고, 월 보고서는 주말 기록 전부에 이어서.
+      // 토·일이 따로 수집돼 있어도(예전 버전) 월요일에 둘 다 합친다. 같은 글은 나중 기록 우선)
+      .filter((e) => e.finishedAt > since && (e.rows || []).length && !e.stopped && e.range && e.range.end <= end.getTime() && (e.range.end > start.getTime() || (e.auto && state.settings.workdayReport && !!dayOffReason(new Date(e.range.end), state.settings))))
       .sort((a, b) => a.finishedAt - b.finishedAt);
     if (prior.length) {
       const byKey = new Map();
