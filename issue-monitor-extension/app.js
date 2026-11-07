@@ -428,11 +428,34 @@ function initSourceTable(sources) {
   tbody.textContent = "";
   sourceRows.clear();
   for (const src of sources) {
-    const tr = el("tr", {}, el("td", { text: src.name }), el("td"), el("td"), el("td"), el("td"), el("td", { text: "대기" }));
+    const tr = el("tr", {}, el("td", { text: src.name }), el("td"), el("td"), el("td"), el("td"), el("td"));
+    setStatusBadge(tr.children[5], "대기");
     tbody.append(tr);
     sourceRows.set(src.key, tr);
   }
   $("#sources").hidden = false;
+}
+
+// 상태 칸: 둥근 색 뱃지 (담당자 요청 2026-11-07). 본문 확인 중·판정 중은 커졌다 작아지며 색이 흐르는 움직임으로 작동 중임을 표시
+// (칸의 글자(textContent)는 그대로라 진행 계산·이어하기 판단은 바뀌지 않음)
+function setStatusBadge(td, status, error = false) {
+  const t = String(status || "");
+  const kind = error || /^실패/.test(t)
+    ? "fail"
+    : /^본문 확인/.test(t)
+      ? "reading"
+      : /^판정/.test(t)
+        ? "judging"
+        : /^(글 목록|후보)/.test(t)
+          ? "listing"
+          : /^완료/.test(t)
+            ? "done"
+            : /^(건너뜀|중지)/.test(t)
+              ? "skip"
+              : "wait";
+  td.className = "st-cell";
+  td.textContent = "";
+  td.append(el("span", { class: `st-badge st-${kind}`, text: t, title: t }));
 }
 
 function updateSource(key, { listed, candidates, read, issues, status, error } = {}) {
@@ -446,8 +469,7 @@ function updateSource(key, { listed, candidates, read, issues, status, error } =
   if (issues !== undefined) td[4].textContent = issues;
   if (status !== undefined) {
     status = korMsg(status);
-    td[5].textContent = status;
-    td[5].className = error ? "err" : "";
+    setStatusBadge(td[5], status, error);
   }
   showProgress(tr);
 }
