@@ -332,6 +332,9 @@ LX3_SEARCH = {
     ],
     ("111", 2): [("1006", "전동 시트 사망 사고 기사", "2026.10.11. 12:30"), ("1007", "옛날 시트 글", "2026.10.10.")],
     ("111", 3): [("1008", "더 옛날 시트 글", "2026.10.09.")],
+    # 카페 검색은 날짜순이 아닐 수 있어, 기간 전 글뿐인 쪽이 3번 연달아(3·4·5쪽) 나와야 멈춤
+    ("111", 4): [("1011", "작년 시트 글", "2025.10.09.")],
+    ("111", 5): [("1012", "재작년 시트 글", "2024.10.09.")],
     ("222", 1): [("20001", "아이오닉9 전동시트 리콜 공지", "2026.10.11.")],
 }
 # 게시글 화면의 정확한 작성 시간
@@ -625,7 +628,8 @@ def test_lx3(tmp_path: Path):
         ctx.close()
     server.shutdown()
     assert naver_api == []
-    assert not any("page=4" in r for r in server.requests), server.requests  # 모두 기간 이전인 3페이지에서 멈춤
+    assert any("/cafes/111/" in r and "page=5" in r for r in server.requests), server.requests  # 기간 전 글뿐인 쪽이 한 번 나와도 계속
+    assert not any("/cafes/111/" in r and "page=6" in r for r in server.requests), server.requests  # 3·4·5쪽 연달아 기간 전 → 멈춤
     assert any(r.startswith("/f-e/cafes/111/articles/1010") for r in server.requests)  # 체크 해제된 글도 시간 확인
 
     # 엑셀 '복구' 경고가 나지 않게: 틀 고정(3행) 아래에서 화면이 시작해야 한다

@@ -393,6 +393,24 @@ function saveRuns() {
   return chrome.storage.local.set({ lx3Runs: runs }).catch(() => {});
 }
 
+// 결과 표에서 지운 글: 다음 찾기 때 다시 넣지 않음 (키 → 지운 시각, 60일 지나면 잊음). '내용 비우기' 때만 기록을 지움
+let deletedKeys = {};
+async function loadDeleted() {
+  const { lx3Deleted = {} } = await chrome.storage.local.get("lx3Deleted").catch(() => ({}));
+  const limit = Date.now() - 60 * 86400000;
+  deletedKeys = Object.fromEntries(Object.entries(lx3Deleted).filter(([, at]) => at > limit));
+}
+async function rememberDeleted(list) {
+  await loadDeleted(); // 저장된 기록에 더함 (덮어쓰지 않게)
+  const now = Date.now();
+  for (const x of list) if (x.key && x.note !== "직접 넣은 영상") deletedKeys[x.key] = now;
+  await chrome.storage.local.set({ lx3Deleted: deletedKeys }).catch(() => {});
+}
+async function forgetDeleted() {
+  deletedKeys = {};
+  await chrome.storage.local.set({ lx3Deleted: {} }).catch(() => {});
+}
+
 // 직접 넣은 유튜브 영상 중 아직 엑셀에 넣지 않은 것 — 결과 표를 다시 채우거나 날짜가 바뀌어 비울 때도 남긴다
 // ('내용 비우기'를 직접 누를 때만 지움)
 const manualYt = (list) => list.filter((x) => x.note === "직접 넣은 영상" && !x.saved);
@@ -646,7 +664,14 @@ async function search(resume = null) {
   if (resume?.retry) log(`· 못 읽은 곳을 다시 찾습니다 (${whereText({ ids, queries, boards })} · 이미 찾은 글 ${items.length}개는 그대로)`);
   else if (resume) log(`· 중단된 곳부터 이어서 찾습니다 (이미 찾은 글 ${items.length}개)`);
   $("#retryCafes").hidden = true;
+  await loadDeleted();
+  let skippedDeleted = 0;
   const addItem = (item) => {
+    // 결과 표에서 지운 글은 다시 넣지 않음
+    if (item.key && deletedKeys[item.key]) {
+      skippedDeleted++;
+      return;
+    }
     item.related = isRelated(item);
     item.checked = item.related;
     items.push(item);
@@ -806,6 +831,7 @@ async function search(resume = null) {
     const ci = pos.cafe;
     const cafeId = ids[ci];
     let prevKeys = "";
+    let olderPages = 0; // 기간 전 글뿐인 쪽이 연달아 나온 수 (카페 검색은 날짜순이 아닐 수 있어 3번 연달아일 때만 멈춤)
     for (let page = 1; page <= maxPages && !stopRequested; page++) {
       setSummary(`찾는 중… 동호회 ${ci + 1}/${ids.length} (${cafeNames[cafeId] || cafeId}) · ${page}페이지`);
       showBusy(`게시물 찾는 중 · 동호회 ${ci + 1}/${ids.length} (${cafeNames[cafeId] || cafeId}) — 끝날 때까지 이 탭을 닫지 마세요`, doneSteps(), total, "게시물 찾는 중");
@@ -828,18 +854,25 @@ async function search(resume = null) {
       const keys = pageItems.map((x) => x.articleId).join(",");
       if (!pageItems.length || keys === prevKeys) {
         if (!pageItems.length && res.snapshot) diagnostics.push({ cafeId, page, url: searchUrl(cafeId, q, page), frames: res.snapshot });
-        if (!pageItems.length && !res.noResult) failed.ids.push(cafeId); // 화면을 못 읽음 → 다시 찾기 대상
-        log(`· ${cafeNames[cafeId] || cafeId}: ${page}페이지 ${pageItems.length ? "(앞 페이지와 같음)" : res.noResult ? "검색 결과 없음" : `글 목록을 읽지 못함${snapshotSummary(res.snapshot)}`}`);
+        // 화면을 못 읽음 → 다시 찾기 대상 (2쪽부터 빈 쪽은 검색 결과가 끝난 것으로 봄 — 기간 전 글 쪽을 넘겨 보다 끝에 닿은 경우)
+        if (!pageItems.length && !res.noResult && page === 1) failed.ids.push(cafeId);
+        log(`· ${cafeNames[cafeId] || cafeId}: ${page}페이지 ${pageItems.length ? "(앞 페이지와 같음)" : res.noResult || page > 1 ? "검색 결과 없음 (끝)" : `글 목록을 읽지 못함${snapshotSummary(res.snapshot)}`}`);
         break;
       }
       prevKeys = keys;
       let older = 0;
       let dated = 0;
       let added = 0;
+      let notices = 0;
       for (const x of pageItems) {
         const parsed = parseCafeDate(x.dateText);
+        // 날짜를 못 읽은 글은 검색 화면 위 카페 공지(이용 안내·회칙 등) → 건너뜀 (글을 열어 시간 확인하지 않게)
+        if (!parsed) {
+          notices++;
+          continue;
+        }
         const place = placeInRange(parsed, win);
-        if (parsed) dated++;
+        dated++;
         if (place === "older") older++;
         if (place === "older" || place === "newer") continue;
         const key = `${cafeId}/${x.articleId}`;
@@ -852,14 +885,22 @@ async function search(resume = null) {
         });
         added++;
       }
-      log(`· ${cafeNames[cafeId] || cafeId}: ${page}페이지 ${pageItems.length}개 중 기간 안 ${added}개`);
+      log(
+        `· ${cafeNames[cafeId] || cafeId}: ${page}페이지 ${pageItems.length}개 중 기간 안 ${added}개` +
+          (older ? ` (기간 전 글 ${older}개)` : "") +
+          (notices ? ` (날짜 없는 공지 ${notices}개 건너뜀)` : ""),
+      );
       renderResults();
-      if (dated && older === dated) break; // 이 페이지가 모두 기간 이전 → 다음 페이지는 더 이전
+      // 검색 결과가 날짜순이 아닐 수 있음(정확도순) → 기간 전 글뿐인 쪽이 3번 연달아 나올 때만 멈춤
+      olderPages = dated && older === dated ? olderPages + 1 : 0;
+      if (olderPages >= 3) break;
       if (page < maxPages) await sleep(randomBetween(CAFE_PAGE_DELAY));
     }
     if (!stopRequested) await checkpoint();
     if (ci + 1 < ids.length && !stopRequested) await sleep(randomBetween(CAFE_ARTICLE_DELAY));
   }
+
+  if (skippedDeleted) log(`· 결과 표에서 지웠던 글 ${skippedDeleted}개는 다시 넣지 않았습니다 ('내용 비우기'를 누르면 기록이 지워져 다시 보입니다)`);
 
   // 목록에 날짜만 보이는 글(예: 어제 글)·'3시간 전'처럼 대략인 네이버 뉴스 기사는 글을 열어 작성 시간을 확인하고, 기간 밖이면 뺀다 (관련 글 먼저)
   const toCheck = items
@@ -1034,13 +1075,19 @@ function renderResults() {
     if (item.dup) notes.push("이미 파일에 있음");
     if (item.ambiguous) notes.push(item.note || "시간 미확인");
     else if (item.note) notes.push(item.note);
-    if (!item.related) notes.push("관련 단어 없음");
+    if (!item.related) {
+      // 카페 검색은 본문·댓글까지 뒤짐 → 제목·미리보기에 포함 키워드가 없고 제외 단어도 없으면 '본문·댓글에서 검색됨'
+      const t = compactText(`${item.title} ${item.text}`);
+      const exc = words($("#exclude").value).some((w) => t.includes(w));
+      notes.push(isCafeItem(item) && !exc ? "본문·댓글에서 검색됨 (제목·미리보기엔 키워드 없음 — 열어서 확인)" : "관련 단어 없음");
+    }
     if (isCafeItem(item) && !(cafeSlugs[item.cafeId] || item.slug)) notes.push("영문 카페 주소 모름(설정에서 입력)");
     if (item.channel === "언론" && !item.naverUrl) notes.push("언론사 사이트 기사(네이버 댓글 없음)");
     tr.children[5].textContent = notes.join(" · ");
-    tr.querySelector("button.del").addEventListener("click", () => {
+    tr.querySelector("button.del").addEventListener("click", async () => {
       items = items.filter((x) => x !== item);
       renderResults();
+      await rememberDeleted([item]);
       saveLast();
     });
     tbody.appendChild(tr);
@@ -1322,6 +1369,12 @@ async function addNewYoutube() {
     }
     const url = `https://www.youtube.com/watch?v=${id}`;
     if (items.some((x) => x.key === `yt:${id}`)) continue;
+    // 지웠던 영상을 직접 다시 넣으면 지운 기록에서 뺌
+    await loadDeleted();
+    if (deletedKeys[`yt:${id}`]) {
+      delete deletedKeys[`yt:${id}`];
+      await chrome.storage.local.set({ lx3Deleted: deletedKeys }).catch(() => {});
+    }
     info.className = "hint";
     info.textContent = `영상 정보 읽는 중… (${url})`;
     try {
@@ -1478,6 +1531,7 @@ async function clearResults() {
   if (!confirm(`결과 표의 글 ${items.length}개를 비울까요? (수집 기록과 최종 DB 파일은 그대로 남습니다)`)) return;
   items = [];
   tableCleared = true;
+  await forgetDeleted(); // '내용 비우기': 지운 글 기록도 지움 (다음 찾기에서 다시 보임)
   renderResults();
   await chrome.storage.local.set({ lx3Last: { at: Date.now(), from: $("#from").value, to: $("#to").value, items: [] } }).catch(() => {});
   setSummary("결과 표를 비웠습니다. 새로 찾으려면 '게시물 찾기'를 누르세요.");
@@ -1568,6 +1622,7 @@ async function init() {
   $("#invertDelete").addEventListener("click", async () => {
     const n = items.filter((x) => !x.checked).length;
     if (!n || !confirm(`체크하지 않은 글 ${n}개를 목록에서 삭제할까요? (체크한 글 ${items.length - n}개만 남습니다)`)) return;
+    await rememberDeleted(items.filter((x) => !x.checked));
     items = items.filter((x) => x.checked);
     renderResults();
     await saveLast();
@@ -1576,6 +1631,7 @@ async function init() {
   $("#selDelete").addEventListener("click", async () => {
     const n = items.filter((x) => x.checked).length;
     if (!n || !confirm(`체크한 게시물 ${n}개를 목록에서 삭제할까요?`)) return;
+    await rememberDeleted(items.filter((x) => x.checked));
     items = items.filter((x) => !x.checked);
     renderResults();
     await saveLast();
