@@ -76,6 +76,12 @@ const JUDGE_VERSION = 1; // 판단 기준 버전 (바뀌면 다시 판단)
 //              commentList: [{ id, isReply, parentText, nickname, content, dateText, date, a }], commentsRead,
 //              summary, ksf(AI: 코세페 글인지), a: { ops: [{ car, tone, theme }], by, v } }
 let items = [];
+// 담당자가 지운 글(동호회/글번호) - 다시 찾기 때 또 넣지 않는다
+let deletedKeys = new Set();
+function forgetItems(list) {
+  for (const x of list) deletedKeys.add(x.key);
+  return chrome.storage.local.set({ ksfDeleted: [...deletedKeys] }).catch(() => {});
+}
 let clubIds = {}; // 영문 주소 → 카페 번호
 let running = false;
 let stopRequested = false;
@@ -869,6 +875,7 @@ async function search(resume = null) {
         }
         if (day && (parsed.hasTime ? parsed.date >= p.end : day >= p.end)) continue;
         const key = `${job.slug}/${x.articleId}`.toLowerCase();
+        if (deletedKeys.has(key)) continue;
         const have = items.find((it) => it.key === key);
         if (have) {
           if (!have.queries.includes(job.q)) have.queries.push(job.q);
@@ -1833,6 +1840,7 @@ function buildRow(item) {
   });
   tr.querySelector(".del").addEventListener("click", () => {
     items = items.filter((x) => x !== item);
+    forgetItems([item]);
     tr.remove();
     rowEls.delete(item.key);
     updateCounts();
@@ -2506,8 +2514,9 @@ async function init() {
   $("#ver").textContent = `v${chrome.runtime.getManifest().version}`;
   await loadSettings();
   setupPanel("panelAi", !$("#aiKey").value.trim());
-  const saved = await chrome.storage.local.get(["ksfItems", "ksfTops", "ksfAiSpend"]).catch(() => ({}));
+  const saved = await chrome.storage.local.get(["ksfItems", "ksfTops", "ksfAiSpend", "ksfDeleted"]).catch(() => ({}));
   items = saved.ksfItems || [];
+  deletedKeys = new Set(saved.ksfDeleted || []);
   for (const x of items) ksfQueryHit(x);
   tops = saved.ksfTops || null;
   aiSpend = saved.ksfAiSpend || aiSpend;
@@ -2575,13 +2584,16 @@ async function init() {
   $("#selDelete").addEventListener("click", async () => {
     const n = items.filter((x) => x.checked).length;
     if (!n || !(await askConfirm(`체크한 게시물 ${n}개를 목록에서 삭제할까요?`))) return;
+    await forgetItems(items.filter((x) => x.checked));
     items = items.filter((x) => !x.checked);
     renderResults();
     await saveItems();
   });
   $("#clearAll").addEventListener("click", async () => {
-    if (!items.length || !(await askConfirm(`찾은 글 ${items.length}개(읽은 본문·댓글·판단 포함)를 모두 지울까요?`))) return;
+    if (!items.length || !(await askConfirm(`찾은 글 ${items.length}개(읽은 본문·댓글·판단 포함)를 모두 지울까요?\n(삭제했던 글 기록도 지워져 다음 수집 때 다시 찾습니다)`))) return;
     items = [];
+    deletedKeys = new Set();
+    await chrome.storage.local.remove("ksfDeleted").catch(() => {});
     tops = null;
     await chrome.storage.local.remove("ksfTops").catch(() => {});
     await clearResume("ksf");
