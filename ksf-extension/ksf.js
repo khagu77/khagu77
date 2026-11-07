@@ -372,6 +372,17 @@ function judge(text) {
   return { related: ksf && !exc, candidate: (ksf || sale) && !exc, ksf, sale, exc };
 }
 
+// 코세페 검색어(코세페·코리아 세일 페스타…)로 찾은 글은 제목·미리보기에 단어가 없어도 본문·댓글에 있다
+// (네이버가 본문·댓글까지 검색) → 본문을 읽어 확인할 글로 둔다
+function ksfQueryHit(item) {
+  if (item.candidate || item.touched || item.bodyRead) return false;
+  if (!(item.queries || []).some((q) => judge(q).ksf)) return false;
+  if (judge(`${item.title} ${item.text}`).exc) return false;
+  item.candidate = true;
+  item.note = "코세페 검색어로 찾음 - 본문에서 확인";
+  return true;
+}
+
 function judgeNote(j) {
   if (j.related) return "";
   if (j.exc) return "관련 없는 단어 있음";
@@ -852,6 +863,7 @@ async function search(resume = null) {
         const have = items.find((it) => it.key === key);
         if (have) {
           if (!have.queries.includes(job.q)) have.queries.push(job.q);
+          ksfQueryHit(have);
           continue;
         }
         const item = {
@@ -865,6 +877,7 @@ async function search(resume = null) {
         item.candidate = j.candidate;
         item.note = judgeNote(j) + (!j.related && j.candidate ? " - 본문에서 확인" : "");
         item.checked = j.related;
+        ksfQueryHit(item);
         items.push(item);
         added++;
         found++;
@@ -2486,6 +2499,7 @@ async function init() {
   setupPanel("panelAi", !$("#aiKey").value.trim());
   const saved = await chrome.storage.local.get(["ksfItems", "ksfTops", "ksfAiSpend"]).catch(() => ({}));
   items = saved.ksfItems || [];
+  for (const x of items) ksfQueryHit(x);
   tops = saved.ksfTops || null;
   aiSpend = saved.ksfAiSpend || aiSpend;
   renderResults();
