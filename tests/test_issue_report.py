@@ -651,11 +651,16 @@ def start_fake_naver(tmp_path: Path):
                 body = cafe_full_article()
             elif self.path.startswith("/f-e/cafes/123/menus/0"):
                 page = parse_qs(urlparse(self.path).query).get("page", ["1"])[0]
-                body = (
-                    '<html><head><title>아반떼 클럽 : 네이버 카페</title></head><body><table>'
-                    '<tr><td><a class="article" href="https://cafe.naver.com/avantemd/555">아반떼 가격 너무 비싸요</a></td><td class="td_date">2026.08.06. 09:00</td></tr>'
-                    "</table></body></html>"
-                ) if page == "1" else "<html><body>검색 결과가 없습니다</body></html>"
+                # 검색 결과가 날짜순이 아님(정확도순): 1쪽은 작년 글뿐, 2쪽에 기간 안 글 + 날짜 없는 카페 공지, 3쪽부터 다시 작년 글
+                old_row = lambda n: f'<tr><td><a class="article" href="https://cafe.naver.com/avantemd/{n}">아반떼 가격 옛날 이야기 {n}</a></td><td class="td_date">2025.03.0{n % 9 + 1}. 10:00</td></tr>'
+                head = '<html><head><title>아반떼 클럽 : 네이버 카페</title></head><body><table>'
+                rows = {
+                    "1": old_row(101) + old_row(102),
+                    "2": old_row(103)
+                    + '<tr><td><a class="article" href="https://cafe.naver.com/avantemd/9">[공지] 카페 이용 안내 아반떼 가격 글쓰기 규칙</a></td><td></td></tr>'
+                    + '<tr><td><a class="article" href="https://cafe.naver.com/avantemd/555">아반떼 가격 너무 비싸요</a></td><td class="td_date">2026.08.06. 09:00</td></tr>',
+                }.get(page, old_row(100 + int(page) * 2) + old_row(101 + int(page) * 2))
+                body = head + rows + "</table></body></html>"
             elif self.path.startswith("/f-e/cafes/123/articles/555") or self.path.startswith("/avantemd/555"):
                 # 바로 열면 제목만 보이고 본문·댓글은 안 보임 (등급 제한)
                 body = '<html><body><h3 class="title_text">아반떼 가격 너무 비싸요</h3><p>등급이 되어야 읽을 수 있습니다</p></body></html>'
@@ -740,6 +745,7 @@ def test_cafe_via_search(tmp_path: Path):
         page.click("#goCollect")
         page.click("#collectPosts")
         page.locator("#postsSummary", has_text="관련 게시글 1건").wait_for(timeout=180000)
+        posts_log = page.text_content("#postsLog")
         page.click("#goComments")
         page.click("#collectComments")
         page.locator("#commentsSummary", has_text="댓글을 모은 글 1/1").wait_for(timeout=180000)
@@ -749,6 +755,10 @@ def test_cafe_via_search(tmp_path: Path):
     server.shutdown()
     assert errors == [], errors
     assert "네이버 검색을 거쳐 읽음" in log, log
+    # 1쪽이 모두 기간 전 글이어도 멈추지 않고 2쪽의 기간 안 글을 찾고, 기간 전 글뿐인 쪽이 3번 연달아 나오면 멈춤 (최대 5쪽)
+    pages = sorted({int(parse_qs(urlparse("https://x" + r[r.index("/"):]).query)["page"][0]) for r in server.requests if "/menus/0" in r})
+    assert pages == [1, 2, 3, 4, 5], pages
+    assert "(기간 전 글 2개)" in posts_log, posts_log
     assert any(r.startswith("search.naver.com") for r in server.requests), server.requests
     assert any("art=SEARCHKEY" in r for r in server.requests)
 

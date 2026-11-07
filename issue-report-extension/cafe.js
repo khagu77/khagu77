@@ -427,6 +427,7 @@ class CafeCollector {
     const found = new Map();
     for (const q of queries) {
       let prevKeys = "";
+      let olderRun = 0; // 기간 전 글뿐인 페이지가 연달아 몇 번 나왔나
       for (let page = 1; page <= maxPages; page++) {
         if (this.isStopped()) throw new StopError("중지됨");
         onProgress?.(`"${q}" ${page}페이지`);
@@ -443,13 +444,15 @@ class CafeCollector {
         if (!items.length || keys === prevKeys) break;
         prevKeys = keys;
         let older = 0;
-        let dated = 0;
-        for (const x of items) {
-          const parsed = parseKoreanDate(x.dateText);
+        const parsedAll = items.map((x) => parseKoreanDate(x.dateText));
+        const dated = parsedAll.filter(Boolean).length;
+        for (const [ix, x] of items.entries()) {
+          const parsed = parsedAll[ix];
           const place = placeInRange(parsed, range);
-          if (parsed) dated++;
           if (place === "older") older++;
           if (place === "older" || place === "newer") continue;
+          // 날짜가 안 보이는 글은 검색 화면 위 카페 공지(이용 안내·회칙 등) → 같은 화면에 날짜 있는 글이 있으면 후보에서 뺀다
+          if (!parsed && dated) continue;
           const key = `cafe:${cafe.slug}/${x.articleId}`;
           if (found.has(key)) continue;
           found.set(key, {
@@ -467,8 +470,11 @@ class CafeCollector {
             ccount: x.ccount,
           });
         }
-        this.log(`  · ${cafe.fullName || cafe.name} "${q}" ${page}페이지: 글 ${items.length}개 · 지금까지 기간 안 ${found.size}개`);
-        if (dated && older === dated) break; // 이 페이지가 모두 기간 이전
+        this.log(`  · ${cafe.fullName || cafe.name} "${q}" ${page}페이지: 글 ${items.length}개${older ? ` (기간 전 글 ${older}개)` : ""} · 지금까지 기간 안 ${found.size}개`);
+        // 카페 검색 결과는 날짜순이 아닐 때가 있어(정확도순) 한 페이지가 모두 기간 전 글이어도 뒤에 기간 안 글이 있을 수 있다
+        // → 기간 전 글뿐인 페이지가 3번 연달아 나올 때만 멈춤 (최대 페이지 수는 그대로)
+        olderRun = dated && older === dated ? olderRun + 1 : 0;
+        if (olderRun >= 3) break;
         if (page < maxPages) await this.wait(this.delays.page);
       }
       await this.wait(this.delays.page);
