@@ -44,7 +44,7 @@ def test_syntax(name):
 def test_default_cafes():
     """대상 동호회 10곳 (오전 온라인 동향 프로그램과 같은 카페 주소)."""
     src = (EXT_DIR / "ksf.js").read_text()
-    for slug in ["01088157554", "blackboxclub", "suddenattackskincafe", "allfm03", "bestcm", "bestani", "mp3vilge", "iroid", "choids", "trailer"]:
+    for slug in ["01088157554", "blackboxclub", "avantemd", "suddenattackskincafe", "allfm03", "bestcm", "bestani", "mp3vilge", "iroid", "choids", "trailer"]:
         assert f"| {slug}\"" in src, slug
 
 

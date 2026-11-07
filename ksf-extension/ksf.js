@@ -10,6 +10,7 @@
 const DEFAULT_CAFES = [
   "아반떼 | 아반떼 CN8 클럽 | 01088157554",
   "아반떼 | 아반떼 매니아 | blackboxclub",
+  "아반떼 | 아반떼 MD 클럽 | avantemd",
   "그랜저 | 그랜저 리더스 | suddenattackskincafe",
   "그랜저 | 그랜저 오너스 | allfm03",
   "그랜저 | 그랜저 멤버스 | bestcm",
@@ -109,6 +110,22 @@ async function loadSettings() {
     .catch(() => ({}));
   const set = s.ksfSettings || {};
   for (const id of SETTING_IDS) $(`#${id}`).value = set[id] ?? SETTING_DEFAULTS[id];
+  // 나중에 기본에 더한 동호회: 저장된 동호회 목록에 한 번만 넣어 준다 (담당자가 지우면 다시 넣지 않음)
+  const added = (await chrome.storage.local.get("ksfCafesAdded").catch(() => ({}))).ksfCafesAdded || [];
+  for (const line of ["아반떼 | 아반떼 MD 클럽 | avantemd"]) {
+    const slug = line.split("|").pop().trim();
+    if (added.includes(slug)) continue;
+    added.push(slug);
+    const box = $("#cafeList");
+    if (new RegExp(`\\b${slug}\\b`, "i").test(box.value)) continue;
+    const lines = box.value.split("\n");
+    const car = line.split("|")[0].trim();
+    let at = -1;
+    lines.forEach((l, i) => { if (l.split("|")[0].trim() === car) at = i; });
+    lines.splice(at >= 0 ? at + 1 : lines.length, 0, line);
+    box.value = lines.join("\n");
+  }
+  await chrome.storage.local.set({ ksfCafesAdded: added }).catch(() => {});
   $("#saveAsk").checked = !!s.saveAsk;
   $("#tabFallback").checked = s.ksfTabFallback ?? true;
   // 1.0 의 'TOP5 슬라이드만 남기기'(기본 체크) 저장값은 쓰지 않는다 → 기본은 1~3페이지 모두
@@ -819,6 +836,8 @@ async function search(resume = null) {
   let pagesDone = 0;
   let found = 0;
   let skippedOld = 0;
+  // 지난 수집 때 이미 모은 동호회 (새로 넣은 동호회 글은 '예전에 지운 글' 어림에서 뺀다)
+  const seenCafes = new Set(items.map((it) => it.slug.toLowerCase()));
   let loginNeeded = false;
   const failed = [];
   const noClubId = new Set();
@@ -881,7 +900,7 @@ async function search(resume = null) {
         const key = `${job.slug}/${x.articleId}`.toLowerCase();
         if (deletedKeys.has(key)) continue;
         const have = items.find((it) => it.key === key);
-        if (!have && skipBefore && parsed && parsed.date.getTime() < skipBefore) {
+        if (!have && skipBefore && parsed && parsed.date.getTime() < skipBefore && seenCafes.has(job.slug.toLowerCase())) {
           deletedKeys.add(key);
           skippedOld++;
           continue;
