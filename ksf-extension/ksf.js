@@ -374,12 +374,21 @@ function judge(text) {
 
 // 코세페 검색어(코세페·코리아 세일 페스타…)로 찾은 글은 제목·미리보기에 단어가 없어도 본문·댓글에 있다
 // (네이버가 본문·댓글까지 검색) → 본문을 읽어 확인할 글로 둔다
+const KSF_QUERY_NOTE = "코세페 검색어로 찾음 - 본문에서 확인";
 function ksfQueryHit(item) {
+  // 날짜 없는 글 = 검색 화면 위에 늘 붙는 카페 공지(이용 안내·회칙·가격표 등) → 넣지 않는다
+  if (!item.date) {
+    if (item.note === KSF_QUERY_NOTE && !item.touched && !item.bodyRead) {
+      item.candidate = false;
+      item.note = "날짜 모름 (카페 공지로 보임)";
+    }
+    return false;
+  }
   if (item.candidate || item.touched || item.bodyRead) return false;
   if (!(item.queries || []).some((q) => judge(q).ksf)) return false;
   if (judge(`${item.title} ${item.text}`).exc) return false;
   item.candidate = true;
-  item.note = "코세페 검색어로 찾음 - 본문에서 확인";
+  item.note = KSF_QUERY_NOTE;
   return true;
 }
 
