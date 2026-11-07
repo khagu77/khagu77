@@ -2528,6 +2528,7 @@ async function init() {
           x.candidate = j.candidate;
           x.note = judgeNote(j);
           if (!x.touched && x.a?.by !== "ai") x.checked = j.related;
+          ksfQueryHit(x);
         }
         renderResults();
         saveItemsSoon();
