@@ -10,7 +10,7 @@
 const DEFAULT_CAFES = [
   "아반떼 | 아반떼 CN8 클럽 | 01088157554",
   "아반떼 | 아반떼 매니아 | blackboxclub",
-  "아반떼 | 아반떼 MD 클럽 | avantemd",
+  "아반떼 | 아반떼 클럽 | avantemd",
   "그랜저 | 그랜저 리더스 | suddenattackskincafe",
   "그랜저 | 그랜저 오너스 | allfm03",
   "그랜저 | 그랜저 멤버스 | bestcm",
@@ -112,7 +112,7 @@ async function loadSettings() {
   for (const id of SETTING_IDS) $(`#${id}`).value = set[id] ?? SETTING_DEFAULTS[id];
   // 나중에 기본에 더한 동호회: 저장된 동호회 목록에 한 번만 넣어 준다 (담당자가 지우면 다시 넣지 않음)
   const added = (await chrome.storage.local.get("ksfCafesAdded").catch(() => ({}))).ksfCafesAdded || [];
-  for (const line of ["아반떼 | 아반떼 MD 클럽 | avantemd"]) {
+  for (const line of ["아반떼 | 아반떼 클럽 | avantemd"]) {
     const slug = line.split("|").pop().trim();
     if (added.includes(slug)) continue;
     added.push(slug);
@@ -126,6 +126,8 @@ async function loadSettings() {
     box.value = lines.join("\n");
   }
   await chrome.storage.local.set({ ksfCafesAdded: added }).catch(() => {});
+  // 1.5.14 에서 임시로 붙인 이름 → 실제 카페 이름
+  $("#cafeList").value = $("#cafeList").value.replace(/\|\s*아반떼 MD 클럽\s*\|\s*avantemd/i, "| 아반떼 클럽 | avantemd");
   $("#saveAsk").checked = !!s.saveAsk;
   $("#tabFallback").checked = s.ksfTabFallback ?? true;
   // 1.0 의 'TOP5 슬라이드만 남기기'(기본 체크) 저장값은 쓰지 않는다 → 기본은 1~3페이지 모두
