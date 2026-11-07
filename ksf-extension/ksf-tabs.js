@@ -135,7 +135,8 @@ function renderPostStat() {
   const pct = (k) => (rs.length ? ` (${fmtPct(n[k] / rs.length)})` : "");
   const box = $("#postStat");
   box.replaceChildren();
-  box.append(Object.assign(document.createElement("div"), { innerHTML: `<b>체크한 게시글 ${checked.length.toLocaleString()}건 / 후보 ${items.length.toLocaleString()}건</b> (${byCar})` }));
+  box.append(Object.assign(document.createElement("div"), { innerHTML: `<b>체크한 게시글 ${checked.length.toLocaleString()}건 / 수집 ${items.length.toLocaleString()}건</b> (${byCar})` +
+    ` · 본문 읽을 글 ${items.filter((x) => x.checked || (!x.touched && x.candidate)).length.toLocaleString()}건 (체크 + 할인 단어만 있어 본문 확인할 글)` }));
   const line = document.createElement("div");
   line.append(`게시글 자체 성향 (차종별 반응 ${rs.length.toLocaleString()}건): `);
   for (const t of TONES) line.append(Object.assign(document.createElement("b"), { className: `t-${t}`, textContent: `${t} ${n[t]}건${pct(t)}` }), " · ");
