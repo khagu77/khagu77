@@ -78,6 +78,9 @@ const JUDGE_VERSION = 1; // 판단 기준 버전 (바뀌면 다시 판단)
 let items = [];
 // 담당자가 지운 글(동호회/글번호) - 다시 찾기 때 또 넣지 않는다
 let deletedKeys = new Set();
+// 1.5.12 전에 지운 글은 기록이 없다 → 업데이트 뒤 첫 수집 한 번만, 지난 수집 날짜보다 이전에 쓰인 '새' 글은
+// 이미 보고 지운 글로 보고 다시 넣지 않는다 (0 = 끝남)
+let skipBefore = 0;
 function forgetItems(list) {
   for (const x of list) deletedKeys.add(x.key);
   return chrome.storage.local.set({ ksfDeleted: [...deletedKeys] }).catch(() => {});
@@ -815,6 +818,7 @@ async function search(resume = null) {
   const t0 = Date.now();
   let pagesDone = 0;
   let found = 0;
+  let skippedOld = 0;
   let loginNeeded = false;
   const failed = [];
   const noClubId = new Set();
@@ -877,6 +881,11 @@ async function search(resume = null) {
         const key = `${job.slug}/${x.articleId}`.toLowerCase();
         if (deletedKeys.has(key)) continue;
         const have = items.find((it) => it.key === key);
+        if (!have && skipBefore && parsed && parsed.date.getTime() < skipBefore) {
+          deletedKeys.add(key);
+          skippedOld++;
+          continue;
+        }
         if (have) {
           if (!have.queries.includes(job.q)) have.queries.push(job.q);
           ksfQueryHit(have);
@@ -914,6 +923,12 @@ async function search(resume = null) {
     if (ji + 1 < list.length && !stopRequested) await sleep(randomBetween(CAFE_ARTICLE_DELAY));
   }
 
+  if (skippedOld) log(`· 예전에 삭제한 글로 보여 다시 넣지 않은 글 ${skippedOld}개`);
+  await chrome.storage.local.set({ ksfDeleted: [...deletedKeys] }).catch(() => {});
+  if (!stopRequested && skipBefore) {
+    skipBefore = 0;
+    await chrome.storage.local.set({ ksfSkipBefore: 0 }).catch(() => {});
+  }
   if (!stopRequested) await clearResume("ksf");
   $("#diag").hidden = !diagnostics.length;
   renderResults();
@@ -2517,6 +2532,15 @@ async function init() {
   const saved = await chrome.storage.local.get(["ksfItems", "ksfTops", "ksfAiSpend", "ksfDeleted"]).catch(() => ({}));
   items = saved.ksfItems || [];
   deletedKeys = new Set(saved.ksfDeleted || []);
+  const sb = (await chrome.storage.local.get("ksfSkipBefore").catch(() => ({}))).ksfSkipBefore;
+  if (sb === undefined) {
+    const last = Math.max(0, ...items.map((x) => x.date || 0));
+    if (last) {
+      const d = new Date(last);
+      skipBefore = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    }
+    await chrome.storage.local.set({ ksfSkipBefore: skipBefore }).catch(() => {});
+  } else skipBefore = sb || 0;
   for (const x of items) ksfQueryHit(x);
   tops = saved.ksfTops || null;
   aiSpend = saved.ksfAiSpend || aiSpend;
@@ -2593,7 +2617,9 @@ async function init() {
     if (!items.length || !(await askConfirm(`찾은 글 ${items.length}개(읽은 본문·댓글·판단 포함)를 모두 지울까요?\n(삭제했던 글 기록도 지워져 다음 수집 때 다시 찾습니다)`))) return;
     items = [];
     deletedKeys = new Set();
+    skipBefore = 0;
     await chrome.storage.local.remove("ksfDeleted").catch(() => {});
+    await chrome.storage.local.set({ ksfSkipBefore: 0 }).catch(() => {});
     tops = null;
     await chrome.storage.local.remove("ksfTops").catch(() => {});
     await clearResume("ksf");
