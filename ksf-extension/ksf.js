@@ -106,7 +106,7 @@ const SETTING_DEFAULTS = {
 
 async function loadSettings() {
   const s = await chrome.storage.local
-    .get(["ksfSettings", "ksfStart", "ksfEnd", "ksfClubIds", "saveAsk", "ksfTabFallback", "aiKey", "aiModel", "ksfAiOn", "ksfOnlyP3", "ksfSound"])
+    .get(["ksfSettings", "ksfStart", "ksfEnd", "ksfClubIds", "saveAsk", "ksfTabFallback", "aiKey", "aiModel", "ksfAiOn", "ksfOnlyP3", "ksfSound", "ksfOnlyNew"])
     .catch(() => ({}));
   const set = s.ksfSettings || {};
   for (const id of SETTING_IDS) $(`#${id}`).value = set[id] ?? SETTING_DEFAULTS[id];
@@ -133,6 +133,7 @@ async function loadSettings() {
   // 1.0 의 'TOP5 슬라이드만 남기기'(기본 체크) 저장값은 쓰지 않는다 → 기본은 1~3페이지 모두
   $("#onlySlide").checked = !!s.ksfOnlyP3;
   $("#soundOn").checked = s.ksfSound ?? true;
+  $("#onlyNew").checked = s.ksfOnlyNew ?? true;
   clubIds = { ...(s.ksfClubIds || {}) };
   for (const [id, slug] of Object.entries(await loadCafeSlugs())) if (!clubIds[slug.toLowerCase()]) clubIds[slug.toLowerCase()] = id;
   Object.assign(clubIds, KNOWN_CLUB_IDS);
@@ -163,6 +164,7 @@ function saveSettings() {
       ksfTabFallback: $("#tabFallback").checked,
       ksfOnlyP3: $("#onlySlide").checked,
       ksfSound: $("#soundOn").checked,
+      ksfOnlyNew: $("#onlyNew").checked,
       saveAsk: $("#saveAsk").checked,
       aiKey: $("#aiKey").value.trim(),
       aiModel: $("#aiModel").value,
@@ -840,6 +842,19 @@ async function search(resume = null) {
   let skippedOld = 0;
   // 지난 수집 때 이미 모은 동호회 (새로 넣은 동호회 글은 '예전에 지운 글' 어림에서 뺀다)
   const seenCafes = new Set(items.map((it) => it.slug.toLowerCase()));
+  // 새 글만 찾기: 동호회마다 지난 수집 날(0시) 이후 글이 한 페이지에 하나도 없으면 그 검색어는 멈춘다
+  // (지난 수집 기록이 없으면 이미 모은 글의 가장 최근 날짜로 어림)
+  const onlyNew = $("#onlyNew").checked;
+  const lastRun = (await chrome.storage.local.get("ksfLastRun").catch(() => ({}))).ksfLastRun || {};
+  const latestItem = Math.max(0, ...items.map((it) => it.date || 0));
+  const dayStart = (t) => { const d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); };
+  const cutOf = (slug) => {
+    if (!onlyNew) return 0;
+    const k = slug.toLowerCase();
+    if (lastRun[k]) return dayStart(lastRun[k]);
+    return seenCafes.has(k) && latestItem ? dayStart(latestItem) : 0;
+  };
+  if (onlyNew) log("· 새 글만 찾기: 이미 수집한 동호회는 지난 수집 날 이후 글이 없는 페이지에서 바로 다음 검색어로 넘어갑니다");
   let loginNeeded = false;
   const failed = [];
   const noClubId = new Set();
@@ -868,6 +883,7 @@ async function search(resume = null) {
     renderCafeInfoIds();
     let prevKeys = "";
     let oldPages = 0;
+    const cut = cutOf(job.slug);
     for (let page = 1; page <= maxPages && !stopRequested; page++) {
       const res = await scanSearchPage(searchUrl(cafeId, job.q, page));
       pagesDone++;
@@ -888,10 +904,12 @@ async function search(resume = null) {
       prevKeys = keys;
       let older = 0;
       let dated = 0;
+      let fresh = 0;
       let added = 0;
       for (const x of pageItems) {
         const parsed = parseCafeDate(x.dateText);
         if (parsed) dated++;
+        if (parsed && parsed.date.getTime() >= cut) fresh++;
         const day = parsed ? new Date(parsed.date.getFullYear(), parsed.date.getMonth(), parsed.date.getDate()) : null;
         const startDay = new Date(p.start.getFullYear(), p.start.getMonth(), p.start.getDate());
         if (day && (day < startDay || (parsed.hasTime && parsed.date < p.start))) {
@@ -937,9 +955,18 @@ async function search(resume = null) {
         log(`· ${label}: 3페이지 연속 기간 전 글뿐이라 여기서 멈춥니다`);
         break;
       }
+      if (cut && dated && !fresh) {
+        log(`· ${label}: 지난 수집 뒤 새 글이 없어 다음 검색어로 넘어갑니다`);
+        break;
+      }
       if (page < maxPages) await sleep(randomBetween(CAFE_PAGE_DELAY));
     }
     await saveItems();
+    // 이 동호회의 마지막 검색어까지 끝났으면 수집 시각 기록 (다음 '새 글만 찾기' 기준)
+    if (!stopRequested && !loginNeeded && !list.slice(ji + 1).some((j) => j.slug === job.slug)) {
+      lastRun[job.slug.toLowerCase()] = t0;
+      await chrome.storage.local.set({ ksfLastRun: lastRun }).catch(() => {});
+    }
     if (!stopRequested) await saveResume("ksf", { jobs: list, next: ji + 1, start: $("#startDate").value, end: $("#endDate").value });
     if (ji + 1 < list.length && !stopRequested) await sleep(randomBetween(CAFE_ARTICLE_DELAY));
   }
@@ -2568,7 +2595,7 @@ async function init() {
   renderResults();
   if (items.length) setSummary(`지난번까지 찾은 글 ${items.length}개입니다. '게시물 찾기'를 다시 누르면 새로 찾은 글이 더해집니다.`);
 
-  for (const id of [...SETTING_IDS, "tabFallback", "saveAsk", "onlySlide", "soundOn"]) {
+  for (const id of [...SETTING_IDS, "tabFallback", "saveAsk", "onlySlide", "soundOn", "onlyNew"]) {
     $(`#${id}`).addEventListener("change", async () => {
       if (id === "searchUrl") $("#searchUrl").value = normalizeSearchUrl($("#searchUrl").value);
       await saveSettings();
@@ -2639,7 +2666,7 @@ async function init() {
     items = [];
     deletedKeys = new Set();
     skipBefore = 0;
-    await chrome.storage.local.remove("ksfDeleted").catch(() => {});
+    await chrome.storage.local.remove(["ksfDeleted", "ksfLastRun"]).catch(() => {});
     await chrome.storage.local.set({ ksfSkipBefore: 0 }).catch(() => {});
     tops = null;
     await chrome.storage.local.remove("ksfTops").catch(() => {});
