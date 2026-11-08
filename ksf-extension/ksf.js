@@ -425,7 +425,7 @@ function ksfQueryHit(item) {
 function judgeNote(j) {
   if (j.related) return "";
   if (j.exc) return "관련 없는 단어 있음";
-  if (j.sale) return "할인 단어만 있음";
+  if (j.sale) return "본문 확인 단어 있음";
   return "코세페·할인 단어 없음";
 }
 
