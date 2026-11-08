@@ -207,6 +207,20 @@ def test_bluehands(tmp_path: Path):
             reportSchedule(new Date(2026, 9, 7)).next.day.getDate(),
         ]""")
         assert sched == [["2026-10-12", "2026-10-06", "2026-10-06", "2027-02-10", "2026-10-12"], "2026-10-20", 12]
+        # 보고일 옆 빨간 상자: 지난 보고일 오전 10:00 ~ 이번 보고일 오전 10:00
+        window_text = page.evaluate("""() => [
+            uploadWindowText(reportSchedule(new Date(2026, 10, 9, 9))),
+            uploadWindowText(reportSchedule(new Date(2026, 9, 6, 9))),  // 10/5 대체공휴일 → 10/6(화) 보고
+            uploadWindowText(reportSchedule(new Date(2026, 9, 7, 9))),  // 보고 다음 날 → 다음 기간
+        ]""")
+        assert window_text == [
+            "2026년 11월 2일 오전 10:00 ~ 2026년 11월 9일 오전 10:00까지 게시글 파일 업로드 하세요.",
+            "2026년 9월 28일 오전 10:00 ~ 2026년 10월 6일 오전 10:00까지 게시글 파일 업로드 하세요.",
+            "2026년 10월 6일 오전 10:00 ~ 2026년 10월 12일 오전 10:00까지 게시글 파일 업로드 하세요.",
+        ], window_text
+        pill = page.locator("#schedule .upload-window")
+        assert pill.inner_text().endswith("까지 게시글 파일 업로드 하세요.")
+        assert pill.evaluate("e => [getComputedStyle(e).backgroundColor, getComputedStyle(e).color]") == ["rgb(224, 36, 36)", "rgb(255, 255, 255)"]
 
         # 테스트는 빨리: 글 사이 기다림을 줄인다
         page.evaluate("CAFE_ARTICLE_DELAY.splice(0, 2, 10, 20); CAFE_PAGE_DELAY.splice(0, 2, 10, 20)")

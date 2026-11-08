@@ -145,6 +145,19 @@ function isSearchFirst(x) {
 // 보고 일정
 // ---------------------------------------------------------------------------
 
+// 업로드할 게시글 기간: 지난 보고일 오전 10:00 ~ 이번 보고일 오전 10:00
+const UPLOAD_HOUR = 10;
+
+function koreanDateTime(d, hour = UPLOAD_HOUR) {
+  const ampm = hour < 12 ? "오전" : "오후";
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${ampm} ${pad(h12)}:00`;
+}
+
+function uploadWindowText(plan) {
+  return `${koreanDateTime(plan.prev.day)} ~ ${koreanDateTime(plan.next.day)}까지 게시글 파일 업로드 하세요.`;
+}
+
 async function renderSchedule() {
   const extra = parseExtraHolidays($("#extraHolidays").value);
   const plan = reportSchedule(new Date(), extra);
@@ -161,6 +174,11 @@ async function renderSchedule() {
     box.className = "schedule";
     box.textContent = `다음 보고일: ${dayLabel(plan.next.day)}${moved(plan.next)} · 지난 보고일: ${dayLabel(plan.prev.day)}`;
   }
+  // 옆에 빨간 둥근 상자: 이번 보고에 올릴 게시글 기간
+  const pill = document.createElement("span");
+  pill.className = "upload-window";
+  pill.textContent = uploadWindowText(plan);
+  box.appendChild(pill);
 }
 
 // ---------------------------------------------------------------------------
