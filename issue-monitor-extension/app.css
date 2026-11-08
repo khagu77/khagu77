@@ -416,3 +416,5 @@ button.x-del:hover { border-color: var(--red); }
 #sources tr.src-total td b.count-red { font-size: 17px; }
 .st-alldone { background: linear-gradient(90deg, #16a34a, #22c55e); color: #fff; border: 0; font-size: 13px; padding: 4px 14px; box-shadow: 0 2px 6px rgba(22, 163, 74, 0.35); }
 @media (prefers-color-scheme: dark) { #sources tr.src-total td { background: #1c2b40; } }
+/* 수집 진행 표: 글자와 상태 뱃지를 줄 높이 가운데로 (담당자 요청 2026-11-08) */
+#sources td, #sources th { vertical-align: middle; }
