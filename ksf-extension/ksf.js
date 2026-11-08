@@ -2596,7 +2596,16 @@ async function init() {
   if (items.length) setSummary(`지난번까지 찾은 글 ${items.length}개입니다. '게시물 찾기'를 다시 누르면 새로 찾은 글이 더해집니다.`);
 
   for (const id of [...SETTING_IDS, "tabFallback", "saveAsk", "onlySlide", "soundOn", "onlyNew"]) {
-    $(`#${id}`).addEventListener("change", async () => {
+    const el = $(`#${id}`);
+    // 글자 칸은 칸 밖을 눌러야 'change' 가 와서, 고치는 즉시(잠깐 멈추면) 적용되게 'input' 도 받는다
+    if (el.tagName === "TEXTAREA") {
+      let t = null;
+      el.addEventListener("input", () => {
+        clearTimeout(t);
+        t = setTimeout(() => el.dispatchEvent(new Event("change")), 800);
+      });
+    }
+    el.addEventListener("change", async () => {
       if (id === "searchUrl") $("#searchUrl").value = normalizeSearchUrl($("#searchUrl").value);
       await saveSettings();
       if (id === "cafeList") renderCafeInfo();
