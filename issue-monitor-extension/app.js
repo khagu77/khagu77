@@ -433,7 +433,48 @@ function initSourceTable(sources) {
     tbody.append(tr);
     sourceRows.set(src.key, tr);
   }
+  // 맨 위 합계 줄 (담당자 요청 2026-11-08): 출처 개수 · 열별 합계 · 부정 이슈 빨간 굵게 · 전체 상태 뱃지
+  sourceTotalRow = el("tr", { class: "src-total" }, el("td"), el("td"), el("td"), el("td"), el("td"), el("td", { class: "st-cell" }));
+  tbody.prepend(sourceTotalRow);
+  updateSourceTotal();
   $("#sources").hidden = false;
+}
+
+let sourceTotalRow = null;
+function updateSourceTotal() {
+  const tr = sourceTotalRow;
+  if (!tr || !tr.isConnected) return;
+  const rows = [...sourceRows.entries()];
+  const cafes = rows.filter(([k]) => k.startsWith("cafe:")).length;
+  const comms = rows.length - cafes;
+  const sum = (i) => rows.reduce((n, [, r]) => n + (parseInt(r.children[i].textContent, 10) || 0), 0);
+  const td = tr.children;
+  td[0].textContent = "";
+  td[0].append(el("b", { text: `합계 · 총 ${rows.length}곳` }), el("div", { class: "hint", text: `동호회(카페) ${cafes}곳 · 자동차 커뮤니티 ${comms}곳` }));
+  td[1].textContent = sum(1);
+  td[2].textContent = sum(2);
+  td[3].textContent = sum(3);
+  td[4].textContent = "";
+  td[4].append(el("b", { class: "count-red", text: `${sum(4)}건` }));
+  const done = rows.filter(([, r]) => /^(완료|실패|건너뜀|중지)/.test(r.children[5].textContent)).length;
+  const failed = rows.filter(([, r]) => /^(실패|건너뜀)/.test(r.children[5].textContent)).length;
+  td[5].textContent = "";
+  let text;
+  let kind;
+  if (state.running) {
+    text = `수집 중 ${done}/${rows.length}`;
+    kind = "reading";
+  } else if (state.stopRequested) {
+    text = `중지됨 (${done}/${rows.length}곳)`;
+    kind = "skip";
+  } else if (done === rows.length && rows.length) {
+    text = failed ? `전체 수집 완료 (확인 필요 ${failed}곳)` : "전체 수집 완료";
+    kind = failed ? "skip" : "alldone";
+  } else {
+    text = `대기 (${done}/${rows.length}곳 끝)`;
+    kind = "wait";
+  }
+  td[5].append(el("span", { class: `st-badge st-${kind}`, text }));
 }
 
 // 상태 칸: 둥근 색 뱃지 (담당자 요청 2026-11-07). 본문 확인 중·판정 중은 커졌다 작아지며 색이 흐르는 움직임으로 작동 중임을 표시
@@ -471,6 +512,7 @@ function updateSource(key, { listed, candidates, read, issues, status, error } =
     status = korMsg(status);
     setStatusBadge(td[5], status, error);
   }
+  updateSourceTotal();
   showProgress(tr);
 }
 
@@ -2683,6 +2725,7 @@ async function runCollection() {
 
   state.running = false;
   runGuard(false);
+  updateSourceTotal(); // 합계 줄: 전체 수집 완료
   if (!state.stopRequested) Celebrate.ding(); // 수집 끝: 딩동댕 (담당자 요청 2026-11-02)
   $("#mergeBase").disabled = !state.base || !state.base.rows.length;
   $("#start").disabled = false;
