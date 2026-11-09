@@ -540,7 +540,7 @@ function fmtMonthDay(d) {
 function countsBadge(r) {
   const parts = [];
   if (r.views != null) parts.push(`👁 ${Number(r.views).toLocaleString()}`);
-  if (r.ccount != null) parts.push(`💬 ${Number(r.ccount).toLocaleString()}`);
+  if (r.ccount != null && !(r.views != null && r.views > 0 && r.ccount > r.views)) parts.push(`💬 ${Number(r.ccount).toLocaleString()}`); // 조회수보다 큰 댓글 수는 잘못 읽은 값
   if (r.harsh) parts.push("🔥");
   if (!parts.length) return null;
   const hot = r.harsh || r.views >= 1000 || r.ccount >= 20;
@@ -1742,6 +1742,42 @@ async function loadLastResult() {
   if (state.rows.length || state.range) {
     renderResults();
     if (state.range) setSummary(`지난 수집 결과 (${fmtDateTime(state.range.start)} ~ ${fmtDateTime(state.range.end)}): ${state.rows.length}건`);
+    fixSuspiciousCounts().catch(() => {});
+  }
+}
+
+// 이미 수집한 결과 중 댓글 수가 조회수보다 큰 커뮤니티 글(작성자 총 댓글 수를 잘못 읽은 것)은 글을 다시 읽어 바로잡는다
+// (담당자 지적 2026-11-09: 보배드림 national/2422499 댓글 55,929 → 11)
+async function fixSuspiciousCounts() {
+  const bad = state.rows.filter((r) => r.kind === "community" && r.ccount != null && r.views != null && r.views > 0 && r.ccount > r.views);
+  if (!bad.length || state.running || typeof CommunityCollector === "undefined") return;
+  const c = new CommunityCollector({ delays: { community: [400, 900] }, log: () => {}, isStopped: () => state.running });
+  let fixed = 0;
+  for (const r of bad) {
+    let host = "";
+    try {
+      host = new URL(r.url).hostname.replace(/^(www|m)\./, "");
+    } catch {}
+    const site = (state.settings.communities || []).find((x) => {
+      try {
+        return new URL(x.url).hostname.replace(/^(www|m)\./, "") === host;
+      } catch {
+        return false;
+      }
+    });
+    try {
+      const a = site ? await c.readArticle(site, { url: r.url, title: r.title || "" }) : null;
+      r.ccount = a && a.ccount != null && !(a.views && a.ccount > a.views) ? a.ccount : null;
+      if (a && a.views) r.views = a.views;
+    } catch {
+      r.ccount = null;
+    }
+    fixed++;
+  }
+  if (fixed) {
+    log(`이미 수집한 커뮤니티 글 ${fixed}건의 잘못 읽은 댓글 수를 다시 확인해 바로잡았습니다`);
+    renderResults();
+    await saveLastResult();
   }
 }
 
