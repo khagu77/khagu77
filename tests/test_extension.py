@@ -1628,8 +1628,8 @@ def test_retry_keeps_other_comments(tmp_path: Path):
 
 
 def test_lx3_daily_yellow(tmp_path: Path):
-    """오전 일일동향 엑셀(그 프로그램이 만든 양식 그대로)의 노란색·LX3 글은 LX3 결과 표에 반드시 들어간다:
-    이미 찾은 글이면 체크, 없으면 새로 넣음. 노란색 아닌 글·다른 차종(ME1)은 넣지 않음."""
+    """오전 일일동향 엑셀(그 프로그램이 만든 양식 그대로)의 노란색 글(LX3·ME1·MX5·JX)은 LX3 결과 표에 반드시 들어간다:
+    이미 찾은 글이면 체크, 없으면 새로 넣음. 노란색 아닌 글은 넣지 않음."""
     daily = Path(__file__).parent / "fixtures" / "261109_차종별 온라인 동향_통합.xlsx"
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
@@ -1649,10 +1649,12 @@ def test_lx3_daily_yellow(tmp_path: Path):
           renderResults(); }""")
         page.set_input_files("#dailyFiles", str(daily))
         page.locator("#dailyInfo", has_text="✔").wait_for()
-        assert "노란색 LX3 글 2개 확인" in page.inner_text("#dailyInfo"), page.inner_text("#dailyInfo")
+        assert "노란색 시트 글 3개 확인" in page.inner_text("#dailyInfo"), page.inner_text("#dailyInfo")
         got = page.evaluate("""() => items.map((x) => ({ url: articleUrl(x), checked: x.checked, ch: x.channel || '동호회',
           media: x.media || '', title: x.title, date: x.date ? x.date.toISOString() : null, note: x.note }))""")
-        assert len(got) == 2, got
+        assert len(got) == 3, got
+        assert any(g["url"] == "https://cafe.naver.com/ioniq9owners/1" and g["checked"] for g in got), got  # ME1 노란색도
+        got = [g for g in got if "ioniq9owners" not in g["url"]]
         assert got[0]["url"] == "https://cafe.naver.com/palisadepeople/555" and got[0]["checked"] and "일일동향" in got[0]["note"], got
         assert got[1]["url"].startswith("https://www.bobaedream.co.kr/view") and got[1]["checked"], got
         assert got[1]["ch"] == "자동차 커뮤니티" and got[1]["media"] == "보배드림" and got[1]["title"] == "3열 시트 리콜 문의", got
@@ -1660,7 +1662,7 @@ def test_lx3_daily_yellow(tmp_path: Path):
         # 같은 파일을 다시 넣어도 두 번 들어가지 않음
         page.set_input_files("#dailyFiles", str(daily))
         page.locator("#dailyInfo", has_text="새로 넣음 0개").wait_for()
-        assert page.evaluate("items.length") == 2
+        assert page.evaluate("items.length") == 3
         # 찾기가 끝날 때: 폴더에서 찾은 기간(11-09)의 일일동향 엑셀만 읽음 (다른 날짜·다른 파일은 무시)
         b64 = base64.b64encode(daily.read_bytes()).decode()
         res = page.evaluate("""async (b64) => {
@@ -1676,6 +1678,6 @@ def test_lx3_daily_yellow(tmp_path: Path):
           await addDailyFromDir(dir, { from: new Date(2026, 10, 8, 11, 30), to: new Date(2026, 10, 9, 11, 30) });
           return { n: items.length, log: document.querySelector('#log').innerText };
         }""", b64)
-        assert res["n"] == 2 and "(1).xlsx" in res["log"] and "261105" not in res["log"], res
+        assert res["n"] == 3 and "(1).xlsx" in res["log"] and "261105" not in res["log"], res
         assert not errors, errors
         ctx.close()

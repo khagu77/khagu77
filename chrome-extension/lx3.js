@@ -623,7 +623,7 @@ async function search(resume = null) {
     if (on.community && !boards.length && !resume) return setSummary("설정에 자동차 커뮤니티 게시판 주소를 넣어 주세요.", "err");
   }
   if (ids.length && !q) return setSummary("동호회 검색어를 넣어 주세요.", "err");
-  const dailyDir = await dailyDirReady(!AUTO_MODE); // 오전 일일동향 엑셀 폴더 (찾기 끝에 노란색 LX3 글을 넣음)
+  const dailyDir = await dailyDirReady(!AUTO_MODE); // 오전 일일동향 엑셀 폴더 (찾기 끝에 노란색 시트 글을 넣음)
   await saveSettings();
   if (ids.length) await checkLogin();
   running = true;
@@ -1819,11 +1819,12 @@ $("#autoTime").addEventListener("change", saveAutoSettings);
 
 // ---------------------------------------------------------------------------
 // 오전 일일동향 연동: '온라인 오전 일일동향' 프로그램이 오전에 만든 엑셀(예: 261109_차종별 온라인 동향_통합.xlsx)에서
-// 노란색(집중 관리) 칸이 있는 행 중 차종이 LX3(팰리세이드)인 글은 LX3 게시물 수집에 반드시 넣는다.
+// 노란색(집중 관리) 칸이 있는 행 중 차종이 LX3·ME1·MX5·JX(JX PE 포함)인 글은 LX3 게시물 수집에 반드시 넣는다.
 // (담당자 요청 2026-11-09: 오전에 수집된 2·3열 시트 리콜 노란색 글이 LX3 수집에서 빠지는 경우가 있음)
 // ---------------------------------------------------------------------------
 const DAILY_NAME_RE = /(?:^|_)(\d{6})_[^/]*?(?:온라인\s*동향|HMG_community_issues)[^/]*\.xlsx$/i;
-const DAILY_CAR_RE = /LX3|팰리세이드|펠리세이드/i;
+// 노란색(전동 시트 집중 관리) 차종: LX3·ME1·MX5·JX(JX PE 포함)
+const DAILY_CAR_RE = /LX3|팰리세이드|펠리세이드|ME1|아이오닉\s*9|MX5|싼타페|JX/i;
 const DAILY_NOTE = "오전 일일동향 노란색 글";
 
 async function getDailyDir() {
@@ -1847,7 +1848,7 @@ async function dailyDirReady(ask) {
 // 찾은 기간(시작일~끝일)에 해당하는 일일동향 엑셀을 폴더에서 읽어 넣는다
 async function addDailyFromDir(dir, win) {
   if (!dir) {
-    log("· 오전 일일동향 폴더를 정하지 않아 노란색 LX3 글 확인은 건너뜀 (설정 → 오전 일일동향 엑셀 폴더)");
+    log("· 오전 일일동향 폴더를 정하지 않아 노란색 시트 글 확인은 건너뜀 (설정 → 오전 일일동향 엑셀 폴더)");
     return;
   }
   if (dir.denied) {
@@ -1866,7 +1867,7 @@ async function addDailyFromDir(dir, win) {
     if (!old || f.lastModified > old.lastModified) picked.set(m[1], f);
   }
   if (!picked.size) {
-    log(`· '${dir.name}' 폴더에 ${lo}~${hi} 오전 일일동향 엑셀이 없음 (노란색 LX3 글 확인 못 함)`);
+    log(`· '${dir.name}' 폴더에 ${lo}~${hi} 오전 일일동향 엑셀이 없음 (노란색 시트 글 확인 못 함)`);
     return;
   }
   await addDailyFiles([...picked.values()]);
@@ -1948,7 +1949,7 @@ async function readDailyRows(bytes, fileName = "") {
   return out;
 }
 
-// 일일동향 엑셀 파일들(File)에서 노란색 LX3 글을 결과 표에 넣는다 (이미 찾은 글이면 체크만) → 넣은·체크한 수
+// 일일동향 엑셀 파일들(File)에서 노란색 시트 글을 결과 표에 넣는다 (이미 찾은 글이면 체크만) → 넣은·체크한 수
 async function addDailyFiles(files) {
   let added = 0, checked = 0, total = 0;
   const have = new Map();
@@ -1990,7 +1991,7 @@ async function addDailyFiles(files) {
       added++;
     }
   }
-  log(`· 오전 일일동향 노란색 LX3 글 ${total}개 확인 (파일 ${files.map((f) => f.name).join(", ")}) → 새로 넣음 ${added}개 · 체크 ${checked}개 · 나머지는 이미 찾은 글·오늘 파일에 있는 글`);
+  log(`· 오전 일일동향 노란색 시트 글 ${total}개 확인 (파일 ${files.map((f) => f.name).join(", ")}) → 새로 넣음 ${added}개 · 체크 ${checked}개 · 나머지는 이미 찾은 글·오늘 파일에 있는 글`);
   return { total, added, checked };
 }
 
@@ -2026,7 +2027,7 @@ function setupDaily() {
       renderResults();
       await saveLast();
       info.className = "hint ok";
-      info.textContent = `✔ 노란색 LX3 글 ${r.total}개 확인 → 새로 넣음 ${r.added}개 · 체크 ${r.checked}개 (나머지는 이미 결과 표·오늘 파일에 있음)`;
+      info.textContent = `✔ 노란색 시트 글 ${r.total}개 확인 → 새로 넣음 ${r.added}개 · 체크 ${r.checked}개 (나머지는 이미 결과 표·오늘 파일에 있음)`;
     } catch (err) {
       info.className = "hint err";
       info.textContent = `일일동향 엑셀을 읽지 못했습니다: ${err.message}`;
