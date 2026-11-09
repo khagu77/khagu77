@@ -344,16 +344,27 @@ class CommunityCollector {
       const m = vMatch(near) || vMatch(full);
       views = m ? +m[1].replace(/,/g, "") : null;
     }
-    let ccount = pickNum(ad.commentCountSelectors);
+    // 댓글 수 (담당자 지적 2026-11-09: 보배드림 bobaedream national/2422499 — 글 댓글 [11] 대신
+    // 작성자 정보의 '작성글 게시글 16,067 | 댓글 55,929'(작성자가 지금까지 쓴 댓글 수)를 읽음)
+    // 순서: 댓글 칸 → 제목 옆 [N] → 목록에서 읽어 둔 수 → 본문 근처 '댓글 N'(작성자 정보 줄은 빼고) → 댓글 목록 개수
+    // 조회수보다 큰 댓글 수는 다른 숫자를 잘못 읽은 것으로 보고 버린다
+    const sane = (n) => (n == null || (views != null && views > 0 && n > views) ? null : n);
+    let ccount = sane(pickNum(ad.commentCountSelectors));
     if (ccount == null) {
-      const m = cMatch(near);
-      ccount = m ? +m[1].replace(/,/g, "") : null;
+      const tt = textOf(doc.querySelector(".writerProfile dt, .writerProfile .title, .tit_view, .post_subject, .subject")) || textOf(titleEl);
+      const m = String(tt || "").match(/[\[(]\s*(\d[\d,]*)\s*[\])]\s*$/);
+      if (m) ccount = sane(+m[1].replace(/,/g, ""));
+    }
+    if (ccount == null && post.ccount != null) ccount = sane(post.ccount); // 목록에서 읽어 둔 댓글 수
+    if (ccount == null) {
+      const cleanNear = near.replace(/(작성글|게시글|글)\s*[\d,]+\s*[|·,/]?\s*(댓글|코멘트)\s*[\d,]+/g, " ").replace(/(작성\s*)?(댓글|코멘트)\s*[\d,]+\s*[|·,/]?\s*(게시글|작성글)\s*[\d,]+/g, " ");
+      const m = cMatch(cleanNear);
+      ccount = m ? sane(+m[1].replace(/,/g, "")) : null;
     }
     if (ccount == null) {
       const byId = [...doc.querySelectorAll("[id^='comment_'], [id^='cmt_']")].filter((e) => /^(comment|cmt)_\d+$/.test(e.id)).length;
       if (byId) ccount = byId;
     }
-    if (ccount == null && post.ccount != null) ccount = post.ccount; // 목록에서 읽어 둔 댓글 수
     if (ccount == null) {
       for (const sel of ad.commentItemSelectors || []) {
         const n = doc.querySelectorAll(sel).length;
