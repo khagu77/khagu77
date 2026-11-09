@@ -623,6 +623,7 @@ async function search(resume = null) {
     if (on.community && !boards.length && !resume) return setSummary("설정에 자동차 커뮤니티 게시판 주소를 넣어 주세요.", "err");
   }
   if (ids.length && !q) return setSummary("동호회 검색어를 넣어 주세요.", "err");
+  const dailyDir = await dailyDirReady(!AUTO_MODE); // 오전 일일동향 엑셀 폴더 (찾기 끝에 노란색 LX3 글을 넣음)
   await saveSettings();
   if (ids.length) await checkLogin();
   running = true;
@@ -959,6 +960,7 @@ async function search(resume = null) {
   $("#diag").hidden = !diagnostics.length;
   cafeSlugs = await loadCafeSlugs();
   renderCafeInfo();
+  if (!stopRequested) await addDailyFromDir(dailyDir, win).catch((e) => log(`✖ 오전 일일동향 엑셀을 읽지 못함: ${e.message}`));
   markDuplicates();
   renderResults();
   lastSearchAt = Date.now();
@@ -1224,7 +1226,7 @@ async function buildList(selected) {
   }
   let serial = info.lastSerial;
   const values = selected.map((x) => [
-    null, ++serial, x.channel || "동호회", isCafeItem(x) ? cafeNames[x.cafeId] || x.cafeId : x.media || hostName(x.url),
+    null, ++serial, x.channel || "동호회", isCafeItem(x) ? cafeNames[x.cafeId] || x.media || x.cafeId : x.media || hostName(x.url),
     // 게시일은 기존 파일처럼 날짜만 (작성 시간은 결과 표에서 확인)
     x.date ? excelSerial(new Date(x.date.getFullYear(), x.date.getMonth(), x.date.getDate())) : "",
     x.title, articleUrl(x),
@@ -1669,6 +1671,7 @@ async function init() {
     $("#saveInfo").textContent = `✔ ${where} 저장했습니다. '체크한 글 댓글 수집하기'로 댓글을 모으세요.`;
   });
   setupSaveSettings();
+  setupDaily();
   $("#toComments").addEventListener("click", () => toComments()); // 클릭 정보가 '자동 수집' 자리에 들어가지 않게
   $("#withYoutube").addEventListener("change", updateCounts);
   $("#ytAdd").addEventListener("click", addYoutube);
@@ -1812,3 +1815,222 @@ async function saveAutoSettings() {
 }
 $("#autoOn").addEventListener("change", saveAutoSettings);
 $("#autoTime").addEventListener("change", saveAutoSettings);
+
+
+// ---------------------------------------------------------------------------
+// 오전 일일동향 연동: '온라인 오전 일일동향' 프로그램이 오전에 만든 엑셀(예: 261109_차종별 온라인 동향_통합.xlsx)에서
+// 노란색(집중 관리) 칸이 있는 행 중 차종이 LX3(팰리세이드)인 글은 LX3 게시물 수집에 반드시 넣는다.
+// (담당자 요청 2026-11-09: 오전에 수집된 2·3열 시트 리콜 노란색 글이 LX3 수집에서 빠지는 경우가 있음)
+// ---------------------------------------------------------------------------
+const DAILY_NAME_RE = /(?:^|_)(\d{6})_[^/]*?(?:온라인\s*동향|HMG_community_issues)[^/]*\.xlsx$/i;
+const DAILY_CAR_RE = /LX3|팰리세이드|펠리세이드/i;
+const DAILY_NOTE = "오전 일일동향 노란색 글";
+
+async function getDailyDir() {
+  const rec = await dbTx("readonly", (st) => st.get("setting:dailyDir")).catch(() => null);
+  return rec?.handle || null;
+}
+
+// 고른 일일동향 폴더(없으면 저장 폴더). ask: 버튼을 누른 직후라 허락 창을 띄울 수 있을 때
+async function dailyDirReady(ask) {
+  const dir = (await getDailyDir()) || (await getSaveDir().catch(() => null));
+  if (!dir) return null;
+  try {
+    let perm = await dir.queryPermission({ mode: "read" });
+    if (perm !== "granted" && ask) perm = await dir.requestPermission({ mode: "read" });
+    return perm === "granted" ? dir : { denied: dir.name };
+  } catch {
+    return { denied: dir.name };
+  }
+}
+
+// 찾은 기간(시작일~끝일)에 해당하는 일일동향 엑셀을 폴더에서 읽어 넣는다
+async function addDailyFromDir(dir, win) {
+  if (!dir) {
+    log("· 오전 일일동향 폴더를 정하지 않아 노란색 LX3 글 확인은 건너뜀 (설정 → 오전 일일동향 엑셀 폴더)");
+    return;
+  }
+  if (dir.denied) {
+    log(`✖ '${dir.denied}' 폴더를 읽을 허락이 없어 오전 일일동향 노란색 글을 확인하지 못함 → '일일동향 엑셀에서 넣기'로 파일을 직접 골라 주세요`);
+    return;
+  }
+  const ymd = (d) => `${String(d.getFullYear()).slice(2)}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+  const lo = ymd(win.from), hi = ymd(win.to);
+  const picked = new Map(); // 날짜 → 가장 최근에 고친 파일
+  for await (const [name, h] of dir.entries()) {
+    if (h.kind !== "file" || name.startsWith("~$")) continue;
+    const m = name.match(DAILY_NAME_RE);
+    if (!m || m[1] < lo || m[1] > hi) continue;
+    const f = await h.getFile();
+    const old = picked.get(m[1]);
+    if (!old || f.lastModified > old.lastModified) picked.set(m[1], f);
+  }
+  if (!picked.size) {
+    log(`· '${dir.name}' 폴더에 ${lo}~${hi} 오전 일일동향 엑셀이 없음 (노란색 LX3 글 확인 못 함)`);
+    return;
+  }
+  await addDailyFiles([...picked.values()]);
+}
+
+// 일일동향 엑셀 → [{ community, car, date, url, summary, yellow }]
+async function readDailyRows(bytes, fileName = "") {
+  const wb = await XlsxTemplate.Workbook.open(bytes);
+  // 노란색 채우기를 쓰는 셀 서식 번호
+  const yellow = new Set();
+  const st = await wb.text("xl/styles.xml");
+  if (st) {
+    const doc = new DOMParser().parseFromString(st, "application/xml");
+    const fillsEl = doc.getElementsByTagName("fills")[0];
+    const fills = fillsEl ? [...fillsEl.getElementsByTagName("fill")].map((f) => {
+      const fg = f.getElementsByTagName("fgColor")[0];
+      return !!fg && (/FFFF00$/i.test(fg.getAttribute("rgb") || "") || fg.getAttribute("indexed") === "13");
+    }) : [];
+    const xfs = doc.getElementsByTagName("cellXfs")[0];
+    if (xfs) [...xfs.getElementsByTagName("xf")].forEach((xf, i) => fills[+xf.getAttribute("fillId")] && yellow.add(i));
+  }
+  const fileYmd = (fileName.match(DAILY_NAME_RE) || [])[1];
+  const fileDate = fileYmd ? new Date(2000 + +fileYmd.slice(0, 2), +fileYmd.slice(2, 4) - 1, +fileYmd.slice(4)) : new Date();
+  const out = [];
+  for (const sheet of wb.sheets) {
+    const xml = await wb.text(sheet.path);
+    if (!xml) continue;
+    const styleOf = {}; // A5 → 서식 번호
+    for (const m of xml.matchAll(/<c\b[^>]*?\br="([A-Z]+\d+)"[^>]*?\bs="(\d+)"/g)) styleOf[m[1]] = +m[2];
+    for (const m of xml.matchAll(/<c\b[^>]*?\bs="(\d+)"[^>]*?\br="([A-Z]+\d+)"/g)) styleOf[m[2]] = +m[1];
+    // 셀에 걸린 링크 (보이는 글자가 주소가 아닐 때)
+    const links = {};
+    const relPath = sheet.path.replace(/([^/]+)$/, "_rels/$1.rels");
+    const rels = await wb.text(relPath);
+    const relTarget = {};
+    if (rels) for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) {
+      const id = (m[0].match(/\bId="([^"]+)"/) || [])[1];
+      const t = (m[0].match(/\bTarget="([^"]+)"/) || [])[1];
+      if (id && t) relTarget[id] = t.replace(/&amp;/g, "&");
+    }
+    for (const m of xml.matchAll(/<hyperlink\b[^>]*>/g)) {
+      const ref = (m[0].match(/\bref="([A-Z]+\d+)/) || [])[1];
+      const id = (m[0].match(/\br:id="([^"]+)"/) || [])[1];
+      if (ref && id && relTarget[id]) links[ref] = relTarget[id];
+    }
+    const rows = await wb.readRows(sheet.name);
+    let col = null;
+    for (const r of rows) {
+      const cols = Object.keys(r.cells);
+      const find = (name) => cols.find((c) => String(r.cells[c]).replace(/\s+/g, "") === name.replace(/\s+/g, ""));
+      if (!col) {
+        if (find("커뮤니티명") && find("주요 내용")) {
+          const cat = find("구분");
+          const next = (c) => String.fromCharCode(c.charCodeAt(0) + 1);
+          col = { community: find("커뮤니티명"), car: find("차종"), date: find("게시일"), url: find("게시글 위치") || find("URL") || (cat ? next(cat) : null), summary: find("주요 내용") };
+        }
+        continue;
+      }
+      const get = (c) => (c && r.cells[c] !== undefined ? r.cells[c] : "");
+      let url = String(get(col.url)).trim();
+      if (!/^https?:\/\//i.test(url)) url = links[`${col.url}${r.r}`] || Object.entries(links).find(([ref]) => +ref.replace(/[A-Z]+/, "") === r.r)?.[1] || url;
+      if (!/^https?:\/\//i.test(url)) continue;
+      const isYellow = cols.some((c) => yellow.has(styleOf[`${c}${r.r}`])) || yellow.has(styleOf[`${col.summary}${r.r}`]);
+      // 게시일: 엑셀 날짜 숫자 · '10월 06일' · '2026.10.06'
+      const dv = get(col.date);
+      let date = null;
+      if (typeof dv === "number" && dv > 30000) date = new Date(Math.round((dv - 25569) * 864e5) + new Date().getTimezoneOffset() * 6e4);
+      else if (dv) {
+        let m = String(dv).match(/(\d{4})[.\-/년]\s*(\d{1,2})[.\-/월]\s*(\d{1,2})/);
+        if (m) date = new Date(+m[1], +m[2] - 1, +m[3]);
+        else if ((m = String(dv).match(/(\d{1,2})\s*[월.\-/]\s*(\d{1,2})/))) {
+          const y = fileDate.getFullYear() - (+m[1] - 1 > fileDate.getMonth() ? 1 : 0);
+          date = new Date(y, +m[1] - 1, +m[2]);
+        }
+      }
+      out.push({ community: String(get(col.community)).trim(), car: String(get(col.car)).trim(), date, url, summary: String(get(col.summary)).trim(), yellow: isYellow });
+    }
+  }
+  return out;
+}
+
+// 일일동향 엑셀 파일들(File)에서 노란색 LX3 글을 결과 표에 넣는다 (이미 찾은 글이면 체크만) → 넣은·체크한 수
+async function addDailyFiles(files) {
+  let added = 0, checked = 0, total = 0;
+  const have = new Map();
+  for (const x of items) for (const u of [articleUrl(x), x.extUrl, x.naverUrl, x.url]) if (u) have.set(normUrl(u), x);
+  for (const f of files) {
+    const rows = (await readDailyRows(new Uint8Array(await f.arrayBuffer()), f.name)).filter((r) => r.yellow && DAILY_CAR_RE.test(r.car));
+    total += rows.length;
+    for (const r of rows) {
+      const k = normUrl(r.url);
+      const found = have.get(k);
+      if (found) {
+        if (!found.checked && !found.dup) {
+          found.checked = true;
+          found.touched = true;
+          checked++;
+        }
+        found.related = true;
+        if (!String(found.note || "").includes(DAILY_NOTE)) found.note = [found.note, DAILY_NOTE].filter(Boolean).join(" · ");
+        continue;
+      }
+      const host = hostName(r.url);
+      let item;
+      const ids = /cafe\.naver\.com$/i.test(host) ? parseArticleUrl(r.url) : {};
+      if (ids.articleId && (ids.cafeId || ids.cafeUrl)) {
+        const slugId = ids.cafeUrl ? Object.keys(cafeSlugs).find((id) => String(cafeSlugs[id]).toLowerCase() === ids.cafeUrl.toLowerCase()) : null;
+        const cafeId = ids.cafeId || slugId || ids.cafeUrl;
+        item = { key: `${cafeId}/${ids.articleId}`, cafeId, articleId: ids.articleId, slug: ids.cafeUrl || "", media: r.community };
+      } else {
+        const ch = /youtube\.com|youtu\.be/i.test(host) ? "유튜브" : /news\.naver\.com|^news\./i.test(host) ? "언론" : "자동차 커뮤니티";
+        item = { key: channelKey(r.url), channel: ch, media: r.community || host, url: r.url };
+      }
+      // 결과 표에서 지웠던 글이라도 일일동향 노란색 글은 넣음
+      Object.assign(item, {
+        title: r.summary || r.url, text: r.summary, date: r.date, hasTime: false, ambiguous: false,
+        related: true, checked: true, note: `${DAILY_NOTE} (제목 칸은 일일동향 주요 내용)`, dup: false, daily: true,
+      });
+      items.push(item);
+      have.set(k, item);
+      added++;
+    }
+  }
+  log(`· 오전 일일동향 노란색 LX3 글 ${total}개 확인 (파일 ${files.map((f) => f.name).join(", ")}) → 새로 넣음 ${added}개 · 체크 ${checked}개 · 나머지는 이미 찾은 글·오늘 파일에 있는 글`);
+  return { total, added, checked };
+}
+
+// 화면 버튼: 일일동향 폴더 고르기 / 엑셀 파일 직접 골라 넣기
+function setupDaily() {
+  const show = async () => {
+    const dir = await getDailyDir();
+    $("#dailyDirName").textContent = dir ? `📁 ${dir.name}` : "정하지 않음 → 저장 폴더에서 찾음";
+    $("#dailyDirClear").hidden = !dir;
+  };
+  $("#dailyDirPick").addEventListener("click", async () => {
+    try {
+      const handle = await window.showDirectoryPicker({ id: "lx3-daily", mode: "read" });
+      await dbTx("readwrite", (st) => st.put({ key: "setting:dailyDir", kind: "setting", handle }));
+    } catch {
+      /* 취소 */
+    }
+    show();
+  });
+  $("#dailyDirClear").addEventListener("click", async () => {
+    await dbTx("readwrite", (st) => st.delete("setting:dailyDir")).catch(() => {});
+    show();
+  });
+  $("#dailyPick").addEventListener("click", () => $("#dailyFiles").click());
+  $("#dailyFiles").addEventListener("change", async (e) => {
+    const files = [...e.target.files];
+    e.target.value = "";
+    if (!files.length) return;
+    const info = $("#dailyInfo");
+    try {
+      const r = await addDailyFiles(files);
+      markDuplicates();
+      renderResults();
+      await saveLast();
+      info.className = "hint ok";
+      info.textContent = `✔ 노란색 LX3 글 ${r.total}개 확인 → 새로 넣음 ${r.added}개 · 체크 ${r.checked}개 (나머지는 이미 결과 표·오늘 파일에 있음)`;
+    } catch (err) {
+      info.className = "hint err";
+      info.textContent = `일일동향 엑셀을 읽지 못했습니다: ${err.message}`;
+    }
+  });
+  show();
+}

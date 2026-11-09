@@ -3,6 +3,7 @@
 실제 네이버/유튜브 대신 가짜 응답(route)을 넣고, 확장 화면에서 수집 → 엑셀 다운로드까지 확인한다.
 확장 로딩에는 headless-shell 이 아닌 일반 Chromium 이 필요하므로 CHROMIUM_PATH 가 없으면 건너뛴다.
 """
+import base64
 import json
 import os
 import re
@@ -1624,3 +1625,57 @@ def test_retry_keeps_other_comments(tmp_path: Path):
         assert page.is_hidden("#failBox")
         ctx.close()
     server.shutdown()
+
+
+def test_lx3_daily_yellow(tmp_path: Path):
+    """오전 일일동향 엑셀(그 프로그램이 만든 양식 그대로)의 노란색·LX3 글은 LX3 결과 표에 반드시 들어간다:
+    이미 찾은 글이면 체크, 없으면 새로 넣음. 노란색 아닌 글·다른 차종(ME1)은 넣지 않음."""
+    daily = Path(__file__).parent / "fixtures" / "261109_차종별 온라인 동향_통합.xlsx"
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True, timezone_id="Asia/Seoul",
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}"])
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        ext = f"chrome-extension://{sw.url.split('/')[2]}"
+        page = ctx.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"{ext}/lx3.html")
+        page.evaluate("lx3Init")
+        # 검색으로 이미 찾았지만 관련 글로 체크되지 않은 글 (일일동향 노란색 글과 같은 글)
+        page.evaluate("""() => { cafeSlugs['222'] = 'palisadepeople'; cafeNames['222'] = '팰리세이드 피플';
+          items = [{ key: '222/555', cafeId: '222', cafeIndex: 0, articleId: '555', slug: '', title: '시트 질문', text: '',
+            date: new Date(2026, 10, 9, 8, 0), hasTime: true, ambiguous: false, checked: false, related: false, note: '', dup: false }];
+          renderResults(); }""")
+        page.set_input_files("#dailyFiles", str(daily))
+        page.locator("#dailyInfo", has_text="✔").wait_for()
+        assert "노란색 LX3 글 2개 확인" in page.inner_text("#dailyInfo"), page.inner_text("#dailyInfo")
+        got = page.evaluate("""() => items.map((x) => ({ url: articleUrl(x), checked: x.checked, ch: x.channel || '동호회',
+          media: x.media || '', title: x.title, date: x.date ? x.date.toISOString() : null, note: x.note }))""")
+        assert len(got) == 2, got
+        assert got[0]["url"] == "https://cafe.naver.com/palisadepeople/555" and got[0]["checked"] and "일일동향" in got[0]["note"], got
+        assert got[1]["url"].startswith("https://www.bobaedream.co.kr/view") and got[1]["checked"], got
+        assert got[1]["ch"] == "자동차 커뮤니티" and got[1]["media"] == "보배드림" and got[1]["title"] == "3열 시트 리콜 문의", got
+        assert got[1]["date"] == "2026-11-07T15:00:00.000Z", got  # 게시일 11-08 (서울)
+        # 같은 파일을 다시 넣어도 두 번 들어가지 않음
+        page.set_input_files("#dailyFiles", str(daily))
+        page.locator("#dailyInfo", has_text="새로 넣음 0개").wait_for()
+        assert page.evaluate("items.length") == 2
+        # 찾기가 끝날 때: 폴더에서 찾은 기간(11-09)의 일일동향 엑셀만 읽음 (다른 날짜·다른 파일은 무시)
+        b64 = base64.b64encode(daily.read_bytes()).decode()
+        res = page.evaluate("""async (b64) => {
+          items = [];
+          const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+          const file = (name, t) => ({ kind: 'file', getFile: async () => new File([bytes], name, { lastModified: t }) });
+          const dir = { name: '일일동향', async *entries() {
+            yield ['261105_차종별 온라인 동향_통합.xlsx', file('261105_차종별 온라인 동향_통합.xlsx', 1)];
+            yield ['261109_차종별 온라인 동향_통합.xlsx', file('261109_차종별 온라인 동향_통합.xlsx', 2)];
+            yield ['261109_차종별 온라인 동향_통합 (1).xlsx', file('261109_차종별 온라인 동향_통합 (1).xlsx', 3)];
+            yield ['메모.xlsx', file('메모.xlsx', 4)];
+          } };
+          await addDailyFromDir(dir, { from: new Date(2026, 10, 8, 11, 30), to: new Date(2026, 10, 9, 11, 30) });
+          return { n: items.length, log: document.querySelector('#log').innerText };
+        }""", b64)
+        assert res["n"] == 2 and "(1).xlsx" in res["log"] and "261105" not in res["log"], res
+        assert not errors, errors
+        ctx.close()
