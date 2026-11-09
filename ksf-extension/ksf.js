@@ -1673,7 +1673,7 @@ function typeStats(rs = reactions()) {
   const top = topThemes(rs);
   const labelOf = new Map();
   for (const car of targetCars()) for (const t of ["긍정", "부정"]) for (const g of top.cars[car][t]) for (const k of g.keys) labelOf.set(k, { label: g.label, tone: t });
-  return PTYPE_NAMES.map((type) => {
+  const stats = PTYPE_NAMES.map((type) => {
     const list = rs.filter((r) => r.ptype === type);
     const tone = toneCounts(list);
     const ratio = Object.fromEntries(TONES.map((t) => [t, list.length ? tone[t] / list.length : 0]));
@@ -1684,22 +1684,33 @@ function typeStats(rs = reactions()) {
       const k = `${l.tone}\u0001${l.label}`;
       cnt.set(k, (cnt.get(k) || 0) + 1);
     }
-    let topIssue = null;
-    for (const [k, n] of cnt) {
-      if (!topIssue || n > topIssue.count) {
-        const [t, label] = k.split("\u0001");
-        topIssue = { label, tone: t, count: n, quote: false };
-      }
-    }
-    if (!topIssue && list.length) {
-      // 긍정·부정 주요 내용이 없으면 그 유형에서 가장 많은 성향의 대표 원문
-      const main = TONES.slice().sort((a, b) => tone[b] - tone[a])[0];
-      const q = list.filter((r) => r.tone === main).map((r) => (r.c ? r.c.content : r.x.title).replace(/\s+/g, " ").trim()).filter((t) => t.length >= 6)
-        .sort((a, b) => Math.abs(a.length - 50) - Math.abs(b.length - 50))[0];
-      if (q) topIssue = { label: `‘${q.length > 60 ? `${q.slice(0, 59)}…` : q}’`, tone: main, count: tone[main], quote: true };
-    }
-    return { type, n: list.length, share: rs.length ? list.length / rs.length : 0, tone, ratio, top: topIssue };
+    const ranked = [...cnt].sort((a, b) => b[1] - a[1]);
+    return { type, list, n: list.length, share: rs.length ? list.length / rs.length : 0, tone, ratio, ranked, top: null };
   });
+  // 유형마다 '가장 많이 나온 여론'이 겹치지 않게: (유형, 내용) 짝을 건수 많은 순으로 나눠 준다
+  // - 같은 내용을 여러 유형이 많이 말하면 가장 많이 말한 유형이 갖고, 나머지 유형은 다음 순위 내용
+  // - '일반'·'유형 구분 외'는 구체적인 유형이 다 고른 뒤에 고른다
+  const used = new Set();
+  const phase = (t) => (t.type === "유형 구분 외" ? 2 : t.type === "일반" ? 1 : 0);
+  for (const ph of [0, 1, 2]) {
+    const pairs = stats.filter((t) => t.n && phase(t) === ph).flatMap((t) => t.ranked.map(([k, n]) => ({ t, k, n })));
+    pairs.sort((a, b) => b.n - a.n);
+    for (const { t, k, n } of pairs) {
+      const [tn, label] = k.split("\u0001");
+      if (t.top || used.has(label)) continue;
+      used.add(label);
+      t.top = { label, tone: tn, count: n, quote: false };
+    }
+  }
+  for (const t of stats) {
+    if (t.top || !t.n) continue;
+    // 겹치지 않는 주요 내용이 없으면 그 유형에서 가장 많은 성향의 대표 원문
+    const main = TONES.slice().sort((a, b) => t.tone[b] - t.tone[a])[0];
+    const q = t.list.filter((r) => r.tone === main).map((r) => (r.c ? r.c.content : r.x.title).replace(/\s+/g, " ").trim()).filter((x) => x.length >= 6)
+      .sort((a, b) => Math.abs(a.length - 50) - Math.abs(b.length - 50))[0];
+    if (q) t.top = { label: `‘${q.length > 60 ? `${q.slice(0, 59)}…` : q}’`, tone: main, count: t.tone[main], quote: true };
+  }
+  return stats.map(({ list, ranked, ...t }) => t);
 }
 
 const GROUP_SYSTEM = `당신은 현대자동차 국내 마케팅·고객 부문 온라인 여론 보고서를 쓰는 분석가입니다.
