@@ -45,10 +45,14 @@ def news_article(oid, aid):
     )
 
 
+NEWS_COMMENTS = ["GV90 실내 정말 고급스럽네요 만족", "가격이 너무 비싸요 실망", "출시 일정 궁금합니다"]
+
+
 def cbox(url):
     q = parse_qs(urlparse(url).query)
-    n = 31 if q["objectId"][0].endswith("0000000001") else 0
-    data = {"success": True, "result": {"count": {"comment": n}, "pageModel": {"totalPages": 1}, "commentList": []}}
+    texts = NEWS_COMMENTS if q["objectId"][0].endswith("0000000001") and not q.get("parentCommentNo") else []
+    data = {"success": True, "result": {"count": {"comment": 31 if texts else 0}, "pageModel": {"totalPages": 1}, "commentList": [
+        {"commentNo": i + 1, "contents": t, "regTime": "2026-08-05T16:0%d:00+0900" % i, "userName": "u", "replyCount": 0} for i, t in enumerate(texts)]}}
     return "cb(" + json.dumps(data, ensure_ascii=False) + ");"
 
 
@@ -60,10 +64,13 @@ YT_FEED = """<?xml version="1.0" encoding="UTF-8"?>
   <author><name>자동차채널</name></author><media:group><media:description>-</media:description></media:group></entry>
 </feed>"""
 YT_WATCH = (
-    '<html><script>var ytInitialPlayerResponse = {"videoDetails":{"title":"GV90 시승기 승차감 최고","author":"자동차채널","shortDescription":"제네시스 GV90 리뷰","viewCount":"15234"},'
+    '<html><script>ytcfg.set({"INNERTUBE_API_KEY":"KEY","INNERTUBE_CLIENT_VERSION":"2.0"});</script>'
+    '<script>var ytInitialPlayerResponse = {"videoDetails":{"title":"GV90 시승기 승차감 최고","author":"자동차채널","shortDescription":"제네시스 GV90 리뷰","viewCount":"15234"},'
     '"microformat":{"playerMicroformatRenderer":{"publishDate":"2026-08-05T15:30:00+09:00"}}};</script>'
     "<script>var ytInitialData = "
-    + json.dumps({"engagementPanels": [{"commentsEntryPointHeaderRenderer": {"commentCount": {"simpleText": "128"}}}]})
+    + json.dumps({"engagementPanels": [{"commentsEntryPointHeaderRenderer": {"commentCount": {"simpleText": "128"}}}],
+                  "contents": {"itemSectionRenderer": {"sectionIdentifier": "comment-item-section", "contents": [
+                      {"continuationItemRenderer": {"continuationEndpoint": {"continuationCommand": {"token": "T1"}}}}]}}})
     + ";</script></html>"
 )
 
@@ -78,8 +85,35 @@ CLIEN_VIEW = (
     '<html><body><h3 class="post_subject">GV90 실물 보니 실망입니다 비싸요</h3>'
     '<div class="post_author"><span class="view_count date">2026-08-05 10:00:00</span> <span class="view_count">조회 1,234</span></div>'
     '<div class="post_article">가격이 너무 비싸서 실망입니다. 옵션도 아쉽네요.</div>'
-    '<div class="comment_head">댓글 25</div></body></html>'
+    '<div class="comment_head">댓글 2</div>'
+    '<div class="comment_row"><div class="comment_view">그래도 실내는 좋던데요</div><span class="timestamp">2026-08-05 10:10:00</span></div>'
+    '<div class="comment_row"><div class="comment_view">저도 비싸서 포기</div><span class="timestamp">2026-08-05 10:20:00</span></div>'
+    "</body></html>"
 )
+
+
+def yt_comment(cid, text):
+    return {"payload": {"commentEntityPayload": {"properties": {"commentId": cid, "content": {"content": text}, "publishedTime": "1시간 전"}, "author": {"displayName": "a"}}}}
+
+
+YT_NEXT = {"frameworkUpdates": {"entityBatchUpdate": {"mutations": [yt_comment("Y1", "GV90 디자인 멋지다 최고"), yt_comment("Y2", "흉물 같음 현기차")]}}}
+
+# 뽐뿌 댓글 목록(JSON, 전체읽기): 2쪽 · 답글은 댓글 안 배열 · 차단·지운 댓글은 빼야 함 (이슈 모니터링 보고서 테스트와 같은 실제 구조)
+PPOM_JSON = {
+    "1": {"total_page": "2", "total_comment": "6", "c_page": 1, "comments": [
+        {"no": 1, "depth": 0, "name": "<b>SirO_u</b>", "memo": "<p>첫 댓글 GV90 가격 비싸요</p><p>정말로&nbsp;</p>", "meta": {"time_detail": "2026-08-05 17:00:01"},
+         "block_status": {"is_blocked": False, "is_spam": False},
+         "sub_cmt": [{"no": 2, "depth": 1, "name": "<b>아셋팜</b>", "memo": "<p>답글 동의합니다</p>", "meta": {"time_detail": "2026-08-05 17:05:06"}, "block_status": {"is_blocked": False},
+                      "sub_cmt": [{"no": 5, "depth": 2, "name": "<b>SirO_u</b>", "memo": "<div>답글의 답글</div>", "meta": {"time_detail": "2026-08-05 17:26:29"}, "block_status": {"is_blocked": False}}]}]},
+        {"no": 3, "depth": 0, "memo": "차단된 댓글입니다", "meta": {"time_detail": "2026-08-05 17:10:00"}, "block_status": {"is_blocked": True, "is_spam": False}},
+        {"no": 6, "depth": 0, "name": "<b>지운 분</b>", "memo": "", "meta": {"time_detail": "2026-08-05 17:11:00"}, "block_status": {"is_blocked": False}},
+        {"no": 4, "depth": 0, "memo": "<p>옵션 구성 아쉽네요</p>", "meta": {"time_detail": "2026-08-05 17:20:00"}, "block_status": {"is_blocked": False}},
+    ]},
+    "2": {"total_page": "2", "total_comment": "6", "c_page": 2, "comments": [{"no": 7, "comment": "둘째 쪽 댓글 기본 모델 괜찮음", "date": "08-05 18:30", "re_level": "0"}]},
+}
+PPOM_VIEW = ('<html><head><meta charset="euc-kr"></head><body><div class="board-contents">GV90 가격 이야기</div><span>조회 3,210</span><span>댓글 [5]</span>'
+             '<div class="comment_wrapper"><div class="mid-text-area">첫 댓글 GV90 가격 비싸요 정말로</div></div>'
+             '<a href="javascript:BbsCommentLoadMore.loadNext();">다음 코멘트 더 보기</a></body></html>')
 
 
 def wait_js(page, expr, timeout=60000):
@@ -121,6 +155,8 @@ def ext(tmp_path: Path):
             url = route.request.url
             if "/feeds/videos.xml" in url:
                 route.fulfill(status=200, content_type="application/xml", body=YT_FEED)
+            elif "/youtubei/v1/next" in url:
+                route.fulfill(status=200, content_type="application/json", body=json.dumps(YT_NEXT, ensure_ascii=False))
             elif "/watch" in url:
                 route.fulfill(status=200, content_type="text/html", body=YT_WATCH)
             else:  # 검색 결과: 영상 없음
@@ -133,6 +169,18 @@ def ext(tmp_path: Path):
         ctx.route("https://*.naver.com/**", naver)
         ctx.route("https://www.youtube.com/**", youtube)
         ctx.route("https://www.clien.net/**", clien)
+
+        def ppomppu(route):
+            url = route.request.url
+            requests.append(url)
+            if "comment.php" in url:
+                q = parse_qs(urlparse(url).query)
+                assert q.get("cmd") == ["get_comment_json"] and q.get("comment_mode") == ["sort_asc"]
+                route.fulfill(status=200, content_type="application/json; charset=utf-8", body=json.dumps(PPOM_JSON[q["c_page"][0]], ensure_ascii=False))
+            else:
+                route.fulfill(status=200, headers={"content-type": "text/html; charset=euc-kr"}, body=PPOM_VIEW.encode("euc-kr"))
+
+        ctx.route("https://www.ppomppu.co.kr/**", ppomppu)
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext_id = sw.url.split("/")[2]
         yield ctx, sw, ext_id, requests
@@ -198,7 +246,7 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     assert "yt:otherotherx" not in by_key
     # 커뮤니티: 제목에 키워드 · 기간 안 · 조회수·댓글 수 · 부정
     cl = [x for x in items if x["channel"] == "자동차 커뮤니티" and "501" in x["url"]][0]
-    assert cl["views"] == 1234 and cl["ccount"] == 25 and cl["sentiment"] == "부정" and cl["category"] == "가격"
+    assert cl["views"] == 1234 and cl["ccount"] == 2 and cl["sentiment"] == "부정" and cl["category"] == "가격"
     assert not any("/cm_car/400" in x["url"] for x in items)
     # 휴일 수집분 합본
     assert by_key["clien.net:holiday"]["fromRun"].endswith("토요일 수집")
@@ -206,7 +254,7 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     # 결과 표: 👁 💬 뱃지 (조회 1,000↑ 이면 빨간 hot)
     row = page.locator("#results tbody tr", has_text="실망입니다")
     badge = row.locator(".counts")
-    assert "👁 1,234" in badge.inner_text() and "💬 25" in badge.inner_text()
+    assert "👁 1,234" in badge.inner_text() and "💬 2" in badge.inner_text()
     assert "hot" in badge.get_attribute("class")
 
     # 엑셀 만들기 → 데일리 DB 저장
@@ -254,3 +302,78 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
 
     assert not errors, errors
     assert not any("cafe.naver.com" in u for u in requests)  # 카페를 끄면 카페 화면을 열지 않음
+
+
+def test_gv90_comments(ext, tmp_path: Path):
+    """댓글 수집: 언론(네이버 뉴스) · 유튜브 · 클리앙 · 뽐뿌(댓글 목록 전체읽기 2쪽, 답글 포함, 차단·지운 댓글 제외) → 무료 성향 분석 → DB · 댓글 엑셀 · 대시보드 반응."""
+    ctx, sw, ext_id, requests = ext
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.on("dialog", lambda d: d.accept())
+    page.goto(f"chrome-extension://{ext_id}/comments.html")
+    page.evaluate("commentsInit")
+    page.evaluate(
+        """async () => {
+        const day = todayKey();
+        const base = { car: 'GV90', exact: true, category: '가격', sentiment: '중립', by: 'rule', day, date: new Date(2026, 7, 5, 15).getTime() };
+        await savePosts([
+          { ...base, key: 'news:001/0000000001', url: 'https://n.news.naver.com/mnews/article/001/0000000001', channel: '언론', media: '연합뉴스', title: 'GV90 출시', ccount: 31 },
+          { ...base, key: 'newsx:www.hankyung.com/article/1', url: 'https://www.hankyung.com/article/1', channel: '언론', media: '한국경제', title: '외부 기사', ccount: null },
+          { ...base, key: 'yt:gv90video01', url: 'https://www.youtube.com/watch?v=gv90video01', channel: '유튜브', media: '자동차채널', title: 'GV90 시승기', ccount: 128, src: { videoId: 'gv90video01' } },
+          { ...base, key: 'clien.net:501', url: 'https://www.clien.net/service/board/cm_car/501', channel: '자동차 커뮤니티', media: '클리앙', title: 'GV90 실물 보니 실망입니다 비싸요', ccount: 2 },
+          { ...base, key: 'ppomppu.co.kr:980300', url: 'https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980300', channel: '자동차 커뮤니티', media: '뽐뿌', title: 'GV90 가격', ccount: 5 },
+        ], day);
+        await refreshDay(day, { keepEmpty: true });
+      }"""
+    )
+    page.reload()
+    page.evaluate("commentsInit")
+    rows = page.locator("#postTable tbody tr")
+    assert rows.count() == 5
+    # 언론사 자체 사이트 기사는 고를 수 없음 (네이버 댓글 없음)
+    assert page.locator("#postTable tbody tr", has_text="한국경제").locator("input").is_disabled()
+    page.click("#start")
+    wait_js(page, "!running && document.querySelector('#summary').textContent.includes('댓글')", 120000)
+    by = page.evaluate("(async () => { const out = {}; for (const c of await allComments()) (out[c.postKey] ||= []).push([c.text, c.sentiment, c.isReply]); return out; })()")
+    assert [c[0] for c in by["news:001/0000000001"]] == NEWS_COMMENTS
+    assert {c[0] for c in by["yt:gv90video01"]} == {"GV90 디자인 멋지다 최고", "흉물 같음 현기차"}
+    assert {c[0] for c in by["clien.net:501"]} == {"그래도 실내는 좋던데요", "저도 비싸서 포기"}
+    ppom = {c[0]: c for c in by["ppomppu.co.kr:980300"]}
+    print("PPOM", sorted(ppom))
+    assert set(ppom) == {"첫 댓글 GV90 가격 비싸요 정말로", "답글 동의합니다", "답글의 답글", "옵션 구성 아쉽네요", "둘째 쪽 댓글 기본 모델 괜찮음"}, sorted(ppom)
+    assert not any("차단" in t for t in ppom)
+    assert ppom["답글 동의합니다"][2] is True  # 답글
+    assert any("comment.php" in u and "c_page=2" in u for u in requests)  # 2쪽까지 전체읽기
+    # 무료 성향 분석
+    news = {c[0]: c[1] for c in by["news:001/0000000001"]}
+    assert news["GV90 실내 정말 고급스럽네요 만족"] == "긍정" and news["가격이 너무 비싸요 실망"] == "부정"
+    assert dict((c[0], c[1]) for c in by["yt:gv90video01"])["흉물 같음 현기차"] == "단순비난"
+    # 수집 상태 · 다시 수집해도 늘지 않음
+    assert "✔ 3개" in page.locator("#postTable tbody tr", has_text="연합뉴스").inner_text()
+    n1 = page.evaluate("(async () => (await allComments()).length)()")
+    page.evaluate("posts.forEach((p) => (p.checked = p.key === 'clien.net:501')); renderPosts();")
+    page.click("#start")
+    wait_js(page, "!running", 60000)
+    assert page.evaluate("(async () => (await allComments()).length)()") == n1
+    # 댓글 표에서 성향 고치기 → DB
+    sel = page.locator("#commentTable tbody tr", has_text="출시 일정 궁금합니다").locator("select")
+    sel.select_option("부정")
+    page.wait_for_timeout(300)
+    assert page.evaluate("(async () => (await allComments()).find((c) => c.text === '출시 일정 궁금합니다').sentiment)()") == "부정"
+    # 댓글 엑셀
+    page.click("#makeXlsx")
+    page.locator("#saveInfo", has_text="저장했습니다").wait_for()
+    b64 = page.evaluate("(() => { let s = ''; for (const b of pendingXlsx.bytes) s += String.fromCharCode(b); return [pendingXlsx.name, btoa(s)]; })()")
+    assert b64[0].endswith("GV90 온라인 동향 댓글 raw data.xlsx"), b64[0]
+    wb = load_workbook(BytesIO(base64.b64decode(b64[1])))
+    assert wb.sheetnames == ["댓글", "게시글별 댓글 성향"]
+    ws = wb["댓글"]
+    assert [c.value for c in ws[1]] == ["연번", "커뮤니티명", "차종", "작성일", "구분", "게시글 위치", "댓글", "성향"]
+    assert ws.max_row - 1 == n1
+    # 대시보드: 반응 = 게시글 + 댓글 성향
+    page.goto(f"chrome-extension://{ext_id}/dashboard.html")
+    page.evaluate("dashInit")
+    page.locator("#reportBody", has_text="반응").wait_for()
+    assert "전체 성향 (반응" in page.inner_text("#reportBody")
+    assert not errors, errors

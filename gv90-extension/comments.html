@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GV90 댓글 수집</title>
+  <link rel="icon" href="icons/icon32.png">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div id="workBar" class="workbar" hidden>
+    <div class="workbar-track"><div id="workBarFill" class="workbar-fill"></div></div>
+    <div id="workBarText" class="workbar-text"></div>
+  </div>
+  <header class="topbar">
+    <div class="topbar-in">
+      <div class="brand">
+        <img src="icons/logo-app.png" alt="GV90" class="logo">
+        <h1>GV90(JG1) 온라인 게시물 일일 수집</h1>
+        <span class="ver" id="ver"></span>
+        <div class="tools"><a class="tool" href="db.html">🗄 데일리 DB · 대시보드</a><a class="tool" href="gv90.html#settings">⚙ 설정</a></div>
+        <div class="sub">언론 · 동호회 · 유튜브 · 자동차 커뮤니티의 GV90(JG1) 게시물·댓글을 매일 모아 긍정 · 중립 · 부정 · 단순비난으로</div>
+      </div>
+      <nav class="menu"><a href="gv90.html"><span class="num">1</span>🔍 게시물 수집</a><a href="comments.html" class="on"><span class="num">2</span>💬 댓글 수집</a><a href="db.html"><span class="num">3</span>🗄 데일리 DB</a><a href="dashboard.html"><span class="num">4</span>📊 대시보드</a></nav>
+    </div>
+  </header>
+  <main>
+    <div id="login" class="hint">로그인 상태 확인 중…</div>
+
+    <section>
+      <h2>1. 댓글 수집할 게시글 <span class="hint">(데일리 DB 에 저장한 게시글)</span></h2>
+      <div class="row">
+        <label class="inline">게시글 범위
+          <select id="scope">
+            <option value="1">최근 보고일</option>
+            <option value="3">최근 3 보고일</option>
+            <option value="7">최근 7 보고일</option>
+            <option value="0">데일리 DB 전체</option>
+          </select>
+        </label>
+        <label class="inline"><input type="checkbox" id="onlyWithComments" checked> 댓글 있는 글만 (💬 1개 이상 · 댓글 수를 모르는 글 포함)</label>
+        <label class="inline">채널 <select id="chFilter"><option value="">전체</option><option>언론</option><option>유튜브</option><option>동호회</option><option>자동차 커뮤니티</option></select></label>
+      </div>
+      <div class="row">
+        <button id="selAll" class="small">모두 선택</button>
+        <button id="selNone" class="small">모두 해제</button>
+        <button id="selRetry" class="small" title="수집 안 한 글 · 댓글 0개 · 못 읽은 글만 고릅니다">수집 전·0개·실패 글만 선택</button>
+      </div>
+      <div class="tablewrap">
+        <table id="postTable">
+          <thead><tr><th><input type="checkbox" id="checkAll"></th><th>보고일</th><th>채널</th><th>커뮤니티명</th><th>URL</th><th>주요 내용</th><th>수집 상태</th><th>댓글 성향</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="postCount" class="hint"></div>
+      <div class="buttons">
+        <button id="start" class="primary">체크한 글 댓글 수집</button>
+        <button id="stop" disabled>중지</button>
+        <label class="inline"><input type="checkbox" id="newsReplies" checked> 네이버 뉴스 답글까지</label>
+      </div>
+      <div class="hint">
+        네이버 카페는 계정 보호를 위해 글을 하나씩 사람처럼 천천히 열어 읽습니다(바로 열면 안 보이는 글은 네이버 검색을 거쳐 들어감 · 그래도 안 보이면 '패스').
+        자동차 커뮤니티는 받아 온 화면 → 모자라면 뒤쪽 탭으로 열어 '더보기'를 눌러 다 읽고, <b>뽐뿌는 댓글 목록(전체읽기)을 1쪽부터 끝까지 받아</b> 읽습니다. 삭제·블라인드·차단 댓글은 뺍니다.
+      </div>
+      <div id="summary" class="summary"></div>
+      <div id="log" class="log" hidden></div>
+    </section>
+
+    <section id="commentBox" hidden>
+      <h2>2. 수집한 댓글 · 성향 <span class="hint" id="commentSummary"></span></h2>
+      <div class="row">
+        <label class="inline">게시글 <select id="postFilter"><option value="">전체</option></select></label>
+        <label class="inline">성향 <select id="sentFilter"><option value="">전체</option><option>긍정</option><option>중립</option><option>부정</option><option>단순비난</option></select></label>
+        <button id="analyzeRule" class="small" title="단어 사전으로 다시 분석 (표에서 직접 고친 성향은 그대로)">무료 분석 다시 하기</button>
+        <button id="analyzeAi" class="small" title="Claude AI 가 원글 제목과 함께 댓글마다 성향을 다시 정합니다 (비용 듦 · 실행 전 예상 비용 표시)">💰 Claude AI 로 댓글 성향 추가 분석 <span class="badge ai">AI</span></button>
+      </div>
+      <div class="tablewrap">
+        <table id="commentTable">
+          <thead><tr><th>채널</th><th>커뮤니티명</th><th>게시글</th><th>작성일</th><th>댓글</th><th>성향</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="commentCount" class="hint"></div>
+      <div class="buttons">
+        <button id="makeXlsx" class="primary">댓글 엑셀 만들기</button>
+        <button id="getXlsx" class="getbtn" disabled>📥 댓글 엑셀 받기</button>
+        <span id="saveInfo" class="hint"></span>
+      </div>
+      <div class="hint">댓글은 데일리 DB 에 바로 저장되어 게시물 엑셀의 '댓글' 시트 · 대시보드(반응 = 게시글 + 댓글, 댓글 성향)에 함께 들어갑니다.</div>
+    </section>
+  </main>
+  <script src="lib/anthropic-sdk.min.js"></script>
+  <script src="gv90-settings.js"></script>
+  <script src="common.js"></script>
+  <script src="cafe.js"></script>
+  <script src="news.js"></script>
+  <script src="youtube.js"></script>
+  <script src="community.js"></script>
+  <script src="celebrate.js"></script>
+  <script src="report-template.js"></script>
+  <script src="gv90-analyze.js"></script>
+  <script src="gv90-db.js"></script>
+  <script src="gv90-xlsx.js"></script>
+  <script src="gv90-ui.js"></script>
+  <script src="comments.js"></script>
+</body>
+</html>

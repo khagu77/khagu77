@@ -273,6 +273,47 @@
     return build(sheets);
   }
 
+  // 댓글 raw data: '댓글' 시트(게시물 양식과 같은 열 + 댓글) · '게시글별 댓글 성향' 시트
+  function buildComments({ comments, posts }) {
+    const SENT = ["긍정", "중립", "부정", "단순비난"];
+    const byPost = new Map();
+    for (const c of comments) {
+      if (!byPost.has(c.postKey)) byPost.set(c.postKey, []);
+      byPost.get(c.postKey).push(c);
+    }
+    const postOf = new Map((posts || []).map((p) => [p.key, p]));
+    const pct = (n, d) => (d ? `${((n / d) * 100).toFixed(1)}%` : "-");
+    const sheets = [
+      {
+        name: "댓글",
+        columns: COMMENT_COLUMNS,
+        cursorEnd: true,
+        filter: true,
+        rows: comments.map((c, i) => [i + 1, c.media || "", c.car || "GV90", asDate(c.date), c.category || "", c.url, c.text || "", c.sentiment || ""]),
+        cellStyle: sentiStyle(7),
+      },
+      {
+        name: "게시글별 댓글 성향",
+        filter: true,
+        columns: [
+          { header: "커뮤니티명", width: 18.5, style: "center" },
+          { header: "게시글 위치", width: 50, style: "link", link: true },
+          { header: "주요 내용", width: 50, style: "text" },
+          { header: "댓글", width: 8, style: "center" },
+          ...SENT.map((s) => ({ header: s, width: 9, style: "center" })),
+          { header: "부정+단순비난", width: 12, style: "center" },
+        ],
+        rows: [...byPost.entries()].map(([k, list]) => {
+          const p = postOf.get(k) || list[0];
+          const n = list.length;
+          const cnt = (s) => list.filter((c) => c.sentiment === s).length;
+          return [p.media || "", p.url, p.summary || p.title || "", n, ...SENT.map((s) => pct(cnt(s), n)), pct(cnt("부정") + cnt("단순비난"), n)];
+        }),
+      },
+    ];
+    return build(sheets);
+  }
+
   // ------------------------------------------------------------- 읽기 (기존 raw data 등록 · 수정본 올리기)
   // 머리글(커뮤니티명·주요 내용)을 찾아 열을 맞추므로 일일동향 보고서 양식·RAW 양식·이 프로그램 양식 모두 읽는다
   async function readZip(bytes) {
@@ -407,5 +448,5 @@
     return out;
   }
 
-  global.Gv90Xlsx = { build, buildRaw, read, RAW_SHEET, RAW_COLUMNS };
+  global.Gv90Xlsx = { build, buildRaw, buildComments, read, RAW_SHEET, RAW_COLUMNS };
 })(typeof window !== "undefined" ? window : globalThis);

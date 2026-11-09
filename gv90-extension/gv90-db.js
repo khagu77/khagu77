@@ -201,6 +201,40 @@ async function saveComments(comments, day) {
   return { added, total: recs.length };
 }
 
+// 글 하나의 댓글을 이번에 모은 것으로 바꾼다 (다시 수집: 없어진 댓글은 빼고, 표에서 직접 고친 성향은 그대로)
+// → { total, added }
+async function replacePostComments(postKey, list, day) {
+  const old = new Map((await getAll("comments", "postKey", postKey)).map((c) => [c.key, c]));
+  let maxSerial = 0;
+  for (const c of await getAll("comments")) maxSerial = Math.max(maxSerial, c.serial || 0);
+  let added = 0;
+  const recs = list.map((c) => {
+    const key = `${postKey}|${c.writtenAt || c.date || ""}|${String(c.text || "").slice(0, 80)}`;
+    const prev = old.get(key);
+    old.delete(key);
+    if (!prev) added++;
+    const keep = prev && (prev.edited || []).includes("sentiment") ? { sentiment: prev.sentiment, edited: prev.edited, by: prev.by } : {};
+    return { ...c, key, postKey, day: prev?.day || day, serial: prev?.serial || ++maxSerial, ...keep };
+  });
+  await gvTx("comments", "readwrite", (s) => {
+    for (const k of old.keys()) s.delete(k);
+    recs.forEach((r) => s.put(r));
+  });
+  return { total: recs.length, added };
+}
+
+async function updateComment(key, patch) {
+  const old = await gvTx("comments", "readonly", (s) => s.get(key));
+  if (!old) return null;
+  const rec = { ...old, ...patch };
+  await gvTx("comments", "readwrite", (s) => s.put(rec));
+  return rec;
+}
+
+async function putComments(list) {
+  await gvTx("comments", "readwrite", (s) => list.forEach((c) => s.put(c)));
+}
+
 // ---------------------------------------------------------------------------
 // 수집일 기록 · 그날 엑셀
 // ---------------------------------------------------------------------------

@@ -334,6 +334,8 @@ function toItem(p, extra = {}) {
     sentiment: "",
     summary: "",
     by: "",
+    // 댓글 수집 때 다시 쓰는 정보
+    src: { cafeSlug: p.cafeSlug || "", clubId: p.clubId || "", articleId: p.articleId || "", oid: p.oid || "", aid: p.aid || "", videoId: p.videoId || "", siteUrl: p.siteUrl || "" },
     ...extra,
   };
 }
