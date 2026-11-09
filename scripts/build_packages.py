@@ -4,6 +4,7 @@
   dist/댓글수집기_맥용.zip
   dist/유튜브추출기_윈도우용.zip
   dist/유튜브추출기_맥용.zip
+  dist/GV90수집기.zip  (윈도우·맥 공통)
 
 각 압축 파일 안에는 크롬에 올릴 확장프로그램 폴더와 설치안내서 PDF(docs/windows, docs/mac 의 html 을 변환)가 들어간다.
 유튜브추출기에는 빠른 다운로드 도우미(윈도우: windows-helper, 맥: '유튜브 도우미 설치.app')도 함께 넣는다.
@@ -22,6 +23,12 @@ DIST = ROOT / "dist"
 SKIP = {".DS_Store", "__pycache__", "Thumbs.db"}
 
 PACKAGES = [
+    {
+        # GV90(JG1) 온라인 게시물 일일 수집 (윈도우·맥 공통 · 도우미 필요 없음)
+        "zip": "GV90수집기",
+        "guide": ("windows/guide_gv90.html", "설치안내서_GV90수집기.pdf"),
+        "items": [(ROOT / "gv90-extension", "GV90수집기_확장프로그램")],
+    },
     {
         "zip": "댓글수집기_윈도우용",
         "guide": ("windows/guide_comments.html", "설치안내서_댓글수집기_윈도우용.pdf"),
@@ -76,7 +83,9 @@ def add(zf: zipfile.ZipFile, src: Path, arc: str):
         zf.write(src, arc)
 
 
-def build():
+def build(only=None):
+    if only:
+        PACKAGES[:] = [p for p in PACKAGES if p["zip"] in only]
     render_pdfs()
     for pkg in PACKAGES:
         top = pkg["zip"]
@@ -90,4 +99,6 @@ def build():
 
 
 if __name__ == "__main__":
-    build()
+    import sys
+
+    build(sys.argv[1:] or None)
