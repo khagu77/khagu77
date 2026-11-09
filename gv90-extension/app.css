@@ -86,8 +86,10 @@ a { color: var(--brand-2); }
   position: relative;
   color: #fff;
   /* 첫 번째 첨부 이미지(오른쪽으로 배경 연장) · 차량은 왼쪽에 고정 */
-  background: #18284f url("icons/banner.jpg") left center / auto 100% no-repeat;
-  min-height: 172px;
+  /* 높이 고정: 차량 크기·제목 시작 위치가 항상 같게 · 그림 오른쪽은 그림 끝 색으로 이어서 넓은 화면에서도 끊기지 않게 */
+  background: url("icons/banner.jpg") left top / auto 180px no-repeat, linear-gradient(180deg, rgb(48, 65, 110), rgb(38, 58, 107));
+  background-color: rgb(43, 62, 108);
+  min-height: 180px;
 }
 .topbar::before {
   content: "";
@@ -97,9 +99,10 @@ a { color: var(--brand-2); }
 }
 .topbar-in {
   position: relative;
-  max-width: 1320px;
-  margin: 0 auto;
-  padding: 26px 24px 0 340px;
+  /* 화면 폭 전체: 제목·메뉴는 배너 차량 바로 오른쪽에서 시작, 버튼은 오른쪽 끝 (넓은 화면에서 가운데로 몰리지 않게) */
+  max-width: none;
+  margin: 0;
+  padding: 26px 32px 0 340px;
   min-height: 172px;
   display: flex;
   flex-direction: column;
@@ -133,7 +136,7 @@ nav.menu .num { display: inline-block; padding: 0; flex: none; border-radius: 50
 }
 
 /* ---------------------------------------------------------------- 본문 */
-main { max-width: 1320px; margin: 0 auto; padding: 24px; }
+main { max-width: 1760px; margin: 0 auto; padding: 24px 32px; }
 section { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin-bottom: 18px; }
 h2 { margin: 0 0 12px; font-size: 17px; }
 h3 { margin: 14px 0 8px; font-size: 14.5px; }
