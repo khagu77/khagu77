@@ -90,16 +90,39 @@
 
   // ------------------------------------------------------------- 서식: 일일동향 양식 + 성향 글자색 4개
   // 양식 셀 서식 번호: 5 머리글 · 3 가운데 · 4 게시일(mm월 dd일) · 7 링크 · 9 주요 내용 · 8 주요 내용(노란색)
-  const S = { head: 5, center: 3, date: 4, link: 7, text: 9, yellow: 8, pos: 14, neu: 15, neg: 16, blame: 17 };
+  // 엑셀 글꼴은 모두 현대산스 Text (일일동향 양식에서 맑은 고딕이던 링크·주요 내용 칸도 현대산스 Text 로)
+  const S = {
+    head: 5, center: 3, date: 4, yellow: 8,
+    pos: 14, neu: 15, neg: 16, blame: 17, // 성향 글자색 (굵게, 가운데)
+    headNavy: 18, headPos: 19, headNeu: 20, headNeg: 21, headBlame: 22, // 일자별 집계 머리글 (흰 굵은 글씨 · 바탕색)
+    total: 23, link: 24, text: 25, bold: 26,
+  };
   const SENTI_S = { 긍정: "pos", 중립: "neu", 부정: "neg", 단순비난: "blame" };
+  const FONT = '<name val="현대산스 Text"/><family val="3"/><charset val="129"/>';
   function stylesXml() {
     const base = typeof TEMPLATE_STYLES_XML !== "undefined" ? TEMPLATE_STYLES_XML : global.TEMPLATE_STYLES_XML; // report-template.js (const 라 window 에 붙지 않음)
     const colors = ["FF1F6FD1", "FF16A34A", "FFE0201B", "FFB8860B"]; // 긍정 파랑 · 중립 초록 · 부정 빨강 · 단순비난 진한 노랑
-    const fonts = colors.map((c) => `<font><b/><sz val="10"/><color rgb="${c}"/><name val="현대산스 Text"/><family val="3"/><charset val="129"/></font>`).join("");
-    const xfs = colors.map((_, i) => `<xf numFmtId="0" fontId="${8 + i}" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>`).join("");
+    const fonts =
+      colors.map((c) => `<font><b/><sz val="10"/><color rgb="${c}"/>${FONT}</font>`).join("") + // 8~11
+      `<font><b/><sz val="10"/><color rgb="FFFFFFFF"/>${FONT}</font>` + // 12 흰 굵은
+      `<font><b/><sz val="10"/><color theme="1"/>${FONT}</font>` + // 13 검정 굵은
+      `<font><u/><sz val="10"/><color rgb="FF0563C1"/>${FONT}</font>`; // 14 링크
+    const fills = ["FF002C5F", ...colors, "FFF2F2F2"].map((c) => `<fill><patternFill patternType="solid"><fgColor rgb="${c}"/><bgColor indexed="64"/></patternFill></fill>`).join(""); // 4 남색 · 5~8 성향 · 9 회색
+    const xf = (font, fill, h, extra = "") =>
+      `<xf numFmtId="0" fontId="${font}" fillId="${fill}" borderId="1" xfId="0" applyFont="1" applyBorder="1"${fill ? ' applyFill="1"' : ""} applyAlignment="1"><alignment horizontal="${h}" vertical="center"${extra}/></xf>`;
+    const xfs =
+      colors.map((_, i) => xf(8 + i, 0, "center")).join("") + // 14~17
+      [4, 5, 6, 7, 8].map((f) => xf(12, f, "center", ' wrapText="1"')).join("") + // 18~22
+      xf(13, 9, "center") + // 23 합계
+      xf(14, 0, "left", ' indent="1"') + // 24 링크
+      xf(4, 0, "left", ' indent="1"') + // 25 주요 내용
+      xf(13, 0, "center"); // 26 굵은 가운데
+    const firstFont = '<font><sz val="11"/><color theme="1"/><name val="맑은 고딕"/><family val="2"/><charset val="129"/><scheme val="minor"/></font>';
     return base
-      .replace(/<fonts count="8"([^>]*)>([\s\S]*?)<\/fonts>/, (all, attrs, inner) => `<fonts count="12"${attrs}>${inner}${fonts}</fonts>`)
-      .replace(/<cellXfs count="14">([\s\S]*?)<\/cellXfs>/, (all, inner) => `<cellXfs count="18">${inner}${xfs}</cellXfs>`);
+      .replace(firstFont, `<font><sz val="10"/><color theme="1"/>${FONT}</font>`) // 기본 글꼴
+      .replace(/<fonts count="8"([^>]*)>([\s\S]*?)<\/fonts>/, (all, attrs, inner) => `<fonts count="15"${attrs}>${inner}${fonts}</fonts>`)
+      .replace(/<fills count="4">([\s\S]*?)<\/fills>/, (all, inner) => `<fills count="10">${inner}${fills}</fills>`)
+      .replace(/<cellXfs count="14">([\s\S]*?)<\/cellXfs>/, (all, inner) => `<cellXfs count="27">${inner}${xfs}</cellXfs>`);
   }
 
   // excelSerial: 날짜만 (시각 버림)
@@ -116,9 +139,12 @@
       if (typeof v === "number" && isFinite(v)) return `<c r="${ref}" s="${s}"><v>${v}</v></c>`;
       return `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
     };
-    let data = `<row r="1">${sheet.columns.map((c, i) => cell(`${colName(i + 1)}1`, c.header, "head")).join("")}</row>`;
+    const top = sheet.top || []; // 묶음 머리글 줄들 [[{ v, s }…]…]
+    let data = top.map((row, ri) => `<row r="${ri + 1}" ht="22" customHeight="1">${sheet.columns.map((_, ci) => cell(`${colName(ci + 1)}${ri + 1}`, row[ci]?.v, row[ci]?.s || "headNavy")).join("")}</row>`).join("");
+    const hr = top.length + 1; // 칸 이름 줄
+    data += `<row r="${hr}"${top.length ? ' ht="22" customHeight="1"' : ""}>${sheet.columns.map((c, i) => cell(`${colName(i + 1)}${hr}`, c.header, c.headStyle || "head")).join("")}</row>`;
     sheet.rows.forEach((row, ri) => {
-      const r = ri + 2;
+      const r = ri + hr + 1;
       data += `<row r="${r}">${sheet.columns
         .map((col, ci) => {
           const v = row[ci];
@@ -128,8 +154,9 @@
         })
         .join("")}</row>`;
     });
-    const lastRow = sheet.rows.length + 1;
+    const lastRow = sheet.rows.length + hr;
     const last = `${colName(sheet.columns.length)}${lastRow}`;
+    const merges = sheet.merges || [];
     // 커서: 마지막 행 바로 아래 A열 (일일동향 RAW 처럼 다시 열면 바로 이어서 입력)
     const next = lastRow + 1;
     const xml =
@@ -139,7 +166,8 @@
       `<sheetViews><sheetView workbookViewId="0"${selected ? ' tabSelected="1"' : ""}${sheet.cursorEnd ? ` topLeftCell="A${Math.max(1, next - 20)}"` : ""}><selection activeCell="A${sheet.cursorEnd ? next : 1}" sqref="A${sheet.cursorEnd ? next : 1}"/></sheetView></sheetViews>` +
       '<sheetFormatPr defaultRowHeight="17.399999999999999"/>' +
       `<cols>${cols}</cols><sheetData>${data}</sheetData>` +
-      (sheet.filter && sheet.rows.length ? `<autoFilter ref="A1:${last}"/>` : "") +
+      (sheet.filter && sheet.rows.length ? `<autoFilter ref="A${hr}:${last}"/>` : "") +
+      (merges.length ? `<mergeCells count="${merges.length}">${merges.map((m) => `<mergeCell ref="${m}"/>`).join("")}</mergeCells>` : "") +
       (links.length ? `<hyperlinks>${links.map((l, i) => `<hyperlink ref="${l.ref}" r:id="rId${i + 1}"/>`).join("")}</hyperlinks>` : "") +
       '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>';
     const rels = links.length
@@ -175,7 +203,7 @@
           `<sheets>${sheets.map((s, i) => `<sheet name="${esc(s.name)}" sheetId="${i + 1}" r:id="rId${i + 3}"/>`).join("")}</sheets>` +
           (sheets.some((s) => s.filter && s.rows.length)
             ? `<definedNames>${sheets
-                .map((s, i) => (s.filter && s.rows.length ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${esc(s.name)}'!$A$1:$${built[i].last.replace(/(\d+)$/, "$$$1")}</definedName>` : ""))
+                .map((s, i) => (s.filter && s.rows.length ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${esc(s.name)}'!$A$${(s.top || []).length + 1}:$${built[i].last.replace(/(\d+)$/, "$$$1")}</definedName>` : ""))
                 .join("")}</definedNames>`
             : "") +
           "</workbook>",
@@ -245,29 +273,45 @@
       });
     }
     if (daily && daily.length) {
+      // 일자별 집계: 두 줄 머리글(남색 묶음 · 성향은 성향 색 바탕) · 성향 숫자는 성향 색 · 부정+단순비난 30% 이상 빨강 · 맨 아래 합계
       const SENT = ["긍정", "중립", "부정", "단순비난"];
       const CH = ["언론", "유튜브", "동호회", "자동차 커뮤니티"];
+      const HEAD_S = { 긍정: "headPos", 중립: "headNeu", 부정: "headNeg", 단순비난: "headBlame" };
+      const pct = (n, d) => (d ? `${((n / d) * 100).toFixed(1)}%` : "-");
+      const line = (label, st) => {
+        const bad = (st.bySentiment?.부정 || 0) + (st.bySentiment?.단순비난 || 0);
+        return [label, st.posts || 0, st.comments || 0, ...CH.map((c) => st.byChannel?.[c] || 0), ...SENT.map((x) => st.bySentiment?.[x] || 0), pct(bad, st.posts || 0)];
+      };
+      const sum = { posts: 0, comments: 0, byChannel: {}, bySentiment: {} };
+      for (const d of daily) {
+        const st = d.stats || {};
+        sum.posts += st.posts || 0;
+        sum.comments += st.comments || 0;
+        for (const c of CH) sum.byChannel[c] = (sum.byChannel[c] || 0) + (st.byChannel?.[c] || 0);
+        for (const x of SENT) sum.bySentiment[x] = (sum.bySentiment[x] || 0) + (st.bySentiment?.[x] || 0);
+      }
+      const rows = daily.map((d) => line(`${d.day.slice(0, 4)}-${d.day.slice(4, 6)}-${d.day.slice(6, 8)}`, d.stats || {}));
+      rows.push(line("합계", sum));
+      const N = { v: "", s: "headNavy" };
       sheets.push({
         name: "일자별 집계",
-        filter: true,
+        top: [[{ v: "보고일", s: "headNavy" }, { v: "게시물", s: "headNavy" }, { v: "댓글", s: "headNavy" }, { v: "채널별 게시물", s: "headNavy" }, N, N, N, { v: "성향별 게시물", s: "headNavy" }, N, N, N, { v: "부정+단순비난 비율", s: "headNavy" }]],
+        merges: ["A1:A2", "B1:B2", "C1:C2", "D1:G1", "H1:K1", "L1:L2"],
         columns: [
-          { header: "보고일", width: 12, style: "center" },
-          { header: "게시물", width: 9, style: "center" },
-          ...CH.map((c) => ({ header: c, width: 10, style: "center" })),
-          ...SENT.map((s) => ({ header: s, width: 9, style: "center" })),
-          { header: "부정+단순비난", width: 13, style: "center" },
+          { header: "", width: 13, style: "bold", headStyle: "headNavy" },
+          { header: "", width: 9, style: "bold", headStyle: "headNavy" },
+          { header: "", width: 9, style: "center", headStyle: "headNavy" },
+          ...CH.map((c) => ({ header: c === "자동차 커뮤니티" ? "커뮤니티" : c, width: 10, style: "center", headStyle: "head" })),
+          ...SENT.map((x) => ({ header: x, width: 10, headStyle: HEAD_S[x] })),
+          { header: "", width: 14, style: "center", headStyle: "headNavy" },
         ],
-        rows: daily.map((d) => {
-          const s = d.stats || {};
-          const bad = (s.bySentiment?.부정 || 0) + (s.bySentiment?.단순비난 || 0);
-          return [
-            `${d.day.slice(0, 4)}-${d.day.slice(4, 6)}-${d.day.slice(6, 8)}`,
-            s.posts || 0,
-            ...CH.map((c) => s.byChannel?.[c] || 0),
-            ...SENT.map((x) => s.bySentiment?.[x] || 0),
-            s.posts ? `${Math.round((bad / s.posts) * 100)}%` : "-",
-          ];
-        }),
+        rows,
+        cellStyle: (ri, ci, v) => {
+          if (ri === rows.length - 1) return ci >= 7 && ci <= 10 ? SENTI_S[SENT[ci - 7]] : ci === 11 && parseFloat(v) >= 30 ? "neg" : "total";
+          if (ci >= 7 && ci <= 10) return v ? SENTI_S[SENT[ci - 7]] : "center";
+          if (ci === 11) return parseFloat(v) >= 30 ? "neg" : "center";
+          return null;
+        },
       });
     }
     return build(sheets);
@@ -300,9 +344,11 @@
           { header: "게시글 위치", width: 50, style: "link", link: true },
           { header: "주요 내용", width: 50, style: "text" },
           { header: "댓글", width: 8, style: "center" },
-          ...SENT.map((s) => ({ header: s, width: 9, style: "center" })),
-          { header: "부정+단순비난", width: 12, style: "center" },
+          ...SENT.map((s) => ({ header: s, width: 9, style: "center", headStyle: { 긍정: "headPos", 중립: "headNeu", 부정: "headNeg", 단순비난: "headBlame" }[s] })),
+          { header: "부정+단순비난", width: 13, style: "center", headStyle: "headNavy" },
         ],
+        // 성향 % 는 성향 색 글자, 부정+단순비난 30% 이상은 빨강
+        cellStyle: (ri, ci, v) => (ci >= 4 && ci <= 7 ? (v && v !== "0.0%" ? SENTI_S[SENT[ci - 4]] : "center") : ci === 8 && parseFloat(v) >= 30 ? "neg" : null),
         rows: [...byPost.entries()].map(([k, list]) => {
           const p = postOf.get(k) || list[0];
           const n = list.length;
