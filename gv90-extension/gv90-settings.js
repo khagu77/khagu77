@@ -8,7 +8,7 @@
 // 카페에서 바로 열면 안 보이는 글이 많아, 처음부터 네이버 검색(카페 탭)을 거쳐 들어가 읽는 카페 (온라인 오전 일일동향과 같음)
 const VIA_SEARCH_CAFES = ["nexocafe", "truckerking"];
 
-// 모니터링 동호회 (이슈 모니터링 보고서 · 온라인 오전 일일동향과 같은 목록) [이름, 카페 주소, 차종]
+// 모니터링 동호회 (온라인 오전 일일동향 · 이슈 모니터링 보고서와 같은 목록 + 일일동향에 새로 넣은 NX5 클럽·제네시스 전기차 포럼·메이드 포 제네시스) [이름, 카페 주소, 차종]
 const DEFAULT_CAFES = [
   ["그랜저 리더스 클럽", "suddenattackskincafe", "GN7 PE / GN7"],
   ["그랜저 GN7 매니아", "bestani", "GN7 / GN7 PE"],
@@ -29,8 +29,9 @@ const DEFAULT_CAFES = [
   ["싼타페 MX5 패밀리", "trailer", "MX5"],
   ["클럽 싼타페", "iroid", "MX5"],
   ["싼타페 MX5 클럽", "choids", "MX5"],
-  ["클럽 투싼", "musiclord", "NX4 PE / NX4"],
-  ["올뉴투싼 매니아", "shiftouch", "NX4 PE / NX4"],
+  ["클럽 투싼", "musiclord", "NX4 PE / NX5 / NX4"],
+  ["올뉴투싼 매니아", "shiftouch", "NX4 PE / NX5 / NX4"],
+  ["NX5 클럽", "dfstore", "NX5"],
   ["코나 패밀리", "jsmusic", "SX2"],
   ["클럽 베뉴", "krzr", "QX"],
   ["캐스퍼 매니아", "cafe2078", "AX PE / AX"],
@@ -48,6 +49,8 @@ const DEFAULT_CAFES = [
   ["제네시스 클럽", "newgenesisdh", "RG3 PE / RS4 / JK PE / JX PE / IK"],
   ["제네시스 전기차 클럽", "lovekorandoc", "JW / JK EV / RG3 EV"],
   ["제전클", "yc001", "JW / JK EV / RG3 EV"],
+  ["제네시스 전기차 포럼", "supegame", "JG1 / JG"],
+  ["메이드 포 제네시스", "ad680801", ""],
   ["전기차 동호회", "allfm01", "NE / CE / ME1 / NE PE / OS EV"],
   ["아이오닉 멤버스", "cafeclip", "NE / NE PE / CE / ME1"],
   ["아이오닉9 오너스", "ioniq9owners", "ME1"],
@@ -264,6 +267,13 @@ async function loadSettings() {
   if (!Array.isArray(s.youtubeChannels) || !s.youtubeChannels.length) s.youtubeChannels = DEFAULT_YOUTUBE_CHANNELS.map((c) => ({ ...c }));
   if (!Array.isArray(s.communities) || !s.communities.length) s.communities = DEFAULT_COMMUNITIES.map((c) => ({ ...c }));
   for (const c of s.cafes) if (c.viaSearch === undefined) c.viaSearch = VIA_SEARCH_CAFES.includes(c.slug);
+  // 기본 목록에 새로 들어간 카페: 저장된 목록에 없고 직접 지운 적도 없으면 기본 목록의 앞 카페 바로 뒤에 넣는다
+  const removed = new Set(s.removedCafes || []);
+  DEFAULT_CAFES.forEach((d, i) => {
+    if (removed.has(d.slug) || s.cafes.some((c) => c.slug === d.slug)) return;
+    const prev = i > 0 ? s.cafes.findIndex((c) => c.slug === DEFAULT_CAFES[i - 1].slug) : -1;
+    s.cafes.splice(prev + 1, 0, { ...d });
+  });
   return s;
 }
 

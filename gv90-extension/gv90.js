@@ -108,40 +108,126 @@ async function persistSettings() {
   $("#saveWhere").textContent = await saveWhereText();
 }
 
-function renderChannelTables() {
+// 채널 표: 바꾸면 바로 저장 (설정 저장 버튼을 따로 누르지 않아도 됨)
+let channelSaveTimer = null;
+function saveChannels(msg = "✔ 저장했습니다") {
+  clearTimeout(channelSaveTimer);
+  channelSaveTimer = setTimeout(async () => {
+    await saveSettings(settings);
+    $("#settingsSaved").textContent = msg;
+    setTimeout(() => ($("#settingsSaved").textContent = ""), 3000);
+  }, 300);
+  channelCounts();
+}
+
+function cellInput(obj, key, placeholder, onSave) {
+  const i = el("input", { type: "text", class: "cell", placeholder, spellcheck: "false" });
+  i.value = obj[key] || "";
+  i.addEventListener("change", () => {
+    obj[key] = i.value.trim();
+    onSave?.();
+    saveChannels();
+  });
+  return i;
+}
+
+// 끌어서 순서 바꾸기 (온라인 오전 일일동향과 같은 방식): 왼쪽 ⠿ 손잡이를 잡고 원하는 줄 위·아래로 놓는다
+const dragFrom = {};
+function dragRow(tr, list, i, table, rerender) {
+  const handle = el("td", { class: "drag-handle", text: "⠿", title: "끌어서 순서 바꾸기" });
+  handle.addEventListener("mousedown", () => (tr.draggable = true));
+  tr.addEventListener("dragstart", (e) => {
+    dragFrom[table] = i;
+    tr.classList.add("dragging");
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(i));
+  });
+  tr.addEventListener("dragend", () => {
+    tr.draggable = false;
+    tr.classList.remove("dragging");
+    for (const x of document.querySelectorAll(`${table} tr.drop-before, ${table} tr.drop-after`)) x.classList.remove("drop-before", "drop-after");
+  });
+  tr.addEventListener("dragover", (e) => {
+    if (!(dragFrom[table] >= 0)) return;
+    e.preventDefault();
+    const r = tr.getBoundingClientRect();
+    const after = e.clientY > r.top + r.height / 2;
+    tr.classList.toggle("drop-after", after);
+    tr.classList.toggle("drop-before", !after);
+  });
+  tr.addEventListener("dragleave", () => tr.classList.remove("drop-before", "drop-after"));
+  tr.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const from = dragFrom[table];
+    dragFrom[table] = -1;
+    if (!(from >= 0)) return;
+    const r = tr.getBoundingClientRect();
+    let to = i + (e.clientY > r.top + r.height / 2 ? 1 : 0);
+    const [moved] = list.splice(from, 1);
+    if (from < to) to--;
+    list.splice(to, 0, moved);
+    rerender();
+    saveChannels("✔ 순서를 바꿔 저장했습니다 (이 순서대로 수집)");
+  });
+  return handle;
+}
+
+function renderCafeTable() {
   const s = settings;
-  // 동호회
   const tb = $("#cafeTable tbody");
   tb.textContent = "";
   s.cafes.forEach((c, i) => {
-    tb.append(
-      el("tr", {},
-        el("td", {}, el("input", { type: "checkbox", checked: c.on, onchange: (e) => { c.on = e.target.checked; channelCounts(); } })),
-        el("td", { text: c.name }),
-        el("td", {}, el("a", { href: `https://cafe.naver.com/${c.slug}`, target: "_blank", text: c.slug })),
-        el("td", { class: "hint", text: c.car || "" }),
-        el("td", {}, el("button", { class: "small danger", text: "삭제", onclick: () => { s.cafes.splice(i, 1); renderChannelTables(); } })),
-      ),
+    const tr = el("tr", {});
+    tb.append(tr);
+    tr.append(
+      dragRow(tr, s.cafes, i, "#cafeTable", renderCafeTable),
+      el("td", {}, el("input", { type: "checkbox", checked: c.on !== false, onchange: (e) => { c.on = e.target.checked; saveChannels(); } })),
+      el("td", {}, cellInput(c, "name", "예: 제네시스 클럽")),
+      el("td", {}, cellInput(c, "slug", "예: newgenesisdh", () => { c.slug = c.slug.replace(/^https?:\/\/(m\.)?cafe\.naver\.com\//, "").replace(/[/?#].*$/, ""); })),
+      el("td", {}, cellInput(c, "car", "예: JG1 (여러 차종이면 비움)")),
+      el("td", { style: "text-align:center" }, el("input", { type: "checkbox", title: "바로 열면 안 보이는 글이 많은 카페: 네이버 검색(카페 탭)을 거쳐 들어가 읽음", checked: !!c.viaSearch, onchange: (e) => { c.viaSearch = e.target.checked; saveChannels(); } })),
+      el("td", {}, el("a", { href: `https://cafe.naver.com/${c.slug}`, target: "_blank", title: "카페 열기", text: "↗" })),
+      el("td", {}, el("button", { class: "small danger", text: "삭제", onclick: () => {
+        if (!confirm(`'${c.name || c.slug}' 동호회를 목록에서 지울까요?`)) return;
+        s.cafes.splice(i, 1);
+        s.removedCafes = [...new Set([...(s.removedCafes || []), c.slug])]; // 기본 카페를 지웠으면 다시 넣지 않음
+        renderCafeTable();
+        saveChannels("✔ 지웠습니다");
+      } })),
     );
   });
-  // 유튜브
+  channelCounts();
+}
+
+function renderYtTable() {
+  const s = settings;
   const yb = $("#ytTable tbody");
   yb.textContent = "";
   s.youtubeChannels.forEach((c, i) => {
-    yb.append(
-      el("tr", {},
-        el("td", {}, el("input", { type: "checkbox", checked: c.on !== false, onchange: (e) => { c.on = e.target.checked; channelCounts(); } })),
-        el("td", { text: c.name }),
-        el("td", {}, el("a", { href: `https://www.youtube.com/channel/${c.id}`, target: "_blank", text: c.id })),
-        el("td", {}, el("button", { class: "small danger", text: "삭제", onclick: () => { s.youtubeChannels.splice(i, 1); renderChannelTables(); } })),
-      ),
+    const tr = el("tr", {});
+    yb.append(tr);
+    tr.append(
+      dragRow(tr, s.youtubeChannels, i, "#ytTable", renderYtTable),
+      el("td", {}, el("input", { type: "checkbox", checked: c.on !== false, onchange: (e) => { c.on = e.target.checked; saveChannels(); } })),
+      el("td", {}, cellInput(c, "name", "채널 이름")),
+      el("td", {}, el("a", { href: `https://www.youtube.com/channel/${c.id}`, target: "_blank", text: c.id })),
+      el("td", {}, el("button", { class: "small danger", text: "삭제", onclick: () => {
+        if (!confirm(`'${c.name}' 채널을 목록에서 지울까요?`)) return;
+        s.youtubeChannels.splice(i, 1);
+        renderYtTable();
+        saveChannels("✔ 지웠습니다");
+      } })),
     );
   });
-  // 커뮤니티
+  channelCounts();
+}
+
+function renderChannelTables() {
+  renderCafeTable();
+  renderYtTable();
   const cb = $("#communityBox");
   cb.textContent = "";
-  for (const c of s.communities) cb.append(el("label", { class: "inline" }, el("input", { type: "checkbox", checked: c.on, onchange: (e) => (c.on = e.target.checked) }), `${c.name} `, el("span", { class: "hint", text: c.url })), " ");
-  channelCounts();
+  for (const c of settings.communities) cb.append(el("label", { class: "inline" }, el("input", { type: "checkbox", checked: c.on, onchange: (e) => { c.on = e.target.checked; saveChannels(); } }), `${c.name} `, el("span", { class: "hint", text: c.url })), " ");
 }
 
 function channelCounts() {
@@ -992,25 +1078,29 @@ $("#sound").addEventListener("change", async () => {
   await persistSettings();
   if (settings.sound) Celebrate.ding();
 });
-$("#cafeAll").addEventListener("click", () => { settings.cafes.forEach((c) => (c.on = true)); renderChannelTables(); });
-$("#cafeNone").addEventListener("click", () => { settings.cafes.forEach((c) => (c.on = false)); renderChannelTables(); });
+$("#cafeAll").addEventListener("click", () => { settings.cafes.forEach((c) => (c.on = true)); renderCafeTable(); saveChannels(); });
+$("#cafeNone").addEventListener("click", () => { settings.cafes.forEach((c) => (c.on = false)); renderCafeTable(); saveChannels(); });
 $("#cafeAdd").addEventListener("click", () => {
   const slug = $("#cafeAddSlug").value.trim().replace(/^https?:\/\/(m\.)?cafe\.naver\.com\//, "").replace(/[/?#].*$/, "");
   if (!slug) return;
-  settings.cafes.push({ name: $("#cafeAddName").value.trim() || slug, slug, car: "", on: true, viaSearch: false });
-  $("#cafeAddName").value = $("#cafeAddSlug").value = "";
-  renderChannelTables();
+  if (settings.cafes.some((c) => c.slug === slug)) return ($("#settingsSaved").textContent = "이미 목록에 있는 카페입니다");
+  settings.cafes.push({ name: $("#cafeAddName").value.trim() || slug, slug, car: $("#cafeAddCar").value.trim(), on: true, viaSearch: false });
+  settings.removedCafes = (settings.removedCafes || []).filter((x) => x !== slug);
+  $("#cafeAddName").value = $("#cafeAddSlug").value = $("#cafeAddCar").value = "";
+  renderCafeTable();
+  saveChannels("✔ 추가했습니다 (맨 아래 · ⠿ 를 끌어 위치를 옮길 수 있음)");
 });
-$("#ytAll").addEventListener("click", () => { settings.youtubeChannels.forEach((c) => (c.on = true)); renderChannelTables(); });
-$("#ytNone").addEventListener("click", () => { settings.youtubeChannels.forEach((c) => (c.on = false)); renderChannelTables(); });
+$("#ytAll").addEventListener("click", () => { settings.youtubeChannels.forEach((c) => (c.on = true)); renderYtTable(); saveChannels(); });
+$("#ytNone").addEventListener("click", () => { settings.youtubeChannels.forEach((c) => (c.on = false)); renderYtTable(); saveChannels(); });
 $("#ytAdd").addEventListener("click", async () => {
   $("#ytAddInfo").textContent = "채널 찾는 중…";
   try {
     const ch = await YoutubeCollector.resolveChannel($("#ytAddInput").value);
     if (!settings.youtubeChannels.some((c) => c.id === ch.id)) settings.youtubeChannels.push({ ...ch, on: true });
     $("#ytAddInput").value = "";
-    $("#ytAddInfo").textContent = `✔ ${ch.name} 추가 (설정 저장을 눌러 주세요)`;
-    renderChannelTables();
+    $("#ytAddInfo").textContent = `✔ ${ch.name} 추가 (맨 아래 · ⠿ 를 끌어 위치를 옮길 수 있음)`;
+    renderYtTable();
+    saveChannels();
   } catch (e) {
     $("#ytAddInfo").textContent = e.message;
   }

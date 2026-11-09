@@ -155,15 +155,16 @@
       <details class="sub" open>
         <summary>동호회 (네이버 카페) <span class="hint" id="cafeOnCount"></span></summary>
         <div class="row"><button id="cafeAll" class="small">모두 켜기</button><button id="cafeNone" class="small">모두 끄기</button>
-          <input type="text" id="cafeAddName" placeholder="동호회 이름"> <input type="text" id="cafeAddSlug" placeholder="카페 주소 (예: newgenesisdh)"> <button id="cafeAdd" class="small">추가</button></div>
-        <div class="tablewrap"><table id="cafeTable" class="compact"><thead><tr><th>수집</th><th>동호회 이름</th><th>카페 주소</th><th>차종</th><th></th></tr></thead><tbody></tbody></table></div>
+          <input type="text" id="cafeAddName" placeholder="동호회 이름"> <input type="text" id="cafeAddSlug" placeholder="카페 ID (cafe.naver.com/여기)"> <input type="text" id="cafeAddCar" placeholder="기본 차종 (예: JG1)"> <button id="cafeAdd" class="small">추가</button></div>
+        <div class="hint">카페 ID = cafe.naver.com/<b>여기</b> · 왼쪽 ⠿ 를 잡고 끌어 순서를 바꿀 수 있습니다(이 순서대로 수집) · 고치면 바로 저장됩니다</div>
+        <div class="tablewrap"><table id="cafeTable" class="compact edit"><thead><tr><th></th><th>사용</th><th>카페 이름 (엑셀 표시명)</th><th>카페 ID</th><th>기본 차종</th><th>검색 경유</th><th></th><th></th></tr></thead><tbody></tbody></table></div>
       </details>
       <details class="sub">
         <summary>유튜브 모니터링 채널 <span class="hint" id="ytOnCount"></span></summary>
         <div class="row"><button id="ytAll" class="small">모두 켜기</button><button id="ytNone" class="small">모두 끄기</button>
           <input type="text" id="ytAddInput" placeholder="채널 ID(UC…) 또는 @핸들" style="width:240px"> <button id="ytAdd" class="small">추가</button> <span id="ytAddInfo" class="hint"></span></div>
-        <div class="hint">채널 RSS 로 채널마다 최근 영상 15개까지 확인하고, 제목·설명에 키워드가 있는 영상만 넣습니다.</div>
-        <div class="tablewrap"><table id="ytTable" class="compact"><thead><tr><th>수집</th><th>채널 이름</th><th>채널 ID</th><th></th></tr></thead><tbody></tbody></table></div>
+        <div class="hint">채널 RSS 로 채널마다 최근 영상 15개까지 확인하고, 제목·설명에 키워드가 있는 영상만 넣습니다 · ⠿ 를 끌어 순서를 바꿀 수 있습니다</div>
+        <div class="tablewrap"><table id="ytTable" class="compact edit"><thead><tr><th></th><th>사용</th><th>채널 이름</th><th>채널 ID</th><th></th></tr></thead><tbody></tbody></table></div>
       </details>
       <details class="sub">
         <summary>자동차 커뮤니티</summary>
