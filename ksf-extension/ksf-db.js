@@ -179,7 +179,7 @@ $("#restore").addEventListener("click", () => {
 $("#restoreFile").addEventListener("change", (e) => restore(e.target.files[0]));
 // 수집 화면에서 엑셀을 새로 만들면 바로 반영
 chrome.storage.onChanged.addListener((ch) => {
-  if (ch.ksfDashLive && dashMode === "live") renderDash();
+  if ((ch.ksfDashLive && dashMode === "live") || ch.ksfPptRev) renderDash();
 });
 window.addEventListener("focus", render);
 render();

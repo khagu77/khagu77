@@ -66,7 +66,7 @@ function dashCarCell(c, prev, fluid) {
     if (!rows.length) return `${head}<tr><td colspan="3" style="padding:3px 2px;font-size:11px;color:#a0a5ad;">해당 없음</td></tr>`;
     return head + rows.map((r, i) =>
       `<tr><td width="14" style="width:14px;padding:3px 2px;font-size:10px;color:#8a8f98;vertical-align:top;">${i + 1}</td>` +
-      `<td style="padding:3px 2px;font-size:11px;color:#1b1d21;line-height:1.35;vertical-align:top;border-top:${i ? "1px solid #eef0f3" : "0"};">${desc(r.label)}</td>` +
+      `<td style="padding:3px 2px;font-size:11px;color:#1b1d21;line-height:1.35;letter-spacing:-0.4px;vertical-align:top;border-top:${i ? "1px solid #eef0f3" : "0"};">${desc(r.label)}</td>` +
       `<td width="58" style="width:58px;padding:3px 2px;font-size:11px;text-align:right;white-space:nowrap;vertical-align:top;border-top:${i ? "1px solid #eef0f3" : "0"};"><b style="color:${color};">${dnum(r.count)}</b><span style="color:#8a8f98;font-size:10px;"> ${dpct(r.ratio)}</span></td></tr>`,
     ).join("");
   };
@@ -134,7 +134,7 @@ function dashHtml(d, prev, banner, fluid = false) {
   </tr>
   <tr><td width="230" bgcolor="#002c5f" valign="bottom" style="width:230px;vertical-align:bottom;background:#002c5f;background-color:#002c5f;padding:0 14px 9px;border-radius:0 0 0 11px;"><div style="font-size:9px;line-height:1.2;color:#ffffff;letter-spacing:-0.1px;opacity:0.85;font-family:Arial,Helvetica,sans-serif;">By <b style="font-weight:800;font-style:italic;color:#ffffff;"><i style="font-style:italic;">LINESQUARE</i></b></div></td>
   <td align="right" bgcolor="#ffffff" style="vertical-align:bottom;text-align:right;padding:6px 12px 8px 6px;background:#ffffff;background-color:#ffffff;border-radius:0 0 11px 0;">
-    <div align="right" style="font-size:10px;color:#4a4f57;text-align:right;">※ 반응 = 게시글·댓글 × 언급 차종 · 성향은 코세페에 대한 반응 기준 · 주요 내용은 많이 이야기된 이슈 순(건수 · 해당 차종 긍정/부정 중 비중)${prev ? ` · <span style="color:#d93025;font-weight:700;">▲</span><span style="color:#1a5fd0;font-weight:700;">▼</span> ${desc(prev.dateText)} 대비` : ""}</div>
+    <div align="right" style="font-size:10px;color:#4a4f57;text-align:right;">※ <b>반응</b>: 게시글·댓글이 한 차종에 대해 한 이야기 1건 (한 글이 아반떼·그랜저를 함께 말하면 2건) · <b>성향</b>: 코세페에 대한 태도 기준 · <b>주요 내용</b>: 많이 나온 이야기 순 (건수 · 해당 차종 긍정(부정) 반응 중 비중)${prev ? ` · <span style="color:#d93025;font-weight:700;">▲</span><span style="color:#1a5fd0;font-weight:700;">▼</span> ${desc(prev.dateText)} 대비` : ""}</div>
   </td></tr>
 </table></div>`;
 }
@@ -215,6 +215,7 @@ function dashText(d, prev) {
   }
   if (d.short) for (const [t] of DASH_TONES) if ((d.short[t] || []).length) lines.push(`■ ${t} 주요 댓글: ${d.short[t].map((q) => `‘${String(q).replace(/\s+/g, " ").slice(0, 80)}’`).join(", ")}`);
   if (d.unjudged) lines.push(`※ 잠정치: ${dnum(d.unjudged)}건은 검토 전`);
+  lines.push("※ 반응: 게시글·댓글이 한 차종에 대해 한 이야기 1건 (한 글이 두 차종을 함께 말하면 2건) · 성향: 코세페에 대한 태도 기준");
   return lines.join("\n");
 }
 
@@ -222,7 +223,62 @@ function dashText(d, prev) {
 let dashMode = "db"; // "db" | "live"
 let dashCache = null; // { d, prev }
 
+// PPT 수정본(담당자가 고친 최종 보고서)이 올라와 있으면 대시보드 글·숫자도 그 PPT 기준으로 바꾼다
+// (제목·채널·2줄 요약·대표 댓글 · 전체/차종별 게시글·댓글·성향 비율 · 차종별 긍정/부정 TOP5)
+function dashWithRev(d, rev) {
+  if (!d || !rev?.data) return d;
+  const r = rev.data;
+  const x = JSON.parse(JSON.stringify(d));
+  const has = (v) => v !== null && v !== undefined && v !== "";
+  if (r.title) x.title = r.title;
+  if (r.channels) x.channels = r.channels;
+  if (r.summary?.length) x.summary = r.summary;
+  if (r.headline) x.headline = r.headline;
+  for (const [t, v] of Object.entries(r.tones || {})) if (v?.quotes?.length && x.short) x.short[t] = v.quotes.slice(0, 3);
+  const applyRow = (target, row, n) => {
+    if (!row) return;
+    if (has(row.posts)) target.posts = row.posts;
+    if (has(row.comments)) target.comments = row.comments;
+    const ratios = Object.entries(row.ratio || {}).filter(([, v]) => has(v));
+    if (ratios.length) {
+      for (const [t, v] of ratios) {
+        target.ratio[t] = v;
+        target.tone[t] = Math.round(v * (n || 0));
+      }
+    }
+  };
+  applyRow(x, (r.rows || []).find((row) => row.name === "전체"), x.reactions);
+  for (const c of x.cars || []) {
+    applyRow(c, (r.rows || []).find((row) => row.name === c.car), c.n);
+    const top = r.top?.[c.car];
+    if (!top) continue;
+    const conv = (list) => list.map((g) => ({ label: g.label, count: g.count ?? 0, ratio: g.ratio ?? 0 }));
+    const totalOf = (list, old) => {
+      const g = list.find((y) => y.count && y.ratio);
+      return g ? Math.round(g.count / g.ratio) : list.reduce((n, y) => n + (y.count || 0), 0) || old;
+    };
+    if (top["긍정"]) {
+      c.pos = conv(top["긍정"]);
+      c.posN = totalOf(top["긍정"], c.posN);
+    }
+    if (top["부정"]) {
+      c.neg = conv(top["부정"]);
+      c.negN = totalOf(top["부정"], c.negN);
+    }
+  }
+  x.unjudged = 0; // 수정본은 담당자가 확정한 최종본
+  x.rev = rev.name;
+  return x;
+}
+
 async function dashData() {
+  const out = await dashDataRaw();
+  const { ksfPptRev } = await chrome.storage.local.get("ksfPptRev").catch(() => ({}));
+  if (out && ksfPptRev) out.d = dashWithRev(out.d, ksfPptRev);
+  return out;
+}
+
+async function dashDataRaw() {
   const rows = (await dbList("summary").catch(() => [])).filter((r) => r.stats?.kind === "dash");
   const { ksfDashLive } = await chrome.storage.local.get("ksfDashLive").catch(() => ({}));
   const withDate = (rec) => (rec ? { ...rec.stats, dateText: prettyDate(rec.date).slice(5) } : null);
