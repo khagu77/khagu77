@@ -134,7 +134,7 @@ function dashHtml(d, prev, banner, fluid = false) {
   </tr>
   <tr><td width="230" bgcolor="#002c5f" valign="bottom" style="width:230px;vertical-align:bottom;background:#002c5f;background-color:#002c5f;padding:0 14px 9px;border-radius:0 0 0 11px;"><div style="font-size:9px;line-height:1.2;color:#ffffff;letter-spacing:-0.1px;opacity:0.85;font-family:Arial,Helvetica,sans-serif;">By <b style="font-weight:800;font-style:italic;color:#ffffff;"><i style="font-style:italic;">LINESQUARE</i></b></div></td>
   <td align="right" bgcolor="#ffffff" style="vertical-align:bottom;text-align:right;padding:6px 12px 8px 6px;background:#ffffff;background-color:#ffffff;border-radius:0 0 11px 0;">
-    <div align="right" style="font-size:10px;color:#4a4f57;text-align:right;">※ <b>반응</b>: 게시글·댓글이 한 차종에 대해 한 이야기 1건 (한 글이 아반떼·그랜저를 함께 말하면 2건) · <b>성향</b>: 코세페에 대한 태도 기준 · <b>주요 내용</b>: 많이 나온 이야기 순 (건수 · 해당 차종 긍정(부정) 반응 중 비중)${prev ? ` · <span style="color:#d93025;font-weight:700;">▲</span><span style="color:#1a5fd0;font-weight:700;">▼</span> ${desc(prev.dateText)} 대비` : ""}</div>
+    <div align="right" style="font-size:10px;line-height:1.5;color:#4a4f57;text-align:right;${fluid ? "" : `width:${W - 8}px;margin-left:auto;`}">※ <b>반응</b>: 게시글·댓글이 한 차종에 대해 한 이야기 1건 (한 글이 아반떼·그랜저를 함께 말하면 2건) · <b>성향</b>: 코세페에 대한 태도 기준<br>※ <b>주요 내용</b>: 많이 나온 이야기 순 (건수 · 해당 차종 긍정(부정) 반응 중 비중)${prev ? ` · <span style="color:#d93025;font-weight:700;">▲</span><span style="color:#1a5fd0;font-weight:700;">▼</span> ${desc(prev.dateText)} 대비` : ""}</div>
   </td></tr>
 </table></div>`;
 }
