@@ -114,7 +114,7 @@ a { color: var(--brand-2); }
 .tool { color: #fff; text-decoration: none; font-size: 13px; padding: 6px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.14); border: 1px solid rgba(255, 255, 255, 0.25); }
 .tool:hover { background: rgba(255, 255, 255, 0.24); }
 nav.menu { display: flex; gap: 4px; margin-top: 18px; flex-wrap: wrap; }
-nav.menu a, nav.menu span {
+nav.menu > a, nav.menu > span {
   color: #dfe6ff;
   text-decoration: none;
   padding: 10px 16px;
@@ -126,7 +126,7 @@ nav.menu a, nav.menu span {
 nav.menu a.on { background: var(--bg); color: var(--text); }
 nav.menu a:hover:not(.on) { background: rgba(8, 18, 48, 0.7); }
 nav.menu .soon { opacity: 0.55; cursor: not-allowed; font-weight: 500; }
-nav.menu .num { display: inline-block; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; margin-right: 6px; }
+nav.menu .num { display: inline-block; padding: 0; flex: none; border-radius: 50%; background: var(--accent); width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; margin-right: 6px; }
 @media (max-width: 900px) {
   .topbar-in { padding: 18px 16px 0; }
   .topbar::before { background: rgba(6, 14, 38, 0.55); }
@@ -298,3 +298,29 @@ h2.dbtitle .dbsub { font-size: 13.5px; font-weight: 600; opacity: 0.85; }
 .bars .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
 .bars .n { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
 .empty { color: var(--muted); padding: 20px; text-align: center; }
+
+/* ---------------------------------------------------------------- 👁 조회수 💬 댓글수 🔥 뱃지 (온라인 오전 일일동향과 같은 규칙) */
+.counts { display: inline-flex; align-items: center; gap: 2px; margin-right: 8px; padding: 1px 8px; border-radius: 7px; background: var(--surface); border: 1.5px solid var(--line); font-size: 12.5px; font-weight: 600; color: var(--text-2); white-space: nowrap; font-variant-numeric: tabular-nums; vertical-align: middle; }
+.counts.hot { border-color: #d0302f; color: #d0302f; font-weight: 800; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .counts.hot { border-color: #ff6b5f; color: #ff6b5f; } }
+td.url { white-space: nowrap; }
+td.url a { vertical-align: middle; }
+
+/* ---------------------------------------------------------------- 작업 중 막대 (common.js showWork) */
+.workbar { position: fixed; top: 0; left: 0; right: 0; z-index: 9000; background: var(--brand); color: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); }
+.workbar-track { height: 6px; background: rgba(255, 255, 255, 0.2); overflow: hidden; }
+.workbar-fill { height: 100%; width: 0; background: repeating-linear-gradient(45deg, #c9a46b 0 12px, #e8cfa3 12px 24px); background-size: 34px 34px; animation: busy-stripes 0.8s linear infinite; transition: width 0.4s; }
+.workbar-text { padding: 8px 16px; font-weight: 700; font-size: 13.5px; }
+body.working { padding-top: 46px; }
+body.working nav.menu a { pointer-events: none; opacity: 0.45; }
+
+/* 설정 칸 */
+details.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 20px; margin-bottom: 18px; }
+details.panel > summary { font-size: 16px; }
+details.sub { margin: 8px 0; }
+table.compact td, table.compact th { padding: 3px 8px; font-size: 12.5px; }
+.tablewrap { max-height: 70vh; overflow: auto; }
+details.sub .tablewrap { max-height: 320px; }
+.log .err { color: var(--err); }
+code { background: var(--surface-2); padding: 0 4px; border-radius: 4px; }
+.direct-badge { background: var(--brand); color: #fff; font-weight: 700; font-size: 13px; padding: 4px 12px; border-radius: 999px; white-space: nowrap; }

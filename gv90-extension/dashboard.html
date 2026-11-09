@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GV90 대시보드</title>
+  <link rel="icon" href="icons/icon32.png">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div id="workBar" class="workbar" hidden>
+    <div class="workbar-track"><div id="workBarFill" class="workbar-fill"></div></div>
+    <div id="workBarText" class="workbar-text"></div>
+  </div>
+  <header class="topbar">
+    <div class="topbar-in">
+      <div class="brand">
+        <img src="icons/logo-gv90.png" alt="GV90" class="logo">
+        <h1>GV90(JG1) 온라인 게시물 일일 수집<span class="sub">대시보드 — 데일리 DB 기준 일자별 동향 · 채널 · 성향 · 주목 게시물</span></h1>
+        <span class="ver" id="ver"></span>
+        <div class="tools"><a class="tool" href="gv90.html#settings">⚙ 설정</a></div>
+      </div>
+      <nav class="menu">
+        <a href="gv90.html"><span class="num">1</span>🔍 게시물 수집</a>
+        <a href="db.html"><span class="num">2</span>🗄 데일리 DB</a>
+        <a href="dashboard.html" class="on"><span class="num">3</span>📊 대시보드</a>
+        <span class="soon" title="댓글 수집·댓글 성향 분석은 다음 단계에서 붙입니다"><span class="num">4</span>💬 댓글 수집 (준비 중)</span>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <div class="row">
+      <label class="inline">기간 <select id="period"><option value="7">최근 7 보고일</option><option value="30" selected>최근 30 보고일</option><option value="90">최근 90 보고일</option><option value="0">전체</option></select></label>
+      <label class="inline">채널 <select id="chFilter"><option value="">전체</option><option>언론</option><option>유튜브</option><option>동호회</option><option>자동차 커뮤니티</option></select></label>
+      <span class="hint" id="asof"></span>
+    </div>
+
+    <div class="tiles" id="tiles"></div>
+
+    <section style="margin-top:18px">
+      <h2>보고일별 게시물 · 성향</h2>
+      <div class="legend" id="trendLegend"></div>
+      <div class="chart" id="trend"></div>
+    </section>
+
+    <div class="grid2">
+      <section>
+        <h2>채널별 · 성향</h2>
+        <div class="bars" id="byChannel"></div>
+      </section>
+      <section>
+        <h2>구분(이슈)별 · 성향</h2>
+        <div class="bars" id="byCategory"></div>
+      </section>
+      <section>
+        <h2>커뮤니티별 게시물 (상위 12)</h2>
+        <div class="bars" id="byCommunity"></div>
+      </section>
+      <section>
+        <h2>💬 댓글 · 댓글 성향</h2>
+        <div id="commentBox"></div>
+      </section>
+    </div>
+
+    <section style="margin-top:18px">
+      <h2>🔥 주목 게시물 <span class="hint">(조회·댓글 많은 순 · 조회 1,000 이상 · 댓글 20개 이상 · 강한 비판은 빨간 뱃지)</span></h2>
+      <div class="tablewrap"><table id="hotTable"><thead><tr><th>보고일</th><th>채널</th><th>커뮤니티명</th><th>URL</th><th>주요 내용</th><th>구분</th><th>성향</th></tr></thead><tbody></tbody></table></div>
+    </section>
+
+    <section>
+      <h2>최근 부정 · 단순비난 게시물</h2>
+      <div class="tablewrap"><table id="negTable"><thead><tr><th>보고일</th><th>채널</th><th>커뮤니티명</th><th>URL</th><th>주요 내용</th><th>구분</th><th>성향</th></tr></thead><tbody></tbody></table></div>
+    </section>
+    <div class="tip" id="tip" hidden></div>
+  </main>
+  <script src="gv90-settings.js"></script>
+  <script src="common.js"></script>
+  <script src="celebrate.js"></script>
+  <script src="gv90-analyze.js"></script>
+  <script src="gv90-db.js"></script>
+  <script src="gv90-ui.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>

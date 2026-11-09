@@ -6,7 +6,10 @@
 //  comments 댓글(확장용) { key, postKey, url, channel, media, car, date, text, sentiment, category, summary, by, day, serial }
 //  days     수집일 { day, from, to, savedAt, fileName, stats:{ posts, byChannel, bySentiment, byCategory, comments } }
 //  files    그날 만든 엑셀 { key:'day:YYYYMMDD', day, name, bytes }
-//  kv       설정(저장 폴더 등) { key, ... }  ← channels.js 의 getSaveDir/pickSaveDir 이 dbTx 로 씀
+//  runs     수집 회차 { id, startedAt, finishedAt, range:{start,end}, auto, holiday('토요일' 등 · 근무일이면 ""), reportedAt, items }
+//           ← 온라인 오전 일일동향처럼 휴일 수집분을 다음 근무일 엑셀에 합칠 때 씀
+//  kv       설정(저장 폴더 등) { key, ... }
+//  게시물에는 조회수(views)·댓글 수(ccount)·강한 비판(harsh)도 같이 둔다 (결과 표·대시보드 👁 💬 🔥)
 
 const GV_DB_NAME = "gv90Db";
 const GV_DB_VERSION = 1;
@@ -32,6 +35,7 @@ function gvDb() {
         if (!db.objectStoreNames.contains("days")) db.createObjectStore("days", { keyPath: "day" });
         if (!db.objectStoreNames.contains("files")) db.createObjectStore("files", { keyPath: "key" });
         if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv", { keyPath: "key" });
+        if (!db.objectStoreNames.contains("runs")) db.createObjectStore("runs", { keyPath: "id" });
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -54,9 +58,41 @@ async function gvTx(stores, mode, fn) {
   });
 }
 
-// channels.js(저장 폴더)가 쓰는 모양: kv 저장소
-function dbTx(mode, fn) {
-  return gvTx("kv", mode, fn);
+// kv 저장소 (저장 폴더 핸들 등)
+async function kvGet(key) {
+  return (await gvTx("kv", "readonly", (s) => s.get(key)))?.value;
+}
+async function kvSet(key, value) {
+  await gvTx("kv", "readwrite", (s) => s.put({ key, value }));
+}
+async function kvDelete(key) {
+  await gvTx("kv", "readwrite", (s) => s.delete(key));
+}
+
+// ---------------------------------------------------------------------------
+// 수집 회차 (온라인 오전 일일동향의 '데일리 DB' 회차처럼)
+// ---------------------------------------------------------------------------
+
+async function saveRun(run) {
+  await gvTx("runs", "readwrite", (s) => s.put(run));
+  // 오래된 회차는 60개까지만 (게시물은 posts 에 따로 남아 있음)
+  const all = (await getAll("runs")).sort((a, b) => b.finishedAt - a.finishedAt);
+  if (all.length > 60) await gvTx("runs", "readwrite", (s) => all.slice(60).forEach((r) => s.delete(r.id)));
+}
+
+async function listRuns() {
+  return (await getAll("runs")).sort((a, b) => a.finishedAt - b.finishedAt);
+}
+
+// 아직 엑셀에 담지 않은 회차 (지난 보고 이후 · 최근 10일까지만)
+async function pendingRuns(lastReportAt = 0) {
+  const since = Math.max(lastReportAt, Date.now() - 10 * 86400000);
+  return (await listRuns()).filter((r) => !r.reportedAt && r.finishedAt > since && (r.items || []).length);
+}
+
+async function markRunsReported(ids, at = Date.now()) {
+  const runs = await getAll("runs");
+  await gvTx("runs", "readwrite", (s) => runs.filter((r) => ids.includes(r.id)).forEach((r) => s.put({ ...r, reportedAt: at })));
 }
 
 const getAll = (store, index, value) => gvTx(store, "readonly", (s) => (index ? s.index(index).getAll(value) : s.getAll()));
@@ -251,15 +287,17 @@ async function exportBackup() {
     posts: await getAll("posts"),
     comments: await getAll("comments"),
     days: await getAll("days"),
+    runs: await getAll("runs"),
   };
 }
 
 async function importBackup(data) {
   if (!data || data.app !== "gv90") throw new Error("GV90 수집기 백업 파일이 아닙니다.");
-  await gvTx(["posts", "comments", "days"], "readwrite", (st) => {
+  await gvTx(["posts", "comments", "days", "runs"], "readwrite", (st) => {
     (data.posts || []).forEach((p) => st.posts.put(p));
     (data.comments || []).forEach((c) => st.comments.put(c));
     (data.days || []).forEach((d) => st.days.put(d));
+    (data.runs || []).forEach((r) => st.runs.put(r));
   });
   return { posts: (data.posts || []).length, comments: (data.comments || []).length, days: (data.days || []).length };
 }

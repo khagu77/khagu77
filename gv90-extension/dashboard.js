@@ -1,0 +1,229 @@
+// GV90 대시보드: 데일리 DB(게시물·댓글·보고일) 기준
+//  - 숫자 칸: 최근 보고일 게시물(전일 대비 ▲▼) · 부정+단순비난 비율 · 누적 · 주목 게시물
+//  - 보고일별 성향 누적 막대(마우스를 올리면 그날 숫자), 채널·구분·커뮤니티별 막대, 주목 게시물·최근 부정 게시물 표
+//  - 색: 성향 4가지(긍정 파랑 · 중립 회색 · 부정 빨강 · 단순비난 보라)만 쓰고, 글자는 글자색으로 (색만으로 구분하지 않게 숫자·이름 함께)
+
+const SENT_VAR = { 긍정: "--pos", 중립: "--neu", 부정: "--neg", 단순비난: "--blame" };
+const cssVar = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const NS = "http://www.w3.org/2000/svg";
+
+function svgEl(tag, attrs = {}) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  return e;
+}
+
+const tip = () => $("#tip");
+function showTip(e, title, rows) {
+  const t = tip();
+  t.textContent = "";
+  t.append(el("b", { text: title }), ...rows.map(([k, v, color]) => el("div", { class: "r" }, el("span", {}, color ? el("i", { style: `display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;background:${color}` }) : null, k), el("span", { text: v }))));
+  t.hidden = false;
+  const x = Math.min(window.innerWidth - t.offsetWidth - 12, e.clientX + 14);
+  t.style.left = `${x}px`;
+  t.style.top = `${e.clientY + 14}px`;
+}
+const hideTip = () => (tip().hidden = true);
+
+let data = null;
+
+async function load() {
+  const days = (await listDays()).slice().reverse(); // 오래된 날 → 최근
+  const posts = await allPosts();
+  const comments = await allComments();
+  data = { days, posts, comments };
+  render();
+}
+
+function render() {
+  const n = +$("#period").value;
+  const ch = $("#chFilter").value;
+  const days = n ? data.days.slice(-n) : data.days;
+  const daySet = new Set(days.map((d) => d.day));
+  const posts = data.posts.filter((p) => daySet.has(p.day) && (!ch || p.channel === ch));
+  const comments = data.comments.filter((c) => daySet.has(c.day));
+  $("#asof").textContent = days.length ? `${prettyDay(days[0].day)} ~ ${prettyDay(days[days.length - 1].day)} · 보고일 ${days.length}일 · 게시물 ${posts.length.toLocaleString()}건` : "데일리 DB 에 보고일이 없습니다";
+  renderTiles(days, posts, ch);
+  renderTrend(days, posts);
+  renderBars("#byChannel", group(posts, (p) => p.channel), CHANNELS);
+  renderBars("#byCategory", group(posts, (p) => p.category || "일반"), CATEGORIES);
+  renderBars("#byCommunity", group(posts, (p) => p.media || "-"), null, 12);
+  renderComments(comments);
+  renderTable("#hotTable", posts.filter((p) => p.views != null || p.ccount != null).sort((a, b) => (b.ccount || 0) * 50 + (b.views || 0) - ((a.ccount || 0) * 50 + (a.views || 0))).slice(0, 15));
+  renderTable("#negTable", posts.filter((p) => p.sentiment === "부정" || p.sentiment === "단순비난").sort((a, b) => b.day.localeCompare(a.day) || (b.date || 0) - (a.date || 0)).slice(0, 20));
+}
+
+function group(list, keyFn) {
+  const m = new Map();
+  for (const p of list) {
+    const k = keyFn(p);
+    if (!m.has(k)) m.set(k, Object.fromEntries(SENTIMENTS.map((s) => [s, 0])));
+    const g = m.get(k);
+    g[p.sentiment || "중립"] = (g[p.sentiment || "중립"] || 0) + 1;
+  }
+  return m;
+}
+
+const total = (g) => SENTIMENTS.reduce((s, x) => s + (g[x] || 0), 0);
+const badOf = (g) => (g.부정 || 0) + (g.단순비난 || 0);
+
+function tile(k, v, d, cls = "") {
+  return el("div", { class: `tile ${cls}` }, el("div", { class: "k", text: k }), el("div", { class: "v", text: v }), d ? el("div", { class: "d" }, d) : null);
+}
+
+function diffEl(now, before) {
+  if (before == null) return el("span", { class: "diff none", text: "전 기록 없음" });
+  const d = now - before;
+  return el("span", { class: `diff ${d > 0 ? "up" : d < 0 ? "down" : "none"}`, text: `${d > 0 ? `▲ ${d}` : d < 0 ? `▼ ${-d}` : "– 0"} (전 보고일 대비)` });
+}
+
+function renderTiles(days, posts, ch) {
+  const box = $("#tiles");
+  box.textContent = "";
+  const last = days[days.length - 1];
+  const prev = days[days.length - 2];
+  const cnt = (d) => (d ? (ch ? d.stats?.byChannel?.[ch] || 0 : d.stats?.posts || 0) : null);
+  const lastPosts = last ? posts.filter((p) => p.day === last.day) : [];
+  const g = Object.fromEntries(SENTIMENTS.map((s) => [s, posts.filter((p) => p.sentiment === s).length]));
+  const lastBad = lastPosts.filter((p) => p.sentiment === "부정" || p.sentiment === "단순비난").length;
+  const prevBad = prev ? data.posts.filter((p) => p.day === prev.day && (!ch || p.channel === ch) && (p.sentiment === "부정" || p.sentiment === "단순비난")).length : null;
+  box.append(
+    tile(last ? `${prettyDay(last.day)} 보고 게시물` : "최근 보고 게시물", last ? `${cnt(last).toLocaleString()}건` : "-", last ? diffEl(cnt(last), cnt(prev)) : null),
+    tile("그날 부정 + 단순비난", last ? `${lastBad}건` : "-", last ? diffEl(lastBad, prevBad) : null),
+    tile("기간 부정 + 단순비난 비율", posts.length ? `${Math.round((badOf(g) / posts.length) * 100)}%` : "-", el("span", { text: `부정 ${g.부정} · 단순비난 ${g.단순비난} / ${posts.length}건` })),
+    tile("기간 긍정 비율", posts.length ? `${Math.round((g.긍정 / posts.length) * 100)}%` : "-", el("span", { text: `긍정 ${g.긍정}건 · 중립 ${g.중립}건` })),
+    tile("🔥 주목 게시물", `${posts.filter(isHot).length}건`, el("span", { text: "조회 1,000↑ · 댓글 20↑ · 강한 비판" })),
+    tile("누적 게시물 (데일리 DB 전체)", `${data.posts.length.toLocaleString()}건`, el("span", { text: `보고일 ${data.days.length}일` })),
+  );
+}
+
+// 보고일별 성향 누적 막대 (막대 사이 2px · 위쪽 끝만 둥글게 · 마우스를 올리면 그날 숫자)
+function renderTrend(days, posts) {
+  const leg = $("#trendLegend");
+  leg.textContent = "";
+  for (const s of SENTIMENTS) leg.append(el("span", {}, el("i", { style: `background:var(${SENT_VAR[s]})` }), s));
+  const box = $("#trend");
+  box.textContent = "";
+  if (!days.length) return box.append(el("div", { class: "empty", text: "데일리 DB 에 보고일이 없습니다. 수집 화면에서 '엑셀 만들기'를 누르면 쌓입니다." }));
+  const byDay = new Map(days.map((d) => [d.day, Object.fromEntries(SENTIMENTS.map((s) => [s, 0]))]));
+  for (const p of posts) if (byDay.has(p.day)) byDay.get(p.day)[p.sentiment || "중립"]++;
+  const W = 960;
+  const H = 260;
+  const pad = { l: 36, r: 8, t: 12, b: 28 };
+  const max = Math.max(1, ...[...byDay.values()].map(total));
+  const step = niceStep(max);
+  const top = Math.ceil(max / step) * step;
+  const iw = W - pad.l - pad.r;
+  const ih = H - pad.t - pad.b;
+  const bw = Math.max(4, Math.min(36, iw / days.length - 4));
+  const svg = svgEl("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "보고일별 게시물 성향 막대 차트" });
+  const grid = svgEl("g", { class: "grid" });
+  for (let v = 0; v <= top; v += step) {
+    const y = pad.t + ih - (v / top) * ih;
+    grid.append(svgEl("line", { x1: pad.l, x2: W - pad.r, y1: y, y2: y, "stroke-width": 1 }));
+    const t = svgEl("text", { x: pad.l - 6, y: y + 4, "text-anchor": "end" });
+    t.textContent = v;
+    grid.append(t);
+  }
+  svg.append(grid);
+  const labelEvery = Math.ceil(days.length / 12);
+  days.forEach((d, i) => {
+    const g = byDay.get(d.day);
+    const cx = pad.l + (iw / days.length) * (i + 0.5);
+    let y = pad.t + ih;
+    const segs = SENTIMENTS.filter((s) => g[s]);
+    segs.forEach((s, j) => {
+      const h = (g[s] / top) * ih;
+      const last = j === segs.length - 1;
+      const rect = svgEl(last ? "path" : "rect", last ? { d: roundTop(cx - bw / 2, y - h, bw, Math.max(0, h - (j ? 2 : 0)), Math.min(4, bw / 2)), fill: `var(${SENT_VAR[s]})` } : { x: cx - bw / 2, y: y - h + (j ? 0 : 0), width: bw, height: Math.max(0, h - 2), fill: `var(${SENT_VAR[s]})` });
+      svg.append(rect);
+      y -= h;
+    });
+    if (i % labelEvery === 0 || i === days.length - 1) {
+      const t = svgEl("text", { x: cx, y: H - 8, "text-anchor": "middle", class: "axis" });
+      t.textContent = `${+d.day.slice(4, 6)}/${+d.day.slice(6, 8)}`;
+      svg.append(t);
+    }
+    // 마우스 영역 (막대보다 넓게)
+    const hit = svgEl("rect", { x: pad.l + (iw / days.length) * i, y: pad.t, width: iw / days.length, height: ih, fill: "transparent" });
+    hit.addEventListener("mousemove", (e) => showTip(e, `${prettyDay(d.day)} 보고 · ${total(g)}건`, SENTIMENTS.map((s) => [s, `${g[s]}건`, cssVar(SENT_VAR[s])])));
+    hit.addEventListener("mouseleave", hideTip);
+    svg.append(hit);
+  });
+  // 마지막 날 합계 글자
+  const lastG = byDay.get(days[days.length - 1].day);
+  const lx = pad.l + (iw / days.length) * (days.length - 0.5);
+  const lt = svgEl("text", { x: lx, y: pad.t + ih - (total(lastG) / top) * ih - 6, "text-anchor": "middle", style: "font-weight:700" });
+  lt.textContent = total(lastG);
+  svg.append(lt);
+  box.append(svg);
+}
+
+function niceStep(max) {
+  const raw = max / 4;
+  const p = 10 ** Math.floor(Math.log10(raw || 1));
+  return [1, 2, 5, 10].map((m) => m * p).find((s) => s >= raw) || p * 10;
+}
+
+// 위쪽 모서리만 둥근 막대
+function roundTop(x, y, w, h, r) {
+  if (h <= 0) return "";
+  r = Math.min(r, h);
+  return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
+}
+
+// 가로 막대 (성향별 조각 · 조각 사이 2px · 이름·건수 글자)
+function renderBars(sel, groups, order, limit = 0) {
+  const box = $(sel);
+  box.textContent = "";
+  let keys = order ? order.filter((k) => groups.has(k)) : [...groups.keys()];
+  if (!order) keys.sort((a, b) => total(groups.get(b)) - total(groups.get(a)));
+  if (limit) keys = keys.slice(0, limit);
+  if (!keys.length) return box.append(el("div", { class: "empty", text: "자료 없음" }));
+  const max = Math.max(...keys.map((k) => total(groups.get(k))));
+  for (const k of keys) {
+    const g = groups.get(k);
+    const n = total(g);
+    const track = el("div", { class: "track" });
+    const inner = el("div", { style: `display:flex;gap:2px;height:100%;width:${(n / max) * 100}%` });
+    for (const s of SENTIMENTS) if (g[s]) inner.append(el("div", { class: "seg", style: `flex:${g[s]};background:var(${SENT_VAR[s]})` }));
+    track.append(inner);
+    const row = el("div", { class: "bar-row" }, el("div", { class: "name", title: k, text: k }), track, el("div", { class: "n", text: n.toLocaleString() }));
+    row.addEventListener("mousemove", (e) => showTip(e, `${k} · ${n}건 (부정+단순비난 ${Math.round((badOf(g) / n) * 100)}%)`, SENTIMENTS.map((s) => [s, `${g[s]}건`, cssVar(SENT_VAR[s])])));
+    row.addEventListener("mouseleave", hideTip);
+    box.append(row);
+  }
+}
+
+function renderComments(comments) {
+  const box = $("#commentBox");
+  box.textContent = "";
+  if (!comments.length) {
+    box.append(el("div", { class: "empty" }, "댓글 수집은 준비 중입니다.", el("br"), el("span", { class: "hint", text: "데일리 DB·엑셀('댓글' 시트)·이 칸은 이미 준비되어 있어, 댓글 수집을 붙이면 댓글 수와 댓글 성향이 여기에 바로 나옵니다." })));
+    return;
+  }
+  renderBars("#commentBox", group(comments, (c) => c.channel || "-"), CHANNELS);
+}
+
+function renderTable(sel, list) {
+  const tb = $(`${sel} tbody`);
+  tb.textContent = "";
+  if (!list.length) return tb.append(el("tr", {}, el("td", { colspan: 7, class: "empty", text: "해당 게시물 없음" })));
+  for (const p of list) {
+    tb.append(
+      el("tr", {},
+        el("td", { class: "nowrap", text: prettyDay(p.day).slice(5) }),
+        el("td", {}, chChip(p.channel)),
+        el("td", { class: "nowrap", text: p.media }),
+        el("td", { class: "url" }, countsBadge(p), el("a", { href: p.url, target: "_blank", text: p.url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 40) })),
+        el("td", { text: p.summary || p.title }),
+        el("td", { class: "nowrap", text: p.category || "" }),
+        el("td", {}, sentiChip(p.sentiment)),
+      ),
+    );
+  }
+}
+
+$("#period").addEventListener("change", render);
+$("#chFilter").addEventListener("change", render);
+const dashInit = load();
