@@ -97,6 +97,7 @@
     headNavy: 18, headPos: 19, headNeu: 20, headNeg: 21, headBlame: 22, // 일자별 집계 머리글 (흰 굵은 글씨 · 바탕색)
     total: 23, link: 24, text: 25, bold: 26,
     postText: 27, postLink: 28, // 게시글별 댓글 시트의 게시글 줄 (회색 바탕)
+    commentText: 29, replyText: 30, // 댓글은 2칸, 대댓글은 5칸 들여쓰기 (대댓글은 회색 글자)
   };
   const SENTI_S = { 긍정: "pos", 중립: "neu", 부정: "neg", 단순비난: "blame" };
   const FONT = '<name val="현대산스 Text"/><family val="3"/><charset val="129"/>';
@@ -107,7 +108,8 @@
       colors.map((c) => `<font><b/><sz val="10"/><color rgb="${c}"/>${FONT}</font>`).join("") + // 8~11
       `<font><b/><sz val="10"/><color rgb="FFFFFFFF"/>${FONT}</font>` + // 12 흰 굵은
       `<font><b/><sz val="10"/><color theme="1"/>${FONT}</font>` + // 13 검정 굵은
-      `<font><u/><sz val="10"/><color rgb="FF0563C1"/>${FONT}</font>`; // 14 링크
+      `<font><u/><sz val="10"/><color rgb="FF0563C1"/>${FONT}</font>` + // 14 링크
+      `<font><sz val="10"/><color rgb="FF555555"/>${FONT}</font>`; // 15 대댓글 회색
     const fills = ["FF002C5F", ...colors, "FFF2F2F2"].map((c) => `<fill><patternFill patternType="solid"><fgColor rgb="${c}"/><bgColor indexed="64"/></patternFill></fill>`).join(""); // 4 남색 · 5~8 성향 · 9 회색
     const xf = (font, fill, h, extra = "") =>
       `<xf numFmtId="0" fontId="${font}" fillId="${fill}" borderId="1" xfId="0" applyFont="1" applyBorder="1"${fill ? ' applyFill="1"' : ""} applyAlignment="1"><alignment horizontal="${h}" vertical="center"${extra}/></xf>`;
@@ -119,13 +121,15 @@
       xf(4, 0, "left", ' indent="1"') + // 25 주요 내용
       xf(13, 0, "center") + // 26 굵은 가운데
       xf(13, 9, "left", ' indent="1"') + // 27 게시글 줄 글자
-      xf(14, 9, "left", ' indent="1"'); // 28 게시글 줄 링크
+      xf(14, 9, "left", ' indent="1"') + // 28 게시글 줄 링크
+      xf(4, 0, "left", ' indent="2"') + // 29 댓글 (2칸 들여쓰기)
+      xf(15, 0, "left", ' indent="5"'); // 30 대댓글 (5칸 들여쓰기 · 회색)
     const firstFont = '<font><sz val="11"/><color theme="1"/><name val="맑은 고딕"/><family val="2"/><charset val="129"/><scheme val="minor"/></font>';
     return base
       .replace(firstFont, `<font><sz val="10"/><color theme="1"/>${FONT}</font>`) // 기본 글꼴
-      .replace(/<fonts count="8"([^>]*)>([\s\S]*?)<\/fonts>/, (all, attrs, inner) => `<fonts count="15"${attrs}>${inner}${fonts}</fonts>`)
+      .replace(/<fonts count="8"([^>]*)>([\s\S]*?)<\/fonts>/, (all, attrs, inner) => `<fonts count="16"${attrs}>${inner}${fonts}</fonts>`)
       .replace(/<fills count="4">([\s\S]*?)<\/fills>/, (all, inner) => `<fills count="10">${inner}${fills}</fills>`)
-      .replace(/<cellXfs count="14">([\s\S]*?)<\/cellXfs>/, (all, inner) => `<cellXfs count="29">${inner}${xfs}</cellXfs>`);
+      .replace(/<cellXfs count="14">([\s\S]*?)<\/cellXfs>/, (all, inner) => `<cellXfs count="31">${inner}${xfs}</cellXfs>`);
   }
 
   // excelSerial: 날짜만 (시각 버림)
@@ -335,8 +339,8 @@
         columns: COMMENT_COLUMNS,
         cursorEnd: true,
         filter: true,
-        rows: comments.map((c, i) => [i + 1, c.media || "", c.car || "GV90", asDate(c.date), c.category || "", c.url, c.text || "", c.sentiment || ""]),
-        cellStyle: sentiStyle(7),
+        rows: comments.map((c, i) => [i + 1, c.media || "", c.car || "GV90", asDate(c.date), c.category || "", c.url, c.isReply ? `↪ 답글: ${c.text || ""}` : c.text || "", c.sentiment || ""]),
+        cellStyle: (ri, ci, v) => (ci === 7 ? SENTI_S[v] : ci === 6 && comments[ri].isReply ? "replyText" : null),
       },
       {
         // 게시글 줄(회색 바탕 · 주요 내용과 댓글 성향 건수) 아래에 그 글의 댓글을 모두 나열하고 댓글마다 성향
@@ -364,8 +368,8 @@
             rows.push([`${pi + 1}`, p.media || "", p.url, `${p.summary || p.title || ""}   [댓글 ${list.length}개: ${cnt}]`, when(p.date, false), p.sentiment || ""]);
             kinds.push("post");
             list.forEach((c, ci) => {
-              rows.push([`${pi + 1}-${ci + 1}`, "", "", `${c.isReply ? "        ↪ 답글: " : "    ↳ "}${c.text || ""}`, when(c.date, true) || c.writtenAt || "", c.sentiment || ""]);
-              kinds.push("comment");
+              rows.push([`${pi + 1}-${ci + 1}`, "", "", `${c.isReply ? "↪ 답글: " : "↳ "}${c.text || ""}`, when(c.date, true) || c.writtenAt || "", c.sentiment || ""]);
+              kinds.push(c.isReply ? "reply" : "comment");
             });
           });
           return {
@@ -373,6 +377,7 @@
             cellStyle: (ri, ci, v) => {
               if (ci === 5) return SENTI_S[v] || "center";
               if (kinds[ri] === "post") return ci === 2 ? "postLink" : ci === 3 ? "postText" : "total";
+              if (ci === 3) return kinds[ri] === "reply" ? "replyText" : "commentText";
               return null;
             },
           };
