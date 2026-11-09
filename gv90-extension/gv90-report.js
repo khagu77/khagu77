@@ -11,7 +11,7 @@ const RP_CARD = { 언론: "#002c5f", 동호회: "#0a7f86", 유튜브: "#b5651d",
 const RP_FONT = "'Apple SD Gothic Neo','Malgun Gothic','맑은 고딕',sans-serif";
 // 메일 붙여 넣기용 배너는 인터넷 주소로 (그림을 글자로 담으면 그룹웨어 편집기가 붙여 넣기를 거부하는 경우가 있음)
 // 커밋 번호로 고정한 주소라 파일이 나중에 바뀌어도 보낸 메일의 그림은 그대로
-const RP_BANNER_URL = "https://raw.githubusercontent.com/khagu77/khagu77/400c464f74a3a35b9a017307c958dc2fe8c714e3/gv90-extension/icons/report-banner.jpg";
+const RP_BANNER_URL = "https://raw.githubusercontent.com/khagu77/khagu77/8b4909439d2f199aeb9ecbdfa55df5837d221cda/gv90-extension/icons/report-banner.jpg";
 
 const rpEsc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const pct = (n, d) => (d ? `${((n / d) * 100).toFixed(1)}%` : "0.0%");
