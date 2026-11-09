@@ -96,6 +96,7 @@
     pos: 14, neu: 15, neg: 16, blame: 17, // 성향 글자색 (굵게, 가운데)
     headNavy: 18, headPos: 19, headNeu: 20, headNeg: 21, headBlame: 22, // 일자별 집계 머리글 (흰 굵은 글씨 · 바탕색)
     total: 23, link: 24, text: 25, bold: 26,
+    postText: 27, postLink: 28, // 게시글별 댓글 시트의 게시글 줄 (회색 바탕)
   };
   const SENTI_S = { 긍정: "pos", 중립: "neu", 부정: "neg", 단순비난: "blame" };
   const FONT = '<name val="현대산스 Text"/><family val="3"/><charset val="129"/>';
@@ -116,13 +117,15 @@
       xf(13, 9, "center") + // 23 합계
       xf(14, 0, "left", ' indent="1"') + // 24 링크
       xf(4, 0, "left", ' indent="1"') + // 25 주요 내용
-      xf(13, 0, "center"); // 26 굵은 가운데
+      xf(13, 0, "center") + // 26 굵은 가운데
+      xf(13, 9, "left", ' indent="1"') + // 27 게시글 줄 글자
+      xf(14, 9, "left", ' indent="1"'); // 28 게시글 줄 링크
     const firstFont = '<font><sz val="11"/><color theme="1"/><name val="맑은 고딕"/><family val="2"/><charset val="129"/><scheme val="minor"/></font>';
     return base
       .replace(firstFont, `<font><sz val="10"/><color theme="1"/>${FONT}</font>`) // 기본 글꼴
       .replace(/<fonts count="8"([^>]*)>([\s\S]*?)<\/fonts>/, (all, attrs, inner) => `<fonts count="15"${attrs}>${inner}${fonts}</fonts>`)
       .replace(/<fills count="4">([\s\S]*?)<\/fills>/, (all, inner) => `<fills count="10">${inner}${fills}</fills>`)
-      .replace(/<cellXfs count="14">([\s\S]*?)<\/cellXfs>/, (all, inner) => `<cellXfs count="27">${inner}${xfs}</cellXfs>`);
+      .replace(/<cellXfs count="14">([\s\S]*?)<\/cellXfs>/, (all, inner) => `<cellXfs count="29">${inner}${xfs}</cellXfs>`);
   }
 
   // excelSerial: 날짜만 (시각 버림)
@@ -326,7 +329,6 @@
       byPost.get(c.postKey).push(c);
     }
     const postOf = new Map((posts || []).map((p) => [p.key, p]));
-    const pct = (n, d) => (d ? `${((n / d) * 100).toFixed(1)}%` : "-");
     const sheets = [
       {
         name: "댓글",
@@ -337,24 +339,44 @@
         cellStyle: sentiStyle(7),
       },
       {
+        // 게시글 줄(회색 바탕 · 주요 내용과 댓글 성향 건수) 아래에 그 글의 댓글을 모두 나열하고 댓글마다 성향
         name: "게시글별 댓글 성향",
-        filter: true,
         columns: [
+          { header: "No", width: 7, style: "center" },
           { header: "커뮤니티명", width: 18.5, style: "center" },
-          { header: "게시글 위치", width: 50, style: "link", link: true },
-          { header: "주요 내용", width: 50, style: "text" },
-          { header: "댓글", width: 8, style: "center" },
-          ...SENT.map((s) => ({ header: s, width: 9, style: "center", headStyle: { 긍정: "headPos", 중립: "headNeu", 부정: "headNeg", 단순비난: "headBlame" }[s] })),
-          { header: "부정+단순비난", width: 13, style: "center", headStyle: "headNavy" },
+          { header: "게시글 위치", width: 46, style: "link", link: true },
+          { header: "주요 내용 · 댓글", width: 80, style: "text" },
+          { header: "게시일 · 작성일", width: 15, style: "center" },
+          { header: "성향", width: 10, style: "center" },
         ],
-        // 성향 % 는 성향 색 글자, 부정+단순비난 30% 이상은 빨강
-        cellStyle: (ri, ci, v) => (ci >= 4 && ci <= 7 ? (v && v !== "0.0%" ? SENTI_S[SENT[ci - 4]] : "center") : ci === 8 && parseFloat(v) >= 30 ? "neg" : null),
-        rows: [...byPost.entries()].map(([k, list]) => {
-          const p = postOf.get(k) || list[0];
-          const n = list.length;
-          const cnt = (s) => list.filter((c) => c.sentiment === s).length;
-          return [p.media || "", p.url, p.summary || p.title || "", n, ...SENT.map((s) => pct(cnt(s), n)), pct(cnt("부정") + cnt("단순비난"), n)];
-        }),
+        ...(() => {
+          const rows = [];
+          const kinds = []; // "post" | "comment"
+          const p2 = (n) => String(n).padStart(2, "0");
+          const when = (ms, withTime) => {
+            if (!ms) return "";
+            const d = new Date(ms);
+            return `${p2(d.getMonth() + 1)}월 ${p2(d.getDate())}일${withTime ? ` ${p2(d.getHours())}:${p2(d.getMinutes())}` : ""}`;
+          };
+          [...byPost.entries()].forEach(([k, list], pi) => {
+            const p = postOf.get(k) || list[0];
+            const cnt = SENT.map((x) => `${x} ${list.filter((c) => c.sentiment === x).length}`).join(" · ");
+            rows.push([`${pi + 1}`, p.media || "", p.url, `${p.summary || p.title || ""}   [댓글 ${list.length}개: ${cnt}]`, when(p.date, false), p.sentiment || ""]);
+            kinds.push("post");
+            list.forEach((c, ci) => {
+              rows.push([`${pi + 1}-${ci + 1}`, "", "", `${c.isReply ? "        ↪ 답글: " : "    ↳ "}${c.text || ""}`, when(c.date, true) || c.writtenAt || "", c.sentiment || ""]);
+              kinds.push("comment");
+            });
+          });
+          return {
+            rows,
+            cellStyle: (ri, ci, v) => {
+              if (ci === 5) return SENTI_S[v] || "center";
+              if (kinds[ri] === "post") return ci === 2 ? "postLink" : ci === 3 ? "postText" : "total";
+              return null;
+            },
+          };
+        })(),
       },
     ];
     return build(sheets);
