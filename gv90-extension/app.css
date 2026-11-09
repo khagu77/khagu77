@@ -102,21 +102,22 @@ a { color: var(--brand-2); }
   /* 화면 폭 전체: 제목·메뉴는 배너 차량 바로 오른쪽에서 시작, 버튼은 오른쪽 끝 (넓은 화면에서 가운데로 몰리지 않게) */
   max-width: none;
   margin: 0;
-  padding: 26px 32px 0 340px;
-  min-height: 172px;
+  padding: 24px 32px 0 340px;
+  min-height: 180px; /* 띠 높이와 같게: 메뉴 탭이 띠 아래쪽에 딱 붙도록 (뜨지 않게) */
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
 }
-.brand { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 14px; flex-wrap: nowrap; padding-right: 250px; /* 오른쪽 위 버튼 자리 */ }
+.brand h1 { min-width: 0; }
 .brand .logo { width: 86px; height: auto; filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.35)); }
 .brand h1 { margin: 0; font-size: 22px; letter-spacing: -0.3px; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.4); }
 .brand .sub { display: block; font-size: 12.5px; font-weight: 500; opacity: 0.85; margin-top: 2px; }
 .ver { font-size: 12px; padding: 2px 8px; border: 1px solid rgba(255, 255, 255, 0.45); border-radius: 999px; }
-.tools { margin-left: auto; display: flex; gap: 8px; }
+/* 데일리 DB · 설정 버튼: 띠 오른쪽 위 모서리에 고정 (창이 좁아도 제목 줄에 밀려 내려가지 않게) */
+.tools { position: absolute; top: 24px; right: 32px; display: flex; gap: 8px; z-index: 1; }
 .tool { color: #fff; text-decoration: none; font-size: 13px; padding: 6px 12px; border-radius: 6px; background: rgba(255, 255, 255, 0.14); border: 1px solid rgba(255, 255, 255, 0.25); }
 .tool:hover { background: rgba(255, 255, 255, 0.24); }
-nav.menu { display: flex; gap: 4px; margin-top: 18px; flex-wrap: wrap; }
+nav.menu { display: flex; gap: 4px; margin-top: auto; padding-top: 14px; flex-wrap: nowrap; } /* 늘 띠 맨 아래에 한 줄로 붙음 */
 nav.menu > a, nav.menu > span {
   color: #dfe6ff;
   text-decoration: none;
@@ -130,8 +131,19 @@ nav.menu a.on { background: var(--bg); color: var(--text); }
 nav.menu a:hover:not(.on) { background: rgba(8, 18, 48, 0.7); }
 nav.menu .soon { opacity: 0.55; cursor: not-allowed; font-weight: 500; }
 nav.menu .num { display: inline-block; padding: 0; flex: none; border-radius: 50%; background: var(--accent); width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; margin-right: 6px; }
+/* 좁은 창: 작은 차 그림·설명 줄은 숨기고 제목은 한 줄로 */
+@media (max-width: 1240px) {
+  .brand .logo, .brand .sub { display: none; }
+  .brand h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (max-width: 1100px) {
+  .brand h1 { font-size: 19px; }
+  nav.menu > a, nav.menu > span { padding: 9px 11px; font-size: 13px; white-space: nowrap; }
+}
 @media (max-width: 900px) {
   .topbar-in { padding: 18px 16px 0; }
+  .brand { padding-right: 0; }
+  .tools { position: static; margin: 10px 0 0; }
   .topbar::before { background: rgba(6, 14, 38, 0.55); }
 }
 
