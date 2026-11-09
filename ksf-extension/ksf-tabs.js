@@ -373,6 +373,7 @@ async function writeReport() {
   if (running) return;
   if (!aiOn()) return askAlert("보고서 초안은 Claude AI 가 씁니다. ① 탭 아래 'Claude AI 설정'에서 API 키를 넣어 주세요. (키 없이도 아래 칸에 직접 써서 PPT 를 만들 수 있습니다)");
   if (!reactions().length) return setSummary("먼저 댓글을 모으고 성향을 분석해 주세요.", "err");
+  await ensureDistinctTops();
   const model = $("#aiModel").value;
   const pool = quotePool();
   const idMap = new Map();

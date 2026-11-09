@@ -1123,7 +1123,8 @@ const TONE_RULES = `[핵심 원칙]
   긍정: "저도 그생각이 났는데 사는입장에선 또 괜찮네요"
 - theme (주요 내용): tone 이 긍정·부정일 때만, 그 반응의 핵심 이유를 보고서 표에 들어갈 짧은 구절(8~25자)로.
   같은 이유는 같은 말로 씁니다. 예) 부정 "기존 구매자 대상 보상 지급 필요", "재고 처리·연말 실적용 할인으로 인식", "사전 계약자 역차별 불만",
-  "진작 가격 조정이 가능했다는 불신", "할인 폭이 작음" / 긍정 "이번 할인을 계기로 구매를 알아보게 됨", "구매자 입장에서 할인 혜택이 반가움".
+  "진작 가격 조정이 가능했다는 불신", "할인 폭이 작음" / 긍정 "60개월 무이자 보고 계약 결심", "계기판 무상 장착 혜택 반가움".
+  예시는 형식만 참고하고, 원문에 나온 구체적인 혜택·조건·트림·상황을 살려 씁니다 (어느 차종에나 붙는 일반 문구 금지).
   중립·단순비난이면 "".
 - reason (판단 근거): 왜 해당 차종·그 성향으로 봤는지 원문에 근거해 한 구절(10~40자). 예) "8/5 계약자로서 할인에 손해를 봤다며 제조사 탓", "회원 간 언쟁으로 코세페 평가 없음".
 - 정확성이 가장 중요합니다. 말투가 거칠어도 코세페에 대한 평가가 없으면 중립, 말투가 점잖아도 행사에 실망·불만이면 부정입니다.
@@ -1915,35 +1916,65 @@ async function relabelDuplicates(client, model, result, usage) {
   return n;
 }
 
-// 이미 정리한 TOP5 의 문구만 겹치지 않게 다시 쓰기 (묶음·개수는 그대로)
-async function relabelTops() {
-  if (running) return;
-  if (!aiOn()) return setSummary("AI 를 켜야 문구를 다시 쓸 수 있습니다.", "err");
-  if (!tops || tops.sig !== topsSig(reactions())) return setSummary("먼저 '주요 내용 TOP5 정리'를 해 주세요.", "err");
+function topsHaveDup(result) {
+  const seen = new Set();
+  for (const c of Object.values(result.cars)) for (const gs of Object.values(c)) for (const g of gs || []) {
+    if (/^기타/.test(g.label)) continue;
+    const k = normLabel(g.label);
+    if (seen.has(k)) return true;
+    seen.add(k);
+  }
+  return false;
+}
+
+// 지금 보이는 TOP5(정리했든 같은 문구끼리 묶었든)에서 차종끼리 같은 문구가 있으면 원문에 맞게 다르게 다시 써서 저장
+// 보고서·PPT·엑셀을 만들기 전에 저절로 부른다 (AI 를 켰을 때만)
+async function ensureDistinctTops({ quiet = true } = {}) {
+  if (!aiOn()) return { n: 0 };
+  const rs = reactions();
+  const cur = topThemes(rs);
+  const result = { by: cur.by === "rule" ? "rule" : "ai", cars: {}, at: tops?.at || Date.now() };
+  for (const car of targetCars()) {
+    result.cars[car] = {};
+    for (const tone of ["긍정", "부정"]) result.cars[car][tone] = (cur.cars[car]?.[tone] || []).map((g) => ({ label: g.label, keys: [...g.keys] }));
+  }
+  if (!topsHaveDup(result)) return { n: 0 };
   const model = $("#aiModel").value;
   const client = new Anthropic({ apiKey: $("#aiKey").value.trim(), dangerouslyAllowBrowser: true, maxRetries: 4 });
   const usage = { input: 0, output: 0 };
   startBusy();
-  showBusy("TOP5 문구 겹침 고치는 중", 0, 1, "TOP5 문구");
-  let n = 0;
-  let err = null;
-  const copy = JSON.parse(JSON.stringify(tops));
+  showBusy("차종별 TOP5 문구 겹침 고치는 중", 0, 1, "TOP5 문구");
   try {
-    n = await relabelDuplicates(client, model, copy, usage);
+    const n = await relabelDuplicates(client, model, result, usage);
+    if (n) {
+      result.sig = topsSig(rs);
+      tops = result;
+      await chrome.storage.local.set({ ksfTops: tops }).catch(() => {});
+    }
+    return { n, won: aiWonExact(usage.input, usage.output, model) };
   } catch (e) {
-    err = e;
+    if (!quiet) throw e;
+    return { n: 0, error: e };
+  } finally {
+    endBusy();
+    stopRequested = false;
+    renderStats();
+    if (typeof renderTabs === "function") renderTabs();
   }
-  endBusy();
-  stopRequested = false;
-  if (err) return setSummary(`문구를 다시 쓰지 못했습니다: ${aiErrorMessage(err)}`, "err");
-  if (n) {
-    tops = copy;
-    await chrome.storage.local.set({ ksfTops: tops }).catch(() => {});
-  }
-  renderStats();
-  if (typeof renderTabs === "function") renderTabs();
-  setSummary(n ? `✔ 겹치던 TOP5 문구 ${n}개를 차종별 원문에 맞게 다시 썼습니다 · 비용 ${fmtWon(aiWonExact(usage.input, usage.output, model))} · 보고서·PPT·엑셀은 다시 만들어 주세요` : "겹치는 TOP5 문구가 없습니다.", "ok");
 }
+
+// 이미 정리한 TOP5 의 문구만 겹치지 않게 다시 쓰기 (묶음·개수는 그대로)
+async function relabelTops() {
+  if (running) return;
+  if (!aiOn()) return setSummary("AI 를 켜야 문구를 다시 쓸 수 있습니다.", "err");
+  try {
+    const r = await ensureDistinctTops({ quiet: false });
+    setSummary(r.n ? `✔ 겹치던 TOP5 문구 ${r.n}개를 차종별 원문에 맞게 다시 썼습니다 · 비용 ${fmtWon(r.won)} · 보고서·PPT·엑셀은 다시 만들어 주세요` : "겹치는 TOP5 문구가 없습니다.", "ok");
+  } catch (e) {
+    setSummary(`문구를 다시 쓰지 못했습니다: ${aiErrorMessage(e)}`, "err");
+  }
+}
+
 
 // ---------------------------------------------------------------------------
 // 화면: 결과 표 · 차종별 현황
@@ -2527,6 +2558,7 @@ function dashSnapshot() {
 // 엑셀 만들기: 5개 파일을 만들어 데이터 DB 에 오늘 파일로 저장 → 📥 받기 버튼 반짝 + 알림음
 async function makeFiles() {
   if (running) return;
+  await ensureDistinctTops();
   const list = reportItems();
   if (!list.length) return setSummary("기간 안의 체크한 글이 없습니다.", "err");
   const unread = list.filter((x) => !x.bodyRead).length;
@@ -2588,6 +2620,7 @@ async function getFile(kind) {
 // 보고서 PPT 3p 채우기: 사용자가 고른 보고서 PPT 를 틀로 → 📥 PPT 받기 반짝
 async function savePpt() {
   if (running) return;
+  await ensureDistinctTops();
   const file = $("#pptFile").files[0];
   if (!file) {
     $("#pptInfo").className = "hint err";
