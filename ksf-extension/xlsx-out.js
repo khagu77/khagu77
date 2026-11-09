@@ -198,7 +198,7 @@ async function buildPostsXlsx(sheets, withSentiment = false) {
       if (!cf) return x;
       x = x.replace(/(<phoneticPr[^>]*\/>)/, `$1${cf}`);
       // 유형 구분 · 성향 열 너비
-      return x.replace(/<col min="6"[^>]*\/>/, "").replace("</cols>", '<col min="6" max="6" width="19" customWidth="1"/><col min="7" max="7" width="10" customWidth="1"/></cols>');
+      return x.replace(/<col min="6"[^>]*\/>/, "").replace("</cols>", `<col min="6" max="6" width="19" customWidth="1"/><col min="7" max="7" width="${fitWidth(sh.rows.map((p) => p.sentiment), 10, 24)}" customWidth="1"/></cols>`);
     });
     return { name: sh.name, links, filter: null, xml };
   });
@@ -279,7 +279,7 @@ async function buildCommentsXlsx(sheets, withSentiment = true) {
             `<col min="2" max="2" width="${fitWidth(sh.rows.map((c) => c.source), 10, 30)}" style="1" customWidth="1"/><col min="3" max="3" width="130" style="5" customWidth="1"/>` +
             `<col min="4" max="4" width="${fitWidth(sh.rows.map((c) => c.writtenAt), 12, 30)}" style="1" customWidth="1"/><col min="5" max="5" width="${fitWidth(sh.rows.map((c) => c.url), 20, 120)}" style="1" customWidth="1"/>` +
             (withSentiment
-              ? '<col min="6" max="6" width="19" style="18" customWidth="1"/><col min="7" max="7" width="10" style="18" customWidth="1"/><col min="8" max="16384" width="8.33203125" style="1"/></cols>'
+              ? `<col min="6" max="6" width="19" style="18" customWidth="1"/><col min="7" max="7" width="${fitWidth(sh.rows.map((c) => c.sentiment), 10, 24)}" style="18" customWidth="1"/><col min="8" max="16384" width="8.33203125" style="1"/></cols>`
               : '<col min="6" max="16384" width="8.33203125" style="1"/></cols>'),
         )
         // 성향 색(조건부 서식)도 맨 오른쪽 성향 열로 (성향 없는 파일은 지움)

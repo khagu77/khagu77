@@ -2471,8 +2471,13 @@ function carOrder(list) {
   return [...new Set(list)].sort((a, b) => (cars.indexOf(a) < 0 ? 99 : cars.indexOf(a)) - (cars.indexOf(b) < 0 ? 99 : cars.indexOf(b)));
 }
 
-// 게시물 리스트 (이슈 보고서 양식: No · 출처 · 제목 · 작성시간 · Link)
-// 로우데이터: 동호회 차종마다 시트 · 성향분석 포함: 반응 차종마다 시트(해당 차종에 대한 글의 성향)
+// 성향 엑셀: 시트는 동호회 차종 · 다른 차종에 대한 반응이면 성향 칸에 그 차종을 적는다 (예: "부정 (그랜저 언급)")
+function toneFor(r) {
+  return r.car === r.x.car ? r.tone : `${r.tone} (${r.car} 언급)`;
+}
+
+// 게시물 리스트 (이슈 보고서 양식: 연번 · 출처 · 제목 · 작성시간 · Link)
+// 로우데이터·성향분석 포함 모두 동호회 차종마다 시트
 async function makePostsFile(withSentiment = false) {
   const list = reportItems();
   const rowOf = (x, tone = "") => ({ source: x.cafeName, title: x.title, date: x.date, url: articleUrl(x), sentiment: tone, ptype: tone ? typeOf(x, `${x.title}\n${x.body || x.text || ""}`) : "" });
@@ -2482,8 +2487,8 @@ async function makePostsFile(withSentiment = false) {
     sheets = carOrder(list.map((x) => x.car)).map((car) => ({ name: car, rows: list.filter((x) => x.car === car).sort(byDate).map((x) => rowOf(x)) }));
   } else {
     const rs = reactions(list).filter((r) => !r.c);
-    sheets = carOrder(rs.map((r) => r.car)).map((car) => ({
-      name: car, rows: rs.filter((r) => r.car === car).map((r) => r.x).sort(byDate).map((x) => rowOf(x, postOps(x).find((o) => o.car === car)?.tone || "")),
+    sheets = carOrder(rs.map((r) => r.x.car)).map((car) => ({
+      name: car, rows: rs.filter((r) => r.x.car === car).sort((a, b) => byDate(a.x, b.x)).map((r) => rowOf(r.x, toneFor(r))),
     }));
   }
   if (!sheets.length) sheets = [{ name: "게시물", rows: [] }];
@@ -2491,7 +2496,7 @@ async function makePostsFile(withSentiment = false) {
 }
 
 // 댓글 (이슈 보고서 양식: 1행 제목 · 연번 · 출처(동호회명) · text · 작성일 · 게시글 URL (+ 유형 구분 · 성향))
-// 로우데이터: 동호회 차종마다 시트(댓글 한 줄씩) · 성향 분석: 반응 차종마다 시트(댓글 × 차종 한 줄씩)
+// 로우데이터: 동호회 차종마다 시트(댓글 한 줄씩) · 성향 분석: 동호회 차종마다 시트(댓글 × 반응 차종 한 줄씩)
 async function makeCommentsFile(withSentiment) {
   const list = reportItems();
   const rowOf = (x, c, tone = "") => ({
@@ -2507,7 +2512,7 @@ async function makeCommentsFile(withSentiment) {
   } else {
     const rs = reactions(list).filter((r) => r.c);
     sheets = carOrder(rs.map((r) => r.car)).map((car) => ({
-      name: car, title: `코세페_${car} 관련 댓글 성향 (댓글이 이야기한 차종 기준 · 다른 차종 동호회 댓글 포함)`, rows: rs.filter((r) => r.car === car).map((r) => rowOf(r.x, r.c, r.tone)),
+      name: car, title: `코세페_${car} 동호회 댓글 성향`, rows: rs.filter((r) => r.x.car === car).map((r) => rowOf(r.x, r.c, toneFor(r))),
     }));
   }
   if (!sheets.length) sheets = [{ name: "댓글", title: "코세페_동호회 댓글", rows: [] }];
