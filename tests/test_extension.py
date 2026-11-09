@@ -34,7 +34,8 @@ def take(page, sel, timeout=240000):
     """엑셀은 저절로 받지 않고, 준비되면 반짝이는(.ready) 받기 버튼을 눌러 받는다."""
     if sel == "#getList":  # 게시물 엑셀: 만들다 오류가 나면 바로 알려 줌
         for _ in range(int(timeout / 200)):
-            if page.locator(f"{sel}.ready").count() or "만들지 못했습니다" in page.inner_text("#saveInfo"):
+            t = page.inner_text("#saveInfo")
+            if page.locator(f"{sel}.ready").count() or "만들지 못했습니다" in t or "바로 저장했습니다" in t:
                 break
             page.wait_for_timeout(200)
         assert "만들지 못했습니다" not in page.inner_text("#saveInfo"), page.inner_text("#saveInfo")
@@ -799,7 +800,8 @@ def test_final_db(tmp_path: Path):
         wb.save(fixed)
         db_upload("buzz", 0, fixed)
         assert "직접 올림" in db_rows("buzz")[0] and "마지막 순번 10" in db_rows("buzz")[0]
-        assert "게시물 3건" in db_rows("buzz")[0]  # 수정본을 올려도 그날 수집 건수는 그대로
+        # 수정본을 올리면 그날 건수를 파일에서 다시 셈 (전날 파일 마지막 순번 2 뒤의 행: 3·4·10 → 3건)
+        assert "게시물 3건" in db_rows("buzz")[0] and "언론 1건" in db_rows("buzz")[0], db_rows("buzz")
         out3, _ = lx3_save(["1004"])
         assert serials(out3)[-2:] == [(10, "https://n.news.naver.com/y"), (11, "https://cafe.naver.com/aacafe/1004")]
 
