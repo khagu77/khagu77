@@ -29,6 +29,20 @@
     </div>
   </header>
   <main>
+    <section id="reportBox">
+      <h2>📋 보고용 대시보드 <span class="hint">(복사해서 메일·문서에 그대로 붙여 넣기 · 요약 두 줄은 눌러서 직접 고칠 수 있음)</span></h2>
+      <div class="row">
+        <label class="inline">보고 범위 <select id="rpPeriod"><option value="1">최근 보고일</option><option value="5">최근 5 보고일 (주간)</option><option value="10">최근 10 보고일</option><option value="22">최근 22 보고일 (월간)</option><option value="0">전체</option></select></label>
+        <button id="rpCopy" class="primary">📋 메일에 붙여넣기용 복사</button>
+        <button id="rpCopyLite">📋 이미지 없이 복사</button>
+        <button id="rpCopyCode">🧾 HTML 코드로 복사</button>
+        <button id="rpResetSummary" class="small">요약 자동으로 다시 쓰기</button>
+      </div>
+      <div id="rpInfo" class="hint">누르면 아래 대시보드가 보이는 그대로 복사됩니다 → 메일 본문에 붙여 넣기 (⌘V / Ctrl+V)</div>
+      <div id="reportBody" class="reportbody"></div>
+    </section>
+
+    <h2 style="margin:26px 0 10px">📊 상세 대시보드</h2>
     <div class="row">
       <label class="inline">기간 <select id="period"><option value="7">최근 7 보고일</option><option value="30" selected>최근 30 보고일</option><option value="90">최근 90 보고일</option><option value="0">전체</option></select></label>
       <label class="inline">채널 <select id="chFilter"><option value="">전체</option><option>언론</option><option>유튜브</option><option>동호회</option><option>자동차 커뮤니티</option></select></label>
@@ -79,6 +93,7 @@
   <script src="gv90-analyze.js"></script>
   <script src="gv90-db.js"></script>
   <script src="gv90-ui.js"></script>
+  <script src="gv90-report.js"></script>
   <script src="dashboard.js"></script>
 </body>
 </html>

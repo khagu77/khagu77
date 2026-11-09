@@ -33,7 +33,97 @@ async function load() {
   const comments = await allComments();
   data = { days, posts, comments };
   render();
+  await renderReport();
 }
+
+// ---------------------------------------------------------------------------
+// 보고용 대시보드 (gv90-report.js) · 복사
+// ---------------------------------------------------------------------------
+
+let rpData = null;
+let rpKey = "";
+
+async function renderReport() {
+  const n = +$("#rpPeriod").value;
+  const days = n ? data.days.slice(-n) : data.days;
+  const box = $("#reportBody");
+  if (!days.length) {
+    rpData = null;
+    box.innerHTML = '<div class="empty">데일리 DB 에 보고일이 없습니다. 수집 화면에서 \'엑셀 만들기\'를 누르면 쌓입니다.</div>';
+    return;
+  }
+  rpData = reportData(days, data.posts, data.comments);
+  rpKey = `${days[0].day}-${days[days.length - 1].day}`;
+  const { gvReportSummary = {} } = await chrome.storage.local.get("gvReportSummary").catch(() => ({}));
+  const saved = gvReportSummary[rpKey];
+  box.innerHTML = reportHtml(rpData, { banner: chrome.runtime.getURL("icons/report-banner.jpg"), summary: saved || null, editable: true });
+  // 요약 줄을 고치면 그 보고 범위에 저장
+  box.querySelectorAll("[data-summary]").forEach((e) => e.addEventListener("input", saveSummary));
+}
+
+function summaryLines() {
+  return [...$("#reportBody").querySelectorAll("[data-summary]")].map((e) => e.innerText.replace(/^\s*•\s*/, "").trim()).filter(Boolean);
+}
+
+async function saveSummary() {
+  const { gvReportSummary = {} } = await chrome.storage.local.get("gvReportSummary").catch(() => ({}));
+  gvReportSummary[rpKey] = summaryLines();
+  await chrome.storage.local.set({ gvReportSummary }).catch(() => {});
+}
+
+function rpCopied(ok, msg) {
+  $("#rpInfo").textContent = ok ? `✔ ${msg}` : `복사하지 못했습니다${msg ? `: ${msg}` : ""}. 다시 눌러 주세요.`;
+  $("#rpInfo").className = ok ? "hint ok" : "hint err";
+}
+
+// 복사 이벤트로 서식(html)·글자를 함께 담는다 (안 되면 클립보드 API)
+function copyRich(html, text, okMsg, btn) {
+  let done = false;
+  const onCopy = (e) => {
+    if (html) e.clipboardData.setData("text/html", html);
+    e.clipboardData.setData("text/plain", text);
+    e.preventDefault();
+    done = true;
+  };
+  document.addEventListener("copy", onCopy);
+  try {
+    document.execCommand("copy");
+  } catch {}
+  document.removeEventListener("copy", onCopy);
+  const ok = () => {
+    rpCopied(true, okMsg);
+    celebrate(btn, "✔ 복사!");
+  };
+  if (done) return ok();
+  const items = { "text/plain": new Blob([text], { type: "text/plain" }) };
+  if (html) items["text/html"] = new Blob([html], { type: "text/html" });
+  navigator.clipboard.write([new ClipboardItem(items)]).then(ok).catch((e) => rpCopied(false, e.message));
+}
+
+function copyReport(withImage, btn) {
+  if (!rpData) return;
+  const lines = summaryLines();
+  const body = reportHtml(rpData, { banner: withImage ? RP_BANNER_URL : "", summary: lines });
+  copyRich(`<html><body>${body}</body></html>`, reportText(rpData, lines), `${withImage ? "" : "이미지 없이 "}복사했습니다. 메일 본문에 붙여 넣으세요 (⌘V / Ctrl+V).${withImage ? " 붙여 넣기가 안 되면 '이미지 없이 복사'를 눌러 보세요." : ""}`, btn);
+}
+
+// 메일 편집기 'HTML' 탭에 붙여 넣을 코드 (서식 붙여 넣기를 거부하는 편집기용)
+function copyReportCode(btn) {
+  if (!rpData) return;
+  const code = reportHtml(rpData, { banner: RP_BANNER_URL, summary: summaryLines() });
+  copyRich("", code, "HTML 코드를 복사했습니다. 메일 편집기의 'HTML' 탭 → 넣을 자리에 붙여 넣기 → 다시 '디자인' 탭으로 돌아오면 대시보드가 보입니다.", btn);
+}
+
+$("#rpPeriod").addEventListener("change", renderReport);
+$("#rpCopy").addEventListener("click", (e) => copyReport(true, e.currentTarget));
+$("#rpCopyLite").addEventListener("click", (e) => copyReport(false, e.currentTarget));
+$("#rpCopyCode").addEventListener("click", (e) => copyReportCode(e.currentTarget));
+$("#rpResetSummary").addEventListener("click", async () => {
+  const { gvReportSummary = {} } = await chrome.storage.local.get("gvReportSummary").catch(() => ({}));
+  delete gvReportSummary[rpKey];
+  await chrome.storage.local.set({ gvReportSummary }).catch(() => {});
+  renderReport();
+});
 
 function render() {
   const n = +$("#period").value;

@@ -324,3 +324,10 @@ details.sub .tablewrap { max-height: 320px; }
 .log .err { color: var(--err); }
 code { background: var(--surface-2); padding: 0 4px; border-radius: 4px; }
 .direct-badge { background: var(--brand); color: #fff; font-weight: 700; font-size: 13px; padding: 4px 12px; border-radius: 999px; white-space: nowrap; }
+
+/* 보고용 대시보드 미리보기 (안쪽 서식은 메일에 붙여 넣어도 같게 gv90-report.js 에서 직접 지정) */
+.reportbody { overflow-x: auto; margin-top: 10px; padding: 6px 0; }
+.reportbody td, .reportbody th { border-bottom: 0; text-align: inherit; }
+.reportbody table { font-size: inherit; }
+.reportbody [data-summary] { outline: 1px dashed transparent; border-radius: 4px; cursor: text; }
+.reportbody [data-summary]:hover, .reportbody [data-summary]:focus { outline-color: #9aa5b8; }
