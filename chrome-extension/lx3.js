@@ -1237,7 +1237,17 @@ async function buildList(selected) {
 }
 
 async function saveList({ auto = false } = {}) {
-  const selected = sortedItems().filter((x) => x.checked);
+  // 이미 이어 쓸 파일에 들어간 글(저장 버튼을 두 번 누른 경우 등)은 다시 넣지 않는다 → 중복 행·건수 두 배 방지
+  const inBase = new Set((baseFile()?.urls || []).map(normUrl));
+  const already = (x) => [articleUrl(x), x.extUrl, x.naverUrl].some((u) => u && inBase.has(normUrl(u)));
+  const checked = sortedItems().filter((x) => x.checked);
+  const selected = checked.filter((x) => !already(x));
+  if (checked.length && !selected.length) {
+    $("#saveInfo").className = "hint ok";
+    $("#saveInfo").textContent = `체크한 ${checked.length}개는 모두 이미 오늘 파일에 들어 있습니다 (다시 넣지 않았습니다). '📥 게시물 엑셀 받기'로 받으세요.`;
+    if (pendingList) readyButton($("#getList"), true);
+    return;
+  }
   if (!selected.length) return;
   if (!baseFile() && !separateFile() && !auto) {
     const go = confirm(
@@ -1296,7 +1306,12 @@ async function saveList({ auto = false } = {}) {
     }
     $("#saveInfo").className = "hint ok";
     $("#saveInfo").textContent = `✔ ${name} - ${selected.length}개 추가 (순번 ${out.from}~${out.to})${dbNote}. '📥 게시물 엑셀 받기'를 눌러 받으세요. 그다음 '체크한 글 댓글 수집하기'로 댓글을 모으세요.`;
-    readyButton($("#getList"), true);
+    // 고른 폴더(허락받은 경우)·다운로드 폴더에 바로 저장. 폴더 허락이 필요하면 '받기' 버튼으로
+    const where = await saveFileNow(out.bytes, name).catch(() => null);
+    if (where) {
+      $("#saveInfo").textContent = `✔ ${name} - ${selected.length}개 추가 (순번 ${out.from}~${out.to})${dbNote}. ${where} 바로 저장했습니다. 그다음 '체크한 글 댓글 수집하기'로 댓글을 모으세요.`;
+      $("#getList").disabled = false; // 한 번 더 받고 싶을 때
+    } else readyButton($("#getList"), true);
     playChime();
     const noSlug = selected.filter((x) => isCafeItem(x) && !(cafeSlugs[x.cafeId] || x.slug));
     if (noSlug.length) {

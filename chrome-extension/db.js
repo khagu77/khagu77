@@ -128,7 +128,24 @@ async function onPicked(file) {
         stats._replace = true;
       }
     }
-    await dbSaveDay(kind, date, file.name, bytes, "upload", summary, stats && stats.youtube != null ? stats : null);
+    // 게시물 리스트: 그날 건수 = 전날 파일의 마지막 순번 뒤에 있는 행 수 (중복을 지운 수정본 기준으로 다시 셈, 채널별도)
+    let buzzStats = null;
+    if (kind === "buzz") {
+      const prev = (await dbList("buzz")).find((r) => r.date < date && r.summary);
+      const pm = String(prev?.summary || "").match(/마지막 순번 ([\d,]+)/);
+      if (pm) {
+        const prevLast = Number(pm[1].replace(/,/g, ""));
+        const wb = await XlsxTemplate.Workbook.open(bytes);
+        const names = wb.sheetNames();
+        const sheet = names.includes("채널별 버즈량 현황") ? "채널별 버즈량 현황" : names[0];
+        const rows = (await wb.readRows(sheet)).filter((r) => r.r > 3 && Number(r.cells.B) > prevLast);
+        const by = (c) => rows.filter((r) => (String(r.cells.C || "").trim() || "동호회") === c).length;
+        const old = existing?.stats || {};
+        const keep = (field, c) => (old[field] !== undefined || by(c) ? by(c) : undefined); // 그날 안 찾은 채널은 '기록 없음' 그대로
+        buzzStats = { posts: rows.length, news: keep("news", "언론"), youtube: keep("youtube", "유튜브"), cafe: keep("cafe", "동호회"), community: keep("community", "자동차 커뮤니티"), _replace: true };
+      }
+    }
+    await dbSaveDay(kind, date, file.name, bytes, "upload", summary, buzzStats || (stats && stats.youtube != null ? stats : null));
     const msg = `✔ ${prettyDate(date)} ${DB_KINDS[kind].short}을(를) ${file.name}(으)로 ${pickFor.date ? "바꿨습니다" : "등록했습니다"}`;
     setInfo(`${msg} (${summary.replace(/\n/g, " ")}).`, "ok");
     pickFor = null;

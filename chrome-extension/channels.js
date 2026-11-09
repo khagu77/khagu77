@@ -1189,6 +1189,20 @@ async function clearSaveDir() {
   await dbTx("readwrite", (s) => s.delete("setting:saveDir")).catch(() => {});
 }
 
+// 엑셀을 만들자마자 바로 저장 (버튼을 한 번 더 누르지 않게): 고른 폴더가 있고 이미 허락받았으면 그 폴더에,
+// 고른 폴더가 없으면 다운로드 폴더에. 폴더 허락을 새로 물어야 하면(크롬을 다시 켠 뒤 처음) null → '받기' 버튼으로
+async function saveFileNow(bytes, name) {
+  const dir = await getSaveDir();
+  if (dir) {
+    try {
+      if ((await dir.queryPermission({ mode: "readwrite" })) !== "granted") return null;
+    } catch {
+      return null;
+    }
+  }
+  return saveFile(bytes, name);
+}
+
 // 고른 폴더가 있으면 그 폴더에 바로 저장(같은 이름이 있으면 이름 뒤에 (1)…), 없거나 허락을 못 받으면 다운로드로
 // → 저장한 곳 설명 글자
 async function saveFile(bytes, name) {

@@ -1070,7 +1070,13 @@ async function run(state) {
   $("#start").disabled = false;
   $("#stop").disabled = true;
   $("#download").disabled = !lastWorkbook;
-  if (lastWorkbook && !stopRequested) readyButton($("#download"), true);
+  // 고른 폴더(허락받은 경우)·다운로드 폴더에 바로 저장. 폴더 허락이 필요하면 '받기' 버튼으로
+  const savedTo = lastWorkbook && !lastWorkbook.saved ? await saveFileNow(lastWorkbook.bytes, lastWorkbook.name).catch(() => null) : null;
+  if (savedTo) {
+    lastWorkbook.saved = true;
+    $("#saveWhere").textContent = `✔ ${savedTo} 바로 저장했습니다.`;
+    $("#summary").textContent = $("#summary").textContent.replace(" '📥 댓글 엑셀 받기'를 눌러 받으세요.", " 바로 저장했습니다.");
+  } else if (lastWorkbook && !stopRequested) readyButton($("#download"), true);
   playChime();
   if (AUTO_MODE) {
     const failedN = results.filter((r) => r.error).length;

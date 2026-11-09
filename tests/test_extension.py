@@ -38,6 +38,14 @@ def take(page, sel, timeout=240000):
                 break
             page.wait_for_timeout(200)
         assert "만들지 못했습니다" not in page.inner_text("#saveInfo"), page.inner_text("#saveInfo")
+    # 저장 폴더를 안 골랐으면 엑셀을 만들자마자 바로 다운로드됨 → 그때는 누르지 않음
+    info = "#saveInfo" if sel == "#getList" else "#saveWhere"
+    for _ in range(int(timeout / 200)):
+        if page.locator(f"{sel}.ready").count() or "바로 저장했습니다" in page.inner_text(info):
+            break
+        page.wait_for_timeout(200)
+    if "바로 저장했습니다" in page.inner_text(info):
+        return
     page.locator(f"{sel}.ready").wait_for(timeout=timeout)
     page.click(sel, force=True)  # 반짝이며 움직이는 버튼이라 움직임과 상관없이 누름
 
