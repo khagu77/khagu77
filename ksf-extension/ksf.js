@@ -2490,12 +2490,12 @@ async function makePostsFile(withSentiment = false) {
   return { name: `${fileBase()}_게시물 리스트${withSentiment ? "_성향분석 포함" : ""}.xlsx`, bytes: await buildPostsXlsx(sheets, withSentiment) };
 }
 
-// 댓글 (이슈 보고서 양식: 1행 제목 · domain · text · 작성일 · 게시글 URL (+ 성향))
+// 댓글 (이슈 보고서 양식: 1행 제목 · 연번 · 출처(동호회명) · text · 작성일 · 게시글 URL (+ 유형 구분 · 성향))
 // 로우데이터: 동호회 차종마다 시트(댓글 한 줄씩) · 성향 분석: 반응 차종마다 시트(댓글 × 차종 한 줄씩)
 async function makeCommentsFile(withSentiment) {
   const list = reportItems();
   const rowOf = (x, c, tone = "") => ({
-    domain: `cafe.naver.com/${x.slug}`, text: c.content, sentiment: tone, ptype: tone ? typeOf(c, c.content) : "",
+    source: x.cafeName, cafeUrl: `https://cafe.naver.com/${x.slug}`, text: c.content, sentiment: tone, ptype: tone ? typeOf(c, c.content) : "",
     writtenAt: c.date ? formatDateTime(new Date(c.date)) : c.dateText || "", url: articleUrl(x),
   });
   let sheets;

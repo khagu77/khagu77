@@ -163,7 +163,7 @@ async function buildPostsXlsx(sheets, withSentiment = false) {
   const B = Object.fromEntries(Object.entries(pattern.styles).map(([k, v]) => [k, se.body(v)]));
   const built = sheets.map((sh, index) => {
     // 첫 행: 현대 블루 · 흰색 굵은 글씨 · 흰색 테두리 / 성향분석 포함: F 유형 구분 · G 성향
-    const heads = ["No", "출처", "제목", "작성시간", "Link", ...(withSentiment ? ["유형 구분", "성향"] : [])];
+    const heads = ["연번", "출처", "제목", "작성시간", "Link", ...(withSentiment ? ["유형 구분", "성향"] : [])];
     const head = rowXml(1, header.attrs.replace(/spans="[^"]*"/, `spans="1:${heads.length}"`), heads.map((t, k) => cellXml(`${colLetter(k)}1`, H, t)));
     const rows = [head];
     const links = [];
@@ -191,7 +191,10 @@ async function buildPostsXlsx(sheets, withSentiment = false) {
         typeCf("F", 2, sh.rows.length + 1, SENTI_DXF.length)
       : "";
     const lastRow = withSentiment ? lastData + 1 + typeNotes().length : lastData;
-    const xml = finishSheet(tpl, rows, links, lastRow, withSentiment ? "G" : "E", index, (x) => {
+    const srcW = fitWidth(sh.rows.map((p) => p.source), 10, 30);
+    const xml = finishSheet(tpl, rows, links, lastRow, withSentiment ? "G" : "E", index, (x0) => {
+      // 출처(동호회명) 열은 글자 길이에 맞춤
+      let x = x0.replace(/<col min="2" max="2" width="[^"]*"/, `<col min="2" max="2" width="${srcW}"`);
       if (!cf) return x;
       x = x.replace(/(<phoneticPr[^>]*\/>)/, `$1${cf}`);
       // 유형 구분 · 성향 열 너비
@@ -207,7 +210,7 @@ async function buildPostsXlsx(sheets, withSentiment = false) {
 
 // 댓글 엑셀 (성향 분석 전: 성향 칸 비움 / 성향 분석 후: 긍정·중립·부정·단순비난)
 // 샘플(CN8 가격 공개 동호회 댓글 성향 분석) 양식: 1행 제목, 2행 domain / text / 성향 + 참고용 작성일 / 게시글 URL
-// sheets: [{ name, title, rows: [{ domain, text, sentiment, writtenAt, url }] }]
+// sheets: [{ name, title, rows: [{ source, cafeUrl, text, ptype, sentiment, writtenAt, url }] }]
 // withSentiment=false(댓글 raw data): 성향 열 없이 A~D 만 / true(성향 분석): 맨 오른쪽 E 에 성향 열과 색
 // 필터(자동 필터)는 걸지 않는다
 async function buildCommentsXlsx(sheets, withSentiment = true) {
@@ -219,7 +222,6 @@ async function buildCommentsXlsx(sheets, withSentiment = true) {
   const endRight = "thin";
   const dateStyle = (base) => styles.derive(base, { horizontal: "center", right: "thin" });
   const urlStyle = (base) => styles.derive(base, { right: endRight });
-  // 열: A domain · B text · C 작성일 · D 게시글 URL · (성향 분석) E 유형 구분 · F 성향(맨 오른쪽, 양식의 성향 칸 서식·색)
   // 유형 구분 글자색 서식은 양식의 dxfs 뒤에 붙인다
   let typeDxf0 = 0;
   if (withSentiment) {
@@ -228,22 +230,19 @@ async function buildCommentsXlsx(sheets, withSentiment = true) {
       return `<dxfs count="${Number(n) + TYPE_DXF.length}">${inner}${TYPE_DXF.join("")}</dxfs>`;
     });
   }
+  // 열: A 연번 · B 출처(동호회명) · C text · D 작성일 · E 게시글 URL · (성향 분석) F 유형 구분 · G 성향
   const built = sheets.map((sh, index) => {
     const rows = [];
     const ts = titleRow.styles;
-    rows.push(
-      rowXml(1, titleRow.attrs, [
-        cellXml("A1", ts.A, sh.title),
-        cellXml("B1", ts.B, ""),
-        cellXml("C1", ts.B, ""),
-        cellXml("D1", withSentiment ? ts.B : ts.C, ""),
-        ...(withSentiment ? [cellXml("E1", ts.B, ""), cellXml("F1", ts.C, "")] : []),
-      ]),
-    );
+    const lastCol = withSentiment ? "G" : "E";
+    const nCols = withSentiment ? 7 : 5;
+    rows.push(rowXml(1, titleRow.attrs, Array.from({ length: nCols }, (_, k) =>
+      cellXml(`${colLetter(k)}1`, k === 0 ? ts.A : k === nCols - 1 ? ts.C : ts.B, k === 0 ? sh.title : ""))));
     // 항목명 행(2행): 현대 블루 · 흰색 굵은 글씨 · 흰색 테두리
     const hs = headRow.styles;
     const hh = (b) => styles.head(b);
-    rows.push(rowXml(2, headRow.attrs, [cellXml("A2", hh(hs.A), "domain"), cellXml("B2", hh(hs.B), "text"), cellXml("C2", hh(hs.B), "작성일"), cellXml("D2", hh(hs.B), "게시글 URL"), ...(withSentiment ? [cellXml("E2", hh(hs.C), "유형 구분"), cellXml("F2", hh(hs.C), "성향")] : [])]));
+    const heads = [["연번", hs.A], ["출처", hs.A], ["text", hs.B], ["작성일", hs.B], ["게시글 URL", hs.B], ...(withSentiment ? [["유형 구분", hs.C], ["성향", hs.C]] : [])];
+    rows.push(rowXml(2, headRow.attrs, heads.map(([t, b], k) => cellXml(`${colLetter(k)}2`, hh(b), t))));
     const links = [];
     const total = sh.rows.length;
     sh.rows.forEach((c, i) => {
@@ -254,40 +253,40 @@ async function buildCommentsXlsx(sheets, withSentiment = true) {
       const bd = (b) => styles.body(b);
       rows.push(
         rowXml(n, pat.attrs, [
-          cellXml(`A${n}`, bd(st.A), c.domain || ""),
-          cellXml(`B${n}`, bd(st.B), c.text || ""),
-          cellXml(`C${n}`, bd(dateStyle(st.B)), c.writtenAt || ""),
-          cellXml(`D${n}`, bd(urlStyle(st.B)), c.url || ""),
-          ...(withSentiment ? [cellXml(`E${n}`, bd(st.C), c.ptype || ""), cellXml(`F${n}`, bd(st.C), c.sentiment || "")] : []),
+          cellXml(`A${n}`, bd(dateStyle(st.B)), i + 1),
+          cellXml(`B${n}`, bd(dateStyle(st.B)), c.source || ""),
+          cellXml(`C${n}`, bd(st.B), c.text || ""),
+          cellXml(`D${n}`, bd(dateStyle(st.B)), c.writtenAt || ""),
+          cellXml(`E${n}`, bd(urlStyle(st.B)), c.url || ""),
+          ...(withSentiment ? [cellXml(`F${n}`, bd(st.C), c.ptype || ""), cellXml(`G${n}`, bd(st.C), c.sentiment || "")] : []),
         ]),
       );
-      if (c.domain) links.push({ ref: `A${n}`, url: `https://${c.domain}/` });
-      if (c.url) links.push({ ref: `D${n}`, url: c.url });
+      if (c.url) links.push({ ref: `E${n}`, url: c.url });
     });
     let last = total + 2;
     // 표 아래 ※ 유형 구분 안내
     if (withSentiment) {
-      typeNotes().forEach((t, k) => rows.push(rowXml(last + 2 + k, "", [cellXml(`B${last + 2 + k}`, null, t)])));
+      typeNotes().forEach((t, k) => rows.push(rowXml(last + 2 + k, "", [cellXml(`C${last + 2 + k}`, null, t)])));
       last += 1 + typeNotes().length;
     }
-    const lastCol = withSentiment ? "F" : "D";
     const xml = finishSheet(tpl, rows, links, last, lastCol, index, (x) => {
       x = x
         .replace(/<autoFilter[^>]*\/>|<autoFilter[^>]*>.*?<\/autoFilter>/s, "")
         .replace(/<mergeCell ref="A1:C1"\/>/, `<mergeCell ref="A1:${lastCol}1"/>`)
         .replace(
           /<cols>.*?<\/cols>/s,
-          `<cols><col min="1" max="1" width="${fitWidth(sh.rows.map((c) => c.domain), 13.7, 30)}" style="1" customWidth="1"/><col min="2" max="2" width="130" style="5" customWidth="1"/>` +
-            `<col min="3" max="3" width="${fitWidth(sh.rows.map((c) => c.writtenAt), 12, 30)}" style="1" customWidth="1"/><col min="4" max="4" width="${fitWidth(sh.rows.map((c) => c.url), 20, 120)}" style="1" customWidth="1"/>` +
+          `<cols><col min="1" max="1" width="${fitWidth([String(total)], 6, 10)}" style="1" customWidth="1"/>` +
+            `<col min="2" max="2" width="${fitWidth(sh.rows.map((c) => c.source), 10, 30)}" style="1" customWidth="1"/><col min="3" max="3" width="130" style="5" customWidth="1"/>` +
+            `<col min="4" max="4" width="${fitWidth(sh.rows.map((c) => c.writtenAt), 12, 30)}" style="1" customWidth="1"/><col min="5" max="5" width="${fitWidth(sh.rows.map((c) => c.url), 20, 120)}" style="1" customWidth="1"/>` +
             (withSentiment
-              ? '<col min="5" max="5" width="19" style="18" customWidth="1"/><col min="6" max="6" width="10" style="18" customWidth="1"/><col min="7" max="16384" width="8.33203125" style="1"/></cols>'
-              : '<col min="5" max="16384" width="8.33203125" style="1"/></cols>'),
+              ? '<col min="6" max="6" width="19" style="18" customWidth="1"/><col min="7" max="7" width="10" style="18" customWidth="1"/><col min="8" max="16384" width="8.33203125" style="1"/></cols>'
+              : '<col min="6" max="16384" width="8.33203125" style="1"/></cols>'),
         )
         // 성향 색(조건부 서식)도 맨 오른쪽 성향 열로 (성향 없는 파일은 지움)
-        .replace(/sqref="C1:C1048576"/, `sqref="F3:F${Math.max(3, total + 2)}"`)
-        .replace(/,C1\)\)\)/g, ",F3)))");
+        .replace(/sqref="C1:C1048576"/, `sqref="G3:G${Math.max(3, total + 2)}"`)
+        .replace(/,C1\)\)\)/g, ",G3)))");
       if (!withSentiment) x = x.replace(/<conditionalFormatting.*?<\/conditionalFormatting>/gs, "");
-      else x = x.replace(/(<\/conditionalFormatting>)(?![\s\S]*<\/conditionalFormatting>)/, `$1${typeCf("E", 3, total + 2, typeDxf0)}`);
+      else x = x.replace(/(<\/conditionalFormatting>)(?![\s\S]*<\/conditionalFormatting>)/, `$1${typeCf("F", 3, total + 2, typeDxf0)}`);
       return x;
     });
     return { name: sh.name, links, filter: null, xml };
