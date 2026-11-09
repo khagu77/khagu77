@@ -302,6 +302,7 @@ function renderCommentList() {
 const REPORT_RULES = `★ 보고서 작성 규칙 ★
 1. 보고서 작성 목적에 초점을 맞춰, 목적과 관련된 여론의 흐름이 한눈에 보이게 쓴다. 숫자(성향 비율·건수)는 주어진 통계와 반드시 일치시킨다.
 2. 문체는 현대자동차 내부 여론 동향 보고서체: 짧은 개조식, '~확인 中', '~다수 확인', '~지배적', '~일부 확인', '比'(대비), '內'(안) 같은 표현을 쓴다. 존댓말·느낌표·이모티콘을 쓰지 않는다.
+   'AI'·'인공지능'·'Claude'·'모델' 같은 분석 도구 이야기는 어디에도 쓰지 않는다 (예: 'AI 판단', 'AI 분석' 금지).
    예) "11/1 코리아 세일 페스타 시작 이후 대상 차종 동호회 內 할인 조건 공유와 함께 기존 구매자 역차별 불만 다수 확인 中"
    예) "주요 부정 여론은 기존 구매자 보상 요구 및 재고 처리용 할인 인식이며, 그랜저 동호회 중심으로 충성 고객 기만 불만 확인. 한편 할인을 계기로 한 구매 검토 여론 일부 확인"
 3. summary 는 정확히 2문장(두 줄 글머리표): 첫째 = 행사 시점·전체 여론 흐름, 둘째 = 주요 부정(또는 우세한) 여론의 구체적 내용과 차종별 특징, 그리고 반대 성향 여론.
@@ -547,9 +548,9 @@ function makeSummaryText(ppt = null) {
   L.push(` - 모니터링 대상 : ${ppt?.channels || `차종별 네이버 동호회 ${cafesList.length}곳 (${targetCars().map((c) => `${c} ${cafesList.filter((x) => x.car === c).length}곳`).join(" · ")})`}`);
   for (const c of targetCars()) L.push(`   · ${c} : ${cafesList.filter((x) => x.car === c).map((x) => x.name).join(", ")}`);
   L.push(` - 수집 결과 : 검색된 게시글 ${items.length.toLocaleString()}건 중 코세페 관련 게시글 ${list.length.toLocaleString()}건 선별 (${items.length ? fmtPct(list.length / items.length) : "-"}), 댓글·답글 ${all.comments.toLocaleString()}건`);
-  L.push(`   → 분석 반응 ${all.n.toLocaleString()}건 (게시글·댓글 × 언급 차종, 한 글이 여러 차종을 말하면 차종마다 집계)`);
+  L.push(`   → 집계 반응 ${all.n.toLocaleString()}건 (게시글·댓글 × 언급 차종, 한 글이 여러 차종을 말하면 차종마다 집계)`);
   const unj = rs.filter((x) => !judged(x.c || x.x)).length;
-  L.push(` - 성향 기준 : 일반적인 말투가 아닌 '코리아 세일 페스타'에 대한 반응 기준 (긍정 · 중립 · 부정 · 단순비난)${unj ? ` ※ ${unj}건은 AI 판단 전 잠정치` : ""}`);
+  L.push(` - 성향 기준 : 일반적인 말투가 아닌 '코리아 세일 페스타'에 대한 반응 기준 (긍정 · 중립 · 부정 · 단순비난)${unj ? ` ※ ${unj}건은 검토 전 잠정치` : ""}`);
   L.push("");
   L.push("2. 전체 여론");
   const pRow = (name) => ppt?.rows?.find((x) => x.name === name);

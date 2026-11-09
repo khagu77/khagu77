@@ -119,7 +119,7 @@ function dashHtml(d, prev, banner, fluid = false) {
     ${dashBar(d.tone, d.reactions, 12)}
     <div style="margin-top:5px;line-height:1.7;">${dashLegend(d, 11, true)}</div>
     ${d.reactions ? `<div style="font-size:11px;color:#ffd166;font-weight:700;margin-top:8px;line-height:1.45;">${desc(dashVerdict(d).text)}</div>` : ""}
-    <div style="font-size:10px;color:#b8c5d6;margin-top:8px;line-height:1.5;">모니터링 채널: ${desc(d.channels || `주요 모니터링 동호회 ${d.cafes.length}곳`)}${d.unjudged ? `<br><span style="color:#ffd166;">※ 잠정치: ${dnum(d.unjudged)}건은 AI 판단 전</span>` : ""}</div>
+    <div style="font-size:10px;color:#b8c5d6;margin-top:8px;line-height:1.5;">모니터링 채널: ${desc(d.channels || `주요 모니터링 동호회 ${d.cafes.length}곳`)}${d.unjudged ? `<br><span style="color:#ffd166;">※ 잠정치: ${dnum(d.unjudged)}건은 검토 전</span>` : ""}</div>
     </div>
   </td>
   <td bgcolor="#ffffff" style="vertical-align:top;padding:10px 8px 0 6px;background:#ffffff;background-color:#ffffff;border-radius:0 11px 0 0;">
@@ -214,7 +214,7 @@ function dashText(d, prev) {
     for (const t of d.types) lines.push(`  - ${t.type}: ${dnum(t.n)}건${t.n ? ` (${dpct(t.share)})` : ""}${t.top ? ` · ${t.top.quote ? "" : `[${t.top.tone}] `}${t.top.label}${t.top.quote ? "" : ` ${dnum(t.top.count)}건`}` : ""}`);
   }
   if (d.short) for (const [t] of DASH_TONES) if ((d.short[t] || []).length) lines.push(`■ ${t} 주요 댓글: ${d.short[t].map((q) => `‘${String(q).replace(/\s+/g, " ").slice(0, 80)}’`).join(", ")}`);
-  if (d.unjudged) lines.push(`※ 잠정치: ${dnum(d.unjudged)}건은 AI 판단 전`);
+  if (d.unjudged) lines.push(`※ 잠정치: ${dnum(d.unjudged)}건은 검토 전`);
   return lines.join("\n");
 }
 

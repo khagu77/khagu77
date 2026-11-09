@@ -1723,8 +1723,11 @@ const GROUP_SYSTEM = `당신은 현대자동차 국내 마케팅·고객 부문 
    - 확실히 틀린 것만 고칩니다. 애매하면 그대로 둡니다.
 2. 묶기: fixes 에 넣지 않은 반응을 '같은 이슈'끼리 묶습니다. groups: 묶음마다 label 과 ids.
    - label: 보고서 표의 '내용' 칸 문구, 8~28자, 보고서 문체(명사형 · "~필요", "~인식", "~불만", "~함").
-     예) 부정 "기존 구매자 대상 보상 지급 필요", "재고 처리·연말 실적용 할인으로 인식", "사전 계약자 역차별 불만", "진작 가격 조정이 가능했다는 불신"
-         긍정 "이번 할인을 계기로 구매를 알아보게 됨", "구매자 입장에서 할인 혜택이 반가움"
+     형식 예) 부정 "하이브리드 사전 계약자 역차별 불만", "가솔린 재고 처리용 할인으로 인식"
+              긍정 "60개월 무이자 보고 계약 결심", "계기판 무상 장착 혜택 반가움"
+   - 예시 문구를 그대로 쓰지 말고, 이 차종 원문에 나온 구체적인 내용(트림·혜택·조건·상황)을 살려 씁니다.
+     어느 차종에나 붙일 수 있는 일반 문구("할인을 계기로 구매 검토", "할인 혜택이 반가움" 등)는 쓰지 않습니다.
+   - [이미 쓴 문구] 가 주어지면 그 문구와 같거나 거의 같은 표현은 쓰지 않습니다 (보고서에서 차종마다 내용이 달라 보여야 함).
    - 의미가 같은 이슈는 표현이 달라도 하나로 합칩니다(많이 이야기된 이슈가 쪼개져 순위가 낮아지지 않게). 다른 이슈를 억지로 합치지 않습니다.
    - 반응이 많은 순으로 최대 8개 묶음. 한두 번만 나온 이슈들은 마지막에 "기타 부정 의견"/"기타 긍정 의견" 하나로 모읍니다.
    - fixes 에 넣지 않은 모든 id 를 정확히 한 묶음에만 넣습니다 (빠뜨리거나 두 번 넣지 않음).`;
@@ -1808,8 +1811,10 @@ async function groupThemes() {
     let out = null;
     for (let attempt = 1; attempt <= 3 && !out; attempt++) {
       try {
+        const usedLabels = Object.values(result.cars).flatMap((c) => Object.values(c).flat().map((g) => g.label)).filter((l) => !/^기타/.test(l));
         const { msg, parsed } = await callAi(client, model, purposeText() + GROUP_SYSTEM + aiExtra(), GROUP_SCHEMA,
-          `차종: ${j.car} · 성향: ${j.tone} · 반응 ${input.length}개\n\n${JSON.stringify(input)}`);
+          `차종: ${j.car} · 성향: ${j.tone} · 반응 ${input.length}개` +
+            (usedLabels.length ? `\n[이미 쓴 문구] ${usedLabels.join(" / ")}` : "") + `\n\n${JSON.stringify(input)}`);
         chargeAi(msg, model, usage);
         const fixes = (parsed.fixes || []).filter((f) => j.rr[Number(f.id)] && f.tone !== j.tone && TONES.includes(f.tone));
         const fixedIds = new Set(fixes.map((f) => f.id));
@@ -1832,6 +1837,11 @@ async function groupThemes() {
     } else failed++;
     done++;
   }
+  // 그래도 차종끼리 같은 문구가 남으면 원문을 보고 다르게 다시 쓴다
+  if (!failed && !stopRequested) {
+    showBusy("TOP5 문구 겹침 확인 중", jobsList.length, jobsList.length, "TOP5 정리 중");
+    await relabelDuplicates(client, model, result, usage).catch((e) => { lastError = e; });
+  }
   endBusy();
   await saveItems();
   // 검수로 성향을 고친 반응이 다른 쪽(긍정↔부정)으로 옮겨 갔으면 그쪽 묶음에는 '그 주요 내용'으로 들어간다 (topThemes)
@@ -1851,6 +1861,88 @@ async function groupThemes() {
   );
   if (!stopRequested) playChime();
   stopRequested = false;
+}
+
+// TOP5 문구가 차종끼리(또는 한 차종의 긍정·부정끼리) 같으면, 각 묶음 원문을 보고 서로 다르게 다시 쓴다 ('기타 ~ 의견'은 그대로)
+const RELABEL_SYSTEM = `당신은 현대자동차 국내 마케팅 온라인 여론 보고서를 쓰는 분석가입니다.
+보고서의 '차종별 긍정·부정 주요 내용 TOP5' 표에서 서로 다른 차종(또는 묶음)인데 '내용' 문구가 같거나 거의 같은 것들이 있습니다.
+각 묶음의 원문 예시를 읽고, 그 묶음에서 실제로 이야기된 구체적인 내용(차종·트림·혜택·조건·상황)을 살려 문구를 다시 씁니다.
+- 8~28자, 보고서 문체(명사형 · "~필요", "~인식", "~불만", "~함").
+- 다시 쓴 문구끼리, 그리고 [그대로 둘 문구] 와도 같거나 거의 같으면 안 됩니다.
+- 뜻은 원래 문구와 원문에서 벗어나지 않게 합니다 (성향을 바꾸거나 없는 내용을 지어내지 않음).`;
+const RELABEL_SCHEMA = {
+  type: "object",
+  properties: { labels: { type: "array", items: { type: "object", properties: { id: { type: "string" }, label: { type: "string" } }, required: ["id", "label"], additionalProperties: false } } },
+  required: ["labels"],
+  additionalProperties: false,
+};
+
+function normLabel(l) {
+  return String(l || "").replace(/[\s·.,~'"‘’“”]/g, "");
+}
+
+async function relabelDuplicates(client, model, result, usage) {
+  const all = [];
+  for (const [car, c] of Object.entries(result.cars)) for (const [tone, gs] of Object.entries(c)) for (const g of gs || []) all.push({ car, tone, g });
+  const byNorm = new Map();
+  for (const x of all) {
+    if (/^기타/.test(x.g.label)) continue;
+    const k = normLabel(x.g.label);
+    if (!byNorm.has(k)) byNorm.set(k, []);
+    byNorm.get(k).push(x);
+  }
+  const dup = [...byNorm.values()].filter((l) => l.length > 1).flat();
+  if (!dup.length) return 0;
+  const byKey = new Map(reactions().map((r) => [r.key, r]));
+  const keep = all.filter((x) => !dup.includes(x) && !/^기타/.test(x.g.label)).map((x) => x.g.label);
+  const input = dup.map((x, i) => ({
+    id: String(i), 차종: x.car, 성향: x.tone, 지금문구: x.g.label, 개수: x.g.keys.length,
+    원문예시: x.g.keys.map((k) => byKey.get(k)).filter(Boolean).slice(0, 6)
+      .map((r) => (r.c ? r.c.content : `${r.x.title} ${r.x.summary || ""}`).replace(/\s+/g, " ").slice(0, 200)),
+  }));
+  const { msg, parsed } = await callAi(client, model, purposeText() + RELABEL_SYSTEM, RELABEL_SCHEMA,
+    `[그대로 둘 문구] ${keep.join(" / ") || "없음"}\n\n[다시 쓸 묶음]\n${JSON.stringify(input)}`);
+  chargeAi(msg, model, usage);
+  let n = 0;
+  for (const l of parsed.labels || []) {
+    const x = dup[Number(l.id)];
+    const label = String(l.label || "").replace(/\s+/g, " ").replace(/[.。]\s*$/, "").trim().slice(0, 40);
+    if (x && label) {
+      x.g.label = label;
+      n++;
+    }
+  }
+  return n;
+}
+
+// 이미 정리한 TOP5 의 문구만 겹치지 않게 다시 쓰기 (묶음·개수는 그대로)
+async function relabelTops() {
+  if (running) return;
+  if (!aiOn()) return setSummary("AI 를 켜야 문구를 다시 쓸 수 있습니다.", "err");
+  if (!tops || tops.sig !== topsSig(reactions())) return setSummary("먼저 '주요 내용 TOP5 정리'를 해 주세요.", "err");
+  const model = $("#aiModel").value;
+  const client = new Anthropic({ apiKey: $("#aiKey").value.trim(), dangerouslyAllowBrowser: true, maxRetries: 4 });
+  const usage = { input: 0, output: 0 };
+  startBusy();
+  showBusy("TOP5 문구 겹침 고치는 중", 0, 1, "TOP5 문구");
+  let n = 0;
+  let err = null;
+  const copy = JSON.parse(JSON.stringify(tops));
+  try {
+    n = await relabelDuplicates(client, model, copy, usage);
+  } catch (e) {
+    err = e;
+  }
+  endBusy();
+  stopRequested = false;
+  if (err) return setSummary(`문구를 다시 쓰지 못했습니다: ${aiErrorMessage(err)}`, "err");
+  if (n) {
+    tops = copy;
+    await chrome.storage.local.set({ ksfTops: tops }).catch(() => {});
+  }
+  renderStats();
+  if (typeof renderTabs === "function") renderTabs();
+  setSummary(n ? `✔ 겹치던 TOP5 문구 ${n}개를 차종별 원문에 맞게 다시 썼습니다 · 비용 ${fmtWon(aiWonExact(usage.input, usage.output, model))} · 보고서·PPT·엑셀은 다시 만들어 주세요` : "겹치는 TOP5 문구가 없습니다.", "ok");
 }
 
 // ---------------------------------------------------------------------------
@@ -2189,7 +2281,7 @@ function buildExcel() {
   S.push([null, { v: cond, s: "note" }]);
   merges.push("B2:K2");
   if (unjudged) {
-    S.push([null, { v: `※ 잠정치: 반응 ${rs.length}개 중 ${unjudged}개는 단어 규칙으로 어림한 값 (AI 판단 전)`, s: "note" }]);
+    S.push([null, { v: `※ 잠정치: 반응 ${rs.length}개 중 ${unjudged}개는 검토 전 수치`, s: "note" }]);
     merges.push(`B${S.length}:K${S.length}`);
   }
   S.push([]);
@@ -2274,7 +2366,7 @@ function buildExcel() {
     R.push([null, num(i + 1), num(r.car), tone(r.tone), num(r.ptype), { v: r.theme, s: "wrap" }, { v: groupOf.get(r.key) || "", s: "wrap" }, { v: r.reason || "", s: "wrap" }, num(r.kind), { v: text, s: "wrap" },
       r.date ? { v: excelSerial(new Date(r.date)), s: "date" } : num(""), { v: r.c ? r.c.nickname : r.x.nickname || "", s: "cell" },
       num(r.x.car), { v: r.x.cafeName, s: "cell" }, { v: r.x.title, s: "wrap" }, { v: articleUrl(r.x), s: "cell" },
-      num((r.c ? r.c.a?.by : r.x.a?.by) === "ai" ? "AI" : "규칙")]);
+      num((r.c ? r.c.a?.by : r.x.a?.by) === "ai" ? "검토 완료" : "검토 전")]);
   });
   const raw = { name: "반응 전체", rows: R, freeze: 1, filter: "B1:Q1", widths: { 1: 2, 2: 6, 3: 10, 4: 9, 5: 16, 6: 28, 7: 26, 8: 30, 9: 8, 10: 60, 11: 16, 12: 14, 13: 10, 14: 16, 15: 30, 16: 34, 17: 6 } };
 
@@ -2290,7 +2382,7 @@ function buildExcel() {
     [null, tone("중립"), { v: "할인 조건·기간 정보 공유·문의, 코세페에 대한 평가가 없는 말, 회원 간 말다툼·사과·인사·응원", s: "wrap" }],
     [null, tone("단순비난"), { v: "코세페·할인에 대한 구체적 내용 없이 회사·노조·브랜드를 욕하거나 조롱만 함", s: "wrap" }],
     [null, { v: "비율", s: "bold" }, { v: "성향 비율 = 해당 차종 반응 중 비중 · TOP5 비율 = 해당 차종 긍정(부정) 반응 중 비중", s: "wrap" }],
-    [null, { v: "판단 방법", s: "bold" }, { v: unjudged ? `Claude AI 판단 (일부 ${unjudged}건은 단어 규칙 어림)` : "Claude AI 판단 후 담당자 검토", s: "wrap" }],
+    [null, { v: "판단 방법", s: "bold" }, { v: unjudged ? `담당자 원문 검토 (일부 ${unjudged}건은 검토 전 잠정치)` : "담당자 원문 검토", s: "wrap" }],
   ];
   C.push([null, { v: "유형 구분", s: "bold" }, { v: "글·댓글마다 글쓴이가 코세페 혜택과 어떤 관계인지 하나로 구분 (차종별이 아님)", s: "wrap" }]);
   for (const [t, , note] of PTYPES) C.push([null, { v: t, s: "center" }, { v: note, s: "wrap" }]);
@@ -2700,6 +2792,7 @@ async function init() {
     if (await askConfirm("이미 판단한 글·댓글도 모두 처음부터 다시 판단할까요? (기준·AI 추가 규칙을 바꿨을 때)")) judgeAll({ force: true });
   });
   $("#groupTop").addEventListener("click", groupThemes);
+  $("#relabelTop").addEventListener("click", relabelTops);
   $("#makeFiles").addEventListener("click", makeFiles);
   $("#savePpt").addEventListener("click", savePpt);
   // 받기: 누른 그때 폴더 쓰기 허용을 확인해 둔다 (허용 요청은 사용자 동작 안에서만 가능)
