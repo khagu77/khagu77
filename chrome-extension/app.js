@@ -331,34 +331,45 @@ function orderThreads(comments) {
 async function collectYoutube(result, isStopped, onProgress) {
   const videoId = parseYoutubeId(result.url);
   result.articleId = videoId;
-  let html;
-  try {
-    const resp = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=ko&gl=KR`, { credentials: "omit" });
-    if (!resp.ok) throw new CollectError(`HTTP ${resp.status}`);
-    html = await resp.text();
-  } catch (e) {
-    throw e instanceof CollectError ? e : new CollectError(`유튜브 접속 실패: ${e.message}`);
+  // 영상 화면을 받아 정보 꺼내기. 정보를 못 받거나 일시적인 재생 불가(봇 확인 등)면 몇 초 쉬고 한 번 더
+  const GONE = /비공개|삭제|존재하지|이용할 수 없|사용할 수 없|private|removed|deleted|unavailable|terminated|does not exist/i;
+  let html, player, initialData, ps;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const resp = await fetch(`https://www.youtube.com/watch?v=${videoId}&hl=ko&gl=KR`, { credentials: "omit", cache: "no-store" });
+      if (!resp.ok) throw new CollectError(`HTTP ${resp.status}`);
+      html = await resp.text();
+    } catch (e) {
+      if (attempt === 0 && !isStopped()) {
+        await sleep(4000);
+        continue;
+      }
+      throw e instanceof CollectError ? e : new CollectError(`유튜브 접속 실패: ${e.message}`);
+    }
+    player = extractJsonAfter(html, "ytInitialPlayerResponse");
+    initialData = extractJsonAfter(html, "ytInitialData");
+    ps = player?.playabilityStatus;
+    const reason = `${ps?.reason || ""} ${ps?.messages?.join?.(" ") || ""}`;
+    const goneNow = ps?.status && ps.status !== "OK" && (ps.status === "ERROR" || GONE.test(reason));
+    const ok = initialData && (!ps?.status || ps.status === "OK");
+    if (ok || goneNow || attempt >= 1 || isStopped()) break;
+    await sleep(4000);
   }
 
   const apiKey = html.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/)?.[1];
   const clientVersion = html.match(/"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"]+)"/)?.[1] || "2.20241001.00.00";
   const visitorData = html.match(/"VISITOR_DATA"\s*:\s*"([^"]+)"/)?.[1];
-  const player = extractJsonAfter(html, "ytInitialPlayerResponse");
-  const initialData = extractJsonAfter(html, "ytInitialData");
   result.title = player?.videoDetails?.title || "";
   result.author = player?.videoDetails?.author || "";
-  // 삭제·비공개 영상: 유튜브가 재생 불가 상태를 알려 줌 → 그날을 그 영상의 삭제 시점으로 기록
-  const ps = player?.playabilityStatus;
+  // 삭제·비공개 영상: 유튜브가 재생 불가 사유(비공개·삭제·이용할 수 없음 등)를 알려 줄 때만 그날을 삭제 시점으로 기록
   if (ps?.status && ps.status !== "OK") {
-    const e = new CollectError(`삭제·비공개 영상 (${ps.reason || ps.status})`);
-    e.gone = true;
+    const reason = `${ps.reason || ""} ${ps.messages?.join?.(" ") || ""}`.trim();
+    const e = new CollectError(ps.status === "ERROR" || GONE.test(reason) ? `삭제·비공개 영상 (${reason || ps.status})` : `영상을 지금 열 수 없음 (${reason || ps.status}) — 잠시 뒤 다시 수집`);
+    e.gone = ps.status === "ERROR" || GONE.test(reason);
     throw e;
   }
-  if (!initialData) {
-    const e = new CollectError("영상 정보를 읽지 못함 (삭제/비공개 영상일 수 있음)");
-    e.gone = true;
-    throw e;
-  }
+  // 정보를 못 받은 것은 일시적인 경우가 많아 삭제로 기록하지 않음
+  if (!initialData) throw new CollectError("영상 정보를 읽지 못함 (잠시 뒤 다시 수집해 보세요)");
 
   const firstToken = findCommentsToken(initialData);
   if (!firstToken) throw new CollectError("댓글을 찾지 못함 (댓글이 꺼진 영상이거나 비공개 영상일 수 있음)");
