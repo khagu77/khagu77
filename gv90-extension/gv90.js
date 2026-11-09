@@ -653,8 +653,10 @@ async function readCommunityInfo(post) {
   const t0 = post.title ? full.indexOf(post.title.slice(0, 12)) : -1;
   const near = t0 >= 0 ? full.slice(Math.max(0, t0 - 300), t0 + 3000) : full.slice(0, 8000);
   const vm = near.match(/조회(?:수)?\s*[:：]?\s*(\d[\d,]*)/) || full.match(/조회(?:수)?\s*[:：]?\s*(\d[\d,]*)/);
-  const ccount = Math.max(expectedCommentCount(doc), post.ccount || 0) || null;
-  return { title: post.title, body: body.slice(0, 3000), date, views: vm ? +vm[1].replace(/,/g, "") : null, ccount };
+  const views = vm ? +vm[1].replace(/,/g, "") : null;
+  // 이 글의 댓글 수: 제목 옆 [N] → 목록의 댓글 수 → 본문 근처 '댓글 N' (작성자 정보 줄의 총 댓글 수는 빼고 · 조회수보다 큰 수는 버림)
+  const ccount = articleCommentCount(doc, ad, { listCount: post.ccount ?? null, views, title: post.title });
+  return { title: post.title, body: body.slice(0, 3000), date, views, ccount };
 }
 
 // 표에서 직접 고친 값 (다시 분석해도 그대로 둠)

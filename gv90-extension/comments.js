@@ -227,7 +227,8 @@ async function collect() {
         }));
       const res = await replacePostComments(p.key, list, day);
       const st = { at: Date.now(), ok: true, n: res.total, how: r.how || "" };
-      const patch = { commentStatus: st, ccount: Math.max(res.total, r.ccount || 0, p.ccount || 0) };
+      // 댓글 수: 이번에 글 화면에서 다시 읽은 수가 있으면 그것으로 (예전에 잘못 읽은 수를 남기지 않게), 없으면 모은 개수와 저장된 수 중 큰 쪽
+      const patch = { commentStatus: st, ccount: r.ccount != null ? Math.max(res.total, r.ccount) : Math.max(res.total, p.ccount || 0) };
       if (r.views != null) patch.views = r.views;
       await updatePost(p.key, patch);
       Object.assign(p, patch);

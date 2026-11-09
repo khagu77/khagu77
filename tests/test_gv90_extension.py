@@ -116,6 +116,17 @@ PPOM_VIEW = ('<html><head><meta charset="euc-kr"></head><body><div class="board-
              '<a href="javascript:BbsCommentLoadMore.loadNext();">다음 코멘트 더 보기</a></body></html>')
 
 
+# 보배드림 글 화면: 작성자 정보 칸에 '작성글: 게시글 16,067 | 댓글 55,929'(작성자가 쓴 총 댓글 수) · 제목 옆 [11] = 이 글의 댓글 수
+# (온라인 오전 일일동향에서 발견된 오류: 작성자 총 댓글 수를 이 글의 댓글 수로 읽음)
+def bobae_view(n=11):
+    items = "".join(f'<li><dl><dt><span class="date">2026.08.05 11:{i:02d}</span></dt><dd id="small_cmt_{i}">보배 댓글 {i + 1}번 GV90 좋네요</dd></dl></li>' for i in range(n))
+    return ('<html><body><div class="writerProfile"><dl><dt>CN8 계기판 없는 차는 향후 중고로 판매 시 불리할 듯 [11]</dt>'
+            '<dd><span class="countGroup">2026.08.05 10:00 | 조회 1,775 | 추천 3</span></dd>'
+            '<dd>작성글: 게시글 16,067 | 댓글 55,929</dd></dl></div>'
+            '<div class="bodyCont">본문입니다. 계기판 이야기</div>'
+            f'<div class="commentlistbox"><ul>{items}</ul></div></body></html>')
+
+
 def wait_js(page, expr, timeout=60000):
     for _ in range(int(timeout / 250)):
         if page.evaluate(expr):
@@ -181,6 +192,12 @@ def ext(tmp_path: Path):
                 route.fulfill(status=200, headers={"content-type": "text/html; charset=euc-kr"}, body=PPOM_VIEW.encode("euc-kr"))
 
         ctx.route("https://www.ppomppu.co.kr/**", ppomppu)
+
+        def bobae(route):
+            requests.append(route.request.url)
+            route.fulfill(status=200, content_type="text/html; charset=utf-8", body=bobae_view())
+
+        ctx.route("https://www.bobaedream.co.kr/**", bobae)
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext_id = sw.url.split("/")[2]
         yield ctx, sw, ext_id, requests
@@ -322,6 +339,7 @@ def test_gv90_comments(ext, tmp_path: Path):
           { ...base, key: 'newsx:www.hankyung.com/article/1', url: 'https://www.hankyung.com/article/1', channel: '언론', media: '한국경제', title: '외부 기사', ccount: null },
           { ...base, key: 'yt:gv90video01', url: 'https://www.youtube.com/watch?v=gv90video01', channel: '유튜브', media: '자동차채널', title: 'GV90 시승기', ccount: 128, src: { videoId: 'gv90video01' } },
           { ...base, key: 'clien.net:501', url: 'https://www.clien.net/service/board/cm_car/501', channel: '자동차 커뮤니티', media: '클리앙', title: 'GV90 실물 보니 실망입니다 비싸요', ccount: 2 },
+          { ...base, key: 'bobaedream.co.kr:2422499', url: 'https://www.bobaedream.co.kr/view?code=national&No=2422499', channel: '자동차 커뮤니티', media: '보배드림', title: 'CN8 계기판 없는 차는 향후 중고로 판매 시 불리할 듯', ccount: 55 },
           { ...base, key: 'ppomppu.co.kr:980300', url: 'https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980300', channel: '자동차 커뮤니티', media: '뽐뿌', title: 'GV90 가격', ccount: 5 },
         ], day);
         await refreshDay(day, { keepEmpty: true });
@@ -329,8 +347,25 @@ def test_gv90_comments(ext, tmp_path: Path):
     )
     page.reload()
     page.evaluate("commentsInit")
+    # 댓글 수 읽기: 작성자 정보 줄의 '댓글 55,929' 가 아니라 제목 옆 [11] · 조회수보다 큰 수는 버림 · 클리앙·뽐뿌는 그대로
+    counts = page.evaluate(
+        """([bobae, clien, ppom]) => {
+        const doc = (h) => new DOMParser().parseFromString(h, 'text/html');
+        const b = 'https://www.bobaedream.co.kr/view?code=national&No=2422499';
+        return [
+          articleCommentCount(doc(bobae), communityAdapter(b), { views: 1775, title: 'CN8 계기판 없는 차는' }),
+          articleCommentCount(doc(bobae.replace(' [11]', '')), communityAdapter(b), { views: 1775, title: 'CN8 계기판 없는 차는' }),
+          expectedCommentCount(doc(bobae)),
+          articleCommentCount(doc(clien), communityAdapter('https://www.clien.net/service/board/cm_car/501'), { views: 1234, title: 'GV90 실물' }),
+          articleCommentCount(doc(ppom), communityAdapter('https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980300'), { views: 3210, title: 'GV90' }),
+        ];
+      }""",
+        [bobae_view(), CLIEN_VIEW, PPOM_VIEW],
+    )
+    assert counts[0] == 11 and counts[2] < 1000 and counts[3] == 2 and counts[4] == 5, counts
+    assert counts[1] is None or counts[1] <= 1775, counts
     rows = page.locator("#postTable tbody tr")
-    assert rows.count() == 5
+    assert rows.count() == 6
     # 언론사 자체 사이트 기사는 고를 수 없음 (네이버 댓글 없음)
     assert page.locator("#postTable tbody tr", has_text="한국경제").locator("input").is_disabled()
     page.click("#start")
@@ -339,6 +374,9 @@ def test_gv90_comments(ext, tmp_path: Path):
     assert [c[0] for c in by["news:001/0000000001"]] == NEWS_COMMENTS
     assert {c[0] for c in by["yt:gv90video01"]} == {"GV90 디자인 멋지다 최고", "흉물 같음 현기차"}
     assert {c[0] for c in by["clien.net:501"]} == {"그래도 실내는 좋던데요", "저도 비싸서 포기"}
+    # 보배드림: 댓글 11개 · 댓글 수 11 (예전에 잘못 저장된 55 대신)
+    assert len(by["bobaedream.co.kr:2422499"]) == 11
+    assert page.evaluate("(async () => (await allPosts()).find((p) => p.key === 'bobaedream.co.kr:2422499').ccount)()") == 11
     ppom = {c[0]: c for c in by["ppomppu.co.kr:980300"]}
     print("PPOM", sorted(ppom))
     assert set(ppom) == {"첫 댓글 GV90 가격 비싸요 정말로", "답글 동의합니다", "답글의 답글", "옵션 구성 아쉽네요", "둘째 쪽 댓글 기본 모델 괜찮음"}, sorted(ppom)

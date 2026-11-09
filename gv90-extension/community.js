@@ -21,6 +21,7 @@ function communityAdapter(url) {
     const code = u.searchParams.get("code") || "national";
     return {
       site: "보배드림",
+      titleSelectors: [".writerProfile dt", ".writerProfile .title", ".tit_box", "h3.tit"], // 제목 옆 [N] = 이 글의 댓글 수
       domain: "bobaedream.co.kr",
       listUrl: (p) => `https://www.bobaedream.co.kr/list?code=${encodeURIComponent(code)}&page=${p}`,
       articleId: (href) => {
@@ -275,7 +276,14 @@ class CommunityCollector {
     const fetched = findCommentsIn(doc, sel);
     let comments = fetched.comments;
     let how = fetched.how;
-    let expected = Math.max(expectedCommentCount(doc), post.listCcount ?? post.ccount ?? 0);
+    // 조회수 (온라인 오전 일일동향과 같은 방법: 제목 근처 '조회 N')
+    const fullText = textOf(doc.body);
+    const tPos = post.title ? fullText.indexOf(post.title.slice(0, 12)) : -1;
+    const nearText = tPos >= 0 ? fullText.slice(Math.max(0, tPos - 300), tPos + 3000) : fullText.slice(0, 8000);
+    const vm = nearText.match(/조회(?:수)?\s*[:：]?\s*(\d[\d,]*)/) || fullText.match(/조회(?:수)?\s*[:：]?\s*(\d[\d,]*)/);
+    const views = vm ? +vm[1].replace(/,/g, "") : null;
+    // 이 글의 댓글 수 (작성자 정보 줄의 '댓글 N' 은 빼고 · 조회수보다 큰 수는 버림)
+    let expected = articleCommentCount(doc, ad, { listCount: post.listCcount ?? post.ccount ?? null, views, title: post.title }) || 0;
     // 뽐뿌: 댓글을 처음 화면에 다 넣지 않고 '다음 코멘트 더 보기'·쪽 번호를 누를 때 JSON 으로 받아 그린다 → 그 목록을 직접 1쪽부터 끝까지 받는다
     if (ad.domain === "ppomppu.co.kr") {
       const api = await readPpomppuCommentsApi(post.url, { isStopped: this.isStopped }).catch(() => null);
@@ -295,7 +303,7 @@ class CommunityCollector {
         return null;
       });
       if (live) {
-        expected = Math.max(expected, live.expected || 0);
+        if (live.expected && (views == null || live.expected <= views)) expected = Math.max(expected, live.expected);
         if (live.comments.length > comments.length) {
           comments = live.comments;
           how = "탭으로 열어 다시 읽음";
@@ -325,12 +333,6 @@ class CommunityCollector {
       const d = parseKoreanDate(c.dateText);
       out.push({ text: t, writtenAt: d ? fmtDateTime(d.date) : c.dateText || "", date: d ? d.date.getTime() : null, isReply: !!c.isReply, author: "" });
     }
-    // GV90: 조회수 (온라인 오전 일일동향 community.js 와 같은 방법: 화면 글자에서 '조회 N')
-    const full = textOf(doc.body);
-    const t0 = post.title ? full.indexOf(post.title.slice(0, 12)) : -1;
-    const near = t0 >= 0 ? full.slice(Math.max(0, t0 - 300), t0 + 3000) : full.slice(0, 8000);
-    const vm = near.match(/조회(?:수)?\s*[:：]?\s*(\d[\d,]*)/) || full.match(/조회(?:수)?\s*[:：]?\s*(\d[\d,]*)/);
-    const views = vm ? +vm[1].replace(/,/g, "") : null;
     return { body: body.slice(0, 3000), date, comments: out, expected, how, diag, aiNone, views, ccount: Math.max(out.length, expected || 0) };
   }
 
@@ -398,7 +400,11 @@ function expandCommentPage() {
   }
   const text = String((document.body && document.body.innerText) || "");
   let expected = 0;
-  for (const m of text.replace(/\s+/g, " ").matchAll(/(?:댓글|코멘트|comment)s?\s*[\[(:：]?\s*(\d{1,4})(?![\d.\-/:])\s*[\])]?(?:\s*개)?/gi)) expected = Math.max(expected, +m[1]);
+  const plain = text
+    .replace(/\s+/g, " ")
+    .replace(/(작성글|게시글|글)\s*[:：]?\s*[\d,]+\s*[|·,/]?\s*(댓글|코멘트)\s*[:：]?\s*[\d,]+/g, " ") // 작성자 정보 줄 (작성자가 쓴 총 댓글 수)
+    .replace(/(댓글|코멘트)\s*[:：]?\s*[\d,]+\s*[|·,/]?\s*(작성글|게시글|글)\s*[:：]?\s*[\d,]+/g, " ");
+  for (const m of plain.matchAll(/(?:댓글|코멘트|comment)s?\s*[\[(:：]?\s*(\d[\d,]{0,6})(?![\d.\-/:])\s*[\])]?(?:\s*개)?/gi)) expected = Math.max(expected, +m[1].replace(/,/g, ""));
   return { clicked, expected, text: text.slice(0, 60000) };
 }
 
@@ -524,13 +530,48 @@ async function readPpomppuCommentsApi(url, { isStopped = () => false } = {}) {
   return { comments: comments.filter((c) => c.text), total: parseInt(first.total_comment, 10) || 0 };
 }
 
-// 화면에 보이는 댓글 수 ("댓글 18", "댓글 [18]", "Comment 18")
+// 작성자 정보 줄('작성글: 게시글 16,067 | 댓글 55,929' = 작성자가 지금까지 쓴 글·댓글 수)을 지운다
+// (온라인 오전 일일동향 v1.10.60 과 같은 수정: 보배드림 글에서 이 숫자를 그 글의 댓글 수로 잘못 읽었음)
+function stripAuthorStats(t) {
+  return String(t || "")
+    .replace(/(작성글|게시글|글)\s*[:：]?\s*[\d,]+\s*[|·,/]?\s*(댓글|코멘트)\s*[:：]?\s*[\d,]+/g, " ")
+    .replace(/(댓글|코멘트)\s*[:：]?\s*[\d,]+\s*[|·,/]?\s*(작성글|게시글|글)\s*[:：]?\s*[\d,]+/g, " ");
+}
+
+// 화면에 보이는 '댓글 N' 중 가장 큰 수 (작성자 정보 줄은 빼고 · '댓글 2026.11.05' 처럼 날짜가 붙은 숫자는 세지 않음)
 function expectedCommentCount(doc) {
-  const t = (doc.body ? doc.body.textContent : "").replace(/\s+/g, " ");
+  const t = stripAuthorStats((doc.body ? doc.body.textContent : "").replace(/\s+/g, " "));
   let n = 0;
-  // '댓글 2026.11.05' 처럼 날짜가 붙은 숫자는 세지 않는다
-  for (const m of t.matchAll(/(?:댓글|코멘트|comment)s?\s*[\[(:：]?\s*(\d{1,4})(?![\d.\-/:])\s*[\])]?(?:\s*개)?/gi)) n = Math.max(n, +m[1]);
+  for (const m of t.matchAll(/(?:댓글|코멘트|comment)s?\s*[\[(:：]?\s*(\d[\d,]{0,6})(?![\d.\-/:])\s*[\])]?(?:\s*개)?/gi)) n = Math.max(n, +m[1].replace(/,/g, ""));
   return n;
+}
+
+// 이 글의 댓글 수: 사이트 댓글 칸 → 제목 옆 [N] → 글 목록에서 읽어 둔 수 → 본문 근처 '댓글 N'(작성자 정보 줄 뺌) → null
+// 조회수보다 큰 수는 다른 숫자를 잘못 읽은 것으로 보고 버린다
+function articleCommentCount(doc, ad, { listCount = null, views = null, title = "" } = {}) {
+  const ok = (n) => n != null && isFinite(n) && n >= 0 && (views == null || n <= views);
+  const num = (x) => +String(x).replace(/,/g, "");
+  for (const sel of ad?.commentCountSelectors || []) {
+    const m = textOf(doc.querySelector(sel)).match(/(\d[\d,]*)/);
+    if (m && ok(num(m[1]))) return num(m[1]);
+  }
+  for (const sel of ad?.titleSelectors || []) {
+    const m = textOf(doc.querySelector(sel)).match(/[\[(]\s*(\d[\d,]*)\s*[\])]\s*$/);
+    if (m && ok(num(m[1]))) return num(m[1]);
+  }
+  if (listCount != null && listCount > 0 && ok(listCount)) return listCount;
+  const full = stripAuthorStats(textOf(doc.body).replace(/\s+/g, " "));
+  const t0 = title ? full.indexOf(String(title).slice(0, 12)) : -1;
+  const near = t0 >= 0 ? full.slice(Math.max(0, t0 - 300), t0 + 4000) : full.slice(0, 8000);
+  for (const src of [near, full]) {
+    let n = null;
+    for (const m of src.matchAll(/(?:댓글|코멘트|comment)s?\s*[\[(:：]?\s*(\d[\d,]{0,6})(?![\d.\-/:])\s*[\])]?(?:\s*개)?/gi)) {
+      const v = num(m[1]);
+      if (ok(v)) n = Math.max(n ?? 0, v);
+    }
+    if (n != null) return n;
+  }
+  return null;
 }
 
 // 화면 구조를 몰라도 댓글 찾기 (받아 온 문서에도, 탭 화면 안에서도 쓰므로 혼자 동작해야 함)
