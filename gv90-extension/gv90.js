@@ -764,7 +764,7 @@ function renderResults() {
   for (const x of visibleItems()) {
     const tr = el("tr", { class: `${x.checked ? "" : "off"} ${x.dup ? "dup" : ""}` });
     const cb = el("input", { type: "checkbox", checked: x.checked, onchange: (e) => { x.checked = e.target.checked; x.touched = true; tr.classList.toggle("off", !x.checked); updateCounts(); saveLast(); } });
-    const sum = el("textarea", { class: "sum", rows: 2, onchange: (e) => { x.summary = e.target.value; markEdited(x, "summary"); saveLast(); } });
+    const sum = el("input", { type: "text", class: "sum", title: x.title ? `제목: ${x.title}` : "", onchange: (e) => { x.summary = e.target.value; markEdited(x, "summary"); saveLast(); } });
     sum.value = x.summary || "";
     const cat = el("select", { onchange: (e) => { x.category = e.target.value; markEdited(x, "category"); saveLast(); } });
     for (const c of CATEGORIES) cat.add(new Option(c, c));
@@ -776,20 +776,21 @@ function renderResults() {
     if (x.by.startsWith("ai")) notes.push(el("span", { class: "badge ai", text: "AI" }));
     if (x.dup) notes.push(el("span", { class: "badge dup", text: "이미 DB" }));
     else notes.push(el("span", { class: "badge new", text: "새 글" }));
-    if (x.fromRun) notes.push(el("span", { class: "hint", text: ` ${x.fromRun}` }));
+    if (x.fromRun) notes.push(el("span", { class: "hint", text: ` ${x.fromRun.replace(/ 수집$/, "")}` }));
     if (x.note) notes.push(el("span", { class: "hint err", text: ` ${x.note}` }));
     if (!x.related && !x.direct) notes.push(el("span", { class: "hint", text: " 키워드 없음" }));
+    const noteTitle = [x.dup ? "이미 데일리 DB 에 있는 글 (지난 보고에 들어감)" : "새 글", x.by.startsWith("ai") ? "AI 판독" : "", x.fromRun || "", x.note || "", !x.related && !x.direct ? "제목·본문에 GV90 키워드 없음" : ""].filter(Boolean).join(" · ");
     tr.append(
       el("td", {}, cb),
       el("td", {}, chChip(x.channel)),
-      el("td", { class: "nowrap", text: x.media }),
+      el("td", { class: "clip", title: x.media, text: x.media }),
       el("td", { class: "nowrap", text: x.date ? fmtDateTime(x.date).slice(5, x.exact ? 16 : 10) : "-" }),
-      el("td", {}, el("span", { class: "title", text: x.title || "(제목 없음)" })),
-      el("td", { class: "url" }, countsBadge(x), el("a", { href: x.url, target: "_blank", text: x.url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 48) })),
+      el("td", { class: "clip", title: x.title || "" }, el("span", { class: "title", text: x.title || "(제목 없음)" })),
+      el("td", { class: "url clip", title: x.url }, countsBadge(x), el("a", { href: x.url, target: "_blank", text: x.url.replace(/^https?:\/\/(www\.)?/, "") })),
       el("td", {}, sum),
       el("td", {}, cat),
       el("td", {}, sen),
-      el("td", {}, ...notes),
+      el("td", { class: "clip notes", title: noteTitle }, ...notes),
       el("td", {}, el("button", { class: "small danger", text: "✕", title: "목록에서 지우기", onclick: () => { items = items.filter((y) => y !== x); renderResults(); saveLast(); } })),
     );
     tb.append(tr);
