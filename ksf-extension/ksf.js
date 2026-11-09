@@ -2507,7 +2507,7 @@ async function makeCommentsFile(withSentiment) {
   } else {
     const rs = reactions(list).filter((r) => r.c);
     sheets = carOrder(rs.map((r) => r.car)).map((car) => ({
-      name: car, title: `코세페_${car} 동호회 댓글 성향`, rows: rs.filter((r) => r.car === car).map((r) => rowOf(r.x, r.c, r.tone)),
+      name: car, title: `코세페_${car} 관련 댓글 성향 (댓글이 이야기한 차종 기준 · 다른 차종 동호회 댓글 포함)`, rows: rs.filter((r) => r.car === car).map((r) => rowOf(r.x, r.c, r.tone)),
     }));
   }
   if (!sheets.length) sheets = [{ name: "댓글", title: "코세페_동호회 댓글", rows: [] }];
