@@ -13,14 +13,15 @@
   --accent: #b88a4a; /* 제네시스 코퍼 */
   --ok: #1b7f4b;
   --err: #b3261e;
-  --pos: #2a78d6;
-  --neu: #8a8985;
-  --neg: #e34948;
-  --blame: #6250d6;
-  --pos-bg: #e6f0fb;
-  --neu-bg: #efefed;
-  --neg-bg: #fde9e9;
-  --blame-bg: #ecebfb;
+  /* 성향 색: 기존 보고서와 같게 긍정 파랑 · 중립 초록 · 부정 빨강 · 단순비난 진한 노랑 */
+  --pos: #1f6fd1;
+  --neu: #16a34a;
+  --neg: #e0201b;
+  --blame: #b8860b;
+  --pos-bg: #e8f1fc;
+  --neu-bg: #e7f6ec;
+  --neg-bg: #fdecec;
+  --blame-bg: #fdf5dc;
   --ch-news: #2a78d6;
   --ch-yt: #e34948;
   --ch-cafe: #1baf7a;
@@ -40,14 +41,14 @@
     --brand-2: #6d8de0;
     --ok: #5cc98c;
     --err: #ff8a80;
-    --pos: #3987e5;
-    --neu: #9a9893;
-    --neg: #e66767;
-    --blame: #9085e9;
+    --pos: #5b9cf0;
+    --neu: #3cc46c;
+    --neg: #ff6b5f;
+    --blame: #e0b23a;
     --pos-bg: #1c2a40;
-    --neu-bg: #2a2a29;
+    --neu-bg: #18301f;
     --neg-bg: #3b1f22;
-    --blame-bg: #27243f;
+    --blame-bg: #352c12;
   }
 }
 :root[data-theme="dark"] {
@@ -62,14 +63,14 @@
   --brand-2: #6d8de0;
   --ok: #5cc98c;
   --err: #ff8a80;
-  --pos: #3987e5;
-  --neu: #9a9893;
-  --neg: #e66767;
-  --blame: #9085e9;
+  --pos: #5b9cf0;
+  --neu: #3cc46c;
+  --neg: #ff6b5f;
+  --blame: #e0b23a;
   --pos-bg: #1c2a40;
-  --neu-bg: #2a2a29;
+  --neu-bg: #18301f;
   --neg-bg: #3b1f22;
-  --blame-bg: #27243f;
+  --blame-bg: #352c12;
 }
 
 * { box-sizing: border-box; }
@@ -91,7 +92,7 @@ a { color: var(--brand-2); }
     #001a3a;
   min-height: 150px;
 }
-.topbar-in { max-width: 1500px; margin: 0 auto; padding: 34px 24px 0; }
+.topbar-in { max-width: 1800px; margin: 0 auto; padding: 34px 24px 0; }
 .brand { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .brand .logo { height: 48px; width: 48px; display: block; border-radius: 11px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35); }
 .brand h1 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.3px; color: #fff; min-width: 0; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.55); }
@@ -114,7 +115,7 @@ nav.menu .soon { opacity: 0.55; cursor: not-allowed; font-weight: 600; }
 }
 
 /* ---------------------------------------------------------------- 본문 */
-main { max-width: 1500px; margin: 0 auto; padding: 22px 24px; }
+main { max-width: 1800px; margin: 0 auto; padding: 22px 24px; }
 section { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin-bottom: 18px; }
 h2 { margin: 0 0 12px; font-size: 17px; }
 h3 { margin: 14px 0 8px; font-size: 14.5px; }
@@ -180,7 +181,7 @@ td select { padding: 3px 4px; font-size: 12.5px; }
 .chip.comm { color: var(--ch-comm); border: 1px solid currentColor; }
 select.senti, .chip.senti { font-weight: 700; }
 .senti.pos { color: var(--pos); background: var(--pos-bg); }
-.senti.neu { color: var(--text-2); background: var(--neu-bg); }
+.senti.neu { color: var(--neu); background: var(--neu-bg); }
 .senti.neg { color: var(--neg); background: var(--neg-bg); }
 .senti.blame { color: var(--blame); background: var(--blame-bg); }
 .by { font-size: 11px; color: var(--muted); }
@@ -325,7 +326,7 @@ a.btnlink { display: inline-block; padding: 8px 16px; border-radius: 8px; border
 a.btnlink:hover { border-color: var(--brand-2); }
 
 /* 결과 표: 찌그러지지 않게 칸 너비 고정 · 한 줄 · 긴 글자는 … (마우스를 올리면 전체) · 좁은 창에서는 표만 옆으로 넘김 */
-#results { table-layout: fixed; min-width: 1320px; } /* 주요 내용 칸이 남는 폭을 모두 씀 */
+#results { table-layout: fixed; min-width: 1400px; } /* 주요 내용 칸이 남는 폭을 모두 씀 (최소 약 520px) */
 #results th, #results td { white-space: nowrap; }
 #results td.clip { overflow: hidden; text-overflow: ellipsis; }
 #results td.url .counts { margin-right: 6px; }
@@ -333,3 +334,9 @@ a.btnlink:hover { border-color: var(--brand-2); }
 #results select { width: 100%; }
 #results td.notes .badge { margin-right: 3px; }
 #results tr.off td { opacity: 0.55; }
+/* 창이 좁으면(1,600px 아래) 제목 칸을 접어 주요 내용을 한 줄에 다 보이게 (제목은 주요 내용에 마우스를 올리면 보임) */
+@media (max-width: 1600px) {
+  #results { min-width: 1240px; }
+  #results col.c-title { width: 0 !important; }
+  #results th:nth-child(5), #results td:nth-child(5) { padding: 0; font-size: 0; border-left: 0; }
+}

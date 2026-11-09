@@ -2,7 +2,7 @@
 // 양식: 온라인 오전 일일동향 '차종별 온라인 동향 RAW data' 의 '제네시스' 시트와 같은 모양
 //   A 연번 · B 커뮤니티명 · C 차종 · D 게시일(mm월 dd일) · E 구분 · F 게시글 위치(하이퍼링크) · G 주요 내용 · H 성향(추가)
 //   서식(글꼴 현대산스 Text·테두리·머리글 색·날짜 형식)은 일일동향 보고서 양식(report-template.js) 그대로 쓰고,
-//   성향 글자색(긍정 파랑 · 중립 회색 · 부정 빨강 · 단순비난 보라)만 서식을 덧붙였다.
+//   성향 글자색(긍정 파랑 · 중립 초록 · 부정 빨강 · 단순비난 진한 노랑)만 서식을 덧붙였다.
 // 시트를 더 붙일 수 있게(댓글·일자별 집계) 시트마다 열 정의를 받는다.
 (function (global) {
   const enc = new TextEncoder();
@@ -94,7 +94,7 @@
   const SENTI_S = { 긍정: "pos", 중립: "neu", 부정: "neg", 단순비난: "blame" };
   function stylesXml() {
     const base = typeof TEMPLATE_STYLES_XML !== "undefined" ? TEMPLATE_STYLES_XML : global.TEMPLATE_STYLES_XML; // report-template.js (const 라 window 에 붙지 않음)
-    const colors = ["FF2A78D6", "FF6E6D69", "FFD0302F", "FF6250D6"];
+    const colors = ["FF1F6FD1", "FF16A34A", "FFE0201B", "FFB8860B"]; // 긍정 파랑 · 중립 초록 · 부정 빨강 · 단순비난 진한 노랑
     const fonts = colors.map((c) => `<font><b/><sz val="10"/><color rgb="${c}"/><name val="현대산스 Text"/><family val="3"/><charset val="129"/></font>`).join("");
     const xfs = colors.map((_, i) => `<xf numFmtId="0" fontId="${8 + i}" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>`).join("");
     return base

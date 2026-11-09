@@ -6,6 +6,7 @@
 
 const RP_COLOR = { 긍정: "#1f6fd1", 중립: "#16a34a", 부정: "#e0201b", 단순비난: "#d9a400" };
 const RP_DOT = { 긍정: "#1f6fd1", 중립: "#16a34a", 부정: "#e0201b", 단순비난: "#d9a400" };
+const RP_TEXT = { 긍정: "#1f6fd1", 중립: "#16a34a", 부정: "#e0201b", 단순비난: "#b8860b" }; // 글자색 (단순비난은 진한 노랑)
 const RP_NAVY = "#002c5f";
 const RP_CARD = { 언론: "#002c5f", 동호회: "#0a7f86", 유튜브: "#b5651d", "자동차 커뮤니티": "#6b4fa8" };
 const RP_FONT = "'Apple SD Gothic Neo','Malgun Gothic','맑은 고딕',sans-serif";
