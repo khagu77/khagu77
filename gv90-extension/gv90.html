@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GV90 게시물 수집 - GV90(JG1) 온라인 게시물 일일 수집기</title>
+  <link rel="icon" href="icons/icon32.png">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-in">
+      <div class="brand">
+        <img src="icons/logo-gv90.png" alt="GV90" class="logo">
+        <h1>GV90(JG1) 온라인 게시물 일일 수집기<span class="sub">언론 · 동호회 · 유튜브 · 자동차 커뮤니티 · 성향(긍정/중립/부정/단순비난) 분석 · 데일리 DB</span></h1>
+        <span class="ver" id="ver"></span>
+        <div class="tools"><a class="tool" href="db.html">🗄 데일리 DB</a><a class="tool" href="gv90.html#settings">⚙ 설정</a></div>
+      </div>
+      <nav class="menu">
+        <a href="gv90.html" class="on"><span class="num">1</span>🔍 게시물 수집</a>
+        <a href="db.html"><span class="num">2</span>🗄 데일리 DB</a>
+        <a href="dashboard.html"><span class="num">3</span>📊 대시보드</a>
+        <span class="soon" title="댓글 수집·댓글 성향 분석은 다음 단계에서 붙입니다 (DB·엑셀·대시보드 자리는 준비되어 있음)"><span class="num">4</span>💬 댓글 수집 (준비 중)</span>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <div id="login" class="hint">로그인 상태 확인 중…</div>
+    <div id="autoInfo" class="hint autoinfo"></div>
+
+    <section>
+      <h2>1. 게시물 찾기</h2>
+      <div class="row channels">
+        <span class="hint">찾을 곳</span>
+        <label class="inline"><input type="checkbox" id="chNews" checked> <span class="ch ch-news">언론</span> <span class="hint">네이버 뉴스 검색 · 언론사 기사 포함</span></label>
+        <label class="inline"><input type="checkbox" id="chYoutube" checked> <span class="ch ch-yt">유튜브</span> <span class="hint">최신 업로드 검색</span></label>
+        <label class="inline"><input type="checkbox" id="chCafe" checked> <span class="ch ch-cafe">동호회</span> <span class="hint">네이버 카페 · 로그인 필요</span></label>
+        <label class="inline"><input type="checkbox" id="chCommunity" checked> <span class="ch ch-comm">자동차 커뮤니티</span> <span class="hint">보배드림 · 클리앙 · 뽐뿌</span></label>
+      </div>
+      <div class="row">
+        <span class="yt-new-label"><svg class="yt-icon" viewBox="0 0 28 20" aria-hidden="true"><rect width="28" height="20" rx="5" fill="#ff0000"/><path d="M11 5.5v9l8-4.5z" fill="#fff"/></svg><span class="yt-badge">유튜브 새 콘텐츠</span></span>
+        <input type="text" id="ytNew" class="full" spellcheck="false" placeholder="직접 넣을 유튜브 영상 주소 (여러 개는 줄바꿈·띄어쓰기로 구분)">
+        <button id="ytNewAdd" class="small">결과에 추가</button>
+      </div>
+      <div id="ytNewInfo" class="hint">검색에 안 걸린 영상을 직접 넣으면 제목·채널·게시일·설명을 읽어 결과에 '유튜브'로 넣습니다.</div>
+      <div class="row">
+        <label class="inline">시작 <input type="datetime-local" id="from"></label>
+        <label class="inline">끝 <input type="datetime-local" id="to"></label>
+        <button id="resetRange" class="small">기본 시간으로</button>
+        <button id="saveRange" class="small" title="지금 시작·끝 칸의 시각을 다음부터 기본 시각으로 씁니다">이 시각을 기본으로 저장</button>
+      </div>
+      <div class="hint">화면을 열 때마다 <b id="baseText">직전 근무일 오전 11:30 ~ 오늘 오전 11:30</b>으로 맞춰집니다 (월요일·연휴 다음 날은 주말·공휴일을 건너뛴 마지막 근무일부터). <span id="rangeInfo"></span></div>
+
+      <details id="settings">
+        <summary>설정 (자동 수집 · 저장 위치 · 키워드 · 동호회 · 커뮤니티 · 성향 사전 · Claude AI)</summary>
+
+        <h3>⏰ 자동 수집</h3>
+        <div class="row">
+          <label class="inline"><input type="checkbox" id="autoOn" checked> 평일 자동 수집</label>
+          <label class="inline">시작 시각 <input type="time" id="autoTime" value="11:30"></label>
+          <label class="inline"><input type="checkbox" id="autoSave" checked> 찾은 뒤 분석 → 엑셀 만들기·데일리 DB 저장까지 자동</label>
+          <label class="inline"><input type="checkbox" id="autoAi"> 자동 수집 때도 Claude AI 로 분석 (API 키 필요)</label>
+        </div>
+        <div class="hint">'온라인 오전 일일동향'처럼 평일 정해진 시각에 이 화면을 열어 찾기 → 본문 읽기 → 성향 분석 → (켜면) 엑셀·DB 저장까지 하고 알림을 띄웁니다. 주말·공휴일·추가 휴일엔 쉬고 다음 근무일에 지난번 저장 이후를 이어서 모읍니다. 그 시각에 PC가 꺼져 있었으면 그날 크롬을 켤 때(오후 8시 전) 시작합니다.</div>
+        <label for="holidays">추가 휴일 <span class="hint">(임시공휴일·회사 휴무 등, 예: 2026-12-31 · 주말·법정 공휴일·대체공휴일은 자동)</span></label>
+        <textarea id="holidays" rows="1" spellcheck="false" placeholder="2026-12-31"></textarea>
+
+        <h3>💾 저장 위치 · 알림음</h3>
+        <div class="savebox">
+          <label>저장 폴더 <span class="hint">(폴더 선택 창에서 고르면 그 폴더에 바로 저장 · 고르지 않으면 크롬 다운로드 폴더)</span></label>
+          <div class="row">
+            <button id="saveDirPick" class="small">📁 저장 폴더 고르기</button>
+            <button id="saveDirClear" class="small" hidden>기본(다운로드 폴더)으로</button>
+            <span id="saveDirName" class="hint"></span>
+          </div>
+          <label for="saveFolder">다운로드 폴더 안 하위 폴더 <span class="hint">(저장 폴더를 고르지 않았을 때)</span></label>
+          <div class="row"><span class="hint">크롬 다운로드 폴더 /</span><input type="text" id="saveFolder" class="full" spellcheck="false" placeholder="비우면 다운로드 폴더에 바로 저장 (예: GV90 모니터링/일일보고)"></div>
+          <label class="inline"><input type="checkbox" id="saveAsk"> 받을 때마다 저장 위치 묻기</label>
+          <label class="inline"><input type="checkbox" id="soundOn" checked> 끝나면 '딩동댕' 알림음 (게시물 찾기 · 분석 · 엑셀 만들기)</label>
+        </div>
+
+        <h3>🔑 키워드</h3>
+        <label for="mainKw">메인 키워드 <span class="hint">(쉼표로 구분 · 언론: 키워드마다 네이버 뉴스 검색 / 커뮤니티: 제목·본문에 키워드가 있는 글)</span></label>
+        <textarea id="mainKw" rows="1" spellcheck="false"></textarea>
+        <label for="subKw">서브 키워드 <span class="hint">(비워 두면 메인 키워드만으로 찾음 · 넣으면 메인 × 서브 조합)</span></label>
+        <textarea id="subKw" rows="1" spellcheck="false"></textarea>
+        <label for="ytQueries">유튜브 검색어 <span class="hint">(쉼표로 구분 · 최신 업로드순으로 기간 안 영상)</span></label>
+        <textarea id="ytQueries" rows="1" spellcheck="false"></textarea>
+        <label for="cafeQueries">동호회 검색어 <span class="hint">(쉼표로 구분 · 카페마다 검색어마다 한 번씩 검색 · 많을수록 오래 걸림)</span></label>
+        <textarea id="cafeQueries" rows="1" spellcheck="false"></textarea>
+        <label for="exclude">관련 없는 글 단어 <span class="hint">(제목·미리보기에 있으면 체크 해제 · 쉼표로 구분)</span></label>
+        <textarea id="exclude" rows="1" spellcheck="false"></textarea>
+
+        <h3>🚗 수집 채널</h3>
+        <label for="cafeList">동호회 목록 <span class="hint">(한 줄에 하나 · 카페 주소(…/cafes/숫자/…) 또는 카페 번호 · 이 순서대로 찾음)</span></label>
+        <textarea id="cafeList" rows="5" spellcheck="false"></textarea>
+        <label for="boards">자동차 커뮤니티 게시판 <span class="hint">(한 줄에 하나 · 보배드림·클리앙·뽐뿌 게시판 주소)</span></label>
+        <textarea id="boards" rows="4" spellcheck="false"></textarea>
+        <div class="row">
+          <label class="inline">언론 검색어마다 최대 <input type="number" id="newsPages" min="1" max="10" class="tiny"> 페이지</label>
+          <label class="inline">카페마다 최대 <input type="number" id="maxPages" min="1" max="20" class="tiny"> 페이지</label>
+          <label class="inline"><input type="checkbox" id="tabFallback"> 숨긴 화면에서 못 읽으면 뒤쪽 탭으로 다시 읽기</label>
+        </div>
+        <label for="searchUrl">카페 검색 주소 형식 <span class="hint">(검색이 안 되면 카페에서 직접 검색한 주소를 그대로 붙여 넣으세요)</span></label>
+        <input type="text" id="searchUrl" class="full" spellcheck="false" style="width:100%">
+
+        <h3>🙂 성향 사전 (규칙 분석에 더할 단어)</h3>
+        <div class="hint">기본 사전에 더해 씁니다. AI 분석을 쓰면 AI 판단이 우선합니다.</div>
+        <label for="lexPos">긍정 단어</label><textarea id="lexPos" rows="1" spellcheck="false" placeholder="예: 웅장하다, 갖고싶다"></textarea>
+        <label for="lexNeg">부정 단어</label><textarea id="lexNeg" rows="1" spellcheck="false" placeholder="예: 출고 지연, 품질 이슈"></textarea>
+        <label for="lexBlame">단순비난 단어</label><textarea id="lexBlame" rows="1" spellcheck="false"></textarea>
+
+        <h3>🤖 Claude AI 분석 <span class="badge ai">AI</span></h3>
+        <div class="row">
+          <label class="inline">API 키 <input type="password" id="aiKey" spellcheck="false" placeholder="sk-ant-…" style="width:300px"></label>
+          <label class="inline">모델 <select id="aiModel"></select></label>
+          <button id="aiTest" class="small">키 확인</button>
+          <span id="aiInfo" class="hint"></span>
+        </div>
+        <div class="hint">본문을 읽고 GV90 관련 글인지 · 구분 · 성향 · 주요 내용(보고서 문체)을 정합니다. 키는 이 PC 크롬에만 저장되고 백업 파일에는 들어가지 않습니다.</div>
+        <div class="buttons"><button id="resetSettings" class="small">설정 처음 값으로</button></div>
+      </details>
+
+      <div class="buttons">
+        <button id="search" class="primary">게시물 찾기</button>
+        <button id="stop" disabled>중지</button>
+      </div>
+      <div id="summary" class="summary"></div>
+      <div id="log" class="log" hidden></div>
+    </section>
+
+    <section id="resultBox" hidden>
+      <h2>2. 결과 확인 · 성향 분석</h2>
+      <div class="hint">체크한 글만 엑셀·DB에 들어갑니다. <b>주요 내용 · 구분 · 성향</b>은 표에서 바로 고칠 수 있고, 고친 값은 그대로 저장됩니다.</div>
+      <div class="row">
+        <button id="selAll" class="small">모두 선택</button>
+        <button id="selNone" class="small">모두 해제</button>
+        <button id="selDelete" class="small danger">체크한 글 목록에서 지우기</button>
+        <button id="analyzeRule" class="small" title="단어 사전으로 다시 분석 (직접 고친 값은 그대로)">규칙으로 다시 분석</button>
+        <button id="analyzeAi" class="small">🤖 Claude AI 로 분석</button>
+        <label class="inline">보기 <select id="filter"><option value="">전체</option><option value="checked">체크한 글</option><option value="neg">부정·단순비난</option><option value="new">DB에 없는 새 글</option></select></label>
+      </div>
+      <div class="tablewrap">
+        <table id="results">
+          <thead><tr><th><input type="checkbox" id="checkAll" title="모두 체크/해제"></th><th>채널</th><th>커뮤니티명</th><th>게시일</th><th>제목</th><th>주요 내용</th><th>구분</th><th>성향</th><th>비고</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="resultCount" class="hint"></div>
+
+      <h3>3. 엑셀 만들기 · 데일리 DB 저장</h3>
+      <div class="row">
+        <label class="inline">엑셀에 담을 범위
+          <select id="xlsxScope">
+            <option value="all">누적 (데일리 DB 전체 · 연번 이어짐)</option>
+            <option value="today">오늘 수집분만</option>
+          </select>
+        </label>
+      </div>
+      <div class="buttons">
+        <button id="saveList" class="primary" disabled>엑셀 만들기 (데일리 DB 저장)</button>
+        <button id="getList" class="getbtn" disabled>📥 엑셀 받기</button>
+      </div>
+      <div id="saveInfo" class="hint"></div>
+      <div id="diffs" class="diffs" hidden></div>
+    </section>
+
+    <p class="note">
+      언론은 네이버 뉴스 검색으로, 유튜브는 최신 업로드 검색으로, 자동차 커뮤니티는 게시판 목록을 받아 읽어 찾습니다(로그인 필요 없음).
+      네이버 카페는 계정 보호를 위해 검색 화면을 이 화면 안의 보이지 않는 곳에서 하나씩 열어 사람처럼 천천히 읽습니다(카페 하나에 10~20초).
+      엑셀 양식: 일일동향 raw data와 같은 <b>(연번) · 커뮤니티명 · 차종 · 게시일 · 구분 · 게시글 위치 · 주요 내용</b>에 <b>성향</b>을 붙였습니다.
+    </p>
+  </main>
+  <script src="lib/anthropic-sdk.min.js"></script>
+  <script src="cafe-common.js"></script>
+  <script src="channels.js"></script>
+  <script src="holidays.js"></script>
+  <script src="gv90-analyze.js"></script>
+  <script src="gv90-db.js"></script>
+  <script src="gv90-xlsx.js"></script>
+  <script src="gv90.js"></script>
+</body>
+</html>
