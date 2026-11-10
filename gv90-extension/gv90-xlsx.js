@@ -261,6 +261,8 @@
 
   // posts: 연번 순 게시물 · comments: 있으면 '댓글' 시트 · daily: 일자별 집계(데일리 DB days)
   function buildRaw({ posts, comments = [], daily = null }) {
+    // 댓글의 구분은 게시글의 지금 구분을 따름 (게시글을 다시 분석해 '모두 포함(…)'으로 바뀐 경우 포함)
+    const catOfPost = new Map((posts || []).map((p) => [p.key, p.category]));
     const sheets = [
       {
         name: RAW_SHEET,
@@ -275,7 +277,7 @@
         name: "댓글",
         columns: COMMENT_COLUMNS,
         cursorEnd: true,
-        rows: comments.map((c, i) => [c.serial || i + 1, c.media || "", c.car || "GV90", asDate(c.date), c.category || "", c.url, c.text || "", c.sentiment || ""]),
+        rows: comments.map((c, i) => [c.serial || i + 1, c.media || "", c.car || "GV90", asDate(c.date), catOfPost.get(c.postKey) || c.category || "", c.url, c.text || "", c.sentiment || ""]),
         cellStyle: sentiStyle(7),
       });
     }
@@ -339,7 +341,7 @@
         columns: COMMENT_COLUMNS,
         cursorEnd: true,
         filter: true,
-        rows: comments.map((c, i) => [i + 1, c.media || "", c.car || "GV90", asDate(c.date), c.category || "", c.url, c.isReply ? `↪ 답글: ${c.text || ""}` : c.text || "", c.sentiment || ""]),
+        rows: comments.map((c, i) => [i + 1, c.media || "", c.car || "GV90", asDate(c.date), postOf.get(c.postKey)?.category || c.category || "", c.url, c.isReply ? `↪ 답글: ${c.text || ""}` : c.text || "", c.sentiment || ""]),
         cellStyle: (ri, ci, v) => (ci === 7 ? SENTI_S[v] : ci === 6 && comments[ri].isReply ? "replyText" : null),
       },
       {
