@@ -120,16 +120,22 @@ function rpAutoSummary(d) {
   ];
 }
 
-function rpOpinionRows(list, color, maxLen = 0) {
+function rpOpinionRows(list, color, maxLen = 0, w = 0) {
   const cut = (t) => (maxLen && t.length > maxLen ? `${t.slice(0, maxLen).trim()}…` : t);
   if (!list.length) return `<tr><td colspan="3" style="padding:6px 4px;color:#9ca3af;font-size:13px">해당 없음</td></tr>`;
   const total = list.total;
+  // 칸 폭을 숫자로 고정 (메일에서 건수 칸이 넓어지고 내용 칸이 좁아지는 것 막음): 번호 22 · 건수 64 · 내용 나머지
+  const NO = 22;
+  const CNT = 64;
+  const tw = w ? w - NO - CNT : 0;
+  const wa = (n) => (n ? ` width="${n}"` : "");
+  const ws = (n) => (n ? `width:${n - 8}px;` : "");
   return list
     .map(
       (o, i) =>
-        `<tr><td style="width:18px;padding:6px 4px;color:#9ca3af;font-size:12px;border-bottom:1px solid #eef0f3;vertical-align:top">${i + 1}</td>` +
-        `<td style="padding:6px 4px;font-size:11px;letter-spacing:-0.7px;color:#111827;border-bottom:1px solid #eef0f3;line-height:1.45" title="${rpEsc(o.text)}">${rpEsc(cut(o.text))}</td>` +
-        `<td style="padding:6px 4px;text-align:right;white-space:nowrap;border-bottom:1px solid #eef0f3;vertical-align:top"><b style="color:${color};font-size:13px">${o.n}</b> <span style="color:#9ca3af;font-size:12px">${pct(o.n, total)}</span></td></tr>`,
+        `<tr><td${wa(NO)} style="width:${NO - 8}px;padding:6px 4px;color:#9ca3af;font-size:12px;border-bottom:1px solid #eef0f3;vertical-align:top">${i + 1}</td>` +
+        `<td${wa(tw)} style="${ws(tw)}padding:6px 4px;font-size:11px;letter-spacing:-0.7px;color:#111827;border-bottom:1px solid #eef0f3;line-height:1.45" title="${rpEsc(o.text)}">${rpEsc(cut(o.text))}</td>` +
+        `<td${wa(CNT)} style="width:${CNT - 8}px;padding:6px 4px;text-align:right;white-space:nowrap;border-bottom:1px solid #eef0f3;vertical-align:top"><b style="color:${color};font-size:13px">${o.n}</b> <span style="color:#9ca3af;font-size:11px">${pct(o.n, total)}</span></td></tr>`,
     )
     .join("");
 }
@@ -252,7 +258,7 @@ function rpChannelRow(c, rowW) {
       `<div style="margin:5px 0 4px;line-height:1.6">${rpLegend(sc, total, "#1f2937", 11)}</div>` +
       rpVerdict(sc, total, 11).html;
     const opCell = (t, col, list, top) =>
-      `<td width="${opW + 12}" style="width:${opW}px;vertical-align:top;padding:0 0 0 12px">${box(opW, `${head(t, col, list.length)}<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${opW}" style="width:${opW}px;border-collapse:collapse">${rpOpinionRows(top, col, 64)}</table>`)}</td>`;
+      `<td width="${opW + 12}" style="width:${opW}px;vertical-align:top;padding:0 0 0 12px">${box(opW, `${head(t, col, list.length)}<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${opW}" style="width:${opW}px;table-layout:fixed;border-collapse:collapse">${rpOpinionRows(top, col, 64, opW)}</table>`)}</td>`;
     right = opCell("긍정 주요 내용", "#1f5fbf", pos, posTop) + opCell("부정 주요 내용", "#d0021b", neg, negTop);
   }
   return (
@@ -282,7 +288,7 @@ const RP_LEFT_IN = RP_LEFT - 36; // 안쪽 폭 (여백 18 · 18)
 const RP_BANNER_W = 470;
 const RP_BANNER_H = Math.round((RP_BANNER_W * 350) / 1000); // report-banner.jpg 1000×350
 const RP_R = 14; // 바깥 모서리 둥글기
-const RP_RIGHT_W = RP_WIDTH - 2 - RP_LEFT - 24; // 오른쪽 칸 안쪽 폭 (메일에 붙여도 칸 폭이 그대로 되게 px 로 고정)
+const RP_RIGHT_W = RP_WIDTH - 2 - RP_LEFT - 34; // 오른쪽 여백 12 + 20 (둥근 모서리 안쪽에 들어오게) + 여유 2 // 오른쪽 칸 안쪽 폭 (메일에 붙여도 칸 폭이 그대로 되게 px 로 고정)
 
 // 전체 보고 대시보드 HTML. banner: 그림 주소("" 이면 그림 없이) · summary: [줄1, 줄2] · editable: 화면에서 요약을 고칠 수 있게
 function reportHtml(d, { banner = "", summary = null, editable = false, now = new Date() } = {}) {
@@ -316,7 +322,7 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
     })
     .join("");
   return (
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${RP_WIDTH}" style="width:${RP_WIDTH}px;table-layout:fixed;border-collapse:separate;border-spacing:0;letter-spacing:-0.5px;font-family:${RP_FONT};background:#ffffff;border:1px solid #e5e7eb;border-radius:${RP_R}px"><tr>` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${RP_WIDTH}" style="width:${RP_WIDTH}px;table-layout:fixed;border-collapse:separate;border-spacing:0;overflow:hidden;letter-spacing:-0.5px;font-family:${RP_FONT};background:#ffffff;border:1px solid #e5e7eb;border-radius:${RP_R}px"><tr>` +
     // 왼쪽 남색 칸
     `<td width="${RP_LEFT}" bgcolor="${RP_NAVY}" style="width:${RP_LEFT_IN}px;background:${RP_NAVY};color:#ffffff;vertical-align:top;padding:18px 18px 0;border-radius:${RP_R}px 0 0 0;min-width:${RP_LEFT_IN}px">` +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${RP_LEFT_IN}" bgcolor="${RP_NAVY}" style="width:${RP_LEFT_IN}px;min-width:${RP_LEFT_IN}px;max-width:${RP_LEFT_IN}px;border-collapse:collapse;color:#ffffff;background:${RP_NAVY}"><tr><td bgcolor="${RP_NAVY}" style="background:${RP_NAVY};color:#ffffff;padding:0">` +
@@ -338,7 +344,7 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
     `<div style="color:#ffffff;font-size:13px;opacity:.85;line-height:1.5;margin-top:14px">모니터링 채널: ${rpEsc(d.monitor || chText || "-")}</div>` +
     `</td></tr></table></td>` +
     // 오른쪽 (왼쪽 남색 칸 두 줄 높이)
-    `<td rowspan="2" width="${RP_WIDTH - RP_LEFT}" style="width:${RP_RIGHT_W}px;vertical-align:top;padding:12px 12px 10px">` +
+    `<td rowspan="2" width="${RP_WIDTH - RP_LEFT}" bgcolor="#ffffff" style="width:${RP_RIGHT_W}px;vertical-align:top;padding:14px 20px 14px 12px;background:#ffffff;border-radius:0 ${RP_R}px ${RP_R}px 0">` +
     // 위: 그림(왼쪽) + 요약 두 줄(오른쪽) — 넓은 화면에서 그림이 너무 커지지 않게 나란히
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${RP_RIGHT_W}" style="width:${RP_RIGHT_W}px;table-layout:fixed;border-collapse:collapse;margin-bottom:6px"><tr>` +
     (banner ? `<td width="${RP_BANNER_W + 6}" style="width:${RP_BANNER_W}px;padding:0 6px 0 0;vertical-align:top"><img src="${rpEsc(banner)}" width="${RP_BANNER_W}" height="${RP_BANNER_H}" alt="GV90" style="display:block;width:${RP_BANNER_W}px;height:${RP_BANNER_H}px;border-radius:8px"></td>` : "") +
