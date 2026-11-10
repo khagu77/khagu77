@@ -138,6 +138,7 @@ function rpCard(c, cardW = 50) {
 // 대시보드 폭: 채널 카드 4개가 한 줄에 들어가게 넓게 (왼쪽 남색 칸 300 + 오른쪽)
 const RP_WIDTH = 1680;
 const RP_BANNER_W = 640;
+const RP_R = 14; // 바깥 모서리 둥글기
 
 // 전체 보고 대시보드 HTML. banner: 그림 주소("" 이면 그림 없이) · summary: [줄1, 줄2] · editable: 화면에서 요약을 고칠 수 있게
 function reportHtml(d, { banner = "", summary = null, editable = false, now = new Date() } = {}) {
@@ -168,9 +169,9 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
     })
     .join("");
   return (
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:${RP_WIDTH}px;border-collapse:collapse;font-family:${RP_FONT};background:#ffffff;border:1px solid #e5e7eb"><tr>` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:${RP_WIDTH}px;border-collapse:separate;border-spacing:0;font-family:${RP_FONT};background:#ffffff;border:1px solid #e5e7eb;border-radius:${RP_R}px"><tr>` +
     // 왼쪽 남색 칸
-    `<td style="width:300px;background:${RP_NAVY};color:#ffffff;vertical-align:top;padding:22px 22px">` +
+    `<td style="width:300px;background:${RP_NAVY};color:#ffffff;vertical-align:top;padding:22px 22px 0;border-radius:${RP_R}px 0 0 0">` +
     `<div style="font-size:14px;opacity:.9">GV90(JG1) 관련 여론 동향</div>` +
     `<div style="font-size:34px;font-weight:900;letter-spacing:.5px;margin:2px 0 14px">DASHBOARD</div>` +
     `<div style="font-size:13px;opacity:.85">모니터링 기간</div>` +
@@ -188,8 +189,8 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
     `<div style="color:${v.hi ? "#ffcf3f" : "#9fd0ff"};font-weight:800;font-size:15px;line-height:1.5;margin:10px 0">${rpEsc(v.text)}</div>` +
     `<div style="font-size:13px;opacity:.85;line-height:1.5;margin-top:14px">모니터링 채널: ${rpEsc(chText || "-")}</div>` +
     `</td>` +
-    // 오른쪽
-    `<td style="vertical-align:top;padding:16px 16px 12px">` +
+    // 오른쪽 (왼쪽 남색 칸 두 줄 높이)
+    `<td rowspan="2" style="vertical-align:top;padding:16px 16px 12px">` +
     // 위: 그림(왼쪽) + 요약 두 줄(오른쪽) — 넓은 화면에서 그림이 너무 커지지 않게 나란히
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;margin-bottom:6px"><tr>` +
     (banner ? `<td style="width:${RP_BANNER_W}px;padding:0 6px 0 0;vertical-align:top"><img src="${rpEsc(banner)}" width="${RP_BANNER_W}" alt="GV90" style="display:block;width:${RP_BANNER_W}px;max-width:100%;height:auto;border-radius:8px"></td>` : "") +
@@ -203,9 +204,9 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
         `<div style="background:#f3f4f6;padding:8px 12px;font-size:14px"><b style="color:${RP_NAVY}">구분(이슈)별 반응</b> <span style="color:#6b7280">(${d.comments.some((c) => c.sentiment) ? "반응" : "게시글"} 기준 · 가장 많이 나온 내용)</span></div>` +
         `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse">${catRows}</table></div>`
       : "") +
-    // 오른쪽 아래 서명
-    `<div style="text-align:right;margin:12px 8px 0;font-size:12px;color:#9ca3af;letter-spacing:.5px">by <b style="color:${RP_NAVY};letter-spacing:1px">LINESQUARE</b></div>` +
-    `</td></tr></table>`
+    `</td></tr>` +
+    // 왼쪽 남색 칸 맨 아래: 서명 (By LINESQUARE) · 아래 모서리 둥글게
+    `<tr><td style="width:300px;height:56px;background:${RP_NAVY};color:#ffffff;vertical-align:bottom;padding:0 22px 20px;border-radius:0 0 0 ${RP_R}px;font-size:14px">By <b><i style="letter-spacing:.3px">LINESQUARE</i></b></td></tr></table>`
   );
 }
 
