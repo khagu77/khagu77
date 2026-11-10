@@ -1068,7 +1068,7 @@ async function makeExcel({ interactive = true } = {}) {
   const posts = s.xlsxScope === "today" ? await postsOfDay(day) : await allPosts();
   const comments = s.xlsxScope === "today" ? (await allComments()).filter((c) => c.day === day) : await allComments();
   const daily = (await listDays()).slice().reverse();
-  const bytes = Gv90Xlsx.buildRaw({ posts, comments, daily });
+  const bytes = Gv90Xlsx.buildRaw({ posts, comments, daily, dayPosts: await allPosts() });
   await saveDayFile(day, fileName, bytes);
   await markRunsReported([curRunId, ...mergedRunIds].filter(Boolean));
   await chrome.storage.local.set({ gvLastReportAt: Date.now() });

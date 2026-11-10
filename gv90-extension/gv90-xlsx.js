@@ -259,7 +259,7 @@
   const asDate = (ms) => (ms ? new Date(ms) : null);
 
   // posts: 연번 순 게시물 · comments: 있으면 '댓글' 시트 · daily: 일자별 집계(데일리 DB days)
-  function buildRaw({ posts, comments = [], daily = null }) {
+  function buildRaw({ posts, comments = [], daily = null, dayPosts = null }) {
     const sheets = [
       {
         name: RAW_SHEET,
@@ -290,6 +290,11 @@
         const bad = (st.bySentiment?.부정 || 0) + (st.bySentiment?.단순비난 || 0);
         return [label, st.posts || 0, st.comments || 0, ...CH.map((c) => st.byChannel?.[c] || 0), ...SENT.map((x) => st.bySentiment?.[x] || 0), pct(bad, st.posts || 0)];
       };
+      // 댓글: 엑셀은 보통 댓글 수집 전에 만들므로 게시글마다 사이트에 보이는 댓글 수(💬)를 그날 합계로
+      //  (댓글을 수집했으면 모은 개수와 비교해 큰 쪽)
+      const ccOfDay = new Map();
+      for (const p of dayPosts || posts) if (p.day) ccOfDay.set(p.day, (ccOfDay.get(p.day) || 0) + (p.ccount || 0));
+      daily = daily.map((d) => ({ ...d, stats: { ...(d.stats || {}), comments: Math.max(d.stats?.comments || 0, ccOfDay.get(d.day) || 0) } }));
       const sum = { posts: 0, comments: 0, byChannel: {}, bySentiment: {} };
       for (const d of daily) {
         const st = d.stats || {};
@@ -303,7 +308,7 @@
       const N = { v: "", s: "headNavy" };
       sheets.push({
         name: "일자별 집계",
-        top: [[{ v: "보고일", s: "headNavy" }, { v: "게시물", s: "headNavy" }, { v: "댓글", s: "headNavy" }, { v: "채널별 게시물", s: "headNavy" }, N, N, N, { v: "성향별 게시물", s: "headNavy" }, N, N, N, { v: "부정+단순비난 비율", s: "headNavy" }]],
+        top: [[{ v: "보고일", s: "headNavy" }, { v: "게시물", s: "headNavy" }, { v: "댓글 수", s: "headNavy" }, { v: "채널별 게시물", s: "headNavy" }, N, N, N, { v: "성향별 게시물", s: "headNavy" }, N, N, N, { v: "부정+단순비난 비율", s: "headNavy" }]],
         merges: ["A1:A2", "B1:B2", "C1:C2", "D1:G1", "H1:K1", "L1:L2"],
         columns: [
           { header: "", width: 13, style: "bold", headStyle: "headNavy" },

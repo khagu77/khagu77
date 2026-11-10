@@ -300,6 +300,9 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     assert ws["E2"].number_format == 'mm"월"\\ dd"일"'  # 일일동향 양식 날짜 형식
     assert ws["F2"].hyperlink is not None
     assert "일자별 집계" in wb.sheetnames
+    wd = wb["일자별 집계"]
+    assert wd["C1"].value == "댓글 수"
+    assert any((wd.cell(r, 3).value or 0) > 0 for r in range(3, wd.max_row + 1))  # 댓글 수집 전이어도 게시글의 댓글 수(💬) 합계
     # 저장이 끝나면 '받기'가 아니라 '✔ 엑셀 저장 완료!' (또 누르면 묻고, [취소]면 파일을 더 만들지 않음)
     assert page.inner_text("#getList").strip() == "✔ 엑셀 저장 완료!"
     # 같은 글을 다시 저장해도 늘지 않음
