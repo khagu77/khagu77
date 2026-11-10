@@ -418,3 +418,51 @@ def test_gv90_comments(ext, tmp_path: Path):
     page.locator("#reportBody", has_text="반응").wait_for()
     assert "전체 성향 (반응" in page.inner_text("#reportBody")
     assert not errors, errors
+
+
+def test_gv90_resume(ext, tmp_path: Path):
+    """중지된 수집이 있으면 '수집 시작' → 확인 시 멈춘 곳부터 이어서 (끝난 언론은 다시 검색하지 않음)."""
+    ctx, sw, ext_id, requests = ext
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    dialogs = []
+    page.on("dialog", lambda d: (dialogs.append(d.message), d.accept()))
+    page.goto(f"chrome-extension://{ext_id}/gv90.html")
+    page.evaluate("gv90Init")
+    page.evaluate(
+        """async () => {
+        const s = await loadSettings();
+        s.channels = { news: true, cafe: false, youtube: false, community: true };
+        s.communities = s.communities.map((c) => ({ ...c, on: c.name === '클리앙' }));
+        s.newsMaxPages = 1;
+        await saveSettings(s);
+        await chrome.storage.local.set({ gvResume: { v: 1, at: Date.now() - 60000, runId: 'run-stopped', startedAt: Date.now() - 600000,
+          on: s.channels, range: { start: new Date(2026, 7, 5, 7, 30).getTime(), end: new Date(2026, 7, 6, 7, 30).getTime() },
+          cafeTotal: 0, commTotal: 1, done: { news: true, youtube: false, cafes: [], communities: [] }, seen: ['news:001/0000000001'],
+          items: [{ key: 'news:001/0000000001', channel: '언론', media: '연합뉴스', url: 'https://n.news.naver.com/mnews/article/001/0000000001',
+            title: 'GV90 출시 호평', body: 'GV90 고급스럽 만족', date: new Date(2026, 7, 5, 9, 0).getTime(), exact: true, ccount: 31,
+            checked: true, related: true, car: 'GV90', sentiment: '긍정', category: '디자인', summary: 'GV90 호평' }] } });
+        await saveRun({ id: 'run-stopped', startedAt: Date.now() - 600000, finishedAt: Date.now() - 60000, range: { start: 0, end: 1 }, stopped: true, items: [] });
+      }"""
+    )
+    page.reload()
+    page.evaluate("gv90Init")
+    wait_js(page, "document.querySelector('#estInfo').textContent.includes('중지된 수집')")
+    page.fill("#rangeStart", "2026-08-01T07:30")  # 화면 기간이 달라도 이어하기는 멈춘 수집의 기간으로
+    page.fill("#rangeEnd", "2026-08-02T07:30")
+    before = len(requests)
+    page.click("#start")
+    wait_js(page, "!running && items.length > 0", 120000)
+    assert dialogs and "이어서" in dialogs[0]
+    assert page.input_value("#rangeStart") == "2026-08-05T07:30"
+    # 언론은 끝난 단계라 네이버 뉴스 검색을 다시 하지 않음
+    assert not [u for u in requests[before:] if "search.naver.com" in u]
+    keys = page.evaluate("items.map((x) => x.key)")
+    assert "news:001/0000000001" in keys  # 지난번 찾은 글 그대로
+    assert any(k.startswith("clien") for k in keys)  # 남은 커뮤니티는 이어서 수집
+    # 다 끝나면 진행 위치는 지우고, 같은 회차(run-stopped)로 덮어씀
+    assert page.evaluate("chrome.storage.local.get('gvResume').then((o) => !o.gvResume)")
+    runs = page.evaluate("listRuns().then((r) => r.map((x) => [x.id, x.stopped, x.items.length]))")
+    assert ["run-stopped", False, len(keys)] in runs
+    assert not errors, errors

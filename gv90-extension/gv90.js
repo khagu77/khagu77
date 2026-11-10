@@ -251,14 +251,62 @@ function estimateCollectSec(s = settings) {
   return { total, parts, big: big ? big[0] : "" };
 }
 
-function showEstimate() {
+async function showEstimate() {
   if (!settings || running) return;
   const e = estimateCollectSec();
   const cafes = settings.cafes.filter((c) => c.on).length;
   const cafeQ = String(settings.cafeKeywords || "").split(/[,\n]/).filter((x) => x.trim()).length;
-  $("#estInfo").textContent = e.total
+  let text = e.total
     ? `⏱ 예상 소요 시간 ${fmtDur(e.total)}${e.big === "동호회" ? ` (대부분 동호회 ${cafes}곳 × 검색어 ${cafeQ}개 — 사람 속도로 천천히 읽음)` : ""}`
     : "";
+  const cp = await loadResume();
+  if (cp && !running) {
+    const left = estimateCollectSec(remainingSettings(settings, cp)).total;
+    text += `${text ? "\n" : ""}⏸ 지난번 중지된 수집이 있습니다 (${resumeText(cp)}) — '수집 시작'을 누르면 이어서 할지 묻습니다 · 이어서 하면 ${fmtDur(left)}`;
+  }
+  $("#estInfo").textContent = text;
+}
+
+// ---------------------------------------------------------------------------
+// 이어하기: 수집 진행 위치(끝난 채널·카페·사이트, 이미 확인한 글, 찾은 글)를 저장해 두고
+//  중지·창 닫힘·오류 뒤 '수집 시작'을 누르면 멈춘 곳부터 이어서 수집
+// ---------------------------------------------------------------------------
+
+const RESUME_KEY = "gvResume";
+const RESUME_KEEP_MS = 3 * 86400000;
+
+async function loadResume() {
+  const o = await chrome.storage.local.get(RESUME_KEY).catch(() => ({}));
+  const cp = o && o[RESUME_KEY];
+  if (!cp || !cp.range || Date.now() - (cp.at || 0) > RESUME_KEEP_MS) return null;
+  return cp;
+}
+
+async function clearResume() {
+  await chrome.storage.local.remove(RESUME_KEY).catch(() => {});
+}
+
+function resumeText(cp) {
+  const d = cp.done || {};
+  const parts = [];
+  if (cp.on?.news) parts.push(`언론 ${d.news ? "끝" : "남음"}`);
+  if (cp.on?.youtube) parts.push(`유튜브 ${d.youtube ? "끝" : "남음"}`);
+  if (cp.on?.cafe) parts.push(`동호회 ${(d.cafes || []).length}/${cp.cafeTotal || "?"}곳 끝`);
+  if (cp.on?.community) parts.push(`커뮤니티 ${(d.communities || []).length}/${cp.commTotal || "?"}곳 끝`);
+  return `기간 ${fmtDateTime(new Date(cp.range.start))} ~ ${fmtDateTime(new Date(cp.range.end))} · 찾은 글 ${(cp.items || []).length}건 · ${parts.join(" · ")} · ${fmtDateTime(new Date(cp.at)).slice(5, 16)} 멈춤`;
+}
+
+// 이어할 때 남은 곳만 담은 설정 (예상 시간 계산용)
+function remainingSettings(s, cp) {
+  const d = cp.done || {};
+  const cafes = new Set(d.cafes || []);
+  const comms = new Set(d.communities || []);
+  return {
+    ...s,
+    channels: { ...s.channels, news: s.channels.news && !d.news, youtube: s.channels.youtube && !d.youtube },
+    cafes: s.cafes.filter((c) => !cafes.has(c.slug)),
+    communities: s.communities.filter((c) => !comms.has(c.url)),
+  };
 }
 
 function channelCounts() {
@@ -404,6 +452,19 @@ async function collect() {
   }
   const on = s.channels;
   if (!on.news && !on.cafe && !on.youtube && !on.community) return setSummary("수집할 채널을 하나 이상 고르세요.", "err");
+  // 지난번 중지된 수집이 있으면 이어서 할지 (자동 수집은 같은 기간이면 묻지 않고 이어서)
+  let cp = await loadResume();
+  if (cp) {
+    const same = cp.range.end === range.end.getTime();
+    const yes = AUTO ? same : confirm(`지난번 중지된 수집이 있습니다.\n${resumeText(cp)}\n\n[확인] 멈춘 곳부터 이어서 수집\n[취소] 처음부터 새로 수집`);
+    if (!yes) {
+      await clearResume();
+      cp = null;
+    } else {
+      range = { start: new Date(cp.range.start), end: new Date(cp.range.end) };
+      setRange(range.start, range.end);
+    }
+  }
   running = true;
   stopRequested = false;
   markRunning(true);
@@ -413,7 +474,7 @@ async function collect() {
   readyButton($("#getList"), false);
   $("#getList").disabled = true;
   pendingXlsx = null;
-  const startedAt = Date.now();
+  const startedAt = cp?.startedAt || Date.now();
   const isStopped = () => stopRequested;
   const delays = DELAYS[s.speed] || DELAYS.normal;
   const kw = parseKeywords(s.keywords);
@@ -426,6 +487,27 @@ async function collect() {
   mergedRunIds = [];
   curRange = { start: range.start.getTime(), end: range.end.getTime() };
   setExtraLexicon(s.lexicon);
+  // 진행 위치 (이어하기)
+  const done = { news: false, youtube: false, cafes: [], communities: [], ...(cp?.done || {}) };
+  const seen = new Set(cp?.seen || []); // 이미 확인한 글 (기간 밖·실패 포함) → 이어할 때 다시 열지 않음
+  const runId = cp?.runId || `run-${Date.now()}`;
+  let cpSavedAt = 0;
+  const saveCp = async (force = false) => {
+    if (!force && Date.now() - cpSavedAt < 10000) return;
+    cpSavedAt = Date.now();
+    await chrome.storage.local.set({
+      [RESUME_KEY]: {
+        v: 1, at: Date.now(), runId, startedAt, auto: AUTO, on: { ...on },
+        range: { start: range.start.getTime(), end: range.end.getTime() },
+        cafeTotal: s.cafes.filter((c) => c.on).length, commTotal: s.communities.filter((c) => c.on).length,
+        done, seen: [...seen], items: items.map(serialize),
+      },
+    }).catch(() => {});
+  };
+  const check = (key) => {
+    seen.add(key);
+    saveCp();
+  };
   let liveTimer = null;
   const liveRender = () => {
     if (liveTimer) return;
@@ -439,6 +521,10 @@ async function collect() {
   const add = (it) => {
     if (found.has(it.key)) return;
     found.set(it.key, it);
+    if (it.restored) {
+      items.push(it);
+      return liveRender();
+    }
     it.related = it.direct || mentionsCar(itemText(it)) || matchesKeywords(itemText(it), kw);
     it.checked = it.related;
     if (dbKeys.has(it.key)) {
@@ -452,7 +538,11 @@ async function collect() {
   };
   const inRange = (ms) => !ms || (ms >= range.start.getTime() && ms < range.end.getTime());
   const errors = [];
-  const est = estimateCollectSec(s);
+  if (cp) {
+    for (const raw of cp.items || []) add({ ...deserialize(raw), restored: true });
+    log(`▶ 이어서 수집합니다 — ${resumeText(cp)}`);
+  }
+  const est = estimateCollectSec(cp ? remainingSettings(s, cp) : s);
   startWorkClock(est.total);
   log(`수집 시작: ${fmtDateTime(range.start)} ~ ${fmtDateTime(range.end)} · 키워드 ${queries.length}개 (${queries.slice(0, 6).join(", ")}${queries.length > 6 ? " …" : ""})`);
   log(`예상 소요 시간 ${fmtDur(est.total)} (${Object.entries(est.parts).map(([k, v]) => `${k} ${fmtDur(v)}`).join(" · ")}) — 진행하면서 위쪽 막대에 남은 시간이 보입니다`);
@@ -460,7 +550,7 @@ async function collect() {
   const direct = directUrlList();
   try {
     // 1) 언론
-    if (on.news && !stopRequested) {
+    if (on.news && !done.news && !stopRequested) {
       const nc = new NewsCollector({ delays, log, isStopped, replies: false });
       showWork("언론: 네이버 뉴스 검색 중", 0, 0);
       const cands = await nc.search(queries, range2, s.newsMaxPages);
@@ -472,7 +562,9 @@ async function collect() {
       for (let i = 0; i < cands.length && !stopRequested; i++) {
         const c = cands[i];
         showWork(`언론: 기사 확인 ${i + 1}/${cands.length}`, i, cands.length);
+        if (seen.has(c.key) || found.has(c.key)) continue;
         if (c.external) {
+          check(c.key);
           const parsed = parseKoreanDate(c.dateText);
           const place = placeInRange(parsed, range2);
           if (place === "older" || place === "newer") {
@@ -484,6 +576,7 @@ async function collect() {
         }
         try {
           const a = await nc.readArticle(c);
+          check(c.key);
           if (!c.direct && a.date && !inRange(a.date)) {
             out++;
             continue;
@@ -497,10 +590,14 @@ async function collect() {
         await sleep(randomBetween(delays.news));
       }
       log(`언론: 기사 ${[...found.values()].filter((x) => x.channel === "언론").length}건 (기간 밖 ${out}건 제외)`);
+      if (!stopRequested) {
+        done.news = true;
+        await saveCp(true);
+      }
     }
 
     // 2) 유튜브: 모니터링 채널 RSS(제목·설명에 키워드) + 검색
-    if (on.youtube && !stopRequested) {
+    if (on.youtube && !done.youtube && !stopRequested) {
       const yc = new YoutubeCollector({ log, isStopped });
       const chs = s.youtubeChannels.filter((c) => c.on !== false);
       const vids = new Map();
@@ -538,8 +635,10 @@ async function collect() {
       for (let i = 0; i < list.length && !stopRequested; i++) {
         const v = list[i];
         showWork(`유튜브: 영상 확인 ${i + 1}/${list.length}`, i, list.length);
+        if (seen.has(`yt:${v.videoId}`) || found.has(`yt:${v.videoId}`)) continue;
         try {
           const pg = await yc.videoPage(v.videoId);
+          check(`yt:${v.videoId}`);
           const date = v.date || pg.date;
           if (!v.direct && date && !inRange(date) && !v.date) {
             // 검색 결과의 '1일 전' 은 날짜만 알 때가 있어 영상 게시일(날짜)로 다시 확인
@@ -554,6 +653,10 @@ async function collect() {
         await sleep(randomBetween([600, 1200]));
       }
       log(`유튜브: 영상 ${[...found.values()].filter((x) => x.channel === "유튜브").length}건`);
+      if (!stopRequested) {
+        done.youtube = true;
+        await saveCp(true);
+      }
     }
 
     // 3) 동호회: 카페마다 카페 안 검색 → 글을 열어 본문·작성 시각·조회수·댓글 수
@@ -562,22 +665,57 @@ async function collect() {
       const cafes = s.cafes.filter((c) => c.on);
       const cq = String(s.cafeKeywords || "GV90").split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
       log(`동호회: ${cafes.length}곳 · 카페 검색어 ${cq.map((q) => `"${q}"`).join(", ")}`);
-      const posts = [];
-      for (let i = 0; i < cafes.length && !stopRequested; i++) {
+      const doneCafes = new Set(done.cafes);
+      if (doneCafes.size) log(`동호회: 지난번에 끝낸 ${cafes.filter((c) => doneCafes.has(c.slug)).length}곳은 건너뜁니다`);
+      let blocked = false;
+      // 글 읽기 (끝나면 true, 로그인·보호조치로 막히면 false)
+      const readPosts = async (posts, label, prog = (j) => [j, posts.length]) => {
+        for (let j = 0; j < posts.length && !stopRequested; j++) {
+          const { post, cafe } = posts[j];
+          if (seen.has(post.key) || found.has(post.key)) continue;
+          showWork(`${label} · 글 읽기 ${j + 1}/${posts.length}`, ...prog(j));
+          let a = null;
+          try {
+            await cc.wait(delays.article);
+            a = await cc.readArticle(post, cafe);
+          } catch (e) {
+            if (e instanceof StopError) throw e;
+            log(`  · ${post.title || post.url}: ${e.message}`, "err");
+            if (/로그인|보호조치/.test(e.message)) {
+              errors.push(e.message);
+              add(toItem(post, { note: "글을 열지 못함", direct: !!post.direct }));
+              return false;
+            }
+          }
+          check(post.key);
+          if (a && !post.direct && a.date && a.exact && !inRange(a.date)) continue;
+          add(toItem({ ...post, title: a?.title || post.title, source: a?.source || cafe.fullName || cafe.name, date: a?.date || post.date, exact: a ? a.exact : post.exact, body: a?.body || "", views: a?.views ?? post.views, ccount: a?.ccount ?? post.ccount }, { direct: !!post.direct, note: a ? "" : "글을 열지 못함" }));
+        }
+        return true;
+      };
+      for (let i = 0; i < cafes.length && !stopRequested && !blocked; i++) {
         const cafe = cafes[i];
-        showWork(`동호회 검색 ${i + 1}/${cafes.length} · ${cafe.name}`, i, cafes.length);
+        if (doneCafes.has(cafe.slug)) continue;
+        const label = `동호회 ${i + 1}/${cafes.length} · ${cafe.name}`;
+        showWork(`${label} 검색`, i, cafes.length);
+        let list = [];
         try {
-          const list = await cc.search(cafe, cq, range2, s.cafeMaxPages, (what) => showWork(`동호회 검색 ${i + 1}/${cafes.length} · ${cafe.name} · ${what}`, i, cafes.length));
-          for (const p of list) posts.push({ post: p, cafe });
+          list = await cc.search(cafe, cq, range2, s.cafeMaxPages, (what) => showWork(`${label} 검색 · ${what}`, i, cafes.length));
           if (list.length) log(`동호회 ${cafe.name}: 기간 안 글 ${list.length}건`);
         } catch (e) {
           if (e instanceof StopError) throw e;
           errors.push(`${cafe.name}: ${e.message}`);
           log(`동호회 ${cafe.name}: ${e.message}`, "err");
-          if (/로그인|보호조치/.test(e.message)) break;
+          if (/로그인|보호조치/.test(e.message)) blocked = true; // 로그인 뒤 이어서 (다른 오류는 이 카페를 넘어감)
         }
-        if (i + 1 < cafes.length) await cc.wait(delays.cafeGap);
+        if (list.length && !(await readPosts(list.map((post) => ({ post, cafe })), label, () => [i, cafes.length]))) blocked = true;
+        if (!blocked && !stopRequested) {
+          done.cafes.push(cafe.slug);
+          await saveCp(true);
+        }
+        if (i + 1 < cafes.length && !stopRequested && !blocked) await cc.wait(delays.cafeGap);
       }
+      const directPosts = [];
       for (const u of direct.filter((u) => /cafe\.naver\.com/.test(u))) {
         const fe = u.match(/cafes\/(\d+)\/articles\/(\d+)/);
         const sm = u.match(/cafe\.naver\.com\/([A-Za-z0-9_-]+)\/(\d+)/);
@@ -585,27 +723,9 @@ async function collect() {
         const articleId = fe ? fe[2] : sm ? sm[2] : "";
         if (!articleId) continue;
         const cafe = s.cafes.find((c) => c.slug === slug) || { name: slug || "네이버 카페", slug };
-        posts.push({ post: { key: `cafe:${slug || fe?.[1]}/${articleId}`, channel: "cafe", source: cafe.name, cafeSlug: slug, clubId: fe ? fe[1] : "", articleId, url: u, title: "", date: null, exact: false, snippet: "", direct: true }, cafe });
+        directPosts.push({ post: { key: `cafe:${slug || fe?.[1]}/${articleId}`, channel: "cafe", source: cafe.name, cafeSlug: slug, clubId: fe ? fe[1] : "", articleId, url: u, title: "", date: null, exact: false, snippet: "", direct: true }, cafe });
       }
-      for (let i = 0; i < posts.length && !stopRequested; i++) {
-        const { post, cafe } = posts[i];
-        showWork(`동호회: 글 읽기 ${i + 1}/${posts.length} · ${cafe.name}`, i, posts.length);
-        let a = null;
-        try {
-          await cc.wait(delays.article);
-          a = await cc.readArticle(post, cafe);
-        } catch (e) {
-          if (e instanceof StopError) throw e;
-          log(`  · ${post.title || post.url}: ${e.message}`, "err");
-          if (/로그인|보호조치/.test(e.message)) {
-            errors.push(e.message);
-            add(toItem(post, { note: "글을 열지 못함", direct: !!post.direct }));
-            break;
-          }
-        }
-        if (a && !post.direct && a.date && a.exact && !inRange(a.date)) continue;
-        add(toItem({ ...post, title: a?.title || post.title, source: a?.source || cafe.fullName || cafe.name, date: a?.date || post.date, exact: a ? a.exact : post.exact, body: a?.body || "", views: a?.views ?? post.views, ccount: a?.ccount ?? post.ccount }, { direct: !!post.direct, note: a ? "" : "글을 열지 못함" }));
-      }
+      if (directPosts.length && !stopRequested && !blocked) await readPosts(directPosts, "동호회: 직접 넣은 글");
       log(`동호회: 글 ${[...found.values()].filter((x) => x.channel === "동호회").length}건`);
     }
 
@@ -615,6 +735,7 @@ async function collect() {
       const sites = s.communities.filter((c) => c.on);
       for (let i = 0; i < sites.length && !stopRequested; i++) {
         const site = sites[i];
+        if (done.communities.includes(site.url)) continue;
         showWork(`커뮤니티 확인 ${i + 1}/${sites.length} · ${site.name}`, i, sites.length);
         let list = [];
         try {
@@ -631,9 +752,15 @@ async function collect() {
         for (let j = 0; j < list.length && !stopRequested; j++) {
           const p = list[j];
           showWork(`커뮤니티 ${site.name}: 글 확인 ${j + 1}/${list.length}`, j, list.length);
+          if (seen.has(p.key) || found.has(p.key)) continue;
           const info = await readCommunityInfo(p).catch(() => null);
+          check(p.key);
           add(toItem({ ...p, body: info?.body || "", date: info?.date || p.date, exact: info?.date ? true : p.exact, views: info?.views ?? null, ccount: info?.ccount ?? p.ccount }, { direct: !!p.direct, title: info?.title || p.title }));
           await mc.wait(delays.community);
+        }
+        if (!stopRequested) {
+          done.communities.push(site.url);
+          await saveCp(true);
         }
       }
       log(`커뮤니티: 글 ${[...found.values()].filter((x) => x.channel === "자동차 커뮤니티").length}건`);
@@ -641,6 +768,13 @@ async function collect() {
   } catch (e) {
     if (!(e instanceof StopError)) log(`수집 중 오류: ${e.message}`, "err");
   }
+  // 다 돌았으면 진행 위치를 지우고, 중지·오류로 멈췄으면 남겨 둠 → 다음 '수집 시작'에서 이어서
+  const finished = !stopRequested && (!on.news || done.news) && (!on.youtube || done.youtube) &&
+    (!on.cafe || s.cafes.filter((c) => c.on).every((c) => done.cafes.includes(c.slug))) &&
+    (!on.community || s.communities.filter((c) => c.on).every((c) => done.communities.includes(c.url)));
+  const incomplete = stopRequested || !finished;
+  if (incomplete) await saveCp(true);
+  else await clearResume();
 
   // 관련성 (키워드): 제목·본문에 GV90 키워드가 있으면 체크
   const fresh = items.slice(); // 수집 중에 표에서 지운 글은 다시 넣지 않음
@@ -648,6 +782,7 @@ async function collect() {
   liveTimer = null;
   $("#liveInfo").textContent = "";
   for (const x of fresh) {
+    delete x.restored;
     x.related = x.direct || mentionsCar(itemText(x)) || matchesKeywords(itemText(x), kw);
     if (!x.touched) x.checked = x.related; // 수집 중에 표에서 직접 바꾼 체크는 그대로
   }
@@ -668,7 +803,7 @@ async function collect() {
 
   // 수집 회차로 남김 (휴일 수집분은 다음 근무일에 합침)
   const off = s.workdayReport ? dayOffReason(new Date(), s) : "";
-  curRunId = `run-${Date.now()}`;
+  curRunId = runId; // 이어서 한 수집은 같은 회차로 덮어씀 (중지 회차가 따로 남아 겹치지 않게)
   await saveRun({ id: curRunId, startedAt, finishedAt: Date.now(), range: curRange, auto: AUTO, holiday: off, stopped: stopRequested, items: items.map(serialize), errors });
 
   // 근무일이면 아직 엑셀에 담지 않은 휴일 수집분을 합친다
@@ -683,10 +818,12 @@ async function collect() {
   renderResults();
   await saveLast();
   updateAutoInfo();
+  showEstimate();
   const checked = items.filter((x) => x.checked).length;
   setSummary(
     `${stopRequested ? "중지됨 — " : ""}후보 ${items.length}건 중 GV90 관련 게시물 ${checked}건을 체크했습니다${mergedRunIds.length ? ` (휴일 수집분 ${mergedRunIds.length}회 합침)` : ""}.` +
       (errors.length ? ` 못 읽은 곳 ${errors.length}곳 — 수집 기록 참고.` : "") +
+      (incomplete ? " ⏸ 아직 남은 곳이 있습니다 — '수집 시작'을 다시 누르면 멈춘 곳부터 이어서 합니다." : "") +
       " 필요 없는 글은 체크를 풀고 '엑셀 만들기'를 누르세요.",
     errors.length ? "err" : "ok",
   );
@@ -839,13 +976,13 @@ function renderResults() {
     for (const v of SENTIMENTS) sen.add(new Option(v, v));
     sen.value = x.sentiment || "중립";
     const notes = [];
-    if (x.by.startsWith("ai")) notes.push(el("span", { class: "badge ai", text: "AI" }));
+    if (String(x.by || "").startsWith("ai")) notes.push(el("span", { class: "badge ai", text: "AI" }));
     if (x.dup) notes.push(el("span", { class: "badge dup", text: "이미 DB" }));
     else notes.push(el("span", { class: "badge new", text: "새 글" }));
     if (x.fromRun) notes.push(el("span", { class: "hint", text: ` ${x.fromRun.replace(/ 수집$/, "")}` }));
     if (x.note) notes.push(el("span", { class: "hint err", text: ` ${x.note}` }));
     if (!x.related && !x.direct) notes.push(el("span", { class: "hint", text: " 키워드 없음" }));
-    const noteTitle = [x.dup ? "이미 데일리 DB 에 있는 글 (지난 보고에 들어감)" : "새 글", x.by.startsWith("ai") ? "AI 판독" : "", x.fromRun || "", x.note || "", !x.related && !x.direct ? "제목·본문에 GV90 키워드 없음" : ""].filter(Boolean).join(" · ");
+    const noteTitle = [x.dup ? "이미 데일리 DB 에 있는 글 (지난 보고에 들어감)" : "새 글", String(x.by || "").startsWith("ai") ? "AI 판독" : "", x.fromRun || "", x.note || "", !x.related && !x.direct ? "제목·본문에 GV90 키워드 없음" : ""].filter(Boolean).join(" · ");
     tr.append(
       el("td", {}, cb),
       el("td", {}, chChip(x.channel)),
@@ -1026,7 +1163,7 @@ $("#start").addEventListener("click", () => collect().catch((e) => {
 $("#stop").addEventListener("click", () => {
   stopRequested = true;
   $("#stop").disabled = true;
-  setSummary("중지하는 중… (지금까지 모은 결과로 정리합니다)");
+  setSummary("중지하는 중… (지금까지 모은 결과로 정리하고 진행 위치를 저장합니다 — 다음에 '수집 시작'을 누르면 이어서 할 수 있습니다)");
 });
 $("#rangeDefault").addEventListener("click", () => {
   const r = defaultRange(new Date(), settings);

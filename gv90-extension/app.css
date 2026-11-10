@@ -340,3 +340,4 @@ a.btnlink:hover { border-color: var(--brand-2); }
   #results col.c-title { width: 0 !important; }
   #results th:nth-child(5), #results td:nth-child(5) { padding: 0; font-size: 0; border-left: 0; }
 }
+#estInfo { white-space: pre-line; }
