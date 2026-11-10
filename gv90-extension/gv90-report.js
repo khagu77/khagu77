@@ -108,7 +108,7 @@ function rpOpinionRows(list, color) {
     .map(
       (o, i) =>
         `<tr><td style="width:18px;padding:6px 4px;color:#9ca3af;font-size:12px;border-bottom:1px solid #eef0f3;vertical-align:top">${i + 1}</td>` +
-        `<td style="padding:6px 4px;font-size:12px;letter-spacing:-0.4px;color:#111827;border-bottom:1px solid #eef0f3;line-height:1.45">${rpEsc(o.text)}</td>` +
+        `<td style="padding:6px 4px;font-size:11px;letter-spacing:-0.4px;color:#111827;border-bottom:1px solid #eef0f3;line-height:1.45">${rpEsc(o.text)}</td>` +
         `<td style="padding:6px 4px;text-align:right;white-space:nowrap;border-bottom:1px solid #eef0f3;vertical-align:top"><b style="color:${color};font-size:13px">${o.n}</b> <span style="color:#9ca3af;font-size:12px">${pct(o.n, total)}</span></td></tr>`,
     )
     .join("");
@@ -237,7 +237,7 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
         `<tr><td style="padding:9px 10px;border-bottom:1px solid #eef0f3;color:#4b3fa8;font-weight:800;font-size:14px;white-space:nowrap">${rpEsc(c.cat)}</td>` +
         `<td style="padding:9px 6px;border-bottom:1px solid #eef0f3;white-space:nowrap;font-size:13px"><b style="font-size:16px">${n}</b> 건 <span style="color:#6b7280">${pct(n, total)}</span></td>` +
         `<td style="padding:9px 6px;border-bottom:1px solid #eef0f3;width:170px">${rpBar(s, n, 9)}<div style="font-size:12px;margin-top:3px"><span style="color:#1f5fbf">긍 ${pct(s.긍정, n)}</span> · <span style="color:#d0021b">부 ${pct(s.부정 + s.단순비난, n)}</span></div></td>` +
-        `<td style="padding:9px 10px;border-bottom:1px solid #eef0f3;font-size:12px;letter-spacing:-0.4px">${top ? `<b style="color:${tc}">[${rpEsc(topSent)}]</b> ${rpEsc(top.text)} <span style="color:#9ca3af">${top.n}건</span>` : ""}</td></tr>`
+        `<td style="padding:9px 10px;border-bottom:1px solid #eef0f3;font-size:11px;letter-spacing:-0.4px">${top ? `<b style="color:${tc}">[${rpEsc(topSent)}]</b> ${rpEsc(top.text)} <span style="color:#9ca3af">${top.n}건</span>` : ""}</td></tr>`
       );
     })
     .join("");

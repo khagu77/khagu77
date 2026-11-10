@@ -3,7 +3,7 @@
 // 화면이 받을 파일 이름을 pendingClean 에 적어 두면, 저장이 끝났을 때 여기서 도우미에 그 파일만 지워 달라고 한다.
 // (화면을 옮기거나 닫아도 백그라운드에서 끝까지 처리) 결과는 lastClean 에 남겨 화면이 알림으로 보여준다.
 const META_HELPER = "com.khagu77.ytdl";
-const META_HELPER_VERSION = 5; // 도우미에 '출처 지우기'(지운 뒤 확인)가 들어간 버전
+const META_HELPER_VERSION = 6; // 도우미에 '출처 지우기'(지운 뒤 확인)가 들어간 버전
 
 function isMacForClean() {
   return /Mac/i.test(navigator.userAgent) || !!globalThis.__forceCleanMeta;

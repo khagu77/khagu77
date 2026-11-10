@@ -16,7 +16,7 @@ YTDLP="${YTDLP:-$BIN/yt-dlp/yt-dlp_macos}"
 DENO="$BIN/deno"
 VFFMPEG="${VFFMPEG:-$BIN/ffmpeg}" # 영상 합치기용 (테스트에서 바꿔 끼울 수 있음)
 OUT="${OUT:-$HOME/Downloads}"
-VERSION=5 # 2: 영상 빠른 다운로드, 3: 영상 화질 선택, 4: 받은 파일의 출처 정보 지우기, 5: 지운 뒤 정말 지워졌는지 확인
+VERSION=6 # 2: 영상 빠른 다운로드, 3: 영상 화질 선택, 4: 받은 파일의 출처 정보 지우기, 5: 지운 뒤 확인, 6: Finder 정보 창(검색 색인)도 새로
 UPDATE_DAYS=3
 
 # ---- yt-dlp·Deno 설치/업데이트 ----
@@ -163,6 +163,8 @@ clean_meta() {
       err=$(printf '%s' "$err" | tr -d '"\\' | tr '\n' ' ' | cut -c1-160)
       send "{\"type\":\"cleaned\",\"ok\":false,\"still\":true,\"why\":\"$err\"}"
     else
+      # Finder '정보 가져오기'의 출처는 검색 색인(Spotlight)에 남은 값을 보여 줌 → 이 파일만 다시 색인
+      command -v mdimport > /dev/null 2>&1 && (mdimport "$path" > /dev/null 2>&1 &)
       send '{"type":"cleaned","ok":true}'
     fi
   else
