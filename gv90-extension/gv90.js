@@ -13,7 +13,7 @@ let stopRequested = false;
 let curRange = null; // { start, end } (ms) 이번 결과의 수집 기간
 let curRunId = null; // 이번 수집 회차
 let mergedRunIds = []; // 결과 표에 합친 휴일 수집 회차
-let pendingXlsx = null; // { bytes, name } 받기 버튼으로 받을 엑셀
+let pendingXlsx = null; // { bytes, name } 만든 엑셀 (저장 버튼으로 다시 저장할 때)
 let dbKeys = new Set(); // 데일리 DB 에 이미 있는 글
 let heartbeatTimer = null;
 
@@ -471,7 +471,7 @@ async function collect() {
   $("#start").disabled = true;
   $("#stop").disabled = false;
   $("#log").textContent = "";
-  readyButton($("#getList"), false);
+  resetSaveButton($("#getList"), "📥 엑셀 저장하기");
   $("#getList").disabled = true;
   pendingXlsx = null;
   const startedAt = cp?.startedAt || Date.now();
@@ -1079,10 +1079,11 @@ async function makeExcel({ interactive = true } = {}) {
     where = await saveFile(bytes, fileName, { interactive });
     $("#saveInfo").textContent = `✔ 데일리 DB 저장(새 글 ${res.added}건 · 고친 글 ${res.updated}건) · 엑셀(${s.xlsxScope === "today" ? "이번 보고분" : `누적 ${posts.length}건`})을 ${where} 바로 저장했습니다.`;
     $("#saveInfo").className = "hint ok";
-    readyButton($("#getList"), true);
+    markSaved($("#getList"), "✔ 엑셀 저장 완료!", where);
   } catch (e) {
-    $("#saveInfo").textContent = `엑셀은 만들었지만 저장하지 못했습니다 (${e.message}) → '📥 엑셀 받기'를 눌러 주세요`;
+    $("#saveInfo").textContent = `엑셀은 만들었지만 저장하지 못했습니다 (${e.message}) → '📥 엑셀 저장하기'를 눌러 주세요`;
     $("#saveInfo").className = "hint err";
+    resetSaveButton($("#getList"), "📥 엑셀 저장하기");
     readyButton($("#getList"), true);
   }
   await showDiffs(day);
@@ -1279,9 +1280,10 @@ $("#getList").addEventListener("click", async () => {
     if (f) pendingXlsx = { bytes: f.bytes, name: f.name };
   }
   if (!pendingXlsx) return;
-  readyButton($("#getList"), false);
+  if (!confirmResave($("#getList"))) return;
   const where = await saveFile(pendingXlsx.bytes, pendingXlsx.name);
   $("#saveInfo").textContent = `✔ ${where} 저장했습니다.`;
+  markSaved($("#getList"), "✔ 엑셀 저장 완료!", where);
   Celebrate.done($("#getList"));
 });
 $("#xlsxScope").addEventListener("change", persistSettings);

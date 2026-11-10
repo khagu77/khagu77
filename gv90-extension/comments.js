@@ -216,7 +216,7 @@ async function collect() {
   $("#start").disabled = true;
   $("#stop").disabled = false;
   $("#log").textContent = "";
-  readyButton($("#getXlsx"), false);
+  resetSaveButton($("#getXlsx"), "📥 댓글 엑셀 저장하기");
   const isStopped = () => stopRequested;
   const delays = DELAYS[settings.speed] || DELAYS.normal;
   const tools = {
@@ -437,11 +437,13 @@ async function makeXlsx() {
     const where = await saveFile(bytes, name);
     $("#saveInfo").textContent = `✔ 댓글 ${comments.length.toLocaleString()}개를 ${where} 바로 저장했습니다.`;
     $("#saveInfo").className = "hint ok";
+    markSaved($("#getXlsx"), "✔ 댓글 엑셀 저장 완료!", where);
   } catch (e) {
-    $("#saveInfo").textContent = `엑셀은 만들었지만 저장하지 못했습니다 (${e.message}) → '📥 댓글 엑셀 받기'를 눌러 주세요`;
+    $("#saveInfo").textContent = `엑셀은 만들었지만 저장하지 못했습니다 (${e.message}) → '📥 댓글 엑셀 저장하기'를 눌러 주세요`;
     $("#saveInfo").className = "hint err";
+    resetSaveButton($("#getXlsx"), "📥 댓글 엑셀 저장하기");
+    readyButton($("#getXlsx"), true);
   }
-  readyButton($("#getXlsx"), true);
   celebrate($("#getXlsx"));
 }
 
@@ -474,9 +476,10 @@ $("#analyzeAi").addEventListener("click", () => analyzeAi().catch((e) => { runni
 $("#makeXlsx").addEventListener("click", makeXlsx);
 $("#getXlsx").addEventListener("click", async () => {
   if (!pendingXlsx) return;
-  readyButton($("#getXlsx"), false);
+  if (!confirmResave($("#getXlsx"))) return;
   const where = await saveFile(pendingXlsx.bytes, pendingXlsx.name);
   $("#saveInfo").textContent = `✔ ${where} 저장했습니다.`;
+  markSaved($("#getXlsx"), "✔ 댓글 엑셀 저장 완료!", where);
   Celebrate.done($("#getXlsx"));
 });
 

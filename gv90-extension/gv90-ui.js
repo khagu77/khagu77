@@ -55,6 +55,32 @@ function readyButton(btn, on) {
   if (on) btn.disabled = false;
 }
 
+// 저장 버튼: 저장이 끝나면 '✔ 엑셀 저장 완료!'(무지개) — '받기'로 보여 또 누르면 파일이 여러 개 생기던 것 막음
+//  저장된 상태에서 다시 누르면 한 번 더 저장할지 묻고, [취소]면 아무 파일도 만들지 않음
+function markSaved(btn, label, where = "") {
+  if (!btn) return;
+  btn.textContent = label;
+  btn.dataset.saved = where || "1";
+  btn.title = where ? `${where} 저장됨 (다시 누르면 한 번 더 저장할지 물어봅니다)` : "";
+  readyButton(btn, true);
+}
+
+function resetSaveButton(btn, label) {
+  if (!btn) return;
+  btn.textContent = label;
+  delete btn.dataset.saved;
+  btn.title = "";
+  readyButton(btn, false);
+}
+
+// 저장된 버튼을 또 눌렀을 때: true 면 한 번 더 저장
+function confirmResave(btn) {
+  if (!btn || !btn.dataset.saved) return true;
+  readyButton(btn, false);
+  const where = btn.dataset.saved !== "1" ? btn.dataset.saved : "";
+  return confirm(`이미 저장했습니다${where ? `\n(${where})` : ""}.\n\n같은 엑셀을 한 번 더 저장할까요? [확인]을 누르면 파일이 하나 더 생깁니다.`);
+}
+
 async function soundOn() {
   const s = await loadSettings();
   return s.sound !== false;

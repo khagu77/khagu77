@@ -1,4 +1,4 @@
-// GV90 데일리 DB 화면: 보고일별 건수(전일 대비 ▲▼)·채널·성향, 그날 엑셀 받기·수정본 올리기·삭제,
+// GV90 데일리 DB 화면: 보고일별 건수(전일 대비 ▲▼)·채널·성향(게시글·댓글·총평가), 그날 엑셀 저장·수정본 올리기·삭제,
 // 기존 raw data 엑셀 등록, 기간 엑셀, 백업 받기·불러오기, 그날 게시물 보기
 
 let openDay = null;
@@ -37,11 +37,49 @@ function diffSpan(d) {
   return el("span", { class: `diff ${d.diff > 0 ? "up" : d.diff < 0 ? "down" : "none"}`, text: d.diff > 0 ? ` ▲ ${d.diff}` : d.diff < 0 ? ` ▼ ${-d.diff}` : " – 0" });
 }
 
+// 성향 건수 { 긍정, 중립, 부정, 단순비난, n }
+function sentiOf(list) {
+  const o = Object.fromEntries(SENTIMENTS.map((x) => [x, 0]));
+  for (const x of list) if (x.sentiment && o[x.sentiment] != null) o[x.sentiment]++;
+  o.n = SENTIMENTS.reduce((t, x) => t + o[x], 0);
+  return o;
+}
+
+// 성향별 칸: 게시글 · 댓글 · 총평가(게시글+댓글) 세 줄로 나눠 보여 줌 (부정+단순비난 비율)
+function sentiLines(ps, cs, wide = false) {
+  const tot = Object.fromEntries([...SENTIMENTS, "n"].map((x) => [x, (ps[x] || 0) + (cs[x] || 0)]));
+  const line = (label, o, cls) => {
+    const bad = (o.부정 || 0) + (o.단순비난 || 0);
+    return el("div", { class: `sline ${cls}` },
+      el("span", { class: "slabel", text: label }),
+      o.n ? el("span", {}, ...SENTIMENTS.filter((x) => o[x]).map((x) => el("span", { class: "sitem" }, sentiChip(x), el("span", { text: ` ${o[x].toLocaleString()}` })))) : el("span", { class: "hint", text: "-" }),
+      o.n ? el("span", { class: `hint sbad${bad / o.n >= 0.3 ? " err" : ""}`, text: `부정+단순비난 ${Math.round((bad / o.n) * 100)}%` }) : null,
+    );
+  };
+  return el("div", { class: `slines${wide ? " wide" : ""}` },
+    line(`게시글 ${ps.n.toLocaleString()}`, ps, "sp"),
+    line(`댓글 ${cs.n.toLocaleString()}`, cs, "sc"),
+    line(`총평가 ${tot.n.toLocaleString()}`, tot, "st"),
+  );
+}
+
 async function render() {
   const days = await listDays();
   const posts = await allPosts();
   const comments = await allComments();
+  // 댓글은 원글의 보고일로 묶음 (댓글을 모은 날이 아니라 그 게시글이 보고된 날)
+  const dayOfPost = new Map(posts.map((p) => [p.key, p.day]));
+  const commentsByDay = new Map();
+  for (const c of comments) {
+    const k = dayOfPost.get(c.postKey) || c.day;
+    if (!commentsByDay.has(k)) commentsByDay.set(k, []);
+    commentsByDay.get(k).push(c);
+  }
+  const allP = sentiOf(posts);
+  const allC = sentiOf(comments);
   $("#dbSummary").textContent = `보고일 ${days.length}일 · 누적 게시물 ${posts.length.toLocaleString()}건${comments.length ? ` · 댓글 ${comments.length.toLocaleString()}건` : ""}`;
+  $("#dbSenti").replaceChildren(el("div", { class: "hint", text: "누적 성향" }), sentiLines(allP, allC, true));
+  $("#dbSenti").hidden = !posts.length;
   const tb = $("#days tbody");
   tb.textContent = "";
   if (!days.length) tb.append(el("tr", {}, el("td", { colspan: 8, class: "empty", text: "아직 저장된 보고일이 없습니다. 수집 화면에서 '엑셀 만들기'를 누르거나 기존 raw data 엑셀을 등록하세요." })));
@@ -49,18 +87,19 @@ async function render() {
     const s = d.stats || {};
     const diff = dayDiff(days, i);
     const bad = (s.bySentiment?.부정 || 0) + (s.bySentiment?.단순비난 || 0);
+    const cs = sentiOf(commentsByDay.get(d.day) || []);
     tb.append(
       el("tr", { "data-day": d.day },
         el("td", { class: "nowrap" }, el("b", { text: prettyDay(d.day) }), el("div", { class: "hint", text: dayOffReason(new Date(+d.day.slice(0, 4), +d.day.slice(4, 6) - 1, +d.day.slice(6, 8)), DEFAULT_SETTINGS) || "" })),
         el("td", { class: "hint nowrap", text: d.from ? `${fmtDateTime(d.from).slice(5)} ~ ${fmtDateTime(d.to).slice(5)}` : d.source || "-" }),
         el("td", { class: "nowrap" }, el("b", { text: `${(s.posts || 0).toLocaleString()}건` }), diffSpan(diff), el("div", { class: "hint", text: s.posts ? `부정+단순비난 ${Math.round((bad / s.posts) * 100)}%` : "" })),
         el("td", {}, ...CHANNELS.filter((c) => s.byChannel?.[c]).map((c) => el("span", {}, chChip(c), el("span", { text: `${s.byChannel[c]} ` })))),
-        el("td", {}, ...SENTIMENTS.filter((x) => s.bySentiment?.[x]).map((x) => el("span", {}, sentiChip(x), el("span", { text: ` ${s.bySentiment[x]} ` })))),
+        el("td", {}, sentiLines({ ...Object.fromEntries(SENTIMENTS.map((x) => [x, s.bySentiment?.[x] || 0])), n: SENTIMENTS.reduce((t, x) => t + (s.bySentiment?.[x] || 0), 0) }, cs)),
         el("td", { class: "nowrap", text: s.comments ? `${s.comments}건` : "-" }),
         el("td", { class: "hint", text: d.fileName || "-" }),
         el("td", { class: "acts" },
           el("button", { class: "small", text: "게시물 보기", onclick: () => showDay(d.day) }),
-          el("button", { class: "small getbtn", text: "📥 엑셀 받기", onclick: (e) => downloadDay(d.day, e.target) }),
+          el("button", { class: "small getbtn", text: "📥 엑셀 저장", onclick: (e) => downloadDay(d.day, e.currentTarget) }),
           el("button", { class: "small", text: "수정본 올리기", onclick: () => { fixDay = d.day; $("#fixFile").value = ""; $("#fixFile").click(); } }),
           el("button", { class: "small danger", text: "삭제", onclick: () => removeDay(d.day) }),
         ),
@@ -72,6 +111,7 @@ async function render() {
 
 // 그날 엑셀: 저장해 둔 파일 (없으면 그날까지 누적으로 새로 만듦)
 async function downloadDay(day, btn) {
+  if (!confirmResave(btn)) return;
   let f = await getDayFile(day);
   if (!f) {
     const posts = (await allPosts()).filter((p) => p.day <= day);
@@ -80,6 +120,7 @@ async function downloadDay(day, btn) {
   }
   const where = await saveFile(f.bytes, f.name);
   setInfo(`✔ ${where} 저장했습니다.`, "ok");
+  markSaved(btn, "✔ 저장 완료!", where);
   celebrate(btn);
 }
 
@@ -216,7 +257,10 @@ $("#fixFile").addEventListener("change", async (e) => {
 });
 
 // 기간 엑셀 (보고일 기준)
+for (const id of ["rangeFrom", "rangeTo"]) $(`#${id}`).addEventListener("change", () => resetSaveButton($("#rangeXlsx"), "📥 기간 엑셀 저장"));
 $("#rangeXlsx").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  if (!confirmResave(btn)) return;
   const from = ($("#rangeFrom").value || "0000-00-00").replace(/-/g, "");
   const to = ($("#rangeTo").value || "9999-99-99").replace(/-/g, "");
   const posts = (await allPosts()).filter((p) => p.day >= from && p.day <= to);
@@ -225,7 +269,8 @@ $("#rangeXlsx").addEventListener("click", async (e) => {
   const bytes = Gv90Xlsx.buildRaw({ posts, comments: (await allComments()).filter((c) => c.day >= from && c.day <= to), daily });
   const where = await saveFile(bytes, `${from.slice(2)}-${to.slice(2)}_GV90 온라인 동향 raw data (기간).xlsx`);
   setInfo(`✔ ${posts.length}건을 ${where} 저장했습니다.`, "ok");
-  celebrate(e.target);
+  markSaved(btn, "✔ 기간 엑셀 저장 완료!", where);
+  celebrate(btn);
 });
 
 $("#exportBackup").addEventListener("click", async (e) => {

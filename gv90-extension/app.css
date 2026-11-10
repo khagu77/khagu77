@@ -359,3 +359,13 @@ a.btnlink:hover { border-color: var(--brand-2); }
 .st-msg { font-size: 11px; margin-top: 2px; max-width: 220px; white-space: normal; }
 @keyframes stPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, .45); } 50% { box-shadow: 0 0 0 5px rgba(245, 158, 11, 0); } }
 #postTable tr.running td { background: #fffaf0; }
+/* 데일리 DB 성향별: 게시글 · 댓글 · 총평가 */
+.slines { display: grid; gap: 4px; min-width: 330px; }
+.slines.wide { margin-top: 6px; }
+.sline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; }
+.sline .slabel { display: inline-block; min-width: 74px; font-weight: 700; color: var(--text-2); }
+.sline.st { border-top: 1px dashed var(--line); padding-top: 4px; }
+.sline.st .slabel { color: var(--brand, #0b2a5b); }
+.sline .sitem { margin-right: 4px; white-space: nowrap; }
+.sline .sbad { margin-left: auto; white-space: nowrap; }
+.dbsenti { margin: 4px 0 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); display: inline-grid; gap: 4px; }

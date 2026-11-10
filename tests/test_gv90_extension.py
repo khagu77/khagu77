@@ -300,6 +300,8 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     assert ws["E2"].number_format == 'mm"월"\\ dd"일"'  # 일일동향 양식 날짜 형식
     assert ws["F2"].hyperlink is not None
     assert "일자별 집계" in wb.sheetnames
+    # 저장이 끝나면 '받기'가 아니라 '✔ 엑셀 저장 완료!' (또 누르면 묻고, [취소]면 파일을 더 만들지 않음)
+    assert page.inner_text("#getList").strip() == "✔ 엑셀 저장 완료!"
     # 같은 글을 다시 저장해도 늘지 않음
     total = page.evaluate("(async () => (await allPosts()).length)()")
     page.evaluate("makeExcel({ interactive: false })")
@@ -311,6 +313,10 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     page.goto(f"chrome-extension://{ext_id}/db.html")
     page.evaluate("dbInit")
     assert page.locator("#days tbody tr").count() == 2
+    # 성향별: 게시글 · 댓글 · 총평가 나눠 표시 (위쪽 누적 성향도)
+    first = page.locator("#days tbody tr").first.inner_text()
+    assert "게시글" in first and "댓글" in first and "총평가" in first, first
+    assert page.is_visible("#dbSenti") and "총평가" in page.inner_text("#dbSenti")
     page.locator("#days tbody tr").first.locator("button", has_text="게시물 보기").click()
     page.locator("#dayPosts tbody tr .counts.hot").first.wait_for()
 
@@ -424,6 +430,7 @@ def test_gv90_comments(ext, tmp_path: Path):
     assert b64[0].endswith("GV90 온라인 동향 댓글 raw data.xlsx"), b64[0]
     wb = load_workbook(BytesIO(base64.b64decode(b64[1])))
     assert wb.sheetnames == ["댓글", "게시글별 댓글 성향"]
+    assert page.inner_text("#getXlsx").strip() == "✔ 댓글 엑셀 저장 완료!"
     ws = wb["댓글"]
     assert [c.value for c in ws[1]] == ["연번", "채널", "커뮤니티명", "차종", "작성일", "게시글 위치", "댓글", "구분", "성향"]
     assert ws["A1"].fill.fgColor.rgb == "FF002060" and ws.row_dimensions[1].height == 25
