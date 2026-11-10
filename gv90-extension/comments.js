@@ -77,12 +77,28 @@ function canCollect(p) {
   return true;
 }
 
+// 수집 상태 뱃지 (둥근 상자): 수집 전 · 대기 · 수집 중(깜빡임) · ✔ 완료 N개 · ✖ 실패 · 댓글 없음 · 해당 없음
 function statusText(p) {
   const st = p.commentStatus;
-  if (!canCollect(p)) return el("span", { class: "hint", text: "언론사 사이트 기사 (네이버 댓글 없음)" });
-  if (!st) return el("span", { class: "hint", text: "수집 전" });
-  if (!st.ok) return el("span", { class: "hint err", text: `✖ ${st.msg || "실패"}`, title: fmtDateTime(st.at) });
-  return el("span", { class: "hint ok", text: `✔ ${st.n}개${st.how ? ` · ${st.how}` : ""}`, title: `${fmtDateTime(st.at)} 수집` });
+  const badge = (cls, text, title = "") => el("span", { class: `stb ${cls}`, text, title });
+  if (!canCollect(p)) return badge("st-na", "해당 없음", "언론사 사이트 기사 (네이버 댓글 없음)");
+  if (p.live === "run") return badge("st-run", "⏳ 수집 중");
+  if (p.live === "wait") return badge("st-wait", "대기", "이번 수집에서 차례를 기다리는 중");
+  if (!st) return badge("st-before", "수집 전");
+  if (!st.ok) return el("span", {}, badge("st-err", "✖ 실패", `${fmtDateTime(st.at)} · ${st.msg || "실패"}`), el("div", { class: "hint err st-msg", text: st.msg || "" }));
+  if (!st.n) return badge("st-zero", "✔ 댓글 없음", `${fmtDateTime(st.at)} 수집`);
+  return badge("st-ok", `✔ 완료 ${st.n.toLocaleString()}개`, `${fmtDateTime(st.at)} 수집${st.how ? ` · ${st.how}` : ""}`);
+}
+
+// 수집하는 동안 그 글 줄의 상태·댓글 성향만 바로 바꿈
+const rowCells = new Map(); // post key → { st, senti, tr }
+function refreshRow(p) {
+  const r = rowCells.get(p.key);
+  if (!r) return;
+  r.st.replaceChildren(statusText(p));
+  r.senti.replaceChildren(...[miniSenti(comments.filter((c) => c.postKey === p.key))].filter(Boolean));
+  r.tr.classList.toggle("running", p.live === "run");
+  r.tr.classList.toggle("off", !p.checked && !p.live);
 }
 
 function miniSenti(list) {
@@ -101,21 +117,24 @@ function miniSenti(list) {
 function renderPosts() {
   const tb = $("#postTable tbody");
   tb.textContent = "";
+  rowCells.clear();
   for (const p of posts) {
     const mine = comments.filter((c) => c.postKey === p.key);
     const cb = el("input", { type: "checkbox", checked: p.checked, disabled: !canCollect(p), onchange: (e) => { p.checked = e.target.checked; updatePostCount(); } });
-    tb.append(
-      el("tr", { class: p.checked ? "" : "off" },
+    const stCell = el("td", { class: "nowrap" }, statusText(p));
+    const sentiCell = el("td", {}, miniSenti(mine));
+    const tr = el("tr", { class: `${p.checked || p.live ? "" : "off"}${p.live === "run" ? " running" : ""}` },
         el("td", {}, cb),
         el("td", { class: "nowrap", text: prettyDay(p.day).slice(5) }),
         el("td", {}, chChip(p.channel)),
         el("td", { class: "nowrap", text: p.media }),
         el("td", { class: "url" }, countsBadge(p), el("a", { href: p.url, target: "_blank", text: p.url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 44) })),
         el("td", { text: p.summary || p.title }),
-        el("td", { class: "nowrap" }, statusText(p)),
-        el("td", {}, miniSenti(mine)),
-      ),
+        stCell,
+        sentiCell,
     );
+    rowCells.set(p.key, { st: stCell, senti: sentiCell, tr });
+    tb.append(tr);
   }
   updatePostCount();
   const sel = $("#postFilter");
@@ -212,10 +231,16 @@ async function collect() {
   let failed = 0;
   const planSec = estimateCommentsSec(targets);
   startWorkClock(planSec);
+  for (const p of targets) {
+    p.live = "wait";
+    refreshRow(p);
+  }
   log(`댓글 수집 시작: 게시글 ${targets.length}건 · 예상 소요 시간 ${fmtDur(planSec)} (진행하면서 위쪽 막대에 남은 시간이 보입니다)`);
   for (let i = 0; i < targets.length && !stopRequested; i++) {
     const p = targets[i];
     showWork(`댓글 수집 ${i + 1}/${targets.length} · ${p.channel} · ${p.media}`, i, targets.length);
+    p.live = "run";
+    refreshRow(p);
     try {
       const r = await collectOne(p, tools);
       const list = r.list
@@ -245,6 +270,9 @@ async function collect() {
       await updatePost(p.key, patch);
       Object.assign(p, patch);
       p.checked = false;
+      p.live = null;
+      comments = comments.filter((c) => c.postKey !== p.key).concat(await commentsOfPost(p.key));
+      refreshRow(p);
       total += res.total;
       log(`· ${p.channel} ${p.media}: 댓글 ${res.total}개 (새 댓글 ${res.added}개${r.how ? ` · ${r.how}` : ""})`);
     } catch (e) {
@@ -253,14 +281,21 @@ async function collect() {
       const st = { at: Date.now(), ok: false, n: 0, msg: korMsg(e.message).slice(0, 80) };
       await updatePost(p.key, { commentStatus: st });
       p.commentStatus = st;
+      p.live = null;
+      refreshRow(p);
       log(`✖ ${p.channel} ${p.media} ${p.url}: ${korMsg(e.message)}`, "err");
       if (/로그인|보호조치/.test(e.message)) {
         log("네이버 로그인·보호조치 문제로 카페 댓글 수집을 멈춥니다. 다른 채널은 계속합니다.", "err");
-        for (const q of targets.slice(i + 1)) if (q.channel === "동호회") q.checked = false;
+        for (const q of targets.slice(i + 1)) if (q.channel === "동호회") {
+          q.checked = false;
+          q.live = null;
+          refreshRow(q);
+        }
         targets.splice(i + 1, targets.length, ...targets.slice(i + 1).filter((q) => q.channel !== "동호회"));
       }
     }
   }
+  for (const p of targets) p.live = null; // 중지·건너뜀: 대기 표시 지움
   await refreshDay(day, { keepEmpty: true });
   hideWork();
   running = false;

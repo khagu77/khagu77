@@ -374,8 +374,12 @@ def test_gv90_comments(ext, tmp_path: Path):
     assert rows.count() == 6
     # 언론사 자체 사이트 기사는 고를 수 없음 (네이버 댓글 없음)
     assert page.locator("#postTable tbody tr", has_text="한국경제").locator("input").is_disabled()
+    assert page.locator("#postTable tbody tr", has_text="연합뉴스").locator(".stb.st-before").count() == 1
     page.click("#start")
+    # 수집 중: 차례를 기다리는 글은 '대기', 지금 읽는 글은 '수집 중' 뱃지
+    wait_js(page, "running && document.querySelectorAll('#postTable .stb.st-run').length === 1", 30000)
     wait_js(page, "!running && document.querySelector('#summary').textContent.includes('댓글')", 120000)
+    assert page.locator("#postTable .stb.st-run, #postTable .stb.st-wait").count() == 0
     by = page.evaluate("(async () => { const out = {}; for (const c of await allComments()) (out[c.postKey] ||= []).push([c.text, c.sentiment, c.isReply]); return out; })()")
     assert [c[0] for c in by["news:001/0000000001"]] == NEWS_COMMENTS
     assert {c[0] for c in by["yt:gv90video01"]} == {"GV90 디자인 멋지다 최고", "흉물 같음 현기차"}
@@ -394,7 +398,7 @@ def test_gv90_comments(ext, tmp_path: Path):
     assert news["GV90 실내 정말 고급스럽네요 만족"] == "긍정" and news["가격이 너무 비싸요 실망"] == "부정"
     assert dict((c[0], c[1]) for c in by["yt:gv90video01"])["흉물 같음 현기차"] == "단순비난"
     # 수집 상태 · 다시 수집해도 늘지 않음
-    assert "✔ 3개" in page.locator("#postTable tbody tr", has_text="연합뉴스").inner_text()
+    assert "✔ 완료 3개" in page.locator("#postTable tbody tr", has_text="연합뉴스").locator(".stb.st-ok").inner_text()
     n1 = page.evaluate("(async () => (await allComments()).length)()")
     page.evaluate("posts.forEach((p) => (p.checked = p.key === 'clien.net:501')); renderPosts();")
     page.click("#start")
