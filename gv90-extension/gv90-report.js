@@ -108,6 +108,34 @@ function rpOpinionRows(list, color) {
     .join("");
 }
 
+// 출처(커뮤니티명) 한 줄: 들어가는 만큼 'A · B 외 N곳' (12px 글자 폭 어림: 한글 12 · 그 밖 6.6)
+function rpTextW(t) {
+  let w = 0;
+  for (const ch of String(t)) w += /[가-힣ㄱ-ㅎㅏ-ㅣ一-龥■★●◆▶]/.test(ch) ? 12 : 6.6;
+  return w;
+}
+function rpOneLine(names, maxW, unit = "곳") {
+  const list = (names || []).map((x) => String(x).replace(/\s+/g, " ").trim()).filter(Boolean);
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    const rest = list.length - i - 1;
+    const tail = rest ? ` 외 ${rest}${unit}` : "";
+    const cand = [...out, list[i]].join(" · ");
+    if (rpTextW(cand + tail) <= maxW) {
+      out.push(list[i]);
+      continue;
+    }
+    if (!out.length) {
+      // 첫 이름이 길면 줄여서 '…'
+      let t = list[i];
+      while (t.length > 1 && rpTextW(`${t}… 외 ${list.length - 1}${unit}`) > maxW) t = t.slice(0, -1);
+      return `${t}…${list.length > 1 ? ` 외 ${list.length - 1}${unit}` : ""}`;
+    }
+    return `${out.join(" · ")} 외 ${list.length - out.length}${unit}`;
+  }
+  return out.join(" · ");
+}
+
 function rpCard(c, cardPx = 330) {
   const inW = cardPx - 12;
   const tdOpen = `<td width="${cardPx}" style="width:${inW}px;min-width:${inW}px;padding:6px;vertical-align:top"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${inW}" style="width:${inW}px;min-width:${inW}px;border-collapse:collapse"><tr><td>`;
@@ -141,12 +169,12 @@ function rpCard(c, cardPx = 330) {
   const negTop = Object.assign(topOpinions(neg), { total: neg.length });
   const color = RP_CARD[c.ch] || RP_NAVY;
   const stat = (k, v) => `<td style="width:33%;padding:0 3px"><div style="background:#f3f4f6;border-radius:6px;padding:8px 10px"><div style="font-size:12px;color:#6b7280">${k}</div><div style="font-size:21px;font-weight:800;color:#111827">${v.toLocaleString()}<span style="font-size:12px;font-weight:400;color:#6b7280"> 건</span></div></div></td>`;
-  const media = c.media.slice(0, 6).join(" · ") + (c.media.length > 6 ? ` 외 ${c.media.length - 6}곳` : "");
+  const media = rpOneLine(c.media, inW - 26, c.ch === "유튜브" ? "개" : "곳");
   return (
     tdOpen +
     `<div style="border:1px solid #e5e7eb;border-top:4px solid ${color};border-radius:8px;padding:10px 12px;background:#fff">` +
     `<div><span style="display:inline-block;background:${color};color:#fff;font-weight:800;font-size:15px;padding:3px 12px;border-radius:999px">${rpEsc(c.ch === "자동차 커뮤니티" ? "커뮤니티" : c.ch)}</span> <span style="color:#6b7280;font-size:12px">${c.media.length}곳</span></div>` +
-    `<div style="color:#6b7280;font-size:12px;margin:4px 0 8px;line-height:1.4">${rpEsc(media)}</div>` +
+    `<div style="color:#6b7280;font-size:12px;margin:4px 0 8px;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${rpEsc(c.media.join(" · "))}">${rpEsc(media)}</div>` +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;margin-bottom:8px"><tr>${stat("게시글", c.posts)}${stat("댓글", c.comments)}${stat("반응", c.posts + c.comments)}</tr></table>` +
     rpBar(sc, total, 10) +
     `<div style="margin:6px 0">${rpLegend(sc, total, "#1f2937", 12)}</div>` +
