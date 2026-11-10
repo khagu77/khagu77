@@ -33,10 +33,10 @@ function reportData(days, allPosts, allComments) {
   const to = Math.max(...days.map((d) => d.to || new Date(+d.day.slice(0, 4), +d.day.slice(4, 6) - 1, +d.day.slice(6, 8)).getTime()));
   // 반응 = 게시물 + (성향을 판정한) 댓글 · 댓글은 댓글마다 자기 구분('모두 포함(…)' 포함)
   const reacts = [...posts.map((p) => ({ ...p, kind: "post" })), ...comments.filter((c) => c.sentiment).map((c) => ({ ...c, kind: "comment", summary: c.summary || c.text }))];
-  // 댓글 수: 게시글마다 '사이트에 보이는 댓글 수'와 '모은 댓글 수' 중 큰 쪽 → 채널별 합 · 전체 합 (전체 = 채널 합계와 꼭 같게)
+  // 댓글 수: 실제로 모은 댓글 수 (댓글 엑셀 · 성향 분석과 같은 숫자) → 채널별 합 · 전체 합 (전체 = 채널 합계)
   const got = new Map();
   for (const c of comments) got.set(c.postKey, (got.get(c.postKey) || 0) + 1);
-  const ccOf = (p) => Math.max(p.ccount || 0, got.get(p.key) || 0);
+  const ccOf = (p) => got.get(p.key) || 0;
   const ccount = (list) => list.reduce((s, p) => s + ccOf(p), 0);
   const channels = CHANNELS.map((ch) => {
     const ps = posts.filter((p) => p.channel === ch);
