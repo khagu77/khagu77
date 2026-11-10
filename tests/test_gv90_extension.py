@@ -301,7 +301,7 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     assert ws["F2"].hyperlink is not None
     assert "일자별 집계" in wb.sheetnames
     wd = wb["일자별 집계"]
-    assert wd["C1"].value == "댓글 수 (건)" and wd["B1"].value == "게시물 (건)" and wd["L1"].value == "부정+단순비난 비율 (%)"
+    assert wd["L1"].value == "(단위 : 건)" and wd["C2"].value == "댓글 수" and wd["B2"].value == "게시물"
     import zipfile
     with zipfile.ZipFile(BytesIO(base64.b64decode(b64[1]))) as z:
         assert all("numberStoredAsText" in z.read(n).decode() for n in z.namelist() if n.startswith("xl/worksheets/sheet"))

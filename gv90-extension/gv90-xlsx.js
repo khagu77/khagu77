@@ -99,6 +99,7 @@
     postText: 27, postLink: 28, // 게시글별 댓글 시트의 게시글 줄 (회색 바탕)
     commentText: 29, replyText: 30, // 댓글은 2칸, 대댓글은 5칸 들여쓰기 (대댓글은 회색 글자)
     headGv: 31, // 게시글·댓글 머리글 (남색 #002060 바탕 · 흰 굵은 11pt · 가운데)
+    plain: 0, note: 32, // 표 위 '(단위 : 건)' (테두리 없음 · 오른쪽 정렬)
   };
   const SENTI_S = { 긍정: "pos", 중립: "neu", 부정: "neg", 단순비난: "blame" };
   const FONT = '<name val="현대산스 Text"/><family val="3"/><charset val="129"/>';
@@ -126,13 +127,14 @@
       xf(14, 9, "left", ' indent="1"') + // 28 게시글 줄 링크
       xf(4, 0, "left", ' indent="2"') + // 29 댓글 (2칸 들여쓰기)
       xf(15, 0, "left", ' indent="3"') + // 30 대댓글 (3칸 들여쓰기 · 회색 — 댓글보다 조금만 더)
-      xf(16, 10, "center"); // 31 게시글·댓글 머리글
+      xf(16, 10, "center") + // 31 게시글·댓글 머리글
+      `<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>`; // 32 단위 표기
     const firstFont = '<font><sz val="11"/><color theme="1"/><name val="맑은 고딕"/><family val="2"/><charset val="129"/><scheme val="minor"/></font>';
     return base
       .replace(firstFont, `<font><sz val="10"/><color theme="1"/>${FONT}</font>`) // 기본 글꼴
       .replace(/<fonts count="8"([^>]*)>([\s\S]*?)<\/fonts>/, (all, attrs, inner) => `<fonts count="17"${attrs}>${inner}${fonts}</fonts>`)
       .replace(/<fills count="4">([\s\S]*?)<\/fills>/, (all, inner) => `<fills count="11">${inner}${fills}</fills>`)
-      .replace(/<cellXfs count="14">([\s\S]*?)<\/cellXfs>/, (all, inner) => `<cellXfs count="32">${inner}${xfs}</cellXfs>`);
+      .replace(/<cellXfs count="14">([\s\S]*?)<\/cellXfs>/, (all, inner) => `<cellXfs count="33">${inner}${xfs}</cellXfs>`);
   }
 
   // excelSerial: 날짜만 (시각 버림)
@@ -310,8 +312,12 @@
       const N = { v: "", s: "headNavy" };
       sheets.push({
         name: "일자별 집계",
-        top: [[{ v: "보고일", s: "headNavy" }, { v: "게시물 (건)", s: "headNavy" }, { v: "댓글 수 (건)", s: "headNavy" }, { v: "채널별 게시물 (건)", s: "headNavy" }, N, N, N, { v: "성향별 게시물 (건)", s: "headNavy" }, N, N, N, { v: "부정+단순비난 비율 (%)", s: "headNavy" }]],
-        merges: ["A1:A2", "B1:B2", "C1:C2", "D1:G1", "H1:K1", "L1:L2"],
+                // 맨 위 줄: 오른쪽에 (단위 : 건)
+        top: [
+          [...Array(11).fill({ v: "", s: "plain" }), { v: "(단위 : 건)", s: "note" }],
+          [{ v: "보고일", s: "headNavy" }, { v: "게시물", s: "headNavy" }, { v: "댓글 수", s: "headNavy" }, { v: "채널별 게시물", s: "headNavy" }, N, N, N, { v: "성향별 게시물", s: "headNavy" }, N, N, N, { v: "부정+단순비난 비율", s: "headNavy" }],
+        ],
+        merges: ["A2:A3", "B2:B3", "C2:C3", "D2:G2", "H2:K2", "L2:L3"],
         columns: [
           { header: "", width: 13, style: "bold", headStyle: "headNavy" },
           { header: "", width: 9, style: "bold", headStyle: "headNavy" },
