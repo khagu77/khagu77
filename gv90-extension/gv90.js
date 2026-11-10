@@ -1229,6 +1229,15 @@ $("#selDelete").addEventListener("click", () => {
   renderResults();
   saveLast();
 });
+$("#unselDelete").addEventListener("click", () => {
+  const n = items.filter((x) => !x.checked).length;
+  if (!n) return setSummary("체크 안 된 글이 없습니다.");
+  if (!confirm(`체크 안 된 글 ${n}건을 결과 표에서 지울까요?\n(체크한 글 ${items.length - n}건만 남습니다 · 데일리 DB 에 저장된 글은 지워지지 않습니다)`)) return;
+  items = items.filter((x) => x.checked);
+  renderResults();
+  saveLast();
+  setSummary(`체크 안 된 글 ${n}건을 지웠습니다. 남은 글 ${items.length}건.`, "ok");
+});
 $("#filter").addEventListener("change", renderResults);
 $("#analyzeRule").addEventListener("click", async () => {
   await persistSettings();

@@ -287,14 +287,17 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     wb = load_workbook(BytesIO(base64.b64decode(b64[1])))
     assert wb.sheetnames[0] == "제네시스"
     ws = wb["제네시스"]
-    assert [c.value for c in ws[1]] == ["연번", "커뮤니티명", "차종", "게시일", "구분", "게시글 위치", "주요 내용", "성향"]
+    assert [c.value for c in ws[1]] == ["연번", "채널", "커뮤니티명", "차종", "게시일", "게시글 위치", "주요 내용", "구분", "성향"]
+    assert ws["A1"].fill.fgColor.rgb == "FF002060" and ws["A1"].font.b and ws["A1"].font.sz == 11 and ws.row_dimensions[1].height == 25
+    assert ws.column_dimensions["C"].width > 50 and ws["C2"].alignment.horizontal == "left"
     rows = [[c.value for c in r] for r in ws.iter_rows(min_row=2)]
     assert [r[0] for r in rows] == list(range(1, len(rows) + 1))  # 연번 이어짐 (누적)
     urls = {r[5]: r for r in rows}
     assert "https://n.news.naver.com/mnews/article/002/0000000002" in urls  # 지난 보고 글도 누적 엑셀에
-    assert urls["https://www.clien.net/service/board/cm_car/501"][7] == "부정"
-    assert urls["https://www.clien.net/service/board/cm_car/501"][2] == "GV90"
-    assert ws["D2"].number_format == 'mm"월"\\ dd"일"'  # 일일동향 양식 날짜 형식
+    assert urls["https://www.clien.net/service/board/cm_car/501"][8] == "부정"
+    assert urls["https://www.clien.net/service/board/cm_car/501"][3] == "GV90"
+    assert urls["https://www.clien.net/service/board/cm_car/501"][1] == "자동차 커뮤니티"
+    assert ws["E2"].number_format == 'mm"월"\\ dd"일"'  # 일일동향 양식 날짜 형식
     assert ws["F2"].hyperlink is not None
     assert "일자별 집계" in wb.sheetnames
     # 같은 글을 다시 저장해도 늘지 않음
@@ -418,9 +421,10 @@ def test_gv90_comments(ext, tmp_path: Path):
     wb = load_workbook(BytesIO(base64.b64decode(b64[1])))
     assert wb.sheetnames == ["댓글", "게시글별 댓글 성향"]
     ws = wb["댓글"]
-    assert [c.value for c in ws[1]] == ["연번", "커뮤니티명", "차종", "작성일", "구분", "게시글 위치", "댓글", "성향"]
+    assert [c.value for c in ws[1]] == ["연번", "채널", "커뮤니티명", "차종", "작성일", "게시글 위치", "댓글", "구분", "성향"]
+    assert ws["A1"].fill.fgColor.rgb == "FF002060" and ws.row_dimensions[1].height == 25
     assert ws.max_row - 1 == n1
-    assert "판매·출고" in [r[4].value for r in ws.iter_rows(min_row=2)]
+    assert "판매·출고" in [r[7].value for r in ws.iter_rows(min_row=2)]
     assert [c.value for c in wb["게시글별 댓글 성향"][1]] == ["No", "커뮤니티명", "게시글 위치", "주요 내용 · 댓글", "게시일 · 작성일", "구분", "성향"]
     # 대시보드: 반응 = 게시글 + 댓글 성향
     page.goto(f"chrome-extension://{ext_id}/dashboard.html")
@@ -483,6 +487,10 @@ def test_gv90_resume(ext, tmp_path: Path):
       return items.at(-1).summary;
     }""")
     assert fixed == "Gv90 - 가격 보니 비싸네요.", fixed
+    # 체크 안 된 글 삭제하기 (확인 창은 자동 수락)
+    page.evaluate("items = items.filter((x) => x.key !== 'bobae:x'); window._keep = items.length; items.forEach((x, i) => { x.checked = i === 0; }); renderResults()")
+    page.click("#unselDelete")
+    wait_js(page, "items.length === 1 && items[0].checked")
     # 구분 '모두 포함': 무료 분석은 여러 이슈를 다룬 글이면 '모두 포함(…)' · 표에서 여러 개 직접 고르기
     assert page.evaluate("ruleCategory('GV90 디자인 외관 멋지다 가격 1억3950만원 비싸 사전계약 출고 대기')") == "모두 포함(디자인+가격+판매·출고)"
     page.evaluate("items = items.filter((x) => x.key !== 'bobae:x'); document.querySelector('#filter').value = ''; renderResults()")

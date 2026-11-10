@@ -98,6 +98,7 @@
     total: 23, link: 24, text: 25, bold: 26,
     postText: 27, postLink: 28, // 게시글별 댓글 시트의 게시글 줄 (회색 바탕)
     commentText: 29, replyText: 30, // 댓글은 2칸, 대댓글은 5칸 들여쓰기 (대댓글은 회색 글자)
+    headGv: 31, // 게시글·댓글 머리글 (남색 #002060 바탕 · 흰 굵은 11pt · 가운데)
   };
   const SENTI_S = { 긍정: "pos", 중립: "neu", 부정: "neg", 단순비난: "blame" };
   const FONT = '<name val="현대산스 Text"/><family val="3"/><charset val="129"/>';
@@ -109,8 +110,9 @@
       `<font><b/><sz val="10"/><color rgb="FFFFFFFF"/>${FONT}</font>` + // 12 흰 굵은
       `<font><b/><sz val="10"/><color theme="1"/>${FONT}</font>` + // 13 검정 굵은
       `<font><u/><sz val="10"/><color rgb="FF0563C1"/>${FONT}</font>` + // 14 링크
-      `<font><sz val="10"/><color rgb="FF555555"/>${FONT}</font>`; // 15 대댓글 회색
-    const fills = ["FF002C5F", ...colors, "FFF2F2F2"].map((c) => `<fill><patternFill patternType="solid"><fgColor rgb="${c}"/><bgColor indexed="64"/></patternFill></fill>`).join(""); // 4 남색 · 5~8 성향 · 9 회색
+      `<font><sz val="10"/><color rgb="FF555555"/>${FONT}</font>` + // 15 대댓글 회색
+      `<font><b/><sz val="11"/><color theme="0"/>${FONT}</font>`; // 16 머리글 흰 굵은 11
+    const fills = ["FF002C5F", ...colors, "FFF2F2F2", "FF002060"].map((c) => `<fill><patternFill patternType="solid"><fgColor rgb="${c}"/><bgColor indexed="64"/></patternFill></fill>`).join(""); // 4 남색 · 5~8 성향 · 9 회색 · 10 머리글 남색
     const xf = (font, fill, h, extra = "") =>
       `<xf numFmtId="0" fontId="${font}" fillId="${fill}" borderId="1" xfId="0" applyFont="1" applyBorder="1"${fill ? ' applyFill="1"' : ""} applyAlignment="1"><alignment horizontal="${h}" vertical="center"${extra}/></xf>`;
     const xfs =
@@ -123,13 +125,14 @@
       xf(13, 9, "left", ' indent="1"') + // 27 게시글 줄 글자
       xf(14, 9, "left", ' indent="1"') + // 28 게시글 줄 링크
       xf(4, 0, "left", ' indent="2"') + // 29 댓글 (2칸 들여쓰기)
-      xf(15, 0, "left", ' indent="5"'); // 30 대댓글 (5칸 들여쓰기 · 회색)
+      xf(15, 0, "left", ' indent="5"') + // 30 대댓글 (5칸 들여쓰기 · 회색)
+      xf(16, 10, "center"); // 31 게시글·댓글 머리글
     const firstFont = '<font><sz val="11"/><color theme="1"/><name val="맑은 고딕"/><family val="2"/><charset val="129"/><scheme val="minor"/></font>';
     return base
       .replace(firstFont, `<font><sz val="10"/><color theme="1"/>${FONT}</font>`) // 기본 글꼴
-      .replace(/<fonts count="8"([^>]*)>([\s\S]*?)<\/fonts>/, (all, attrs, inner) => `<fonts count="16"${attrs}>${inner}${fonts}</fonts>`)
-      .replace(/<fills count="4">([\s\S]*?)<\/fills>/, (all, inner) => `<fills count="10">${inner}${fills}</fills>`)
-      .replace(/<cellXfs count="14">([\s\S]*?)<\/cellXfs>/, (all, inner) => `<cellXfs count="31">${inner}${xfs}</cellXfs>`);
+      .replace(/<fonts count="8"([^>]*)>([\s\S]*?)<\/fonts>/, (all, attrs, inner) => `<fonts count="17"${attrs}>${inner}${fonts}</fonts>`)
+      .replace(/<fills count="4">([\s\S]*?)<\/fills>/, (all, inner) => `<fills count="11">${inner}${fills}</fills>`)
+      .replace(/<cellXfs count="14">([\s\S]*?)<\/cellXfs>/, (all, inner) => `<cellXfs count="32">${inner}${xfs}</cellXfs>`);
   }
 
   // excelSerial: 날짜만 (시각 버림)
@@ -149,7 +152,7 @@
     const top = sheet.top || []; // 묶음 머리글 줄들 [[{ v, s }…]…]
     let data = top.map((row, ri) => `<row r="${ri + 1}" ht="22" customHeight="1">${sheet.columns.map((_, ci) => cell(`${colName(ci + 1)}${ri + 1}`, row[ci]?.v, row[ci]?.s || "headNavy")).join("")}</row>`).join("");
     const hr = top.length + 1; // 칸 이름 줄
-    data += `<row r="${hr}"${top.length ? ' ht="22" customHeight="1"' : ""}>${sheet.columns.map((c, i) => cell(`${colName(i + 1)}${hr}`, c.header, c.headStyle || "head")).join("")}</row>`;
+    data += `<row r="${hr}"${sheet.headHeight ? ` ht="${sheet.headHeight}" customHeight="1"` : top.length ? ' ht="22" customHeight="1"' : ""}>${sheet.columns.map((c, i) => cell(`${colName(i + 1)}${hr}`, c.header, c.headStyle || "head")).join("")}</row>`;
     sheet.rows.forEach((row, ri) => {
       const r = ri + hr + 1;
       data += `<row r="${r}">${sheet.columns
@@ -236,26 +239,22 @@
 
   // ------------------------------------------------------------- GV90 raw data 양식
   const RAW_SHEET = "제네시스";
+  // 사용자 양식 (261110 GV90 raw data): 연번 · 채널 · 커뮤니티명 · 차종 · 게시일 · 게시글 위치 · 주요 내용 · 구분 · 성향
+  //  머리글 남색 바탕 흰 굵은 11pt · 줄 높이 25 · 커뮤니티명·위치·주요 내용·구분은 왼쪽 정렬
+  const H = "headGv";
   const RAW_COLUMNS = [
-    { header: "연번", width: 7.5, style: "center" }, // A
-    { header: "커뮤니티명", width: 18.5, style: "center" }, // B
-    { header: "차종", width: 9, style: "center" }, // C
-    { header: "게시일", width: 9.2, style: "date" }, // D (mm월 dd일)
-    { header: "구분", width: 16, style: "center" }, // E ('모두 포함(디자인+가격)' 처럼 여러 개일 수 있음)
-    { header: "게시글 위치", width: 60, style: "link", link: true }, // F
-    { header: "주요 내용", width: 80, style: "text" }, // G
-    { header: "성향", width: 9.5, style: "center" }, // H (추가)
+    { header: "연번", width: 7.5, style: "center", headStyle: H }, // A
+    { header: "채널", width: 13.83, style: "center", headStyle: H }, // B
+    { header: "커뮤니티명", width: 57.16, style: "text", headStyle: H }, // C
+    { header: "차종", width: 9, style: "center", headStyle: H }, // D
+    { header: "게시일", width: 9.16, style: "date", headStyle: H }, // E (mm월 dd일)
+    { header: "게시글 위치", width: 60, style: "link", link: true, headStyle: H }, // F
+    { header: "주요 내용", width: 80, style: "text", headStyle: H }, // G
+    { header: "구분", width: 35.66, style: "text", headStyle: H }, // H ('모두 포함(디자인+가격)' 처럼 여러 개일 수 있음)
+    { header: "성향", width: 9.5, style: "center", headStyle: H }, // I
   ];
-  const COMMENT_COLUMNS = [
-    { header: "연번", width: 7.5, style: "center" },
-    { header: "커뮤니티명", width: 18.5, style: "center" },
-    { header: "차종", width: 9, style: "center" },
-    { header: "작성일", width: 9.2, style: "date" },
-    { header: "구분", width: 16, style: "center" },
-    { header: "게시글 위치", width: 60, style: "link", link: true },
-    { header: "댓글", width: 80, style: "text" },
-    { header: "성향", width: 9.5, style: "center" },
-  ];
+  const COMMENT_COLUMNS = RAW_COLUMNS.map((c) => ({ ...c, header: c.header === "게시일" ? "작성일" : c.header === "주요 내용" ? "댓글" : c.header }));
+  const HEAD_H = 25;
   const sentiStyle = (col) => (ri, ci, v) => (ci === col ? SENTI_S[v] : null);
   const asDate = (ms) => (ms ? new Date(ms) : null);
 
@@ -265,18 +264,20 @@
       {
         name: RAW_SHEET,
         columns: RAW_COLUMNS,
+        headHeight: HEAD_H,
         cursorEnd: true,
-        rows: posts.map((p, i) => [p.serial || i + 1, p.media || "", p.car || "GV90", asDate(p.date), p.category || "", p.url, p.summary || p.title || "", p.sentiment || ""]),
-        cellStyle: sentiStyle(7),
+        rows: posts.map((p, i) => [p.serial || i + 1, p.channel || "", p.media || "", p.car || "GV90", asDate(p.date), p.url, p.summary || p.title || "", p.category || "", p.sentiment || ""]),
+        cellStyle: sentiStyle(8),
       },
     ];
     if (comments.length) {
       sheets.push({
         name: "댓글",
         columns: COMMENT_COLUMNS,
+        headHeight: HEAD_H,
         cursorEnd: true,
-        rows: comments.map((c, i) => [c.serial || i + 1, c.media || "", c.car || "GV90", asDate(c.date), c.category || "", c.url, c.text || "", c.sentiment || ""]),
-        cellStyle: sentiStyle(7),
+        rows: comments.map((c, i) => [c.serial || i + 1, c.channel || "", c.media || "", c.car || "GV90", asDate(c.date), c.url, c.text || "", c.category || "", c.sentiment || ""]),
+        cellStyle: (ri, ci, v) => (ci === 8 ? SENTI_S[v] : ci === 6 && comments[ri].isReply ? "replyText" : null),
       });
     }
     if (daily && daily.length) {
@@ -337,22 +338,24 @@
       {
         name: "댓글",
         columns: COMMENT_COLUMNS,
+        headHeight: HEAD_H,
         cursorEnd: true,
         filter: true,
-        rows: comments.map((c, i) => [i + 1, c.media || "", c.car || "GV90", asDate(c.date), c.category || "", c.url, c.isReply ? `↪ 답글: ${c.text || ""}` : c.text || "", c.sentiment || ""]),
-        cellStyle: (ri, ci, v) => (ci === 7 ? SENTI_S[v] : ci === 6 && comments[ri].isReply ? "replyText" : null),
+        rows: comments.map((c, i) => [i + 1, c.channel || "", c.media || "", c.car || "GV90", asDate(c.date), c.url, c.isReply ? `↪ 답글: ${c.text || ""}` : c.text || "", c.category || "", c.sentiment || ""]),
+        cellStyle: (ri, ci, v) => (ci === 8 ? SENTI_S[v] : ci === 6 && comments[ri].isReply ? "replyText" : null),
       },
       {
         // 게시글 줄(회색 바탕 · 주요 내용과 댓글 성향 건수) 아래에 그 글의 댓글을 모두 나열하고 댓글마다 성향
         name: "게시글별 댓글 성향",
+        headHeight: HEAD_H,
         columns: [
-          { header: "No", width: 7, style: "center" },
-          { header: "커뮤니티명", width: 18.5, style: "center" },
-          { header: "게시글 위치", width: 46, style: "link", link: true },
-          { header: "주요 내용 · 댓글", width: 80, style: "text" },
-          { header: "게시일 · 작성일", width: 15, style: "center" },
-          { header: "구분", width: 16, style: "center" },
-          { header: "성향", width: 10, style: "center" },
+          { header: "No", width: 7, style: "center", headStyle: H },
+          { header: "커뮤니티명", width: 18.5, style: "center", headStyle: H },
+          { header: "게시글 위치", width: 46, style: "link", link: true, headStyle: H },
+          { header: "주요 내용 · 댓글", width: 80, style: "text", headStyle: H },
+          { header: "게시일 · 작성일", width: 15, style: "center", headStyle: H },
+          { header: "구분", width: 35.66, style: "text", headStyle: H },
+          { header: "성향", width: 10, style: "center", headStyle: H },
         ],
         ...(() => {
           const rows = [];
