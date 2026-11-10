@@ -126,9 +126,17 @@ function renderPosts() {
   sel.value = [...sel.options].some((o) => o.value === cur) ? cur : "";
 }
 
+// 댓글 수집 예상 시간(초): 채널별 글 하나에 걸리는 시간 (카페는 사람 속도로 천천히) + 댓글 많은 글은 조금 더
+function estimateCommentsSec(list) {
+  const d = DELAYS[settings?.speed] || DELAYS.normal;
+  const avg = (r) => (r[0] + r[1]) / 2000;
+  const per = { 동호회: 10 + avg(d.article), 언론: 2 + avg(d.news), 유튜브: 4, "자동차 커뮤니티": 3 + avg(d.community) };
+  return list.reduce((t, p) => t + (per[p.channel] || 5) + Math.min(60, (p.ccount || 0) / 40), 0);
+}
+
 function updatePostCount() {
   const c = posts.filter((p) => p.checked);
-  $("#postCount").textContent = `게시글 ${posts.length}건 · 체크 ${c.length}건 (${CH_ORDER_C.map((ch) => `${ch} ${c.filter((p) => p.channel === ch).length}`).join(" · ")}) · 예상 댓글 약 ${c.reduce((s, p) => s + (p.ccount || 0), 0).toLocaleString()}개`;
+  $("#postCount").textContent = `게시글 ${posts.length}건 · 체크 ${c.length}건 (${CH_ORDER_C.map((ch) => `${ch} ${c.filter((p) => p.channel === ch).length}`).join(" · ")}) · 예상 댓글 약 ${c.reduce((s, p) => s + (p.ccount || 0), 0).toLocaleString()}개${c.length ? ` · ⏱ 예상 소요 시간 ${fmtDur(estimateCommentsSec(c))}` : ""}`;
   $("#start").disabled = running || !c.length;
 }
 
@@ -202,7 +210,9 @@ async function collect() {
   const day = todayKey();
   let total = 0;
   let failed = 0;
-  log(`댓글 수집 시작: 게시글 ${targets.length}건`);
+  const planSec = estimateCommentsSec(targets);
+  startWorkClock(planSec);
+  log(`댓글 수집 시작: 게시글 ${targets.length}건 · 예상 소요 시간 ${fmtDur(planSec)} (진행하면서 위쪽 막대에 남은 시간이 보입니다)`);
   for (let i = 0; i < targets.length && !stopRequested; i++) {
     const p = targets[i];
     showWork(`댓글 수집 ${i + 1}/${targets.length} · ${p.channel} · ${p.media}`, i, targets.length);
@@ -335,10 +345,11 @@ async function analyzeAi() {
   if (!list.length) return;
   const items = list.map((c) => ({ ...c, body: c.text, title: "" }));
   const est = aiEstimate(items, settings.model);
-  if (!confirm(`표에 보이는 댓글 ${list.length.toLocaleString()}개의 성향을 Claude AI 로 다시 정합니다 (원글 제목 참고).\n예상 비용 ${fmtWon(est)} · ${AI_MODELS.find(([id]) => id === settings.model)?.[1] || settings.model}\n\n계속할까요?`)) return;
+  if (!confirm(`표에 보이는 댓글 ${list.length.toLocaleString()}개의 성향을 Claude AI 로 다시 정합니다 (원글 제목 참고).\n예상 비용 ${fmtWon(est)} · 예상 소요 시간 ${fmtDur(Math.ceil(list.length / AI_BATCH / AI_PARALLEL) * 30)} · ${AI_MODELS.find(([id]) => id === settings.model)?.[1] || settings.model}\n\n계속할까요?`)) return;
   running = true;
   stopRequested = false;
   $("#analyzeAi").disabled = true;
+  startWorkClock(Math.ceil(items.length / AI_BATCH / AI_PARALLEL) * 30);
   const byKey = new Map(list.map((c) => [c.key, c]));
   const res = await aiAnalyze(items, {
     apiKey: settings.apiKey,

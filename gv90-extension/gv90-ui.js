@@ -136,3 +136,57 @@ document.addEventListener("DOMContentLoaded", () => {
   const v = document.getElementById("ver");
   if (v) v.textContent = `v${chrome.runtime.getManifest().version}`;
 });
+
+// ---------------------------------------------------------------------------
+// 예상 소요 시간: 진행 막대에 '남은 시간 · 경과'를 붙인다 (모든 작업 공통)
+//  - 같은 단계(진행 막대 글자의 숫자 앞부분이 같음) 안에서 실제 걸린 속도로 남은 시간을 계산
+//  - 단계가 바뀌거나 처음부터 다시 세면 새로 잼
+// ---------------------------------------------------------------------------
+
+function fmtDur(sec) {
+  sec = Math.max(0, Math.round(sec));
+  if (sec < 60) return `약 ${Math.max(5, Math.round(sec / 5) * 5)}초`;
+  if (sec < 3600) return `약 ${Math.round(sec / 60)}분`;
+  const h = Math.floor(sec / 3600);
+  const m = Math.round((sec % 3600) / 60);
+  return `약 ${h}시간${m ? ` ${m}분` : ""}`;
+}
+
+let etaPhase = null; // { key, start, total, lastDone }
+let workStartedAt = 0;
+let workPlanSec = 0; // 시작할 때 계산한 전체 예상 시간 (초)
+
+// 작업 시작: 전체 예상 시간을 정해 두면 진행 막대에 '전체 예상 N분'도 함께 보임
+function startWorkClock(planSec = 0) {
+  workStartedAt = Date.now();
+  workPlanSec = planSec;
+  etaPhase = null;
+}
+
+if (typeof showWork === "function") {
+  const baseShowWork = showWork;
+  const baseHideWork = hideWork;
+  showWork = function (text, done = 0, total = 0) {
+    const now = Date.now();
+    if (!workStartedAt) workStartedAt = now;
+    const key = String(text).replace(/\d[\s\S]*$/, "").trim();
+    if (!etaPhase || etaPhase.key !== key || etaPhase.total !== total || done < etaPhase.lastDone) etaPhase = { key, start: now, total, lastDone: done, startDone: done };
+    etaPhase.lastDone = done;
+    const parts = [];
+    const doneHere = done - etaPhase.startDone;
+    const elapsed = (now - workStartedAt) / 1000;
+    if (total && doneHere > 0) parts.push(`이 단계 남은 시간 ${fmtDur(((now - etaPhase.start) / 1000 / doneHere) * (total - done))}`);
+    if (workPlanSec) {
+      const left = workPlanSec - elapsed;
+      parts.push(left > 30 ? `전체 예상 ${fmtDur(workPlanSec)} (남은 시간 ${fmtDur(left)})` : `전체 예상 ${fmtDur(workPlanSec)} (거의 끝나 감)`);
+    }
+    if (elapsed >= 30) parts.push(`경과 ${fmtDur(elapsed).replace(/^약 /, "")}`);
+    baseShowWork(parts.length ? `${text} · ${parts.join(" · ")}` : text, done, total);
+  };
+  hideWork = function () {
+    etaPhase = null;
+    workStartedAt = 0;
+    workPlanSec = 0;
+    baseHideWork();
+  };
+}

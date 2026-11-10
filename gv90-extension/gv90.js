@@ -106,6 +106,7 @@ async function persistSettings() {
   renderRangeLabel();
   updateAutoInfo();
   $("#saveWhere").textContent = await saveWhereText();
+  showEstimate();
 }
 
 // 채널 표: 바꾸면 바로 저장 (설정 저장 버튼을 따로 누르지 않아도 됨)
@@ -230,7 +231,38 @@ function renderChannelTables() {
   for (const c of settings.communities) cb.append(el("label", { class: "inline" }, el("input", { type: "checkbox", checked: c.on, onchange: (e) => { c.on = e.target.checked; saveChannels(); } }), `${c.name} `, el("span", { class: "hint", text: c.url })), " ");
 }
 
+// 게시물 수집 예상 시간(초): 채널별로 화면을 여는 횟수 × 그 속도 설정의 대기 시간으로 대략 계산
+function estimateCollectSec(s = settings) {
+  const d = DELAYS[s.speed] || DELAYS.normal;
+  const avg = (r) => (r[0] + r[1]) / 2000;
+  const on = s.channels;
+  const queries = searchQueries(parseKeywords(s.keywords), 30).length;
+  const cafeQ = String(s.cafeKeywords || "GV90").split(/[,\n]/).filter((x) => x.trim()).length || 1;
+  const parts = {};
+  if (on.news) parts.언론 = queries * Math.min(s.newsMaxPages, 2) * (1.2 + avg(d.news)) + queries * 1.5 * (1.5 + avg(d.news));
+  if (on.youtube) parts.유튜브 = s.youtubeChannels.filter((c) => c.on !== false).length * 1.6 + (s.youtubeSearch ? 5 * 2.6 : 0) + 8 * 2.5;
+  if (on.cafe) {
+    const n = s.cafes.filter((c) => c.on).length;
+    parts.동호회 = n * (cafeQ * (1.4 * (6 + avg(d.page)) + avg(d.page)) + avg(d.cafeGap)) + n * 0.4 * (10 + avg(d.article));
+  }
+  if (on.community) parts.커뮤니티 = s.communities.filter((c) => c.on).length * 6 * (1.5 + avg(d.community));
+  const total = Object.values(parts).reduce((a, b) => a + b, 0);
+  const big = Object.entries(parts).sort((a, b) => b[1] - a[1])[0];
+  return { total, parts, big: big ? big[0] : "" };
+}
+
+function showEstimate() {
+  if (!settings || running) return;
+  const e = estimateCollectSec();
+  const cafes = settings.cafes.filter((c) => c.on).length;
+  const cafeQ = String(settings.cafeKeywords || "").split(/[,\n]/).filter((x) => x.trim()).length;
+  $("#estInfo").textContent = e.total
+    ? `⏱ 예상 소요 시간 ${fmtDur(e.total)}${e.big === "동호회" ? ` (대부분 동호회 ${cafes}곳 × 검색어 ${cafeQ}개 — 사람 속도로 천천히 읽음)` : ""}`
+    : "";
+}
+
 function channelCounts() {
+  showEstimate();
   const s = settings;
   const cafes = s.cafes.filter((c) => c.on).length;
   const yts = s.youtubeChannels.filter((c) => c.on !== false).length;
@@ -420,7 +452,10 @@ async function collect() {
   };
   const inRange = (ms) => !ms || (ms >= range.start.getTime() && ms < range.end.getTime());
   const errors = [];
+  const est = estimateCollectSec(s);
+  startWorkClock(est.total);
   log(`수집 시작: ${fmtDateTime(range.start)} ~ ${fmtDateTime(range.end)} · 키워드 ${queries.length}개 (${queries.slice(0, 6).join(", ")}${queries.length > 6 ? " …" : ""})`);
+  log(`예상 소요 시간 ${fmtDur(est.total)} (${Object.entries(est.parts).map(([k, v]) => `${k} ${fmtDur(v)}`).join(" · ")}) — 진행하면서 위쪽 막대에 남은 시간이 보입니다`);
   if (on.cafe) await checkLogin();
   const direct = directUrlList();
   try {
@@ -712,8 +747,9 @@ async function analyze(list, { auto = false, forceAi = false } = {}) {
   const model = settings.model;
   if (!auto) {
     const est = aiEstimate(list, model);
-    if (!confirm(`게시물 ${list.length}건을 Claude AI 로 판독합니다 (관련성 · 구분 · 성향 · 주요 내용).\n예상 비용 ${fmtWon(est)} · ${AI_MODELS.find(([id]) => id === model)?.[1] || model}\n\n계속할까요? ([취소]를 누르면 무료 분석 결과로 둡니다)`)) return;
+    if (!confirm(`게시물 ${list.length}건을 Claude AI 로 판독합니다 (관련성 · 구분 · 성향 · 주요 내용).\n예상 비용 ${fmtWon(est)} · 예상 소요 시간 ${fmtDur(Math.ceil(list.length / AI_BATCH / AI_PARALLEL) * 30)} · ${AI_MODELS.find(([id]) => id === model)?.[1] || model}\n\n계속할까요? ([취소]를 누르면 무료 분석 결과로 둡니다)`)) return;
   }
+  startWorkClock(Math.ceil(list.length / AI_BATCH / AI_PARALLEL) * 30);
   showWork(`AI 판독 중 (0/${Math.ceil(list.length / AI_BATCH)}묶음)`, 0, 0);
   const res = await aiAnalyze(list, {
     apiKey: settings.apiKey,
