@@ -179,7 +179,9 @@
       (sheet.filter && sheet.rows.length ? `<autoFilter ref="A${hr}:${last}"/>` : "") +
       (merges.length ? `<mergeCells count="${merges.length}">${merges.map((m) => `<mergeCell ref="${m}"/>`).join("")}</mergeCells>` : "") +
       (links.length ? `<hyperlinks>${links.map((l, i) => `<hyperlink ref="${l.ref}" r:id="rId${i + 1}"/>`).join("")}</hyperlinks>` : "") +
-      '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/></worksheet>';
+      '<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>' +
+      // '숫자가 텍스트로 저장됨' 초록 삼각형(오류 표시) 안 보이게 (비율 6.4% · 연번 1-1 등)
+      `<ignoredErrors><ignoredError sqref="A1:${last}" numberStoredAsText="1"/></ignoredErrors></worksheet>`;
     const rels = links.length
       ? '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
         links.map((l, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${esc(l.url)}" TargetMode="External"/>`).join("") +
@@ -308,7 +310,7 @@
       const N = { v: "", s: "headNavy" };
       sheets.push({
         name: "일자별 집계",
-        top: [[{ v: "보고일", s: "headNavy" }, { v: "게시물", s: "headNavy" }, { v: "댓글 수", s: "headNavy" }, { v: "채널별 게시물", s: "headNavy" }, N, N, N, { v: "성향별 게시물", s: "headNavy" }, N, N, N, { v: "부정+단순비난 비율", s: "headNavy" }]],
+        top: [[{ v: "보고일", s: "headNavy" }, { v: "게시물 (건)", s: "headNavy" }, { v: "댓글 수 (건)", s: "headNavy" }, { v: "채널별 게시물 (건)", s: "headNavy" }, N, N, N, { v: "성향별 게시물 (건)", s: "headNavy" }, N, N, N, { v: "부정+단순비난 비율 (%)", s: "headNavy" }]],
         merges: ["A1:A2", "B1:B2", "C1:C2", "D1:G1", "H1:K1", "L1:L2"],
         columns: [
           { header: "", width: 13, style: "bold", headStyle: "headNavy" },

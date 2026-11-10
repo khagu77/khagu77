@@ -109,7 +109,9 @@ function rpOpinionRows(list, color) {
 }
 
 function rpCard(c, cardPx = 330) {
-  const tdOpen = `<td width="${cardPx}" style="width:${cardPx - 12}px;padding:6px;vertical-align:top">`;
+  const inW = cardPx - 12;
+  const tdOpen = `<td width="${cardPx}" style="width:${inW}px;min-width:${inW}px;padding:6px;vertical-align:top"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${inW}" style="width:${inW}px;min-width:${inW}px;border-collapse:collapse"><tr><td>`;
+  const tdClose = `</td></tr></table></td>`;
   const color0 = RP_CARD[c.ch] || RP_NAVY;
   if (!c.posts) {
     // 그날 글이 없는 채널도 자리는 잡아 두고 0건 · 관련 게시글 없음 (후보를 확인했으면 왜 0건인지)
@@ -128,7 +130,7 @@ function rpCard(c, cardPx = 330) {
       `<div style="margin:6px 0;padding:22px 14px;background:#f9fafb;border:1px dashed #d1d5db;border-radius:8px;text-align:center">` +
       `<div style="color:#374151;font-size:15px;font-weight:800;margin-bottom:6px">해당일에 관련 게시글 없음</div>` +
       `<div style="color:#6b7280;font-size:12.5px;line-height:1.6">${note}</div></div>` +
-      `</div></td>`
+      `</div>` + tdClose
     );
   }
   const sc = sentCount(c.reacts);
@@ -153,7 +155,7 @@ function rpCard(c, cardPx = 330) {
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse">${rpOpinionRows(posTop, "#1f5fbf")}</table>` +
     `<div style="margin-top:8px;font-weight:800;color:#d0021b;font-size:13px;border-bottom:2px solid #d0021b;padding-bottom:3px">부정 주요 내용 <span style="font-weight:400;color:#6b7280">(${neg.length})</span></div>` +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse">${rpOpinionRows(negTop, "#d0021b")}</table>` +
-    `</div></td>`
+    `</div>` + tdClose
   );
 }
 
@@ -208,7 +210,8 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
   return (
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${RP_WIDTH}" style="width:${RP_WIDTH}px;table-layout:fixed;border-collapse:separate;border-spacing:0;font-family:${RP_FONT};background:#ffffff;border:1px solid #e5e7eb;border-radius:${RP_R}px"><tr>` +
     // 왼쪽 남색 칸
-    `<td width="300" style="width:256px;background:${RP_NAVY};color:#ffffff;vertical-align:top;padding:22px 22px 0;border-radius:${RP_R}px 0 0 0">` +
+    `<td width="300" style="width:256px;background:${RP_NAVY};color:#ffffff;vertical-align:top;padding:22px 22px 0;border-radius:${RP_R}px 0 0 0;min-width:256px">` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="256" style="width:256px;min-width:256px;max-width:256px;border-collapse:collapse;color:#ffffff"><tr><td>` +
     `<div style="font-size:14px;opacity:.9">GV90(JG1) 관련 여론 동향</div>` +
     `<div style="font-size:34px;font-weight:900;letter-spacing:.5px;margin:2px 0 14px">DASHBOARD</div>` +
     `<div style="font-size:13px;opacity:.85">모니터링 기간</div>` +
@@ -225,12 +228,12 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
     `<div style="margin:10px 0;line-height:2">${rpLegend(sc, total, "#ffffff", 14)}</div>` +
     `<div style="color:${v.hi ? "#ffcf3f" : "#9fd0ff"};font-weight:800;font-size:15px;line-height:1.5;margin:10px 0">${rpEsc(v.text)}</div>` +
     `<div style="font-size:13px;opacity:.85;line-height:1.5;margin-top:14px">모니터링 채널: ${rpEsc(d.monitor || chText || "-")}</div>` +
-    `</td>` +
+    `</td></tr></table></td>` +
     // 오른쪽 (왼쪽 남색 칸 두 줄 높이)
     `<td rowspan="2" width="${RP_WIDTH - 300}" style="width:${RP_RIGHT_W}px;vertical-align:top;padding:16px 16px 12px">` +
     // 위: 그림(왼쪽) + 요약 두 줄(오른쪽) — 넓은 화면에서 그림이 너무 커지지 않게 나란히
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${RP_RIGHT_W}" style="width:${RP_RIGHT_W}px;table-layout:fixed;border-collapse:collapse;margin-bottom:6px"><tr>` +
-    (banner ? `<td width="${RP_BANNER_W + 6}" style="width:${RP_BANNER_W}px;padding:0 6px 0 0;vertical-align:top"><img src="${rpEsc(banner)}" width="${RP_BANNER_W}" alt="GV90" style="display:block;width:${RP_BANNER_W}px;max-width:100%;height:auto;border-radius:8px"></td>` : "") +
+    (banner ? `<td width="${RP_BANNER_W + 6}" style="width:${RP_BANNER_W}px;padding:0 6px 0 0;vertical-align:top"><img src="${rpEsc(banner)}" width="${RP_BANNER_W}" alt="GV90" style="display:block;width:${RP_BANNER_W}px;height:auto;border-radius:8px"></td>` : "") +
     `<td style="vertical-align:middle;padding:0 6px">` +
     `<div style="border:1px solid #e5e7eb;border-left:5px solid ${RP_NAVY};border-radius:6px;padding:12px 16px;background:#f9fafb">` +
     lines.map((l, i) => `<div style="font-size:16px;font-weight:800;color:#111827;line-height:1.7"${ed}${editable ? `="${i}"` : ""}>• ${rpEsc(String(l).replace(/^•\s*/, ""))}</div>`).join("") +
@@ -243,7 +246,7 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
       : "") +
     `</td></tr>` +
     // 왼쪽 남색 칸 맨 아래: 서명 (By LINESQUARE) · 아래 모서리 둥글게
-    `<tr><td width="300" style="width:256px;height:56px;background:${RP_NAVY};color:#ffffff;vertical-align:bottom;padding:0 22px 20px;border-radius:0 0 0 ${RP_R}px;font-size:14px">By <b><i style="letter-spacing:.3px">LINESQUARE</i></b></td></tr></table>`
+    `<tr><td width="300" style="width:256px;height:56px;background:${RP_NAVY};color:#ffffff;vertical-align:bottom;padding:0 22px 20px;border-radius:0 0 0 ${RP_R}px;font-size:14px;color:#ffffff"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="256" style="width:256px;border-collapse:collapse"><tr><td style="color:#ffffff;font-size:14px">By <b><i style="letter-spacing:.3px">LINESQUARE</i></b></td></tr></table></td></tr></table>`
   );
 }
 
