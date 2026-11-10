@@ -1628,9 +1628,10 @@ def test_retry_keeps_other_comments(tmp_path: Path):
 
 
 def test_lx3_daily_yellow(tmp_path: Path):
-    """오전 일일동향 엑셀(그 프로그램이 만든 양식 그대로)의 노란색 글(LX3·ME1·MX5·JX)은 LX3 결과 표에 반드시 들어간다:
-    이미 찾은 글이면 체크, 없으면 새로 넣음. 노란색 아닌 글은 넣지 않음."""
-    daily = Path(__file__).parent / "fixtures" / "261109_차종별 온라인 동향_통합.xlsx"
+    """오전 일일동향 엑셀(그 프로그램이 만든 양식 그대로)의 노란색 시트 글(LX3·ME1·MX5·JX)은 LX3 결과 표에 반드시 들어간다.
+    글을 열어 실제 주소(naver.me 풀기)·제목·작성 시간을 확인 → 기간 밖은 빼고, 이미 찾은 글이면 체크만(중복 없이),
+    매체명은 동호회 목록의 카페 이름. 노란색 아닌 글은 넣지 않음. 찾기 처음에 폴더의 그 기간 파일을 읽음."""
+    daily = Path(__file__).parent / "fixtures" / "261110_차종별 온라인 동향_통합.xlsx"
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
             str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True, timezone_id="Asia/Seoul",
@@ -1642,42 +1643,65 @@ def test_lx3_daily_yellow(tmp_path: Path):
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"{ext}/lx3.html")
         page.evaluate("lx3Init")
-        # 검색으로 이미 찾았지만 관련 글로 체크되지 않은 글 (일일동향 노란색 글과 같은 글)
-        page.evaluate("""() => { cafeSlugs['222'] = 'palisadepeople'; cafeNames['222'] = '팰리세이드 피플';
-          items = [{ key: '222/555', cafeId: '222', cafeIndex: 0, articleId: '555', slug: '', title: '시트 질문', text: '',
-            date: new Date(2026, 10, 9, 8, 0), hasTime: true, ambiguous: false, checked: false, related: false, note: '', dup: false }];
+        # 글 열기는 흉내 (카페 글: 짧은 주소 → 실제 주소·제목·시간, 커뮤니티 글: 제목·시간)
+        page.evaluate("""() => {
+          CAFE_ARTICLE_DELAY[0] = CAFE_ARTICLE_DELAY[1] = 0; NEWS_DELAY[0] = NEWS_DELAY[1] = 0;
+          window.opened = [];
+          readArticleTime = async (url) => {
+            opened.push(url);
+            if (url.includes('naver.me/abc123')) return { found: true, dateText: '2026.11.10. 08:37', href: 'https://cafe.naver.com/f-e/cafes/222/articles/228519',
+              title: '팰리세이드는 시트땜에 한번씩 열받는 차다', cafeName: '팰리세이드 오너스 클럽', hints: [] };
+            if (url.includes('ioniq9owners/1')) return { found: true, dateText: '2026.11.01. 10:00', href: url, title: '예전 글', hints: [] };
+            if (url.includes('santafeclub/77')) return { found: true, dateText: '2026.11.09. 15:20', href: 'https://cafe.naver.com/f-e/cafes/333/articles/77',
+              title: '싼타페 2열 시트 리콜 받았어요', cafeName: '싼타페 동호회', hints: [{ strong: ['santafeclub'] }] };
+            return { found: false };
+          };
+          fetchDocument = async (url) => new DOMParser().parseFromString(
+            '<html><head><meta property="og:title" content="보배 3열 시트 리콜 문의글"><title>x</title></head><body><span class="countGroup">2026.11.09 21:05</span></body></html>', 'text/html');
+          cafeNames['222'] = '팰리세이드 오너스 클럽'; cafeSlugs['222'] = 'tobloomer';
+          // 검색으로 이미 찾았지만 체크되지 않은 같은 글 + 예전 버전이 짧은 주소로 넣었던 일일동향 글(지우고 다시 확인)
+          items = [
+            { key: '222/228519', cafeId: '222', cafeIndex: 0, articleId: '228519', slug: '', title: '팰리세이드는 시트땜에 한번씩 열받는 차다', text: '',
+              date: new Date(2026, 10, 10, 8, 37), hasTime: true, ambiguous: false, checked: false, related: false, note: '', dup: false },
+            { key: 'naver.me/x0ovxzx9', channel: '자동차 커뮤니티', media: '팰리세이드 피플', url: 'https://naver.me/x0OVXZx9', title: '업데이트 관련 의견',
+              date: new Date(2026, 10, 10), checked: true, related: true, note: '오전 일일동향 노란색 글', dup: false, daily: true },
+          ];
           renderResults(); }""")
+        page.fill("#from", "2026-11-09T11:30")
+        page.fill("#to", "2026-11-10T11:30")
         page.set_input_files("#dailyFiles", str(daily))
         page.locator("#dailyInfo", has_text="✔").wait_for()
-        assert "노란색 시트 글 3개 확인" in page.inner_text("#dailyInfo"), page.inner_text("#dailyInfo")
-        got = page.evaluate("""() => items.map((x) => ({ url: articleUrl(x), checked: x.checked, ch: x.channel || '동호회',
-          media: x.media || '', title: x.title, date: x.date ? x.date.toISOString() : null, note: x.note }))""")
-        assert len(got) == 3, got
-        assert any(g["url"] == "https://cafe.naver.com/ioniq9owners/1" and g["checked"] for g in got), got  # ME1 노란색도
-        got = [g for g in got if "ioniq9owners" not in g["url"]]
-        assert got[0]["url"] == "https://cafe.naver.com/palisadepeople/555" and got[0]["checked"] and "일일동향" in got[0]["note"], got
-        assert got[1]["url"].startswith("https://www.bobaedream.co.kr/view") and got[1]["checked"], got
-        assert got[1]["ch"] == "자동차 커뮤니티" and got[1]["media"] == "보배드림" and got[1]["title"] == "3열 시트 리콜 문의", got
-        assert got[1]["date"] == "2026-11-07T15:00:00.000Z", got  # 게시일 11-08 (서울)
+        info = page.inner_text("#dailyInfo")
+        assert "노란색 시트 글 4개 확인" in info and "새로 넣음 2개" in info and "이미 찾은 글 체크 1개" in info and "밖 1개" in info, info
+        got = page.evaluate("""() => items.map((x) => ({ url: isCafeItem(x) ? articleUrl(x) : x.url, checked: x.checked, ch: x.channel || '동호회',
+          name: isCafeItem(x) ? cafeNames[x.cafeId] || x.media || x.cafeId : x.media, title: x.title, date: x.date ? x.date.toISOString() : null, note: x.note }))""")
+        assert len(got) == 3, got  # 예전 짧은 주소 글은 빠지고, 같은 글은 한 줄
+        assert got[0]["url"] == "https://cafe.naver.com/tobloomer/228519" and got[0]["checked"] and "일일동향" in got[0]["note"], got
+        bobae = next(g for g in got if "bobaedream" in g["url"])
+        assert bobae["checked"] and bobae["ch"] == "자동차 커뮤니티" and bobae["name"] == "보배드림" and bobae["title"] == "보배 3열 시트 리콜 문의글", bobae
+        assert bobae["date"] == "2026-11-09T12:05:00.000Z", bobae
+        santa = next(g for g in got if "santafeclub" in g["url"] or "/333/" in g["url"])
+        assert santa["url"] == "https://cafe.naver.com/santafeclub/77" and santa["name"] == "싼타페 동호회" and santa["title"] == "싼타페 2열 시트 리콜 받았어요", santa
+        assert not any("ioniq9owners" in g["url"] or "palisadepeople/556" in g["url"] for g in got), got
         # 같은 파일을 다시 넣어도 두 번 들어가지 않음
         page.set_input_files("#dailyFiles", str(daily))
-        page.locator("#dailyInfo", has_text="새로 넣음 0개").wait_for()
+        page.locator("#dailyInfo", has_text="새로 넣음 2개").wait_for()
         assert page.evaluate("items.length") == 3
-        # 찾기가 끝날 때: 폴더에서 찾은 기간(11-09)의 일일동향 엑셀만 읽음 (다른 날짜·다른 파일은 무시)
+        # 찾기 처음: 폴더에서 찾는 기간(11-09~11-10)의 일일동향 엑셀만 읽음 (다른 날짜·다른 파일은 무시, 같은 날짜는 최근 파일)
         b64 = base64.b64encode(daily.read_bytes()).decode()
         res = page.evaluate("""async (b64) => {
-          items = [];
           const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
           const file = (name, t) => ({ kind: 'file', getFile: async () => new File([bytes], name, { lastModified: t }) });
+          const sub = { kind: 'directory', async *entries() { yield ['261110_차종별 온라인 동향_통합 (1).xlsx', file('261110_차종별 온라인 동향_통합 (1).xlsx', 3)]; } };
           const dir = { name: '일일동향', async *entries() {
             yield ['261105_차종별 온라인 동향_통합.xlsx', file('261105_차종별 온라인 동향_통합.xlsx', 1)];
-            yield ['261109_차종별 온라인 동향_통합.xlsx', file('261109_차종별 온라인 동향_통합.xlsx', 2)];
-            yield ['261109_차종별 온라인 동향_통합 (1).xlsx', file('261109_차종별 온라인 동향_통합 (1).xlsx', 3)];
+            yield ['261110_차종별 온라인 동향_통합.xlsx', file('261110_차종별 온라인 동향_통합.xlsx', 2)];
+            yield ['보고서', sub];
             yield ['메모.xlsx', file('메모.xlsx', 4)];
           } };
-          await addDailyFromDir(dir, { from: new Date(2026, 10, 8, 11, 30), to: new Date(2026, 10, 9, 11, 30) });
-          return { n: items.length, log: document.querySelector('#log').innerText };
+          const rows = await dailyRowsFromDir(dir, { from: new Date(2026, 10, 9, 11, 30), to: new Date(2026, 10, 10, 11, 30) });
+          return { n: rows.length, log: document.querySelector('#log').innerText };
         }""", b64)
-        assert res["n"] == 3 and "(1).xlsx" in res["log"] and "261105" not in res["log"], res
+        assert res["n"] == 4 and "(1).xlsx" in res["log"] and "261105" not in res["log"], res
         assert not errors, errors
         ctx.close()

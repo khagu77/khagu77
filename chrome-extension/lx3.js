@@ -485,13 +485,17 @@ function placeInRange(parsed, { from, to }) {
 // 게시글 화면: 글쓴 날짜·시간
 function readArticleInFrame() {
   const re = /(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.?\s*(\d{1,2}):(\d{2})/;
+  // 제목·카페 이름 (오전 일일동향 글을 넣을 때 씀)
+  const title = (document.querySelector(".title_text, .ArticleTitle .title_text, h3.title_text, .tit-box .b") || {}).innerText || "";
+  const cafeName = ((document.querySelector(".cafe_name, .CafeName, #cafe-info-data .cafe_name") || {}).innerText || "").trim();
+  const more = { title: title.trim(), cafeName };
   for (const el of document.querySelectorAll(".article_info .date, .ArticleWriterProfile .date, .WriterInfo .date, [class*='article'] .date, .date")) {
     const m = (el.innerText || "").match(re);
-    if (m) return { found: true, dateText: m[0], href: location.href };
+    if (m) return { found: true, dateText: m[0], href: location.href, ...more };
   }
   const box = document.querySelector(".ArticleContentBox, .article_header, #app, body");
   const m = box && (box.innerText || "").match(re);
-  return m ? { found: true, dateText: m[0], href: location.href } : { found: false, href: location.href };
+  return m ? { found: true, dateText: m[0], href: location.href, ...more } : { found: false, href: location.href };
 }
 
 // ---------------------------------------------------------------------------
@@ -666,6 +670,13 @@ async function search(resume = null) {
   else if (resume) log(`· 중단된 곳부터 이어서 찾습니다 (이미 찾은 글 ${items.length}개)`);
   $("#retryCafes").hidden = true;
   await loadDeleted();
+  // 0) 오전 일일동향 노란색 글을 먼저 넣음 (글을 열어 실제 주소·제목·작성 시간 확인, 기간 밖은 뺌) → 아래 검색에서 같은 글은 건너뜀
+  if (!resume) {
+    const dRows = await dailyRowsFromDir(dailyDir, win).catch((e) => (log(`✖ 오전 일일동향 엑셀을 읽지 못함: ${e.message}`), []));
+    if (dRows.length) await addDailyRows(dRows, win);
+    for (const x of items) if (x.key) seen.add(x.key);
+    renderResults();
+  }
   let skippedDeleted = 0;
   const addItem = (item) => {
     // 결과 표에서 지운 글은 다시 넣지 않음
@@ -960,7 +971,7 @@ async function search(resume = null) {
   $("#diag").hidden = !diagnostics.length;
   cafeSlugs = await loadCafeSlugs();
   renderCafeInfo();
-  if (!stopRequested) await addDailyFromDir(dailyDir, win).catch((e) => log(`✖ 오전 일일동향 엑셀을 읽지 못함: ${e.message}`));
+  mergeSameArticles();
   markDuplicates();
   renderResults();
   lastSearchAt = Date.now();
@@ -987,6 +998,7 @@ async function search(resume = null) {
   setSummary(
     `${stopRequested ? "중지됨 - " : ""}찾은 글 ${items.length}개 (${byChannel.length > 1 ? `${byChannel.join(" · ")} · ` : ""}관련 글로 체크 ${checked}개)` +
       (loginNeeded ? " · 로그인이 필요한 카페가 있습니다" : "") +
+      (!dailyDir ? " · 오전 일일동향 폴더를 정하지 않아 일일동향 글을 넣지 못했습니다(설정)" : dailyDir.denied ? ` · '${dailyDir.denied}' 폴더 허락이 없어 일일동향 글을 넣지 못했습니다` : "") +
       `. 필요 없는 글을 지운 뒤 '엑셀 받기'를 누르세요.`,
     loginNeeded ? "err" : "ok",
   );
@@ -1845,32 +1857,54 @@ async function dailyDirReady(ask) {
   }
 }
 
-// 찾은 기간(시작일~끝일)에 해당하는 일일동향 엑셀을 폴더에서 읽어 넣는다
-async function addDailyFromDir(dir, win) {
+// 찾은 기간(시작일~끝일)에 해당하는 일일동향 엑셀을 폴더(한 단계 아래 폴더까지)에서 읽어 노란색 시트 글 행으로
+async function dailyRowsFromDir(dir, win) {
   if (!dir) {
-    log("· 오전 일일동향 폴더를 정하지 않아 노란색 시트 글 확인은 건너뜀 (설정 → 오전 일일동향 엑셀 폴더)");
-    return;
+    log("✖ 오전 일일동향 폴더를 정하지 않아 일일동향 노란색 글 확인은 건너뜀 (설정 → 오전 일일동향 엑셀 폴더)");
+    return [];
   }
   if (dir.denied) {
     log(`✖ '${dir.denied}' 폴더를 읽을 허락이 없어 오전 일일동향 노란색 글을 확인하지 못함 → '일일동향 엑셀에서 넣기'로 파일을 직접 골라 주세요`);
-    return;
+    return [];
   }
   const ymd = (d) => `${String(d.getFullYear()).slice(2)}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
   const lo = ymd(win.from), hi = ymd(win.to);
   const picked = new Map(); // 날짜 → 가장 최근에 고친 파일
-  for await (const [name, h] of dir.entries()) {
-    if (h.kind !== "file" || name.startsWith("~$")) continue;
-    const m = name.match(DAILY_NAME_RE);
-    if (!m || m[1] < lo || m[1] > hi) continue;
-    const f = await h.getFile();
-    const old = picked.get(m[1]);
-    if (!old || f.lastModified > old.lastModified) picked.set(m[1], f);
-  }
+  const scan = async (d, depth) => {
+    for await (const [name, h] of d.entries()) {
+      if (h.kind === "directory") {
+        if (depth < 1 && !name.startsWith(".")) await scan(h, depth + 1).catch(() => {});
+        continue;
+      }
+      if (name.startsWith("~$")) continue;
+      const m = name.match(DAILY_NAME_RE);
+      if (!m || m[1] < lo || m[1] > hi) continue;
+      const f = await h.getFile();
+      const old = picked.get(m[1]);
+      if (!old || f.lastModified > old.lastModified) picked.set(m[1], f);
+    }
+  };
+  await scan(dir, 0);
   if (!picked.size) {
-    log(`· '${dir.name}' 폴더에 ${lo}~${hi} 오전 일일동향 엑셀이 없음 (노란색 시트 글 확인 못 함)`);
-    return;
+    log(`✖ '${dir.name}' 폴더에 ${lo}~${hi} 오전 일일동향 엑셀(…_차종별 온라인 동향_통합.xlsx)이 없음 (노란색 글 확인 못 함)`);
+    return [];
   }
-  await addDailyFiles([...picked.values()]);
+  return dailyRowsFromFiles([...picked.values()]);
+}
+
+async function dailyRowsFromFiles(files) {
+  const rows = [];
+  const seenUrl = new Set();
+  for (const f of files) {
+    const got = (await readDailyRows(new Uint8Array(await f.arrayBuffer()), f.name)).filter((r) => r.yellow && DAILY_CAR_RE.test(r.car));
+    for (const r of got) {
+      if (seenUrl.has(r.url)) continue;
+      seenUrl.add(r.url);
+      rows.push(r);
+    }
+    log(`· 오전 일일동향 ${f.name}: 노란색 시트 글 ${got.length}개`);
+  }
+  return rows;
 }
 
 // 일일동향 엑셀 → [{ community, car, date, url, summary, yellow }]
@@ -1949,50 +1983,109 @@ async function readDailyRows(bytes, fileName = "") {
   return out;
 }
 
-// 일일동향 엑셀 파일들(File)에서 노란색 시트 글을 결과 표에 넣는다 (이미 찾은 글이면 체크만) → 넣은·체크한 수
-async function addDailyFiles(files) {
-  let added = 0, checked = 0, total = 0;
-  const have = new Map();
-  for (const x of items) for (const u of [articleUrl(x), x.extUrl, x.naverUrl, x.url]) if (u) have.set(normUrl(u), x);
-  for (const f of files) {
-    const rows = (await readDailyRows(new Uint8Array(await f.arrayBuffer()), f.name)).filter((r) => r.yellow && DAILY_CAR_RE.test(r.car));
-    total += rows.length;
-    for (const r of rows) {
-      const k = normUrl(r.url);
-      const found = have.get(k);
-      if (found) {
-        if (!found.checked && !found.dup) {
-          found.checked = true;
-          found.touched = true;
-          checked++;
-        }
-        found.related = true;
-        if (!String(found.note || "").includes(DAILY_NOTE)) found.note = [found.note, DAILY_NOTE].filter(Boolean).join(" · ");
+// 일일동향 노란색 행을 결과 표에 넣는다: 글을 열어 실제 주소(naver.me 짧은 주소 풀기)·제목·작성 시간을 확인하고,
+// 찾는 기간 밖이면 빼고, 이미 찾은 글이면 그 글을 체크만 한다. → { total, added, checked, out, failed }
+async function addDailyRows(rows, win) {
+  // 전에 일일동향으로 넣은 글은 빼고 다시 확인 (예전 버전이 넣은 짧은 주소·주요 내용 제목 글 정리)
+  items = items.filter((x) => !x.daily);
+  const ids = cafeIds();
+  const res = { total: rows.length, added: 0, checked: 0, out: 0, failed: 0 };
+  const findSame = (urls) => {
+    const keys = new Set(urls.filter(Boolean).map(normUrl));
+    return items.find((x) => [isCafeItem(x) ? articleUrl(x) : "", x.extUrl, x.naverUrl, x.url].some((u) => u && keys.has(normUrl(u))));
+  };
+  const slugToId = (slug) => (slug && Object.keys(cafeSlugs).find((id) => String(cafeSlugs[id]).toLowerCase() === slug.toLowerCase())) || "";
+  for (let i = 0; i < rows.length && !stopRequested; i++) {
+    const r = rows[i];
+    setSummary(`오전 일일동향 노란색 글 확인 중… (${i + 1}/${rows.length})`);
+    showBusy(`오전 일일동향 노란색 글 확인 중 ${i + 1}/${rows.length} — 끝날 때까지 이 탭을 닫지 마세요`, i, rows.length, "일일동향 글 확인 중");
+    const host = hostName(r.url);
+    let item = null;
+    let parsed = null;
+    if (/(^|\.)naver\.me$|cafe\.naver\.com$/i.test(host)) {
+      if (i) await sleep(randomBetween(CAFE_ARTICLE_DELAY));
+      const got = await readArticleTime(r.url).catch(() => ({ found: false }));
+      const a = parseArticleUrl(got.href && /cafe\.naver\.com/.test(got.href) ? got.href : r.url);
+      const slug = a.cafeUrl || pickSlug(got.hints || []) || "";
+      const cafeId = a.cafeId || slugToId(slug);
+      if (cafeId && slug && !cafeSlugs[cafeId]) {
+        await saveCafeSlug(cafeId, slug).catch(() => {});
+        cafeSlugs[cafeId] = slug;
+      }
+      if (a.articleId && (cafeId || slug)) {
+        const cid = cafeId || slug;
+        if (got.cafeName && !cafeNames[cid]) cafeNames[cid] = cafeNameFromTitle(got.cafeName);
+        item = {
+          key: `${cid}/${a.articleId}`, cafeId: cid, cafeIndex: ids.includes(cid) ? ids.indexOf(cid) : ids.length, articleId: a.articleId, slug,
+          media: cafeNames[cid] ? "" : r.community, title: got.title || "",
+        };
+        parsed = got.found ? parseCafeDate(got.dateText) : null;
+      }
+    } else {
+      if (i) await sleep(randomBetween(NEWS_DELAY));
+      const ad = communityAdapter(r.url);
+      const doc = await fetchDocument(r.url).catch(() => null);
+      const title = doc ? (doc.querySelector("meta[property='og:title']")?.content || doc.title || "").trim() : "";
+      const ch = /youtube\.com|youtu\.be/i.test(host) ? "유튜브" : /news\.naver\.com|^news\./i.test(host) ? "언론" : "자동차 커뮤니티";
+      item = { key: channelKey(r.url), channel: ch, media: ad?.site || r.community || host, url: r.url, title };
+      parsed = doc ? timeInDoc(doc, ad) : null;
+    }
+    // 작성 시간으로 기간 판단 (시간을 못 읽으면 일일동향의 게시일로)
+    const when = parsed || (r.date ? { date: r.date, hasTime: false } : null);
+    if (when) {
+      const d0 = new Date(win.from.getFullYear(), win.from.getMonth(), win.from.getDate());
+      const place = parsed ? placeInRange(parsed, win) : when.date < d0 ? "older" : when.date > win.to ? "newer" : "ambiguous";
+      if (place === "older" || place === "newer") {
+        res.out++;
+        log(`· 일일동향 글이 찾는 기간 밖이라 뺌: ${item?.title || r.summary} (${formatDateTime(when.date, !!parsed?.hasTime)} 작성)`);
         continue;
       }
-      const host = hostName(r.url);
-      let item;
-      const ids = /cafe\.naver\.com$/i.test(host) ? parseArticleUrl(r.url) : {};
-      if (ids.articleId && (ids.cafeId || ids.cafeUrl)) {
-        const slugId = ids.cafeUrl ? Object.keys(cafeSlugs).find((id) => String(cafeSlugs[id]).toLowerCase() === ids.cafeUrl.toLowerCase()) : null;
-        const cafeId = ids.cafeId || slugId || ids.cafeUrl;
-        item = { key: `${cafeId}/${ids.articleId}`, cafeId, articleId: ids.articleId, slug: ids.cafeUrl || "", media: r.community };
-      } else {
-        const ch = /youtube\.com|youtu\.be/i.test(host) ? "유튜브" : /news\.naver\.com|^news\./i.test(host) ? "언론" : "자동차 커뮤니티";
-        item = { key: channelKey(r.url), channel: ch, media: r.community || host, url: r.url };
-      }
-      // 결과 표에서 지웠던 글이라도 일일동향 노란색 글은 넣음
-      Object.assign(item, {
-        title: r.summary || r.url, text: r.summary, date: r.date, hasTime: false, ambiguous: false,
-        related: true, checked: true, note: `${DAILY_NOTE} (제목 칸은 일일동향 주요 내용)`, dup: false, daily: true,
-      });
-      items.push(item);
-      have.set(k, item);
-      added++;
     }
+    const same = findSame([item && (isCafeItem(item) ? articleUrl(item) : item.url), r.url]);
+    if (same) {
+      if (!same.checked && !same.dup) {
+        same.checked = true;
+        same.touched = true;
+        res.checked++;
+      }
+      same.related = true;
+      if (!String(same.note || "").includes(DAILY_NOTE)) same.note = [same.note, DAILY_NOTE].filter(Boolean).join(" · ");
+      continue;
+    }
+    if (!item) {
+      res.failed++;
+      log(`✖ 일일동향 글을 열지 못함 (주소 확인 필요): ${r.url}`);
+      item = { key: channelKey(r.url), channel: "자동차 커뮤니티", media: r.community || host, url: r.url, title: "" };
+    }
+    Object.assign(item, {
+      title: item.title || r.summary || r.url, text: r.summary, date: when ? when.date : null, hasTime: !!parsed?.hasTime, ambiguous: false,
+      related: true, checked: true, dup: false, daily: true,
+      note: item.title ? DAILY_NOTE : `${DAILY_NOTE} (제목을 못 읽어 일일동향 주요 내용)`,
+    });
+    items.push(item);
+    res.added++;
   }
-  log(`· 오전 일일동향 노란색 시트 글 ${total}개 확인 (파일 ${files.map((f) => f.name).join(", ")}) → 새로 넣음 ${added}개 · 체크 ${checked}개 · 나머지는 이미 찾은 글·오늘 파일에 있는 글`);
-  return { total, added, checked };
+  log(`· 오전 일일동향 노란색 시트 글 ${res.total}개 → 새로 넣음 ${res.added}개 · 이미 찾은 글 체크 ${res.checked}개 · 기간 밖 ${res.out}개${res.failed ? ` · 열지 못함 ${res.failed}개` : ""}`);
+  return res;
+}
+
+// 같은 글이 두 줄이면 하나로 (먼저 넣은 글을 남기고 체크·메모를 합침)
+function mergeSameArticles() {
+  const byKey = new Map();
+  items = items.filter((x) => {
+    const k = normUrl(isCafeItem(x) ? articleUrl(x) : x.url || x.extUrl);
+    const first = byKey.get(k);
+    if (!first) {
+      byKey.set(k, x);
+      return true;
+    }
+    if (x.checked) first.checked = true;
+    if (x.daily || String(x.note || "").includes(DAILY_NOTE)) {
+      first.related = true;
+      if (!String(first.note || "").includes(DAILY_NOTE)) first.note = [first.note, DAILY_NOTE].filter(Boolean).join(" · ");
+    }
+    return false;
+  });
 }
 
 // 화면 버튼: 일일동향 폴더 고르기 / 엑셀 파일 직접 골라 넣기
@@ -2021,17 +2114,38 @@ function setupDaily() {
     e.target.value = "";
     if (!files.length) return;
     const info = $("#dailyInfo");
+    if (running) {
+      info.className = "hint err";
+      info.textContent = "게시물 찾기가 끝난 뒤에 넣어 주세요.";
+      return;
+    }
+    let win;
     try {
-      const r = await addDailyFiles(files);
+      win = range();
+    } catch (err) {
+      info.className = "hint err";
+      info.textContent = err.message;
+      return;
+    }
+    running = true;
+    markRunning(true);
+    stopRequested = false;
+    try {
+      const r = await addDailyRows(await dailyRowsFromFiles(files), win);
+      mergeSameArticles();
       markDuplicates();
       renderResults();
       await saveLast();
       info.className = "hint ok";
-      info.textContent = `✔ 노란색 시트 글 ${r.total}개 확인 → 새로 넣음 ${r.added}개 · 체크 ${r.checked}개 (나머지는 이미 결과 표·오늘 파일에 있음)`;
+      info.textContent = `✔ 노란색 시트 글 ${r.total}개 확인 → 새로 넣음 ${r.added}개 · 이미 찾은 글 체크 ${r.checked}개 · 기간(${$("#from").value.replace("T", " ")} ~ ${$("#to").value.replace("T", " ")}) 밖 ${r.out}개${r.failed ? ` · 열지 못함 ${r.failed}개` : ""}`;
+      setSummary(info.textContent, "ok");
     } catch (err) {
       info.className = "hint err";
       info.textContent = `일일동향 엑셀을 읽지 못했습니다: ${err.message}`;
     }
+    running = false;
+    markRunning(false);
+    hideBusy();
   });
   show();
 }
