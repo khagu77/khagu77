@@ -2004,8 +2004,19 @@ async function addDailyRows(rows, win) {
     let parsed = null;
     if (/(^|\.)naver\.me$|cafe\.naver\.com$/i.test(host)) {
       if (i) await sleep(randomBetween(CAFE_ARTICLE_DELAY));
-      const got = await readArticleTime(r.url).catch(() => ({ found: false }));
-      const a = parseArticleUrl(got.href && /cafe\.naver\.com/.test(got.href) ? got.href : r.url);
+      // naver.me 짧은 주소는 먼저 실제 카페 글 주소로 풀기 (주소 이동만 따라감)
+      let url = r.url;
+      if (/(^|\.)naver\.me$/i.test(host)) {
+        const resp = await fetch(url, { credentials: "include" }).catch(() => null);
+        if (resp?.url && /cafe\.naver\.com/.test(resp.url)) url = resp.url;
+        else {
+          const html = resp ? await resp.text().catch(() => "") : "";
+          const m = html.match(/https?:\/\/(?:m\.)?cafe\.naver\.com\/[^"'<>\s]+/);
+          if (m) url = m[0].replace(/&amp;/g, "&");
+        }
+      }
+      const got = await readArticleTime(url).catch(() => ({ found: false }));
+      const a = [got.href, url, r.url].map((u) => (u && /cafe\.naver\.com/.test(u) ? parseArticleUrl(u) : {})).find((x) => x.articleId) || {};
       const slug = a.cafeUrl || pickSlug(got.hints || []) || "";
       const cafeId = a.cafeId || slugToId(slug);
       if (cafeId && slug && !cafeSlugs[cafeId]) {

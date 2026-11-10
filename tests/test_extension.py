@@ -1646,10 +1646,13 @@ def test_lx3_daily_yellow(tmp_path: Path):
         # 글 열기는 흉내 (카페 글: 짧은 주소 → 실제 주소·제목·시간, 커뮤니티 글: 제목·시간)
         page.evaluate("""() => {
           CAFE_ARTICLE_DELAY[0] = CAFE_ARTICLE_DELAY[1] = 0; NEWS_DELAY[0] = NEWS_DELAY[1] = 0;
+          const realFetch = window.fetch;  // naver.me 짧은 주소 풀기 흉내 (주소 이동)
+          window.fetch = async (u, o) => /naver\.me\//.test(String(u))
+            ? Object.defineProperty(new Response('ok'), 'url', { value: 'https://cafe.naver.com/tobloomer/228519' }) : realFetch(u, o);
           window.opened = [];
           readArticleTime = async (url) => {
             opened.push(url);
-            if (url.includes('naver.me/abc123')) return { found: true, dateText: '2026.11.10. 08:37', href: 'https://cafe.naver.com/f-e/cafes/222/articles/228519',
+            if (url.includes('tobloomer/228519')) return { found: true, dateText: '2026.11.10. 08:37', href: 'https://cafe.naver.com/f-e/cafes/222/articles/228519',
               title: '팰리세이드는 시트땜에 한번씩 열받는 차다', cafeName: '팰리세이드 오너스 클럽', hints: [] };
             if (url.includes('ioniq9owners/1')) return { found: true, dateText: '2026.11.01. 10:00', href: url, title: '예전 글', hints: [] };
             if (url.includes('santafeclub/77')) return { found: true, dateText: '2026.11.09. 15:20', href: 'https://cafe.naver.com/f-e/cafes/333/articles/77',
@@ -1684,6 +1687,7 @@ def test_lx3_daily_yellow(tmp_path: Path):
         assert santa["url"] == "https://cafe.naver.com/santafeclub/77" and santa["name"] == "싼타페 동호회" and santa["title"] == "싼타페 2열 시트 리콜 받았어요", santa
         assert not any("ioniq9owners" in g["url"] or "palisadepeople/556" in g["url"] for g in got), got
         # 같은 파일을 다시 넣어도 두 번 들어가지 않음
+        page.evaluate("document.querySelector('#dailyInfo').textContent = ''")
         page.set_input_files("#dailyFiles", str(daily))
         page.locator("#dailyInfo", has_text="새로 넣음 2개").wait_for()
         assert page.evaluate("items.length") == 3
