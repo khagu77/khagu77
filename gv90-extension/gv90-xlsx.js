@@ -125,7 +125,7 @@
       xf(13, 9, "left", ' indent="1"') + // 27 게시글 줄 글자
       xf(14, 9, "left", ' indent="1"') + // 28 게시글 줄 링크
       xf(4, 0, "left", ' indent="2"') + // 29 댓글 (2칸 들여쓰기)
-      xf(15, 0, "left", ' indent="5"') + // 30 대댓글 (5칸 들여쓰기 · 회색)
+      xf(15, 0, "left", ' indent="3"') + // 30 대댓글 (3칸 들여쓰기 · 회색 — 댓글보다 조금만 더)
       xf(16, 10, "center"); // 31 게시글·댓글 머리글
     const firstFont = '<font><sz val="11"/><color theme="1"/><name val="맑은 고딕"/><family val="2"/><charset val="129"/><scheme val="minor"/></font>';
     return base
