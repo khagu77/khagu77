@@ -100,6 +100,7 @@
     commentText: 29, replyText: 30, // 댓글은 2칸, 대댓글은 5칸 들여쓰기 (대댓글은 회색 글자)
     headGv: 31, // 게시글·댓글 머리글 (남색 #002060 바탕 · 흰 굵은 11pt · 가운데)
     plain: 0, note: 32, // 표 위 '(단위 : 건)' (테두리 없음 · 오른쪽 정렬)
+    pct: 33, pctNeg: 34, pctTotal: 35, // 비율 (숫자 0.0% · 30% 이상 빨강 · 합계 줄)
   };
   const SENTI_S = { 긍정: "pos", 중립: "neu", 부정: "neg", 단순비난: "blame" };
   const FONT = '<name val="현대산스 Text"/><family val="3"/><charset val="129"/>';
@@ -128,13 +129,15 @@
       xf(4, 0, "left", ' indent="2"') + // 29 댓글 (2칸 들여쓰기)
       xf(15, 0, "left", ' indent="3"') + // 30 대댓글 (3칸 들여쓰기 · 회색 — 댓글보다 조금만 더)
       xf(16, 10, "center") + // 31 게시글·댓글 머리글
-      `<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>`; // 32 단위 표기
+      `<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>` + // 32 단위 표기
+      [[4, 0], [10, 0], [13, 9]].map(([font, fill]) => `<xf numFmtId="177" fontId="${font}" fillId="${fill}" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"${fill ? ' applyFill="1"' : ""} applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>`).join(""); // 33~35 비율
     const firstFont = '<font><sz val="11"/><color theme="1"/><name val="맑은 고딕"/><family val="2"/><charset val="129"/><scheme val="minor"/></font>';
     return base
+      .replace(/<numFmts count="1">([\s\S]*?)<\/numFmts>/, (all, inner) => `<numFmts count="2">${inner}<numFmt numFmtId="177" formatCode="0.0%"/></numFmts>`)
       .replace(firstFont, `<font><sz val="10"/><color theme="1"/>${FONT}</font>`) // 기본 글꼴
       .replace(/<fonts count="8"([^>]*)>([\s\S]*?)<\/fonts>/, (all, attrs, inner) => `<fonts count="17"${attrs}>${inner}${fonts}</fonts>`)
       .replace(/<fills count="4">([\s\S]*?)<\/fills>/, (all, inner) => `<fills count="11">${inner}${fills}</fills>`)
-      .replace(/<cellXfs count="14">([\s\S]*?)<\/cellXfs>/, (all, inner) => `<cellXfs count="33">${inner}${xfs}</cellXfs>`);
+      .replace(/<cellXfs count="14">([\s\S]*?)<\/cellXfs>/, (all, inner) => `<cellXfs count="36">${inner}${xfs}</cellXfs>`);
   }
 
   // excelSerial: 날짜만 (시각 버림)
@@ -289,7 +292,7 @@
       const SENT = ["긍정", "중립", "부정", "단순비난"];
       const CH = ["언론", "유튜브", "동호회", "자동차 커뮤니티"];
       const HEAD_S = { 긍정: "headPos", 중립: "headNeu", 부정: "headNeg", 단순비난: "headBlame" };
-      const pct = (n, d) => (d ? `${((n / d) * 100).toFixed(1)}%` : "-");
+      const pct = (n, d) => (d ? Math.round((n / d) * 1000) / 1000 : "-"); // 숫자(0.0% 서식) — 텍스트 숫자 오류 표시 안 나게
       const line = (label, st) => {
         const bad = (st.bySentiment?.부정 || 0) + (st.bySentiment?.단순비난 || 0);
         return [label, st.posts || 0, st.comments || 0, ...CH.map((c) => st.byChannel?.[c] || 0), ...SENT.map((x) => st.bySentiment?.[x] || 0), pct(bad, st.posts || 0)];
@@ -328,9 +331,9 @@
         ],
         rows,
         cellStyle: (ri, ci, v) => {
-          if (ri === rows.length - 1) return ci >= 7 && ci <= 10 ? SENTI_S[SENT[ci - 7]] : ci === 11 && parseFloat(v) >= 30 ? "neg" : "total";
+          if (ri === rows.length - 1) return ci >= 7 && ci <= 10 ? SENTI_S[SENT[ci - 7]] : ci === 11 ? (typeof v === "number" && v >= 0.3 ? "pctNeg" : typeof v === "number" ? "pctTotal" : "total") : "total";
           if (ci >= 7 && ci <= 10) return v ? SENTI_S[SENT[ci - 7]] : "center";
-          if (ci === 11) return parseFloat(v) >= 30 ? "neg" : "center";
+          if (ci === 11) return typeof v === "number" ? (v >= 0.3 ? "pctNeg" : "pct") : "center";
           return null;
         },
       });
@@ -382,7 +385,7 @@
           [...byPost.entries()].forEach(([k, list], pi) => {
             const p = postOf.get(k) || list[0];
             const cnt = SENT.map((x) => `${x} ${list.filter((c) => c.sentiment === x).length}`).join(" · ");
-            rows.push([`${pi + 1}`, p.media || "", p.url, `${p.summary || p.title || ""}   [댓글 ${list.length}개: ${cnt}]`, when(p.date, false), p.category || "", p.sentiment || ""]);
+            rows.push([pi + 1, p.media || "", p.url, `${p.summary || p.title || ""}   [댓글 ${list.length}개: ${cnt}]`, when(p.date, false), p.category || "", p.sentiment || ""]);
             kinds.push("post");
             list.forEach((c, ci) => {
               rows.push([`${pi + 1}-${ci + 1}`, "", "", `${c.isReply ? "↪ 답글: " : "↳ "}${c.text || ""}`, when(c.date, true) || c.writtenAt || "", c.category || "", c.sentiment || ""]);

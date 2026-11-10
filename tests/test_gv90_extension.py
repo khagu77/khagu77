@@ -302,6 +302,8 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     assert "일자별 집계" in wb.sheetnames
     wd = wb["일자별 집계"]
     assert wd["L1"].value == "(단위 : 건)" and wd["C2"].value == "댓글 수" and wd["B2"].value == "게시물"
+    lrow = [wd.cell(r, 12) for r in range(4, wd.max_row + 1)]
+    assert all(isinstance(c.value, (int, float)) and c.number_format == "0.0%" for c in lrow if c.value != "-"), [(c.value, c.number_format) for c in lrow]
     import zipfile
     with zipfile.ZipFile(BytesIO(base64.b64decode(b64[1]))) as z:
         assert all("numberStoredAsText" in z.read(n).decode() for n in z.namelist() if n.startswith("xl/worksheets/sheet"))
@@ -445,6 +447,7 @@ def test_gv90_comments(ext, tmp_path: Path):
     assert ws["A1"].fill.fgColor.rgb == "FF002060" and ws.row_dimensions[1].height == 25
     assert ws.max_row - 1 == n1
     assert "판매·출고" in [r[7].value for r in ws.iter_rows(min_row=2)]
+    assert isinstance(wb["게시글별 댓글 성향"]["A2"].value, int)  # 게시글 번호는 숫자 (오류 표시 안 나게)
     assert [c.value for c in wb["게시글별 댓글 성향"][1]] == ["No", "커뮤니티명", "게시글 위치", "주요 내용 · 댓글", "게시일 · 작성일", "구분", "성향"]
     # 대시보드: 반응 = 게시글 + 댓글 성향
     page.goto(f"chrome-extension://{ext_id}/dashboard.html")
