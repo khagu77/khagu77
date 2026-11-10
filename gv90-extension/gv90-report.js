@@ -108,7 +108,8 @@ function rpOpinionRows(list, color) {
     .join("");
 }
 
-function rpCard(c, cardW = 50) {
+function rpCard(c, cardPx = 330) {
+  const tdOpen = `<td width="${cardPx}" style="width:${cardPx - 12}px;padding:6px;vertical-align:top">`;
   const color0 = RP_CARD[c.ch] || RP_NAVY;
   if (!c.posts) {
     // 그날 글이 없는 채널도 자리는 잡아 두고 0건 · 관련 게시글 없음 (후보를 확인했으면 왜 0건인지)
@@ -119,7 +120,7 @@ function rpCard(c, cardW = 50) {
       ? `수집 후보 <b>${ex.n}건</b>을 확인했으나, 분석 결과 보고 대상(GV90 관련 게시글)이 아니어서 <b>0건</b>으로 집계함<br><span style="color:#9ca3af">사유: ${rpEsc(why)}</span>`
       : "모니터링 기간에 GV90 관련 게시글이 올라오지 않음";
     return (
-      `<td style="width:${cardW}%;padding:6px;vertical-align:top">` +
+      tdOpen +
       `<div style="border:1px solid #e5e7eb;border-top:4px solid ${color0};border-radius:8px;padding:10px 12px;background:#fff">` +
       `<div><span style="display:inline-block;background:${color0};color:#fff;font-weight:800;font-size:15px;padding:3px 12px;border-radius:999px">${rpEsc(c.ch === "자동차 커뮤니티" ? "커뮤니티" : c.ch)}</span></div>` +
       `<div style="color:#6b7280;font-size:12px;margin:4px 0 8px;line-height:1.4">&nbsp;</div>` +
@@ -140,7 +141,7 @@ function rpCard(c, cardW = 50) {
   const stat = (k, v) => `<td style="width:33%;padding:0 3px"><div style="background:#f3f4f6;border-radius:6px;padding:8px 10px"><div style="font-size:12px;color:#6b7280">${k}</div><div style="font-size:21px;font-weight:800;color:#111827">${v.toLocaleString()}<span style="font-size:12px;font-weight:400;color:#6b7280"> 건</span></div></div></td>`;
   const media = c.media.slice(0, 6).join(" · ") + (c.media.length > 6 ? ` 외 ${c.media.length - 6}곳` : "");
   return (
-    `<td style="width:${cardW}%;padding:6px;vertical-align:top">` +
+    tdOpen +
     `<div style="border:1px solid #e5e7eb;border-top:4px solid ${color};border-radius:8px;padding:10px 12px;background:#fff">` +
     `<div><span style="display:inline-block;background:${color};color:#fff;font-weight:800;font-size:15px;padding:3px 12px;border-radius:999px">${rpEsc(c.ch === "자동차 커뮤니티" ? "커뮤니티" : c.ch)}</span> <span style="color:#6b7280;font-size:12px">${c.media.length}곳</span></div>` +
     `<div style="color:#6b7280;font-size:12px;margin:4px 0 8px;line-height:1.4">${rpEsc(media)}</div>` +
@@ -171,6 +172,7 @@ function monitorText(s) {
 const RP_WIDTH = 1680;
 const RP_BANNER_W = 640;
 const RP_R = 14; // 바깥 모서리 둥글기
+const RP_RIGHT_W = RP_WIDTH - 2 - 300 - 32; // 오른쪽 칸 안쪽 폭 (메일에 붙여도 칸 폭이 그대로 되게 px 로 고정)
 
 // 전체 보고 대시보드 HTML. banner: 그림 주소("" 이면 그림 없이) · summary: [줄1, 줄2] · editable: 화면에서 요약을 고칠 수 있게
 function reportHtml(d, { banner = "", summary = null, editable = false, now = new Date() } = {}) {
@@ -185,8 +187,8 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
   //  그날 글이 없는 채널(예: 유튜브)도 자리를 잡고 '해당일에 관련 게시글 없음'
   const chOrder = typeof CHANNELS !== "undefined" ? CHANNELS : ["언론", "유튜브", "동호회", "자동차 커뮤니티"];
   const allCh = chOrder.filter((ch) => !d.channelsOn || d.channelsOn.includes(ch)).map((ch) => d.channels.find((c) => c.ch === ch) || { ch, posts: 0, comments: 0, reacts: [], media: [], excluded: d.excluded?.[ch] });
-  const cardW = Math.floor(100 / Math.max(1, allCh.length));
-  const cards = [`<tr>${allCh.map((c) => rpCard(c, cardW)).join("")}</tr>`];
+  const cardPx = Math.floor(RP_RIGHT_W / Math.max(1, allCh.length));
+  const cards = [`<tr>${allCh.map((c) => rpCard(c, cardPx)).join("")}</tr>`];
   const catRows = d.categories
     .sort((a, b) => b.reacts.length - a.reacts.length)
     .map((c) => {
@@ -204,15 +206,15 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
     })
     .join("");
   return (
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:${RP_WIDTH}px;border-collapse:separate;border-spacing:0;font-family:${RP_FONT};background:#ffffff;border:1px solid #e5e7eb;border-radius:${RP_R}px"><tr>` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${RP_WIDTH}" style="width:${RP_WIDTH}px;table-layout:fixed;border-collapse:separate;border-spacing:0;font-family:${RP_FONT};background:#ffffff;border:1px solid #e5e7eb;border-radius:${RP_R}px"><tr>` +
     // 왼쪽 남색 칸
-    `<td style="width:300px;background:${RP_NAVY};color:#ffffff;vertical-align:top;padding:22px 22px 0;border-radius:${RP_R}px 0 0 0">` +
+    `<td width="300" style="width:256px;background:${RP_NAVY};color:#ffffff;vertical-align:top;padding:22px 22px 0;border-radius:${RP_R}px 0 0 0">` +
     `<div style="font-size:14px;opacity:.9">GV90(JG1) 관련 여론 동향</div>` +
     `<div style="font-size:34px;font-weight:900;letter-spacing:.5px;margin:2px 0 14px">DASHBOARD</div>` +
     `<div style="font-size:13px;opacity:.85">모니터링 기간</div>` +
     `<div style="font-size:16px;font-weight:800;margin:2px 0">${mdw(d.from)} ~ ${mdw(d.to)}</div>` +
     `<div style="font-size:12px;opacity:.8">${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")} 기준</div>` +
-    `<div style="border-top:1px solid rgba(255,255,255,.3);margin:16px 0 14px"></div>` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="256" style="width:256px;border-collapse:collapse;margin:16px 0 14px"><tr><td height="1" style="height:1px;background:#4a6390;font-size:0;line-height:0">&nbsp;</td></tr></table>` +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;color:#fff"><tr>` +
     [["게시글", d.posts.length], ["댓글", d.totalComments], ["반응", d.posts.length + d.totalComments]]
       .map(([k, n]) => `<td style="padding-right:18px;vertical-align:top"><div style="font-size:13px;opacity:.85">${k}</div><div style="font-size:26px;font-weight:900">${n.toLocaleString()}<span style="font-size:13px;font-weight:400"> 건</span></div></td>`)
@@ -225,15 +227,15 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
     `<div style="font-size:13px;opacity:.85;line-height:1.5;margin-top:14px">모니터링 채널: ${rpEsc(d.monitor || chText || "-")}</div>` +
     `</td>` +
     // 오른쪽 (왼쪽 남색 칸 두 줄 높이)
-    `<td rowspan="2" style="vertical-align:top;padding:16px 16px 12px">` +
+    `<td rowspan="2" width="${RP_WIDTH - 300}" style="width:${RP_RIGHT_W}px;vertical-align:top;padding:16px 16px 12px">` +
     // 위: 그림(왼쪽) + 요약 두 줄(오른쪽) — 넓은 화면에서 그림이 너무 커지지 않게 나란히
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;margin-bottom:6px"><tr>` +
-    (banner ? `<td style="width:${RP_BANNER_W}px;padding:0 6px 0 0;vertical-align:top"><img src="${rpEsc(banner)}" width="${RP_BANNER_W}" alt="GV90" style="display:block;width:${RP_BANNER_W}px;max-width:100%;height:auto;border-radius:8px"></td>` : "") +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${RP_RIGHT_W}" style="width:${RP_RIGHT_W}px;table-layout:fixed;border-collapse:collapse;margin-bottom:6px"><tr>` +
+    (banner ? `<td width="${RP_BANNER_W + 6}" style="width:${RP_BANNER_W}px;padding:0 6px 0 0;vertical-align:top"><img src="${rpEsc(banner)}" width="${RP_BANNER_W}" alt="GV90" style="display:block;width:${RP_BANNER_W}px;max-width:100%;height:auto;border-radius:8px"></td>` : "") +
     `<td style="vertical-align:middle;padding:0 6px">` +
     `<div style="border:1px solid #e5e7eb;border-left:5px solid ${RP_NAVY};border-radius:6px;padding:12px 16px;background:#f9fafb">` +
     lines.map((l, i) => `<div style="font-size:16px;font-weight:800;color:#111827;line-height:1.7"${ed}${editable ? `="${i}"` : ""}>• ${rpEsc(String(l).replace(/^•\s*/, ""))}</div>`).join("") +
     `</div></td></tr></table>` +
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse">${cards.join("")}</table>` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${RP_RIGHT_W}" style="width:${RP_RIGHT_W}px;table-layout:fixed;border-collapse:collapse">${cards.join("")}</table>` +
     (catRows
       ? `<div style="border:1px solid #e5e7eb;border-radius:8px;margin:10px 6px 0;overflow:hidden">` +
         `<div style="background:#f3f4f6;padding:8px 12px;font-size:14px"><b style="color:${RP_NAVY}">구분(이슈)별 반응</b> <span style="color:#6b7280">(${d.comments.some((c) => c.sentiment) ? "반응" : "게시글"} 기준 · 가장 많이 나온 내용)</span></div>` +
@@ -241,7 +243,7 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
       : "") +
     `</td></tr>` +
     // 왼쪽 남색 칸 맨 아래: 서명 (By LINESQUARE) · 아래 모서리 둥글게
-    `<tr><td style="width:300px;height:56px;background:${RP_NAVY};color:#ffffff;vertical-align:bottom;padding:0 22px 20px;border-radius:0 0 0 ${RP_R}px;font-size:14px">By <b><i style="letter-spacing:.3px">LINESQUARE</i></b></td></tr></table>`
+    `<tr><td width="300" style="width:256px;height:56px;background:${RP_NAVY};color:#ffffff;vertical-align:bottom;padding:0 22px 20px;border-radius:0 0 0 ${RP_R}px;font-size:14px">By <b><i style="letter-spacing:.3px">LINESQUARE</i></b></td></tr></table>`
   );
 }
 
