@@ -238,24 +238,24 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
   return (
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${RP_WIDTH}" style="width:${RP_WIDTH}px;table-layout:fixed;border-collapse:separate;border-spacing:0;font-family:${RP_FONT};background:#ffffff;border:1px solid #e5e7eb;border-radius:${RP_R}px"><tr>` +
     // 왼쪽 남색 칸
-    `<td width="300" style="width:256px;background:${RP_NAVY};color:#ffffff;vertical-align:top;padding:22px 22px 0;border-radius:${RP_R}px 0 0 0;min-width:256px">` +
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="256" style="width:256px;min-width:256px;max-width:256px;border-collapse:collapse;color:#ffffff"><tr><td>` +
-    `<div style="font-size:14px;opacity:.9">GV90(JG1) 관련 여론 동향</div>` +
-    `<div style="font-size:34px;font-weight:900;letter-spacing:.5px;margin:2px 0 14px">DASHBOARD</div>` +
-    `<div style="font-size:13px;opacity:.85">모니터링 기간</div>` +
-    `<div style="font-size:16px;font-weight:800;margin:2px 0">${mdw(d.from)} ~ ${mdw(d.to)}</div>` +
-    `<div style="font-size:12px;opacity:.8">${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")} 기준</div>` +
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="256" style="width:256px;border-collapse:collapse;margin:16px 0 14px"><tr><td height="1" style="height:1px;padding:0;background:#4a6390;font-size:0;line-height:0;mso-line-height-rule:exactly">&nbsp;</td></tr></table>` +
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;color:#fff"><tr>` +
+    `<td width="300" bgcolor="${RP_NAVY}" style="width:256px;background:${RP_NAVY};color:#ffffff;vertical-align:top;padding:22px 22px 0;border-radius:${RP_R}px 0 0 0;min-width:256px">` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="256" bgcolor="${RP_NAVY}" style="width:256px;min-width:256px;max-width:256px;border-collapse:collapse;color:#ffffff;background:${RP_NAVY}"><tr><td bgcolor="${RP_NAVY}" style="background:${RP_NAVY};color:#ffffff;padding:0">` +
+    `<div style="color:#ffffff;font-size:14px;opacity:.9">GV90(JG1) 관련 여론 동향</div>` +
+    `<div style="color:#ffffff;font-size:34px;font-weight:900;letter-spacing:.5px;margin:2px 0 14px">DASHBOARD</div>` +
+    `<div style="color:#ffffff;font-size:13px;opacity:.85">모니터링 기간</div>` +
+    `<div style="color:#ffffff;font-size:16px;font-weight:800;margin:2px 0">${mdw(d.from)} ~ ${mdw(d.to)}</div>` +
+    `<div style="color:#ffffff;font-size:12px;opacity:.8">${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")} 기준</div>` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="256" bgcolor="${RP_NAVY}" style="width:256px;border-collapse:collapse;margin:16px 0 14px;background:${RP_NAVY}"><tr><td height="1" style="height:1px;padding:0;background:#4a6390;font-size:0;line-height:0;mso-line-height-rule:exactly">&nbsp;</td></tr></table>` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" bgcolor="${RP_NAVY}" style="border-collapse:collapse;color:#ffffff;background:${RP_NAVY}"><tr>` +
     [["게시글", d.posts.length], ["댓글", d.totalComments], ["반응", d.posts.length + d.totalComments]]
-      .map(([k, n]) => `<td style="padding-right:18px;vertical-align:top"><div style="font-size:13px;opacity:.85">${k}</div><div style="font-size:26px;font-weight:900">${n.toLocaleString()}<span style="font-size:13px;font-weight:400"> 건</span></div></td>`)
+      .map(([k, n]) => `<td bgcolor="${RP_NAVY}" style="padding:0 18px 0 0;vertical-align:top;background:${RP_NAVY};color:#ffffff"><div style="color:#ffffff;font-size:13px;opacity:.85">${k}</div><div style="color:#ffffff;font-size:26px;font-weight:900">${n.toLocaleString()}<span style="color:#ffffff;font-size:13px;font-weight:400"> 건</span></div></td>`)
       .join("") +
     `</tr></table>` +
-    `<div style="font-size:13px;opacity:.9;margin:22px 0 8px">전체 성향 (${d.comments.some((c) => c.sentiment) ? "반응" : "게시글"} ${total.toLocaleString()}건)</div>` +
+    `<div style="color:#ffffff;font-size:13px;opacity:.9;margin:22px 0 8px">전체 성향 (${d.comments.some((c) => c.sentiment) ? "반응" : "게시글"} ${total.toLocaleString()}건)</div>` +
     rpBar(sc, total, 14) +
     `<div style="margin:10px 0;line-height:2">${rpLegend(sc, total, "#ffffff", 14)}</div>` +
     `<div style="color:${v.hi ? "#ffcf3f" : "#9fd0ff"};font-weight:800;font-size:15px;line-height:1.5;margin:10px 0">${rpEsc(v.text)}</div>` +
-    `<div style="font-size:13px;opacity:.85;line-height:1.5;margin-top:14px">모니터링 채널: ${rpEsc(d.monitor || chText || "-")}</div>` +
+    `<div style="color:#ffffff;font-size:13px;opacity:.85;line-height:1.5;margin-top:14px">모니터링 채널: ${rpEsc(d.monitor || chText || "-")}</div>` +
     `</td></tr></table></td>` +
     // 오른쪽 (왼쪽 남색 칸 두 줄 높이)
     `<td rowspan="2" width="${RP_WIDTH - 300}" style="width:${RP_RIGHT_W}px;vertical-align:top;padding:16px 16px 12px">` +
@@ -274,7 +274,7 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
       : "") +
     `</td></tr>` +
     // 왼쪽 남색 칸 맨 아래: 서명 (By LINESQUARE) · 아래 모서리 둥글게
-    `<tr><td width="300" style="width:256px;height:56px;background:${RP_NAVY};color:#ffffff;vertical-align:bottom;padding:0 22px 20px;border-radius:0 0 0 ${RP_R}px;font-size:14px;color:#ffffff"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="256" style="width:256px;border-collapse:collapse"><tr><td style="color:#ffffff;font-size:14px">By <b><i style="letter-spacing:.3px">LINESQUARE</i></b></td></tr></table></td></tr></table>`
+    `<tr><td width="300" bgcolor="${RP_NAVY}" style="width:256px;height:56px;background:${RP_NAVY};color:#ffffff;vertical-align:bottom;padding:0 22px 20px;border-radius:0 0 0 ${RP_R}px;font-size:14px;color:#ffffff"><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="256" bgcolor="${RP_NAVY}" style="width:256px;border-collapse:collapse;background:${RP_NAVY}"><tr><td bgcolor="${RP_NAVY}" style="color:#ffffff;font-size:14px;background:${RP_NAVY};padding:0">By <b><i style="letter-spacing:.3px">LINESQUARE</i></b></td></tr></table></td></tr></table>`
   );
 }
 

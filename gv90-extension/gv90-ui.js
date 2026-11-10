@@ -206,7 +206,7 @@ function showCleanNotice(r) {
     document.body.appendChild(box);
   }
   box.style.background = r.ok ? "#002c5f" : "#b3261e";
-  box.textContent = `${CLEAN_NOTICE[r.ok ? "ok" : r.reason] || CLEAN_NOTICE.error} (${r.name})`;
+  box.textContent = `${CLEAN_NOTICE[r.ok ? "ok" : r.reason] || CLEAN_NOTICE.error} (${r.name})${r.ok ? "" : ` · 확장 ID ${chrome.runtime.id}${r.detail ? ` · ${r.detail}` : ""}`}`;
   clearTimeout(box._t);
   box._t = setTimeout(() => box.remove(), r.ok ? 6000 : 20000);
 }

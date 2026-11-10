@@ -1304,6 +1304,21 @@ $("#resetSettings").addEventListener("click", async () => {
   renderRangeLabel();
   updateAutoInfo();
 });
+$("#pingHelper").addEventListener("click", async () => {
+  const info = $("#pingHelperInfo");
+  info.className = "hint";
+  info.textContent = "확인 중…";
+  const r = await chrome.runtime.sendMessage({ type: "gvPingHelper" }).catch((e) => ({ ok: false, error: e.message }));
+  if (r?.ok) {
+    info.className = "hint ok";
+    info.textContent = `✔ 연결됨 (도우미 버전 ${r.version}) — 저장할 때마다 '출처' 정보를 지웁니다.`;
+  } else {
+    info.className = "hint err";
+    info.textContent = r?.version
+      ? `⚠ 도우미가 예전 버전(${r.version})입니다. '빠른다운로드_도우미설치.app'을 다시 실행해 주세요.`
+      : `⚠ 연결 안 됨 — 이 확장의 ID ${r?.id || chrome.runtime.id} 가 도우미에 등록되어 있지 않거나 도우미가 없습니다. GV90수집기 압축 안의 '빠른다운로드_도우미설치.app'(1.4.7 이상)을 실행한 뒤, chrome://extensions 에서 GV90 수집기를 새로고침(↻)하세요. (${r?.error || ""})`;
+  }
+});
 $("#saveDirPick").addEventListener("click", async () => {
   try {
     const d = await pickSaveDir();

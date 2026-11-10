@@ -60,7 +60,15 @@ chrome.downloads.onChanged.addListener((delta) => {
 
 // GV90: 고른 폴더(File System Access)에 직접 쓴 파일 — 화면이 전체 경로를 알려 주면 잠시 뒤 지움
 //  (크롬이 저장을 마무리하며 '출처'를 붙이는 시점보다 늦게, 두 번)
-chrome.runtime.onMessage.addListener((msg) => {
+chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+  // 설정 화면 '도우미 연결 확인'
+  if (msg?.type === "gvPingHelper") {
+    chrome.runtime
+      .sendNativeMessage(META_HELPER, { action: "ping" })
+      .then((p) => reply({ ok: (p?.version || 0) >= META_HELPER_VERSION, version: p?.version || 0, id: chrome.runtime.id }))
+      .catch((e) => reply({ ok: false, error: String(e?.message || e), id: chrome.runtime.id }));
+    return true;
+  }
   if (msg?.type !== "gvCleanMeta" || !msg.path) return;
   const name = msg.path.split("/").pop();
   const run = async () => {
