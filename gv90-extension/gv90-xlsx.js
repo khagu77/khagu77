@@ -265,8 +265,8 @@
   const sentiStyle = (col) => (ri, ci, v) => (ci === col ? SENTI_S[v] : null);
   const asDate = (ms) => (ms ? new Date(ms) : null);
 
-  // posts: 연번 순 게시물 · comments: 있으면 '댓글' 시트 · daily: 일자별 집계(데일리 DB days)
-  function buildRaw({ posts, comments = [], daily = null, dayPosts = null }) {
+  // posts: 연번 순 게시물 · daily: 일자별 집계(데일리 DB days) · 댓글 시트는 넣지 않음
+  function buildRaw({ posts, daily = null }) {
     const sheets = [
       {
         name: RAW_SHEET,
@@ -277,16 +277,7 @@
         cellStyle: sentiStyle(8),
       },
     ];
-    if (comments.length) {
-      sheets.push({
-        name: "댓글",
-        columns: COMMENT_COLUMNS,
-        headHeight: HEAD_H,
-        cursorEnd: true,
-        rows: comments.map((c, i) => [c.serial || i + 1, c.channel || "", c.media || "", c.car || "GV90", asDate(c.date), c.url, c.text || "", c.category || "", c.sentiment || ""]),
-        cellStyle: (ri, ci, v) => (ci === 8 ? SENTI_S[v] : ci === 6 && comments[ri].isReply ? "replyText" : null),
-      });
-    }
+    // 댓글은 게시글 엑셀에 넣지 않음 (댓글 수집 화면의 '댓글 엑셀'에 따로)
     if (daily && daily.length) {
       // 일자별 집계: 두 줄 머리글(남색 묶음 · 성향은 성향 색 바탕) · 성향 숫자는 성향 색 · 부정+단순비난 30% 이상 빨강 · 맨 아래 합계
       const SENT = ["긍정", "중립", "부정", "단순비난"];
@@ -295,18 +286,12 @@
       const pct = (n, d) => (d ? Math.round((n / d) * 1000) / 1000 : "-"); // 숫자(0.0% 서식) — 텍스트 숫자 오류 표시 안 나게
       const line = (label, st) => {
         const bad = (st.bySentiment?.부정 || 0) + (st.bySentiment?.단순비난 || 0);
-        return [label, st.posts || 0, st.comments || 0, ...CH.map((c) => st.byChannel?.[c] || 0), ...SENT.map((x) => st.bySentiment?.[x] || 0), pct(bad, st.posts || 0)];
+        return [label, st.posts || 0, ...CH.map((c) => st.byChannel?.[c] || 0), ...SENT.map((x) => st.bySentiment?.[x] || 0), pct(bad, st.posts || 0)];
       };
-      // 댓글: 엑셀은 보통 댓글 수집 전에 만들므로 게시글마다 사이트에 보이는 댓글 수(💬)를 그날 합계로
-      //  (댓글을 수집했으면 모은 개수와 비교해 큰 쪽)
-      const ccOfDay = new Map();
-      for (const p of dayPosts || posts) if (p.day) ccOfDay.set(p.day, (ccOfDay.get(p.day) || 0) + (p.ccount || 0));
-      daily = daily.map((d) => ({ ...d, stats: { ...(d.stats || {}), comments: Math.max(d.stats?.comments || 0, ccOfDay.get(d.day) || 0) } }));
-      const sum = { posts: 0, comments: 0, byChannel: {}, bySentiment: {} };
+      const sum = { posts: 0, byChannel: {}, bySentiment: {} };
       for (const d of daily) {
         const st = d.stats || {};
         sum.posts += st.posts || 0;
-        sum.comments += st.comments || 0;
         for (const c of CH) sum.byChannel[c] = (sum.byChannel[c] || 0) + (st.byChannel?.[c] || 0);
         for (const x of SENT) sum.bySentiment[x] = (sum.bySentiment[x] || 0) + (st.bySentiment?.[x] || 0);
       }
@@ -317,23 +302,22 @@
         name: "일자별 집계",
                 // 맨 위 줄: 오른쪽에 (단위 : 건)
         top: [
-          [...Array(11).fill({ v: "", s: "plain" }), { v: "(단위 : 건)", s: "note" }],
-          [{ v: "보고일", s: "headNavy" }, { v: "게시물", s: "headNavy" }, { v: "댓글 수", s: "headNavy" }, { v: "채널별 게시물", s: "headNavy" }, N, N, N, { v: "성향별 게시물", s: "headNavy" }, N, N, N, { v: "부정+단순비난 비율", s: "headNavy" }],
+          [...Array(10).fill({ v: "", s: "plain" }), { v: "(단위 : 건)", s: "note" }],
+          [{ v: "보고일", s: "headNavy" }, { v: "게시물", s: "headNavy" }, { v: "채널별 게시물", s: "headNavy" }, N, N, N, { v: "성향별 게시물", s: "headNavy" }, N, N, N, { v: "부정+단순비난 비율", s: "headNavy" }],
         ],
-        merges: ["A2:A3", "B2:B3", "C2:C3", "D2:G2", "H2:K2", "L2:L3"],
+        merges: ["A2:A3", "B2:B3", "C2:F2", "G2:J2", "K2:K3"],
         columns: [
           { header: "", width: 13, style: "bold", headStyle: "headNavy" },
           { header: "", width: 9, style: "bold", headStyle: "headNavy" },
-          { header: "", width: 9, style: "center", headStyle: "headNavy" },
           ...CH.map((c) => ({ header: c === "자동차 커뮤니티" ? "커뮤니티" : c, width: 10, style: "center", headStyle: "head" })),
           ...SENT.map((x) => ({ header: x, width: 10, headStyle: HEAD_S[x] })),
           { header: "", width: 14, style: "center", headStyle: "headNavy" },
         ],
         rows,
         cellStyle: (ri, ci, v) => {
-          if (ri === rows.length - 1) return ci >= 7 && ci <= 10 ? SENTI_S[SENT[ci - 7]] : ci === 11 ? (typeof v === "number" && v >= 0.3 ? "pctNeg" : typeof v === "number" ? "pctTotal" : "total") : "total";
-          if (ci >= 7 && ci <= 10) return v ? SENTI_S[SENT[ci - 7]] : "center";
-          if (ci === 11) return typeof v === "number" ? (v >= 0.3 ? "pctNeg" : "pct") : "center";
+          if (ri === rows.length - 1) return ci >= 6 && ci <= 9 ? SENTI_S[SENT[ci - 6]] : ci === 10 ? (typeof v === "number" && v >= 0.3 ? "pctNeg" : typeof v === "number" ? "pctTotal" : "total") : "total";
+          if (ci >= 6 && ci <= 9) return v ? SENTI_S[SENT[ci - 6]] : "center";
+          if (ci === 10) return typeof v === "number" ? (v >= 0.3 ? "pctNeg" : "pct") : "center";
           return null;
         },
       });

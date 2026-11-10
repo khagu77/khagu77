@@ -117,7 +117,7 @@ async function downloadDay(day, btn) {
   if (!f) {
     const posts = (await allPosts()).filter((p) => p.day <= day);
     const s = await loadSettings();
-    f = { name: reportFileName(s, new Date(+day.slice(0, 4), +day.slice(4, 6) - 1, +day.slice(6, 8))), bytes: Gv90Xlsx.buildRaw({ posts, comments: (await allComments()).filter((c) => c.day <= day), daily: (await listDays()).filter((d) => d.day <= day).reverse() }) };
+    f = { name: reportFileName(s, new Date(+day.slice(0, 4), +day.slice(4, 6) - 1, +day.slice(6, 8))), bytes: Gv90Xlsx.buildRaw({ posts, daily: (await listDays()).filter((d) => d.day <= day).reverse() }) };
   }
   const where = await saveFile(f.bytes, f.name);
   setInfo(`✔ ${where} 저장했습니다.`, "ok");
@@ -268,7 +268,7 @@ $("#rangeXlsx").addEventListener("click", async (e) => {
   const posts = (await allPosts()).filter((p) => p.day >= from && p.day <= to);
   if (!posts.length) return setInfo("그 기간에 보고된 게시물이 없습니다.", "err");
   const daily = (await listDays()).filter((d) => d.day >= from && d.day <= to).reverse();
-  const bytes = Gv90Xlsx.buildRaw({ posts, comments: (await allComments()).filter((c) => c.day >= from && c.day <= to), daily });
+  const bytes = Gv90Xlsx.buildRaw({ posts, daily });
   const where = await saveFile(bytes, `${from.slice(2)}-${to.slice(2)}_GV90 온라인 동향 raw data (기간).xlsx`);
   setInfo(`✔ ${posts.length}건을 ${where} 저장했습니다.`, "ok");
   markSaved(btn, "✔ 기간 엑셀 저장 완료!", where);

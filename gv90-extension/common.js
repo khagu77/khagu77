@@ -307,6 +307,7 @@ async function downloadBytes(bytes, name, folder = "") {
   const ext = (name.match(/\.(\w+)$/) || [])[1] || "";
   const blob = new Blob([bytes], { type: MIME[ext.toLowerCase()] || "application/octet-stream" });
   const url = await blobToDataUrl(blob);
+  if (typeof registerClean === "function") await registerClean(name);
   folder = cleanFolder(folder);
   if (folder) {
     try {

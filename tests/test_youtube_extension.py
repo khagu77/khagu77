@@ -1018,7 +1018,7 @@ def test_helper_installer(tmp_path: Path):
     assert os.access(dest / "bin/ffmpeg", os.X_OK) and (dest / "bin/ffmpeg").read_bytes()[:4] == b"\xcf\xfa\xed\xfe"
     for b in ("Google/Chrome", "Naver/Whale"):
         m = json.loads((sup / b / "NativeMessagingHosts/com.khagu77.ytdl.json").read_text())
-        assert m["path"] == str(dest / "ytdl_host.sh") and m["allowed_origins"] == [f"chrome-extension://{EXT_ID}/", "chrome-extension://edngphpmbgehcodhafhapdapdncnkcba/"]
+        assert m["path"] == str(dest / "ytdl_host.sh") and m["allowed_origins"] == [f"chrome-extension://{EXT_ID}/", "chrome-extension://edngphpmbgehcodhafhapdapdncnkcba/", "chrome-extension://clilfhjihcanehbgniheggjbjejechg/"]
     assert not (sup / "Microsoft Edge").exists()  # 없는 브라우저는 건드리지 않는다
 
 

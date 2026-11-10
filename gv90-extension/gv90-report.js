@@ -245,7 +245,7 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
     `<div style="font-size:13px;opacity:.85">모니터링 기간</div>` +
     `<div style="font-size:16px;font-weight:800;margin:2px 0">${mdw(d.from)} ~ ${mdw(d.to)}</div>` +
     `<div style="font-size:12px;opacity:.8">${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")} 기준</div>` +
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="256" style="width:256px;border-collapse:collapse;margin:16px 0 14px"><tr><td height="1" style="height:1px;background:#4a6390;font-size:0;line-height:0">&nbsp;</td></tr></table>` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="256" style="width:256px;border-collapse:collapse;margin:16px 0 14px"><tr><td height="1" style="height:1px;padding:0;background:#4a6390;font-size:0;line-height:0;mso-line-height-rule:exactly">&nbsp;</td></tr></table>` +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;color:#fff"><tr>` +
     [["게시글", d.posts.length], ["댓글", d.totalComments], ["반응", d.posts.length + d.totalComments]]
       .map(([k, n]) => `<td style="padding-right:18px;vertical-align:top"><div style="font-size:13px;opacity:.85">${k}</div><div style="font-size:26px;font-weight:900">${n.toLocaleString()}<span style="font-size:13px;font-weight:400"> 건</span></div></td>`)

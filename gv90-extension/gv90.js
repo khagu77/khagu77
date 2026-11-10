@@ -64,7 +64,7 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
 // ---------------------------------------------------------------------------
 
 function fillSettingsForm(s) {
-  for (const id of ["autoRunTime", "rangeStartTime", "cutoffTime", "holidays", "fileName", "saveFolder", "keywords", "cafeKeywords", "newsMaxPages", "cafeMaxPages", "speed", "apiKey"]) $(`#${id}`).value = s[id] ?? "";
+  for (const id of ["autoRunTime", "rangeStartTime", "cutoffTime", "holidays", "fileName", "saveFolder", "macFolderPath", "keywords", "cafeKeywords", "newsMaxPages", "cafeMaxPages", "speed", "apiKey"]) $(`#${id}`).value = s[id] ?? "";
   for (const id of ["autoRun", "workdayReport", "collectOnHolidays", "saveAsk", "sound", "youtubeSearch", "aiOn"]) $(`#${id}`).checked = !!s[id];
   const days = String(s.workdays || "1,2,3,4,5").split(",").map(Number);
   const box = $("#workdaysBox");
@@ -87,7 +87,7 @@ function fillSettingsForm(s) {
 
 function readSettingsForm(s) {
   const out = { ...s };
-  for (const id of ["autoRunTime", "rangeStartTime", "cutoffTime", "holidays", "fileName", "saveFolder", "keywords", "cafeKeywords", "speed", "model"]) out[id] = $(`#${id}`).value;
+  for (const id of ["autoRunTime", "rangeStartTime", "cutoffTime", "holidays", "fileName", "saveFolder", "macFolderPath", "keywords", "cafeKeywords", "speed", "model"]) out[id] = $(`#${id}`).value;
   out.apiKey = $("#apiKey").value.trim();
   out.newsMaxPages = Math.max(1, Math.min(10, +$("#newsMaxPages").value || 3));
   out.cafeMaxPages = Math.max(1, Math.min(10, +$("#cafeMaxPages").value || 3));
@@ -1066,9 +1066,8 @@ async function makeExcel({ interactive = true } = {}) {
   dbKeys = new Set((await allPosts()).map((p) => p.key));
   // 엑셀
   const posts = s.xlsxScope === "today" ? await postsOfDay(day) : await allPosts();
-  const comments = s.xlsxScope === "today" ? (await allComments()).filter((c) => c.day === day) : await allComments();
   const daily = (await listDays()).slice().reverse();
-  const bytes = Gv90Xlsx.buildRaw({ posts, comments, daily, dayPosts: await allPosts() });
+  const bytes = Gv90Xlsx.buildRaw({ posts, daily });
   await saveDayFile(day, fileName, bytes);
   await markRunsReported([curRunId, ...mergedRunIds].filter(Boolean));
   await chrome.storage.local.set({ gvLastReportAt: Date.now() });

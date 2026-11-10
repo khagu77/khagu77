@@ -301,13 +301,14 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     assert ws["F2"].hyperlink is not None
     assert "일자별 집계" in wb.sheetnames
     wd = wb["일자별 집계"]
-    assert wd["L1"].value == "(단위 : 건)" and wd["C2"].value == "댓글 수" and wd["B2"].value == "게시물"
-    lrow = [wd.cell(r, 12) for r in range(4, wd.max_row + 1)]
+    # 게시글 엑셀: 댓글 시트 없음 · 일자별 집계에도 댓글 열 없음
+    assert "댓글" not in wb.sheetnames
+    assert wd["K1"].value == "(단위 : 건)" and wd["B2"].value == "게시물" and wd["C2"].value == "채널별 게시물" and wd["K2"].value == "부정+단순비난 비율"
+    lrow = [wd.cell(r, 11) for r in range(4, wd.max_row + 1)]
     assert all(isinstance(c.value, (int, float)) and c.number_format == "0.0%" for c in lrow if c.value != "-"), [(c.value, c.number_format) for c in lrow]
     import zipfile
     with zipfile.ZipFile(BytesIO(base64.b64decode(b64[1]))) as z:
         assert all("numberStoredAsText" in z.read(n).decode() for n in z.namelist() if n.startswith("xl/worksheets/sheet"))
-    assert any((wd.cell(r, 3).value or 0) > 0 for r in range(3, wd.max_row + 1))  # 댓글 수집 전이어도 게시글의 댓글 수(💬) 합계
     # 저장이 끝나면 '받기'가 아니라 '✔ 엑셀 저장 완료!' (또 누르면 묻고, [취소]면 파일을 더 만들지 않음)
     assert page.inner_text("#getList").strip() == "✔ 엑셀 저장 완료!"
     # 같은 글을 다시 저장해도 늘지 않음

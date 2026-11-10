@@ -187,6 +187,7 @@ const DEFAULT_SETTINGS = {
   fileName: "{날짜}_GV90 온라인 동향 raw data",
   xlsxScope: "all", // all = 데일리 DB 누적(연번 이어짐) · today = 이번 보고분만
   saveFolder: "", // 다운로드 폴더 안 하위 폴더 (저장 폴더를 고르지 않았을 때)
+  macFolderPath: "", // 맥: 고른 저장 폴더의 전체 경로 ('출처' 정보 지우기에 씀)
   saveAsk: false,
   sound: true,
   // 분석

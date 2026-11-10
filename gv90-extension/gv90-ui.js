@@ -132,6 +132,14 @@ async function saveFile(bytes, name, { interactive = true } = {}) {
         const w = await fh.createWritable();
         await w.write(bytes);
         await w.close();
+        // 맥: 크롬이 붙이는 '출처' 정보를 도우미로 지움 (설정의 '저장 폴더 전체 경로'가 있어야 파일을 찾을 수 있음)
+        if (IS_MAC) {
+          // 경로 끝 폴더 이름이 고른 폴더와 다르면(달마다 새 폴더를 고른 경우 등) 같은 위치의 그 폴더로 맞춤
+          let base = String(s.macFolderPath || "").trim().replace(/\/+$/, "");
+          if (base && base.split("/").pop() !== dir.name) base = `${base.replace(/\/[^/]*$/, "")}/${dir.name}`;
+          if (base) chrome.runtime.sendMessage({ type: "gvCleanMeta", path: `${base}/${target}` }).catch(() => {});
+          else showCleanNotice({ ok: false, reason: "nopath", name: target });
+        }
         return `'${dir.name}' 폴더에 ${target}`;
       }
     } catch {
@@ -142,13 +150,14 @@ async function saveFile(bytes, name, { interactive = true } = {}) {
   const ask = !!s.saveAsk && interactive;
   const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = await blobToDataUrl(blob);
+  await registerClean(name); // 맥: 받기가 끝나면 백그라운드가 '출처' 정보를 지움
   try {
     await chrome.downloads.download({ url, filename: folder ? `${folder}/${name}` : name, saveAs: ask, conflictAction: "uniquify" });
   } catch {
     await downloadBytes(bytes, name);
   }
   const where = ask ? `고른 위치에 ${name}` : `다운로드${folder ? ` / ${folder}` : ""} 폴더에 ${name}`;
-  return IS_MAC ? `${where} (맥 '출처' 정보가 붙음 — ⚙ 설정에서 📁 저장 폴더를 골라 두면 붙지 않습니다)` : where;
+  return where;
 }
 
 // 맥: 크롬 '다운로드'로 받은 파일엔 '출처'(kMDItemWhereFroms) 정보가 붙는다 → 고른 폴더에 직접 쓰면 붙지 않음
@@ -163,6 +172,49 @@ async function prepareSaveDir() {
   } catch {
     /* 허락 못 받으면 저장할 때 다운로드 폴더로 */
   }
+}
+
+// 맥 '출처' 정보 지우기: 받기 전에 파일 이름을 적어 두면 백그라운드(meta-clean.js)가 받기가 끝난 뒤 도우미로 지움
+async function registerClean(name) {
+  if (!IS_MAC) return;
+  try {
+    const { pendingClean = [] } = await chrome.storage.session.get("pendingClean");
+    const now = Date.now();
+    await chrome.storage.session.set({ pendingClean: [...pendingClean.filter((p) => p.until > now), { name, until: now + 10 * 60e3 }] });
+  } catch {
+    /* 무시 */
+  }
+}
+
+const CLEAN_NOTICE = {
+  ok: "✔ 저장한 파일의 '출처' 정보를 지웠습니다.",
+  old: "⚠ 빠른다운로드 도우미가 예전 버전이라 '출처' 정보를 지우지 못했습니다. GV90수집기 압축 안의 '빠른다운로드_도우미설치.app'을 한 번 다시 실행해 주세요.",
+  none: "⚠ 빠른다운로드 도우미가 GV90 수집기에 연결되지 않아 '출처' 정보를 지우지 못했습니다. GV90수집기 압축 안의 '빠른다운로드_도우미설치.app'을 한 번 실행해 주세요.",
+  refused: "⚠ '출처' 정보를 지우지 못했습니다(내 폴더 밖이거나 경로가 다른 파일). ⚙ 설정의 '저장 폴더 전체 경로'를 확인해 주세요.",
+  nopath: "⚠ '출처' 정보를 지우려면 ⚙ 설정에 고른 저장 폴더의 '전체 경로'를 한 번 넣어 주세요.",
+  error: "⚠ '출처' 정보를 지우는 중 오류가 났습니다.",
+};
+
+function showCleanNotice(r) {
+  let box = document.getElementById("cleanNotice");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "cleanNotice";
+    box.style.cssText =
+      "position:fixed;left:50%;bottom:18px;transform:translateX(-50%);max-width:min(760px,92vw);padding:9px 14px;border-radius:8px;" +
+      "font-size:13px;line-height:1.45;box-shadow:0 2px 10px rgba(0,0,0,.25);z-index:9999;color:#fff;";
+    document.body.appendChild(box);
+  }
+  box.style.background = r.ok ? "#002c5f" : "#b3261e";
+  box.textContent = `${CLEAN_NOTICE[r.ok ? "ok" : r.reason] || CLEAN_NOTICE.error} (${r.name})`;
+  clearTimeout(box._t);
+  box._t = setTimeout(() => box.remove(), r.ok ? 6000 : 20000);
+}
+
+if (chrome.storage?.onChanged) {
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.lastClean?.newValue) showCleanNotice(changes.lastClean.newValue);
+  });
 }
 
 async function saveWhereText() {

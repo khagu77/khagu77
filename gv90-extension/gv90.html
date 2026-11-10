@@ -128,12 +128,14 @@
         <label for="fileName">파일 이름 <span class="hint">({날짜} = 보고일 YYMMDD · 예: 261110_GV90 온라인 동향 raw data.xlsx)</span></label>
         <input type="text" id="fileName" class="full" spellcheck="false" style="width:100%">
         <label>저장 폴더 <span class="hint">(폴더 선택 창에서 고르면 그 폴더에 바로 저장 · 고르지 않으면 크롬 다운로드 폴더)</span></label>
-        <div class="hint" style="margin:-2px 0 6px">🍎 맥: 크롬 다운로드로 받은 파일에는 '출처'(받은 곳) 정보가 붙습니다. <b>저장 폴더를 골라 두면 파일을 그 폴더에 직접 써서 '출처'가 붙지 않습니다</b> (xattr 로 지울 필요 없음). 처음 저장할 때 크롬이 폴더 쓰기 허락을 물으면 <b>'방문할 때마다 허용'</b>을 고르세요.</div>
+        <div class="hint" style="margin:-2px 0 6px">🍎 맥: 크롬은 저장한 파일마다 '출처'(chrome-extension://…) 정보를 붙이고, 확장프로그램은 이를 막을 수 없습니다. 그래서 저장이 끝나면 <b>빠른다운로드 도우미</b>가 자동으로 지웁니다(xattr 할 필요 없음) — GV90수집기 압축 안의 <b>'빠른다운로드_도우미설치.app'을 한 번 실행</b>해 두세요. 저장 폴더를 골랐다면 아래에 그 폴더의 <b>전체 경로</b>도 넣어 주세요. 처음 저장할 때 크롬이 폴더 쓰기 허락을 물으면 <b>'방문할 때마다 허용'</b>.</div>
         <div class="row">
           <button id="saveDirPick" class="small">📁 저장 폴더 고르기</button>
           <button id="saveDirClear" class="small" hidden>기본(다운로드 폴더)으로</button>
           <span id="saveDirName" class="hint"></span>
         </div>
+        <label for="macFolderPath">🍎 맥: 고른 저장 폴더의 전체 경로 <span class="hint">('출처' 정보 지우기용 · Finder 에서 폴더 우클릭 → Option 키를 누른 채 '경로 이름 복사' → 여기에 붙여 넣기)</span></label>
+        <input type="text" id="macFolderPath" class="full" spellcheck="false" placeholder="예: /Users/이름/Desktop/일일동향" style="width:100%">
         <label for="saveFolder">다운로드 폴더 안 하위 폴더 <span class="hint">(저장 폴더를 고르지 않았을 때)</span></label>
         <div class="row"><span class="hint">크롬 다운로드 폴더 /</span><input type="text" id="saveFolder" class="full" spellcheck="false" placeholder="비우면 다운로드 폴더에 바로 저장 (예: GV90 모니터링/일일보고)"></div>
         <label class="inline"><input type="checkbox" id="saveAsk"> 받을 때마다 저장 위치 묻기</label>

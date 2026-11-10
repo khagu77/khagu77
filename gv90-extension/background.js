@@ -7,6 +7,8 @@
 //    · 수집 감시: 진행 신호가 5분 넘게 없으면(크롬이 뒤쪽 탭을 얼렸거나 PC 가 잠들었다 깬 경우) 수집 탭을 앞으로 가져와 깨운다
 //  - 유튜브·네이버 뉴스 댓글 요청에 사이트와 같은 Referer 를 붙이는 규칙 (이슈 모니터링 보고서와 같음)
 importScripts("gv90-settings.js");
+// 맥: 저장한 엑셀의 '출처' 정보를 빠른다운로드 도우미로 지운다 (meta-clean.js)
+importScripts("meta-clean.js");
 
 const APP_URL = chrome.runtime.getURL("gv90.html");
 const ALARM = "gv90-daily-collect";
