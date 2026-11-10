@@ -473,7 +473,7 @@ $("#postFilter").addEventListener("change", renderComments);
 $("#sentFilter").addEventListener("change", renderComments);
 $("#analyzeRule").addEventListener("click", reanalyzeRule);
 $("#analyzeAi").addEventListener("click", () => analyzeAi().catch((e) => { running = false; hideWork(); $("#analyzeAi").disabled = false; setSummary(`AI 분석 오류: ${e.message}`, "err"); }));
-$("#makeXlsx").addEventListener("click", makeXlsx);
+$("#makeXlsx").addEventListener("click", () => prepareSaveDir().then(makeXlsx));
 $("#getXlsx").addEventListener("click", async () => {
   if (!pendingXlsx) return;
   if (!confirmResave($("#getXlsx"))) return;

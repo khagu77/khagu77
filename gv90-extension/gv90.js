@@ -1269,7 +1269,7 @@ $("#analyzeAi").addEventListener("click", async () => {
     celebrate(null);
   }
 });
-$("#saveList").addEventListener("click", () => makeExcel().catch((e) => {
+$("#saveList").addEventListener("click", () => prepareSaveDir().then(() => makeExcel()).catch((e) => {
   $("#saveInfo").textContent = `엑셀을 만들지 못했습니다: ${e.message}`;
   $("#saveInfo").className = "hint err";
   $("#saveList").disabled = false;

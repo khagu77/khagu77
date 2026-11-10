@@ -112,6 +112,7 @@ async function render() {
 // 그날 엑셀: 저장해 둔 파일 (없으면 그날까지 누적으로 새로 만듦)
 async function downloadDay(day, btn) {
   if (!confirmResave(btn)) return;
+  await prepareSaveDir();
   let f = await getDayFile(day);
   if (!f) {
     const posts = (await allPosts()).filter((p) => p.day <= day);
@@ -261,6 +262,7 @@ for (const id of ["rangeFrom", "rangeTo"]) $(`#${id}`).addEventListener("change"
 $("#rangeXlsx").addEventListener("click", async (e) => {
   const btn = e.currentTarget;
   if (!confirmResave(btn)) return;
+  await prepareSaveDir();
   const from = ($("#rangeFrom").value || "0000-00-00").replace(/-/g, "");
   const to = ($("#rangeTo").value || "9999-99-99").replace(/-/g, "");
   const posts = (await allPosts()).filter((p) => p.day >= from && p.day <= to);

@@ -147,7 +147,22 @@ async function saveFile(bytes, name, { interactive = true } = {}) {
   } catch {
     await downloadBytes(bytes, name);
   }
-  return ask ? `고른 위치에 ${name}` : `다운로드${folder ? ` / ${folder}` : ""} 폴더에 ${name}`;
+  const where = ask ? `고른 위치에 ${name}` : `다운로드${folder ? ` / ${folder}` : ""} 폴더에 ${name}`;
+  return IS_MAC ? `${where} (맥 '출처' 정보가 붙음 — ⚙ 설정에서 📁 저장 폴더를 골라 두면 붙지 않습니다)` : where;
+}
+
+// 맥: 크롬 '다운로드'로 받은 파일엔 '출처'(kMDItemWhereFroms) 정보가 붙는다 → 고른 폴더에 직접 쓰면 붙지 않음
+const IS_MAC = /Mac/i.test(navigator.userAgent);
+
+// 저장 버튼을 누르자마자(사용자 클릭 직후) 고른 폴더 쓰기 허락을 받아 둠 — 엑셀을 만드는 동안 클릭 효력이 끝나
+//  허락 창을 못 띄우고 다운로드(출처 붙음)로 빠지는 것을 막음
+async function prepareSaveDir() {
+  try {
+    const dir = await getSaveDir();
+    if (dir && (await dir.queryPermission({ mode: "readwrite" })) !== "granted") await dir.requestPermission({ mode: "readwrite" });
+  } catch {
+    /* 허락 못 받으면 저장할 때 다운로드 폴더로 */
+  }
 }
 
 async function saveWhereText() {
