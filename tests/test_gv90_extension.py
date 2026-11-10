@@ -247,6 +247,9 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     page.fill("#rangeStart", "2026-08-05T07:30")
     page.fill("#rangeEnd", "2026-08-06T07:30")
     page.click("#start")
+    # 찾는 대로 결과 표에 바로 보임 (수집 중)
+    wait_js(page, "running && document.querySelectorAll('#results tbody tr').length > 0", 120000)
+    assert page.is_visible("#resultBox")
     wait_js(page, "!running && items.length > 0", 120000)
     page.locator("#summary", has_text="GV90 관련 게시물").wait_for()
 

@@ -388,8 +388,35 @@ async function collect() {
   const queries = searchQueries(kw, 30);
   const range2 = { from: range.start, to: range.end };
   const found = new Map();
+  // 찾는 대로 아래 결과 표에 바로 보여 줌 (일일동향처럼) · 성향은 무료 분석으로 바로 채우고, 끝나면 한 번 더 정리
+  dbKeys = new Set((await allPosts()).map((p) => p.key));
+  items = [];
+  mergedRunIds = [];
+  curRange = { start: range.start.getTime(), end: range.end.getTime() };
+  setExtraLexicon(s.lexicon);
+  let liveTimer = null;
+  const liveRender = () => {
+    if (liveTimer) return;
+    liveTimer = setTimeout(() => {
+      liveTimer = null;
+      sortItems();
+      renderResults();
+      $("#liveInfo").textContent = running ? `⏳ 수집 중 — 지금까지 ${items.length}건 (찾는 대로 아래에 추가됩니다 · 끝나면 정리·저장)` : "";
+    }, 400);
+  };
   const add = (it) => {
-    if (!found.has(it.key)) found.set(it.key, it);
+    if (found.has(it.key)) return;
+    found.set(it.key, it);
+    it.related = it.direct || mentionsCar(itemText(it)) || matchesKeywords(itemText(it), kw);
+    it.checked = it.related;
+    if (dbKeys.has(it.key)) {
+      it.dup = true;
+      it.checked = false;
+    }
+    Object.assign(it, ruleAnalyze(it));
+    it.harsh = it.harsh || it.sentiment === "단순비난";
+    items.push(it);
+    liveRender();
   };
   const inRange = (ms) => !ms || (ms >= range.start.getTime() && ms < range.end.getTime());
   const errors = [];
@@ -581,16 +608,19 @@ async function collect() {
   }
 
   // 관련성 (키워드): 제목·본문에 GV90 키워드가 있으면 체크
-  const fresh = [...found.values()];
+  const fresh = items.slice(); // 수집 중에 표에서 지운 글은 다시 넣지 않음
+  clearTimeout(liveTimer);
+  liveTimer = null;
+  $("#liveInfo").textContent = "";
   for (const x of fresh) {
     x.related = x.direct || mentionsCar(itemText(x)) || matchesKeywords(itemText(x), kw);
-    x.checked = x.related;
+    if (!x.touched) x.checked = x.related; // 수집 중에 표에서 직접 바꾼 체크는 그대로
   }
   // 데일리 DB 에 이미 있는 글은 체크 해제 (지난 보고에 들어감)
   dbKeys = new Set((await allPosts()).map((p) => p.key));
   for (const x of fresh) if (dbKeys.has(x.key)) {
     x.dup = true;
-    x.checked = false;
+    if (!x.touched) x.checked = false;
   }
   items = fresh;
   curRange = { start: range.start.getTime(), end: range.end.getTime() };
