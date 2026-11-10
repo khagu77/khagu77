@@ -224,6 +224,8 @@ function rpChannelRow(c, rowW) {
   const chip = `<span style="display:inline-block;background:${color};color:#fff;font-weight:800;font-size:13px;padding:2px 10px;border-radius:999px">${name}</span>`;
   const stat = (k, v, dim) => `<td style="width:33%;padding:0 3px 0 0"><div style="background:#f3f4f6;border-radius:6px;padding:5px 7px"><div style="font-size:11px;color:#6b7280">${k}</div><div style="font-size:16px;font-weight:800;color:${dim ? "#9ca3af" : "#111827"}">${Number(v).toLocaleString()}<span style="font-size:11px;font-weight:400;color:#6b7280"> 건</span></div></div></td>`;
   const stats = `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;margin:6px 0">${"<tr>"}${stat("게시글", c.posts, !c.posts)}${stat("댓글", c.comments, !c.posts)}${stat("반응", c.posts + c.comments, !c.posts)}</tr></table>`;
+  // 칸 안쪽을 고정 폭 표로 감쌈 (메일 프로그램이 칸 폭 설정을 지워도 폭이 그대로)
+  const box = (w, html) => `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${w}" style="width:${w}px;min-width:${w}px;border-collapse:collapse"><tr><td style="padding:0">${html}</td></tr></table>`;
   const head = (t, col, n) => `<div style="font-weight:800;color:${col};font-size:12.5px;border-bottom:2px solid ${col};padding-bottom:3px">${t} <span style="font-weight:400;color:#6b7280">(${n})</span></div>`;
   let left;
   let right;
@@ -234,7 +236,7 @@ function rpChannelRow(c, rowW) {
       ? `수집 후보 <b>${ex.n}건</b>을 확인했으나, 분석 결과 보고 대상(GV90 관련 게시글)이 아니어서 <b>0건</b>으로 집계함 <span style="color:#9ca3af">(사유: ${rpEsc(why)})</span>`
       : "모니터링 기간에 GV90 관련 게시글이 올라오지 않음";
     left = `<div>${chip}</div>${stats}`;
-    right = `<td colspan="2" width="${opW * 2 + 12}" style="vertical-align:middle;padding:0 0 0 12px"><div style="padding:14px 16px;background:#f9fafb;border:1px dashed #d1d5db;border-radius:8px;text-align:center"><div style="color:#374151;font-size:13px;font-weight:800;margin-bottom:4px">해당일에 관련 게시글 없음</div><div style="color:#6b7280;font-size:11px;line-height:1.55;letter-spacing:-0.3px">${note}</div></div></td>`;
+    right = `<td colspan="2" width="${opW * 2 + 12}" style="vertical-align:middle;padding:0 0 0 12px">${box(opW * 2 + 12, `<div style="padding:14px 16px;background:#f9fafb;border:1px dashed #d1d5db;border-radius:8px;text-align:center"><div style="color:#374151;font-size:13px;font-weight:800;margin-bottom:4px">해당일에 관련 게시글 없음</div><div style="color:#6b7280;font-size:11px;line-height:1.55;letter-spacing:-0.3px">${note}</div></div>`)}</td>`;
   } else {
     const sc = sentCount(c.reacts);
     const total = c.reacts.length;
@@ -250,13 +252,13 @@ function rpChannelRow(c, rowW) {
       `<div style="margin:5px 0 4px;line-height:1.6">${rpLegend(sc, total, "#1f2937", 11)}</div>` +
       rpVerdict(sc, total, 11).html;
     const opCell = (t, col, list, top) =>
-      `<td width="${opW + 12}" style="width:${opW}px;vertical-align:top;padding:0 0 0 12px">${head(t, col, list.length)}<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse">${rpOpinionRows(top, col, 64)}</table></td>`;
+      `<td width="${opW + 12}" style="width:${opW}px;vertical-align:top;padding:0 0 0 12px">${box(opW, `${head(t, col, list.length)}<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${opW}" style="width:${opW}px;border-collapse:collapse">${rpOpinionRows(top, col, 64)}</table>`)}</td>`;
     right = opCell("긍정 주요 내용", "#1f5fbf", pos, posTop) + opCell("부정 주요 내용", "#d0021b", neg, negTop);
   }
   return (
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${rowW}" style="width:${rowW}px;border-collapse:separate;border:1px solid #e5e7eb;border-left:5px solid ${color};border-radius:8px;background:#ffffff"><tr><td bgcolor="#ffffff" style="background:#ffffff;padding:10px">` +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${inW}" style="width:${inW}px;table-layout:fixed;border-collapse:collapse"><tr>` +
-    `<td width="${leftW}" style="width:${leftW}px;vertical-align:top">${left}</td>` +
+    `<td width="${leftW}" style="width:${leftW}px;vertical-align:top">${box(leftW, left)}</td>` +
     right +
     `</tr></table></td></tr></table>`
   );
