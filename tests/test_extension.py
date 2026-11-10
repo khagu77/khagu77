@@ -1691,6 +1691,13 @@ def test_lx3_daily_yellow(tmp_path: Path):
         page.set_input_files("#dailyFiles", str(daily))
         page.locator("#dailyInfo", has_text="새로 넣음 2개").wait_for()
         assert page.evaluate("items.length") == 3
+        # 예전 방식으로 들어간 일일동향 글(짧은 주소·주요 내용 제목)은 화면을 열 때 파일 없이 다시 확인
+        page.evaluate("""async () => {
+          items.push({ key: 'naver.me/abc123', channel: '자동차 커뮤니티', media: '팰리세이드 피플', url: 'https://naver.me/abc123', title: '업데이트 관련 의견',
+            text: '업데이트 관련 의견', date: new Date(2026, 10, 10), checked: true, related: true, note: '오전 일일동향 노란색 글 (제목 칸은 일일동향 주요 내용)', dup: false, daily: true });
+          lastRange = { from: '2026-11-09T11:30', to: '2026-11-10T11:30' };
+          await fixOldDaily(); }""")
+        assert page.evaluate("items.length") == 3 and not page.evaluate("items.some((x) => (x.url || '').includes('naver.me'))")
         # 찾기 처음: 폴더에서 찾는 기간(11-09~11-10)의 일일동향 엑셀만 읽음 (다른 날짜·다른 파일은 무시, 같은 날짜는 최근 파일)
         b64 = base64.b64encode(daily.read_bytes()).decode()
         res = page.evaluate("""async (b64) => {

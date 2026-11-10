@@ -1706,6 +1706,7 @@ async function init() {
   checkLogin();
   await restoreLast();
   resetRange(); // 고른 수집 기록이 있으면 그 끝부터
+  if (!AUTO_MODE) fixOldDaily(); // 예전 방식으로 넣은 일일동향 글 → 글을 열어 실제 주소·제목·시간으로 다시
   updateAutoInfo();
   // 중단된 찾기가 있으면 이어서 할지 묻는다 (자동 수집이면 묻지 않고 자동 수집 흐름으로)
   const r = await loadResume("lx3");
@@ -2159,4 +2160,41 @@ function setupDaily() {
     hideBusy();
   });
   show();
+}
+
+// 결과 표에 예전 방식(짧은 주소·주요 내용 제목)으로 들어간 일일동향 글을 파일 없이 다시 확인
+async function fixOldDaily() {
+  const old = items.filter((x) => x.daily && /제목 칸은 일일동향 주요 내용|제목을 못 읽어/.test(x.note || ""));
+  if (!old.length || running) return;
+  let win;
+  try {
+    win = lastRange?.from && lastRange?.to ? { from: new Date(lastRange.from), to: new Date(lastRange.to) } : range();
+    if (isNaN(win.from) || isNaN(win.to)) win = range();
+  } catch {
+    return;
+  }
+  const rows = old.map((x) => ({
+    url: isCafeItem(x) ? articleUrl(x) : x.url, community: x.media || "", car: "", date: x.date, summary: x.text || x.title, yellow: true,
+  }));
+  // 나머지 일일동향 글(이미 제대로 된 글)은 그대로 두고 예전 글만 다시
+  const keep = items.filter((x) => x.daily && !old.includes(x));
+  keep.forEach((x) => (x.daily = false));
+  running = true;
+  markRunning(true);
+  stopRequested = false;
+  log(`· 예전 방식으로 넣은 오전 일일동향 글 ${old.length}개를 글을 열어 다시 확인합니다`);
+  try {
+    const r = await addDailyRows(rows, win);
+    mergeSameArticles();
+    markDuplicates();
+    renderResults();
+    await saveLast();
+    setSummary(`✔ 일일동향 글 ${r.total}개 다시 확인 → 실제 주소·제목으로 ${r.added}개 · 이미 있던 글과 합침 ${r.checked + (r.total - r.added - r.out - r.checked)}개 · 기간 밖이라 뺌 ${r.out}개${r.failed ? ` · 열지 못함 ${r.failed}개` : ""}`, "ok");
+  } catch (e) {
+    setSummary(`일일동향 글을 다시 확인하지 못했습니다: ${e.message}`, "err");
+  }
+  keep.forEach((x) => (x.daily = true));
+  running = false;
+  markRunning(false);
+  hideBusy();
 }
