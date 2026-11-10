@@ -26,20 +26,26 @@ const mdw = (ms) => {
 function reportData(days, allPosts, allComments) {
   const set = new Set(days.map((d) => d.day));
   const posts = allPosts.filter((p) => set.has(p.day));
-  const comments = allComments.filter((c) => set.has(c.day));
+  // 댓글: 이 보고 범위 게시글에 달린 댓글 (댓글을 모은 날이 아니라 게시글 기준)
+  const postKeys = new Set(posts.map((p) => p.key));
+  const comments = allComments.filter((c) => postKeys.has(c.postKey));
   const from = Math.min(...days.map((d) => d.from || new Date(+d.day.slice(0, 4), +d.day.slice(4, 6) - 1, +d.day.slice(6, 8)).getTime() - 86400000));
   const to = Math.max(...days.map((d) => d.to || new Date(+d.day.slice(0, 4), +d.day.slice(4, 6) - 1, +d.day.slice(6, 8)).getTime()));
   // 반응 = 게시물 + (성향을 판정한) 댓글 · 댓글은 댓글마다 자기 구분('모두 포함(…)' 포함)
   const reacts = [...posts.map((p) => ({ ...p, kind: "post" })), ...comments.filter((c) => c.sentiment).map((c) => ({ ...c, kind: "comment", summary: c.summary || c.text }))];
-  const ccount = (list) => Math.max(list.reduce((s, p) => s + (p.ccount || 0), 0), 0);
+  // 댓글 수: 게시글마다 '사이트에 보이는 댓글 수'와 '모은 댓글 수' 중 큰 쪽 → 채널별 합 · 전체 합 (전체 = 채널 합계와 꼭 같게)
+  const got = new Map();
+  for (const c of comments) got.set(c.postKey, (got.get(c.postKey) || 0) + 1);
+  const ccOf = (p) => Math.max(p.ccount || 0, got.get(p.key) || 0);
+  const ccount = (list) => list.reduce((s, p) => s + ccOf(p), 0);
   const channels = CHANNELS.map((ch) => {
     const ps = posts.filter((p) => p.channel === ch);
     const rs = reacts.filter((r) => r.channel === ch);
     const media = [...new Set(ps.map((p) => p.media).filter(Boolean))];
-    return { ch, posts: ps.length, comments: Math.max(ccount(ps), comments.filter((c) => c.channel === ch).length), reacts: rs, media };
+    return { ch, posts: ps.length, comments: ccount(ps), reacts: rs, media };
   }).filter((c) => c.posts);
   const categories = CATEGORIES.map((cat) => ({ cat, reacts: reacts.filter((r) => catList(r.category).includes(cat)) })).filter((c) => c.reacts.length);
-  return { days, from, to, posts, comments, reacts, totalComments: Math.max(ccount(posts), comments.length), channels, categories };
+  return { days, from, to, posts, comments, reacts, totalComments: ccount(posts), channels, categories };
 }
 
 const sentCount = (list) => Object.fromEntries(SENTIMENTS.map((s) => [s, list.filter((r) => (r.sentiment || "중립") === s).length]));
@@ -251,7 +257,7 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
       .map(([k, n]) => `<td bgcolor="${RP_NAVY}" style="padding:0 18px 0 0;vertical-align:top;background:${RP_NAVY};color:#ffffff"><div style="color:#ffffff;font-size:13px;opacity:.85">${k}</div><div style="color:#ffffff;font-size:26px;font-weight:900">${n.toLocaleString()}<span style="color:#ffffff;font-size:13px;font-weight:400"> 건</span></div></td>`)
       .join("") +
     `</tr></table>` +
-    `<div style="color:#ffffff;font-size:13px;opacity:.9;margin:22px 0 8px">전체 성향 (${d.comments.some((c) => c.sentiment) ? "반응" : "게시글"} ${total.toLocaleString()}건)</div>` +
+    `<div style="color:#ffffff;font-size:13px;opacity:.9;margin:22px 0 8px">전체 성향 (${d.comments.some((c) => c.sentiment) ? "성향을 분석한 반응" : "게시글"} ${total.toLocaleString()}건)</div>` +
     rpBar(sc, total, 14) +
     `<div style="margin:10px 0;line-height:2">${rpLegend(sc, total, "#ffffff", 14)}</div>` +
     `<div style="color:${v.hi ? "#ffcf3f" : "#9fd0ff"};font-weight:800;font-size:15px;line-height:1.5;margin:10px 0">${rpEsc(v.text)}</div>` +
