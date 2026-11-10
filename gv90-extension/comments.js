@@ -429,7 +429,7 @@ async function analyzeAi() {
 
 async function makeXlsx() {
   const s = await loadSettings();
-  const name = reportFileName({ ...s, fileName: String(s.fileName || "").replace(/raw data/i, "").trim() + " 댓글 raw data" }, new Date());
+  const name = reportFileName({ ...s, fileName: String(s.fileName || "").replace(/\s*게시글\s*/g, " ").replace(/raw data/i, "").replace(/\s+/g, " ").trim() + " 댓글 raw data" }, new Date());
   const allPostList = await allPosts();
   const bytes = Gv90Xlsx.buildComments({ comments, posts: allPostList });
   pendingXlsx = { bytes, name };

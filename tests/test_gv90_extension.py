@@ -283,7 +283,7 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     b64 = page.evaluate(
         """async () => { const f = await getDayFile(todayKey()); let s = ''; for (const b of f.bytes) s += String.fromCharCode(b); return [f.name, btoa(s)]; }"""
     )
-    assert re.match(r"^\d{6}_GV90 온라인 동향 raw data\.xlsx$", b64[0]), b64[0]
+    assert re.match(r"^\d{6}_GV90 온라인 동향 게시글 raw data\.xlsx$", b64[0]), b64[0]
     wb = load_workbook(BytesIO(base64.b64decode(b64[1])))
     assert wb.sheetnames[0] == "제네시스"
     ws = wb["제네시스"]

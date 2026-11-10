@@ -16,7 +16,7 @@ YTDLP="${YTDLP:-$BIN/yt-dlp/yt-dlp_macos}"
 DENO="$BIN/deno"
 VFFMPEG="${VFFMPEG:-$BIN/ffmpeg}" # 영상 합치기용 (테스트에서 바꿔 끼울 수 있음)
 OUT="${OUT:-$HOME/Downloads}"
-VERSION=4 # 2: 영상 빠른 다운로드, 3: 영상 화질 선택, 4: 받은 파일의 출처 정보 지우기
+VERSION=5 # 2: 영상 빠른 다운로드, 3: 영상 화질 선택, 4: 받은 파일의 출처 정보 지우기, 5: 지운 뒤 정말 지워졌는지 확인
 UPDATE_DAYS=3
 
 # ---- yt-dlp·Deno 설치/업데이트 ----
@@ -156,8 +156,15 @@ clean_meta() {
       ;;
   esac
   if [ -f "$path" ]; then
-    xattr -d com.apple.metadata:kMDItemWhereFroms "$path" 2> /dev/null
-    send '{"type":"cleaned","ok":true}'
+    local err
+    err=$(xattr -d com.apple.metadata:kMDItemWhereFroms "$path" 2>&1)
+    # 정말 지워졌는지 확인 (맥 권한에 막히면 남아 있음 → 이유를 알려 줌)
+    if xattr -p com.apple.metadata:kMDItemWhereFroms "$path" > /dev/null 2>&1; then
+      err=$(printf '%s' "$err" | tr -d '"\\' | tr '\n' ' ' | cut -c1-160)
+      send "{\"type\":\"cleaned\",\"ok\":false,\"still\":true,\"why\":\"$err\"}"
+    else
+      send '{"type":"cleaned","ok":true}'
+    fi
   else
     send '{"type":"cleaned","ok":false}'
   fi

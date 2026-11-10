@@ -1037,7 +1037,7 @@ def test_helper_cleanmeta(tmp_path: Path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log = tmp_path / "xattr.log"
-    (bin_dir / "xattr").write_text(f"#!/bin/bash\nprintf '%s\\n' \"$@\" >> '{log}'\n")
+    (bin_dir / "xattr").write_text(f"#!/bin/bash\nprintf '%s\\n' \"$@\" >> '{log}'\n[ \"$1\" = -p ] && exit 1\nexit 0\n")
     (bin_dir / "xattr").chmod(0o755)
 
     def ask(path):
@@ -1049,7 +1049,7 @@ def test_helper_cleanmeta(tmp_path: Path):
         return json.loads(p.stdout[4:4 + n])
 
     assert ask(target) == {"type": "cleaned", "ok": True}
-    assert log.read_text().splitlines() == ["-d", "com.apple.metadata:kMDItemWhereFroms", str(target)]
+    assert log.read_text().splitlines() == ["-d", "com.apple.metadata:kMDItemWhereFroms", str(target), "-p", "com.apple.metadata:kMDItemWhereFroms", str(target)]
     log.unlink()
     assert ask(outside) == {"type": "cleaned", "ok": False}  # 내 폴더 밖
     assert ask(home / "Downloads" / "x.sh") == {"type": "cleaned", "ok": False}  # 엑셀·txt 가 아님

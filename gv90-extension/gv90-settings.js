@@ -184,7 +184,7 @@ const DEFAULT_SETTINGS = {
   workdays: "1,2,3,4,5", // 0=일 … 6=토
   holidays: DEFAULT_HOLIDAYS,
   // 엑셀 · 저장
-  fileName: "{날짜}_GV90 온라인 동향 raw data",
+  fileName: "{날짜}_GV90 온라인 동향 게시글 raw data", // 댓글 엑셀은 '… 댓글 raw data' 
   xlsxScope: "all", // all = 데일리 DB 누적(연번 이어짐) · today = 이번 보고분만
   saveFolder: "", // 다운로드 폴더 안 하위 폴더 (저장 폴더를 고르지 않았을 때)
   macFolderPath: "", // 맥: 고른 저장 폴더의 전체 경로 ('출처' 정보 지우기에 씀)
@@ -267,6 +267,8 @@ async function loadSettings() {
   if (!Array.isArray(s.cafes) || !s.cafes.length) s.cafes = DEFAULT_CAFES.map((c) => ({ ...c }));
   if (!Array.isArray(s.youtubeChannels) || !s.youtubeChannels.length) s.youtubeChannels = DEFAULT_YOUTUBE_CHANNELS.map((c) => ({ ...c }));
   if (!Array.isArray(s.communities) || !s.communities.length) s.communities = DEFAULT_COMMUNITIES.map((c) => ({ ...c }));
+  // 예전 기본 파일 이름 → 게시글 넣은 새 이름 (댓글 엑셀처럼)
+  if (s.fileName === "{날짜}_GV90 온라인 동향 raw data") s.fileName = DEFAULT_SETTINGS.fileName;
   for (const c of s.cafes) if (c.viaSearch === undefined) c.viaSearch = VIA_SEARCH_CAFES.includes(c.slug);
   // 기본 목록에 새로 들어간 카페: 저장된 목록에 없고 직접 지운 적도 없으면 기본 목록의 앞 카페 바로 뒤에 넣는다
   const removed = new Set(s.removedCafes || []);

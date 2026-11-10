@@ -269,7 +269,7 @@ $("#rangeXlsx").addEventListener("click", async (e) => {
   if (!posts.length) return setInfo("그 기간에 보고된 게시물이 없습니다.", "err");
   const daily = (await listDays()).filter((d) => d.day >= from && d.day <= to).reverse();
   const bytes = Gv90Xlsx.buildRaw({ posts, daily });
-  const where = await saveFile(bytes, `${from.slice(2)}-${to.slice(2)}_GV90 온라인 동향 raw data (기간).xlsx`);
+  const where = await saveFile(bytes, `${from.slice(2)}-${to.slice(2)}_GV90 온라인 동향 게시글 raw data (기간).xlsx`);
   setInfo(`✔ ${posts.length}건을 ${where} 저장했습니다.`, "ok");
   markSaved(btn, "✔ 기간 엑셀 저장 완료!", where);
   celebrate(btn);
