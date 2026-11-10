@@ -292,7 +292,47 @@ function renderComments(comments) {
     box.append(el("div", { class: "empty" }, "댓글 수집은 준비 중입니다.", el("br"), el("span", { class: "hint", text: "데일리 DB·엑셀('댓글' 시트)·이 칸은 이미 준비되어 있어, 댓글 수집을 붙이면 댓글 수와 댓글 성향이 여기에 바로 나옵니다." })));
     return;
   }
-  renderBars("#commentBox", group(comments, (c) => c.channel || "-"), CHANNELS);
+  // ① 전체 댓글 성향: 큰 막대 + 성향별 건수·비율
+  const g = group(comments, () => "all").get("all");
+  const n = total(g);
+  const bad = badOf(g);
+  const big = el("div", { class: "cbig" });
+  for (const x of SENTIMENTS) if (g[x]) big.append(el("div", { class: "seg", style: `flex:${g[x]};background:var(${SENT_VAR[x]})`, title: `${x} ${g[x]}개` }));
+  box.append(
+    el("div", { class: "chead" },
+      el("div", {}, el("span", { class: "cnum", text: n.toLocaleString() }), el("span", { class: "hint", text: " 개 댓글" })),
+      el("div", { class: `cbad${bad / n >= 0.3 ? " hot" : ""}`, text: `부정+단순비난 ${Math.round((bad / n) * 100)}%` }),
+    ),
+    big,
+    el("div", { class: "clegend" }, ...SENTIMENTS.map((x) => el("span", {}, sentiChip(x), el("b", { text: ` ${(g[x] || 0).toLocaleString()}` }), el("span", { class: "hint", text: ` (${n ? Math.round(((g[x] || 0) / n) * 100) : 0}%)` })))),
+  );
+  // ② 채널별 댓글 성향
+  box.append(el("h3", { class: "csub", text: "채널별 댓글 성향" }));
+  const bars = el("div", { class: "bars", id: "commentBars" });
+  box.append(bars);
+  renderBars("#commentBars", group(comments, (c) => c.channel || "-"), CHANNELS);
+  // ③ 부정 댓글이 많은 게시글 (상위 5)
+  const byPost = new Map();
+  for (const c of comments) {
+    const k = c.postKey || c.url;
+    if (!byPost.has(k)) byPost.set(k, { url: c.url, title: c.postTitle || c.url, channel: c.channel, media: c.media, n: 0, bad: 0 });
+    const o = byPost.get(k);
+    o.n++;
+    if (c.sentiment === "부정" || c.sentiment === "단순비난") o.bad++;
+  }
+  const top = [...byPost.values()].filter((o) => o.bad).sort((a, b) => b.bad - a.bad || b.n - a.n).slice(0, 5);
+  box.append(el("h3", { class: "csub", text: "부정 댓글이 많은 게시글" }));
+  if (!top.length) box.append(el("div", { class: "hint", text: "부정·단순비난 댓글이 있는 게시글이 없습니다." }));
+  for (const o of top) {
+    box.append(
+      el("div", { class: "ctop" },
+        chChip(o.channel),
+        el("a", { href: o.url, target: "_blank", text: o.title, title: `${o.media || ""} · ${o.title}` }),
+        el("span", { class: "cbadn", text: `부정 ${o.bad}` }),
+        el("span", { class: "hint", text: ` / ${o.n}개` }),
+      ),
+    );
+  }
 }
 
 function renderTable(sel, list) {

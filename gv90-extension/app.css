@@ -369,3 +369,14 @@ a.btnlink:hover { border-color: var(--brand-2); }
 .sline .sitem { margin-right: 4px; white-space: nowrap; }
 .sline .sbad { margin-left: auto; white-space: nowrap; }
 .dbsenti { margin: 4px 0 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); display: inline-grid; gap: 4px; }
+/* 대시보드: 댓글 · 댓글 성향 */
+#commentBox .chead { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+#commentBox .cnum { font-size: 28px; font-weight: 900; }
+#commentBox .cbad { font-weight: 800; color: var(--text-2); }
+#commentBox .cbad.hot { color: var(--neg); }
+#commentBox .cbig { display: flex; gap: 2px; height: 18px; border-radius: 6px; overflow: hidden; background: var(--surface-2); }
+#commentBox .clegend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 8px 0 4px; font-size: 13px; }
+#commentBox .csub { font-size: 13.5px; margin: 14px 0 4px; color: var(--text-2); }
+#commentBox .ctop { display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+#commentBox .ctop a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: inherit; }
+#commentBox .cbadn { color: var(--neg); font-weight: 800; }

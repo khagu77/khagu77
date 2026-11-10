@@ -108,7 +108,7 @@ function rpOpinionRows(list, color) {
     .join("");
 }
 
-function rpCard(c) {
+function rpCard(c, cardW = 50) {
   const sc = sentCount(c.reacts);
   const total = c.reacts.length;
   const pos = c.reacts.filter((r) => r.sentiment === "긍정");
@@ -119,7 +119,7 @@ function rpCard(c) {
   const stat = (k, v) => `<td style="width:33%;padding:0 3px"><div style="background:#f3f4f6;border-radius:6px;padding:8px 10px"><div style="font-size:12px;color:#6b7280">${k}</div><div style="font-size:21px;font-weight:800;color:#111827">${v.toLocaleString()}<span style="font-size:12px;font-weight:400;color:#6b7280"> 건</span></div></div></td>`;
   const media = c.media.slice(0, 6).join(" · ") + (c.media.length > 6 ? ` 외 ${c.media.length - 6}곳` : "");
   return (
-    `<td style="width:50%;padding:6px;vertical-align:top">` +
+    `<td style="width:${cardW}%;padding:6px;vertical-align:top">` +
     `<div style="border:1px solid #e5e7eb;border-top:4px solid ${color};border-radius:8px;padding:10px 12px;background:#fff">` +
     `<div><span style="display:inline-block;background:${color};color:#fff;font-weight:800;font-size:15px;padding:3px 12px;border-radius:999px">${rpEsc(c.ch === "자동차 커뮤니티" ? "커뮤니티" : c.ch)}</span> <span style="color:#6b7280;font-size:12px">${c.media.length}곳</span></div>` +
     `<div style="color:#6b7280;font-size:12px;margin:4px 0 8px;line-height:1.4">${rpEsc(media)}</div>` +
@@ -135,6 +135,10 @@ function rpCard(c) {
   );
 }
 
+// 대시보드 폭: 채널 카드 4개가 한 줄에 들어가게 넓게 (왼쪽 남색 칸 300 + 오른쪽)
+const RP_WIDTH = 1680;
+const RP_BANNER_W = 640;
+
 // 전체 보고 대시보드 HTML. banner: 그림 주소("" 이면 그림 없이) · summary: [줄1, 줄2] · editable: 화면에서 요약을 고칠 수 있게
 function reportHtml(d, { banner = "", summary = null, editable = false, now = new Date() } = {}) {
   const sc = sentCount(d.reacts);
@@ -144,8 +148,9 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
   const chNames = { 언론: "언론", 동호회: "동호회", 유튜브: "유튜브", "자동차 커뮤니티": "커뮤니티" };
   const chText = d.channels.map((c) => `${chNames[c.ch]} ${c.media.length}${c.ch === "유튜브" ? "개 채널" : "곳"}`).join(" · ");
   const ed = editable ? ' contenteditable="true" data-summary' : "";
-  const cards = [];
-  for (let i = 0; i < d.channels.length; i += 2) cards.push(`<tr>${rpCard(d.channels[i])}${d.channels[i + 1] ? rpCard(d.channels[i + 1]) : '<td style="width:50%"></td>'}</tr>`);
+  // 채널 카드는 한 줄에 모두 (언론 · 유튜브 · 동호회 · 커뮤니티)
+  const cardW = Math.floor(100 / Math.max(1, d.channels.length));
+  const cards = [`<tr>${d.channels.map((c) => rpCard(c, cardW)).join("")}</tr>`];
   const catRows = d.categories
     .sort((a, b) => b.reacts.length - a.reacts.length)
     .map((c) => {
@@ -163,7 +168,7 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
     })
     .join("");
   return (
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:1180px;border-collapse:collapse;font-family:${RP_FONT};background:#ffffff;border:1px solid #e5e7eb"><tr>` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:${RP_WIDTH}px;border-collapse:collapse;font-family:${RP_FONT};background:#ffffff;border:1px solid #e5e7eb"><tr>` +
     // 왼쪽 남색 칸
     `<td style="width:300px;background:${RP_NAVY};color:#ffffff;vertical-align:top;padding:22px 22px">` +
     `<div style="font-size:14px;opacity:.9">GV90(JG1) 관련 여론 동향</div>` +
@@ -185,16 +190,21 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
     `</td>` +
     // 오른쪽
     `<td style="vertical-align:top;padding:16px 16px 12px">` +
-    (banner ? `<img src="${rpEsc(banner)}" width="848" alt="GV90" style="display:block;width:848px;max-width:100%;height:auto;border-radius:8px;margin-bottom:12px">` : "") +
-    `<div style="border:1px solid #e5e7eb;border-left:5px solid ${RP_NAVY};border-radius:6px;padding:10px 14px;margin-bottom:10px;background:#f9fafb">` +
-    lines.map((l, i) => `<div style="font-size:16px;font-weight:800;color:#111827;line-height:1.6"${ed}${editable ? `="${i}"` : ""}>• ${rpEsc(String(l).replace(/^•\s*/, ""))}</div>`).join("") +
-    `</div>` +
+    // 위: 그림(왼쪽) + 요약 두 줄(오른쪽) — 넓은 화면에서 그림이 너무 커지지 않게 나란히
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;margin-bottom:6px"><tr>` +
+    (banner ? `<td style="width:${RP_BANNER_W}px;padding:0 6px 0 0;vertical-align:top"><img src="${rpEsc(banner)}" width="${RP_BANNER_W}" alt="GV90" style="display:block;width:${RP_BANNER_W}px;max-width:100%;height:auto;border-radius:8px"></td>` : "") +
+    `<td style="vertical-align:middle;padding:0 6px">` +
+    `<div style="border:1px solid #e5e7eb;border-left:5px solid ${RP_NAVY};border-radius:6px;padding:12px 16px;background:#f9fafb">` +
+    lines.map((l, i) => `<div style="font-size:16px;font-weight:800;color:#111827;line-height:1.7"${ed}${editable ? `="${i}"` : ""}>• ${rpEsc(String(l).replace(/^•\s*/, ""))}</div>`).join("") +
+    `</div></td></tr></table>` +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse">${cards.join("")}</table>` +
     (catRows
       ? `<div style="border:1px solid #e5e7eb;border-radius:8px;margin:10px 6px 0;overflow:hidden">` +
         `<div style="background:#f3f4f6;padding:8px 12px;font-size:14px"><b style="color:${RP_NAVY}">구분(이슈)별 반응</b> <span style="color:#6b7280">(${d.comments.some((c) => c.sentiment) ? "반응" : "게시글"} 기준 · 가장 많이 나온 내용)</span></div>` +
         `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse">${catRows}</table></div>`
       : "") +
+    // 오른쪽 아래 서명
+    `<div style="text-align:right;margin:12px 8px 0;font-size:12px;color:#9ca3af;letter-spacing:.5px">by <b style="color:${RP_NAVY};letter-spacing:1px">LINESQUARE</b></div>` +
     `</td></tr></table>`
   );
 }
