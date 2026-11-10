@@ -267,6 +267,10 @@
 
   // posts: 연번 순 게시물 · daily: 일자별 집계(데일리 DB days) · 댓글 시트는 넣지 않음
   function buildRaw({ posts, daily = null }) {
+    return build(rawSheets({ posts, daily }));
+  }
+
+  function rawSheets({ posts, daily = null }) {
     const sheets = [
       {
         name: RAW_SHEET,
@@ -322,11 +326,25 @@
         },
       });
     }
-    return build(sheets);
+    return sheets;
   }
 
   // 댓글 raw data: '댓글' 시트(게시물 양식과 같은 열 + 댓글) · '게시글별 댓글 성향' 시트
   function buildComments({ comments, posts }) {
+    return build(commentSheets({ comments, posts }));
+  }
+
+  // 최종 엑셀: 게시글 · 게시글 댓글 성향 · 일자별 집계 (3개 탭)
+  function buildFinal({ posts, comments = [], daily = null }) {
+    const raw = rawSheets({ posts, daily });
+    const sheets = [{ ...raw[0], name: "게시글" }];
+    if (comments.length) sheets.push({ ...commentSheets({ comments, posts })[1], name: "게시글 댓글 성향" });
+    const day = raw.find((x) => x.name === "일자별 집계");
+    if (day) sheets.push(day);
+    return build(sheets);
+  }
+
+  function commentSheets({ comments, posts }) {
     const SENT = ["긍정", "중립", "부정", "단순비난"];
     const byPost = new Map();
     for (const c of comments) {
@@ -392,7 +410,7 @@
         })(),
       },
     ];
-    return build(sheets);
+    return sheets;
   }
 
   // ------------------------------------------------------------- 읽기 (기존 raw data 등록 · 수정본 올리기)
@@ -529,5 +547,5 @@
     return out;
   }
 
-  global.Gv90Xlsx = { build, buildRaw, buildComments, read, RAW_SHEET, RAW_COLUMNS };
+  global.Gv90Xlsx = { build, buildRaw, buildComments, buildFinal, read, RAW_SHEET, RAW_COLUMNS };
 })(typeof window !== "undefined" ? window : globalThis);

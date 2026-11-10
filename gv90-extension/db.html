@@ -28,6 +28,14 @@
     <section>
       <h2 class="dbtitle">🗄 데일리 DB <span class="dbsub" id="dbSummary"></span></h2>
       <div id="dbSenti" class="dbsenti" hidden></div>
+      <div id="finalBox" class="finalbox" hidden>
+        <div class="finalinfo">
+          <div class="finaltitle">📦 최종 보고 파일 <span id="finalDay" class="hint"></span></div>
+          <div id="finalStatus" class="hint"></div>
+          <div class="hint">탭 3개: <b>게시글</b> · <b>게시글 댓글 성향</b> · <b>일자별 집계</b></div>
+        </div>
+        <button id="finalXlsx" class="getbtn finalbtn">📦 최종 엑셀 받기</button>
+      </div>
       <div class="hint">수집 화면에서 <b>엑셀 만들기</b>를 누를 때마다 그날(보고일) 게시물이 여기에 쌓입니다. 엑셀에서 고친 파일은 그 날짜에 <b>수정본 올리기</b>로 반영하세요(같은 URL 의 구분·주요 내용·성향을 바꿈).</div>
       <div class="buttons">
         <button id="importRaw" class="small">📂 기존 raw data 엑셀 등록</button>

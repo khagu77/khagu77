@@ -326,6 +326,16 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     first = page.locator("#days tbody tr").first.inner_text()
     assert "게시글" in first and "댓글" in first and "총평가" in first, first
     assert page.is_visible("#dbSenti") and "총평가" in page.inner_text("#dbSenti")
+    # 최종 엑셀 받기: 게시글 · 게시글 댓글 성향 · 일자별 집계 (댓글이 없으면 댓글 탭 없이)
+    assert page.is_visible("#finalXlsx")
+    fb = page.evaluate("""(async () => {
+      const day = document.querySelector('#finalBox').dataset.day;
+      const posts = await postsOfDay(day);
+      const bytes = Gv90Xlsx.buildFinal({ posts, comments: [{ postKey: posts[0].key, text: 'GV90 좋네요', sentiment: '긍정', category: '디자인', date: Date.now() }], daily: (await listDays()).reverse() });
+      let s = ''; for (const b of bytes) s += String.fromCharCode(b); return btoa(s);
+    })()""")
+    wf = load_workbook(BytesIO(base64.b64decode(fb)))
+    assert wf.sheetnames == ["게시글", "게시글 댓글 성향", "일자별 집계"], wf.sheetnames
     page.locator("#days tbody tr").first.locator("button", has_text="게시물 보기").click()
     page.locator("#dayPosts tbody tr .counts.hot").first.wait_for()
 

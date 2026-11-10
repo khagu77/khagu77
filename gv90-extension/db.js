@@ -300,4 +300,50 @@ $("#backupFile").addEventListener("change", async (e) => {
 $("#dayFilter").addEventListener("input", () => openDay && showDay(openDay));
 $("#daySenti").addEventListener("change", () => openDay && showDay(openDay));
 
-const dbInit = render();
+// ---------------------------------------------------------------------------
+// 최종 엑셀: 최근 보고일 — 게시글 · 게시글 댓글 성향 · 일자별 집계 (댓글 수집까지 끝나면 버튼이 반짝임)
+// ---------------------------------------------------------------------------
+
+const commentable = (p) => p.channel !== "언론" || /news\.naver\.com/.test(p.url || "");
+
+async function renderFinal() {
+  const days = await listDays();
+  const box = $("#finalBox");
+  box.hidden = !days.length;
+  if (!days.length) return;
+  const day = days[0].day;
+  const posts = await postsOfDay(day);
+  const targets = posts.filter(commentable);
+  const done = targets.filter((p) => p.commentStatus);
+  const keys = new Set(posts.map((p) => p.key));
+  const nComments = (await allComments()).filter((c) => keys.has(c.postKey)).length;
+  const complete = targets.length > 0 && done.length === targets.length;
+  $("#finalDay").textContent = `(${prettyDay(day)} 보고분)`;
+  $("#finalStatus").innerHTML = complete
+    ? `✅ <b>댓글 수집 완료</b> — 게시글 ${posts.length}건 · 댓글 ${nComments.toLocaleString()}개. 최종 엑셀을 받으세요.`
+    : `⏳ 댓글 수집 ${done.length}/${targets.length} 게시글 — 댓글 수집 화면에서 마저 수집하면 버튼이 반짝입니다 (지금 받아도 됩니다).`;
+  const btn = $("#finalXlsx");
+  if (!btn.dataset.saved) readyButton(btn, complete);
+  box.classList.toggle("done", complete);
+  box.dataset.day = day;
+}
+
+$("#finalXlsx").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  if (!confirmResave(btn)) return;
+  await prepareSaveDir();
+  const day = $("#finalBox").dataset.day;
+  const s = await loadSettings();
+  const posts = s.xlsxScope === "today" ? await postsOfDay(day) : (await allPosts()).filter((p) => p.day <= day);
+  const dayKeys = new Set((await postsOfDay(day)).map((p) => p.key));
+  const comments = (await allComments()).filter((c) => dayKeys.has(c.postKey));
+  const daily = (await listDays()).filter((d) => d.day <= day).reverse();
+  const bytes = Gv90Xlsx.buildFinal({ posts, comments, daily });
+  const name = reportFileName({ ...s, fileName: String(s.fileName || "").replace(/\s*게시글\s*/g, " ").replace(/raw data/i, "").replace(/\s+/g, " ").trim() + " 최종" }, new Date(+day.slice(0, 4), +day.slice(4, 6) - 1, +day.slice(6, 8)));
+  const where = await saveFile(bytes, name);
+  setInfo(`✔ 최종 엑셀(게시글 ${posts.length}건 · 댓글 ${comments.length}개)을 ${where} 저장했습니다.`, "ok");
+  markSaved(btn, "✔ 최종 엑셀 저장 완료!", where);
+  celebrate(btn);
+});
+
+const dbInit = render().then(renderFinal);
