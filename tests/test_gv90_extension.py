@@ -448,7 +448,12 @@ def test_gv90_comments(ext, tmp_path: Path):
     assert ws.max_row - 1 == n1
     assert "판매·출고" in [r[7].value for r in ws.iter_rows(min_row=2)]
     assert isinstance(wb["게시글별 댓글 성향"]["A2"].value, int)  # 게시글 번호는 숫자 (오류 표시 안 나게)
-    assert [c.value for c in wb["게시글별 댓글 성향"][1]] == ["No", "커뮤니티명", "게시글 위치", "주요 내용 · 댓글", "게시일 · 작성일", "구분", "성향"]
+    wg = wb["게시글별 댓글 성향"]
+    assert [c.value for c in wg[1]] == ["No", "커뮤니티명 / 게시글 위치", "제목", "주요 내용 · 댓글", "게시일 · 작성일", "구분", "성향"]
+    # 게시글 줄: 커뮤니티명 · 제목 / 첫 댓글 줄 B칸: 게시글 위치(링크)
+    assert wg["A2"].value == 1 and wg["B2"].value and wg["C2"].value
+    assert wg["A3"].value == "1-1" and str(wg["B3"].value).startswith("http") and wg["B3"].hyperlink is not None
+    assert wg["A4"].value != "1-2" or not wg["B4"].value
     # 대시보드: 반응 = 게시글 + 댓글 성향
     page.goto(f"chrome-extension://{ext_id}/dashboard.html")
     page.evaluate("dashInit")

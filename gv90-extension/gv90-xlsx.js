@@ -365,12 +365,14 @@
         name: "게시글별 댓글 성향",
         headHeight: HEAD_H,
         columns: [
+          // 게시글 줄: 커뮤니티명 · 제목 · 주요 내용[댓글 성향 건수] · 게시일 · 구분 · 성향
+          // 첫 댓글 줄의 B칸에 게시글 위치(링크), 댓글 줄: 댓글 · 작성일 · 구분 · 성향
           { header: "No", width: 7, style: "center", headStyle: H },
-          { header: "커뮤니티명", width: 18.5, style: "center", headStyle: H },
-          { header: "게시글 위치", width: 46, style: "link", link: true, headStyle: H },
+          { header: "커뮤니티명 / 게시글 위치", width: 46, style: "link", link: true, headStyle: H },
+          { header: "제목", width: 40, style: "text", headStyle: H },
           { header: "주요 내용 · 댓글", width: 80, style: "text", headStyle: H },
           { header: "게시일 · 작성일", width: 15, style: "center", headStyle: H },
-          { header: "구분", width: 35.66, style: "text", headStyle: H },
+          { header: "구분", width: 30, style: "center", headStyle: H },
           { header: "성향", width: 10, style: "center", headStyle: H },
         ],
         ...(() => {
@@ -385,10 +387,10 @@
           [...byPost.entries()].forEach(([k, list], pi) => {
             const p = postOf.get(k) || list[0];
             const cnt = SENT.map((x) => `${x} ${list.filter((c) => c.sentiment === x).length}`).join(" · ");
-            rows.push([pi + 1, p.media || "", p.url, `${p.summary || p.title || ""}   [댓글 ${list.length}개: ${cnt}]`, when(p.date, false), p.category || "", p.sentiment || ""]);
+            rows.push([pi + 1, p.media || "", p.title || p.postTitle || "", `${p.summary || p.title || ""}   [댓글 ${list.length}개: ${cnt}]`, when(p.date, false), p.category || "", p.sentiment || ""]);
             kinds.push("post");
             list.forEach((c, ci) => {
-              rows.push([`${pi + 1}-${ci + 1}`, "", "", `${c.isReply ? "↪ 답글: " : "↳ "}${c.text || ""}`, when(c.date, true) || c.writtenAt || "", c.category || "", c.sentiment || ""]);
+              rows.push([`${pi + 1}-${ci + 1}`, ci === 0 ? p.url || c.url || "" : "", "", `${c.isReply ? "↪ 답글: " : "↳ "}${c.text || ""}`, when(c.date, true) || c.writtenAt || "", c.category || "", c.sentiment || ""]);
               kinds.push(c.isReply ? "reply" : "comment");
             });
           });
@@ -397,9 +399,10 @@
             cellStyle: (ri, ci, v) => {
               if (ci === 6) return SENTI_S[v] || "center";
               if (ci === 5) return kinds[ri] === "post" ? "total" : "center";
-              if (kinds[ri] === "post") return ci === 2 ? "postLink" : ci === 3 ? "postText" : "total";
+              if (kinds[ri] === "post") return ci === 1 || ci === 2 || ci === 3 ? "postText" : "total";
+              if (ci === 1) return "link";
               if (ci === 3) return kinds[ri] === "reply" ? "replyText" : "commentText";
-              return null;
+              return "center";
             },
           };
         })(),
