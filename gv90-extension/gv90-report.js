@@ -29,9 +29,8 @@ function reportData(days, allPosts, allComments) {
   const comments = allComments.filter((c) => set.has(c.day));
   const from = Math.min(...days.map((d) => d.from || new Date(+d.day.slice(0, 4), +d.day.slice(4, 6) - 1, +d.day.slice(6, 8)).getTime() - 86400000));
   const to = Math.max(...days.map((d) => d.to || new Date(+d.day.slice(0, 4), +d.day.slice(4, 6) - 1, +d.day.slice(6, 8)).getTime()));
-  // 반응 = 게시물 + (성향을 판정한) 댓글 · 댓글의 구분은 게시글의 지금 구분('모두 포함(…)' 포함)
-  const catOf = new Map(posts.map((p) => [p.key, p.category]));
-  const reacts = [...posts.map((p) => ({ ...p, kind: "post" })), ...comments.filter((c) => c.sentiment).map((c) => ({ ...c, kind: "comment", summary: c.summary || c.text, category: catOf.get(c.postKey) || c.category }))];
+  // 반응 = 게시물 + (성향을 판정한) 댓글 · 댓글은 댓글마다 자기 구분('모두 포함(…)' 포함)
+  const reacts = [...posts.map((p) => ({ ...p, kind: "post" })), ...comments.filter((c) => c.sentiment).map((c) => ({ ...c, kind: "comment", summary: c.summary || c.text }))];
   const ccount = (list) => Math.max(list.reduce((s, p) => s + (p.ccount || 0), 0), 0);
   const channels = CHANNELS.map((ch) => {
     const ps = posts.filter((p) => p.channel === ch);

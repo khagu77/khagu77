@@ -230,7 +230,9 @@ async function collect() {
           channel: p.channel,
           media: p.media,
           car: p.car || CAR_NAME,
-          category: p.category || "",
+          category: ruleCategory(c.text), // 댓글마다 내용으로 구분 (원글과 다른 이야기를 할 수 있음)
+          catBy: "rule",
+          catOwn: true,
           postTitle: p.title || p.summary || "",
           sentiment: ruleSentiment(c.text),
           by: "rule",
@@ -296,6 +298,11 @@ function renderComments() {
     } });
     for (const v of SENTIMENTS) sen.add(new Option(v, v));
     sen.value = c.sentiment || "중립";
+    const cat = categorySelect(c.category || "일반", async (v) => {
+      c.category = v;
+      c.edited = [...new Set([...(c.edited || []), "category"])];
+      await updateComment(c.key, { category: c.category, edited: c.edited, catOwn: true });
+    });
     const p = postOf.get(c.postKey);
     tb.append(
       el("tr", {},
@@ -304,11 +311,12 @@ function renderComments() {
         el("td", {}, el("a", { href: c.url, target: "_blank", text: (p?.summary || p?.title || c.postTitle || "").slice(0, 30) })),
         el("td", { class: "nowrap hint", text: c.writtenAt || (c.date ? fmtDateTime(c.date) : "") }),
         el("td", {}, c.isReply ? el("span", { class: "hint", text: "↳ " }) : null, c.text, c.by === "ai" ? el("span", { class: "badge ai", text: " AI" }) : null),
+        el("td", {}, cat),
         el("td", {}, sen),
       ),
     );
   }
-  if (list.length > 2000) tb.append(el("tr", {}, el("td", { colspan: 6, class: "hint", text: `… 2,000개까지만 보입니다 (전체 ${list.length.toLocaleString()}개는 엑셀에)` })));
+  if (list.length > 2000) tb.append(el("tr", {}, el("td", { colspan: 7, class: "hint", text: `… 2,000개까지만 보입니다 (전체 ${list.length.toLocaleString()}개는 엑셀에)` })));
   updateCommentCount();
 }
 
@@ -325,17 +333,27 @@ async function reanalyzeRule() {
   setExtraLexicon(settings.lexicon);
   const changed = [];
   for (const c of comments) {
-    if ((c.edited || []).includes("sentiment")) continue;
-    const s = ruleSentiment(c.text);
-    if (s !== c.sentiment || c.by !== "rule") {
-      c.sentiment = s;
-      c.by = "rule";
-      changed.push(c);
+    let ch = false;
+    if (!(c.edited || []).includes("sentiment")) {
+      const s = ruleSentiment(c.text);
+      if (s !== c.sentiment || c.by !== "rule") {
+        c.sentiment = s;
+        c.by = "rule";
+        ch = true;
+      }
     }
+    if (!(c.edited || []).includes("category")) {
+      const k = ruleCategory(c.text);
+      if (k !== c.category || c.catBy !== "rule") {
+        Object.assign(c, { category: k, catBy: "rule", catOwn: true });
+        ch = true;
+      }
+    }
+    if (ch) changed.push(c);
   }
   await putComments(changed);
   renderComments();
-  setSummary(`무료 분석으로 다시 정했습니다 (바뀐 댓글 ${changed.length}개 · 직접 고친 성향은 그대로).`, "ok");
+  setSummary(`무료 분석으로 다시 정했습니다 (구분·성향 · 바뀐 댓글 ${changed.length}개 · 직접 고친 값은 그대로).`, "ok");
 }
 
 async function analyzeAi() {
@@ -361,6 +379,7 @@ async function analyzeAi() {
       const c = byKey.get(x.key);
       c.sentiment = r.sentiment;
       c.by = "ai";
+      if (!(c.edited || []).includes("category")) Object.assign(c, { category: r.category, catBy: "ai", catOwn: true });
     },
   });
   await putComments(list);

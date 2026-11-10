@@ -398,10 +398,18 @@ def test_gv90_comments(ext, tmp_path: Path):
     wait_js(page, "!running", 60000)
     assert page.evaluate("(async () => (await allComments()).length)()") == n1
     # 댓글 표에서 성향 고치기 → DB
-    sel = page.locator("#commentTable tbody tr", has_text="출시 일정 궁금합니다").locator("select")
+    # 댓글 구분은 댓글마다 내용으로 (원글 구분 '가격'을 복사하지 않음)
+    cats = page.evaluate("(async () => (await allComments()).map((c) => [c.category, ruleCategory(c.text)]))()")
+    assert all(a == b for a, b in cats), cats
+    assert any(a != "가격" for a, _ in cats)
+    sel = page.locator("#commentTable tbody tr", has_text="출시 일정 궁금합니다").locator("select.senti")
     sel.select_option("부정")
     page.wait_for_timeout(300)
     assert page.evaluate("(async () => (await allComments()).find((c) => c.text === '출시 일정 궁금합니다').sentiment)()") == "부정"
+    # 댓글 표에서 구분 고치기 → DB (직접 고친 값)
+    page.locator("#commentTable tbody tr", has_text="출시 일정 궁금합니다").locator("select.cat").select_option("판매·출고")
+    page.wait_for_timeout(300)
+    assert page.evaluate("(async () => (await allComments()).find((c) => c.text === '출시 일정 궁금합니다').category)()") == "판매·출고"
     # 댓글 엑셀
     page.click("#makeXlsx")
     page.locator("#saveInfo", has_text="저장했습니다").wait_for()
@@ -412,6 +420,8 @@ def test_gv90_comments(ext, tmp_path: Path):
     ws = wb["댓글"]
     assert [c.value for c in ws[1]] == ["연번", "커뮤니티명", "차종", "작성일", "구분", "게시글 위치", "댓글", "성향"]
     assert ws.max_row - 1 == n1
+    assert "판매·출고" in [r[4].value for r in ws.iter_rows(min_row=2)]
+    assert [c.value for c in wb["게시글별 댓글 성향"][1]] == ["No", "커뮤니티명", "게시글 위치", "주요 내용 · 댓글", "게시일 · 작성일", "구분", "성향"]
     # 대시보드: 반응 = 게시글 + 댓글 성향
     page.goto(f"chrome-extension://{ext_id}/dashboard.html")
     page.evaluate("dashInit")

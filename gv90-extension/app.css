@@ -346,3 +346,4 @@ a.btnlink:hover { border-color: var(--brand-2); }
 .cat-pop label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .cat-pop .buttons { display: flex; gap: 6px; justify-content: flex-end; margin-top: 4px; }
 #results select.cat { width: 100%; text-overflow: ellipsis; }
+#commentTable select.cat { width: 150px; }

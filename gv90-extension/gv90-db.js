@@ -177,8 +177,15 @@ async function deletePosts(keys) {
 // 댓글 (확장용: 댓글 수집을 붙이면 여기에 저장 → 엑셀 '댓글' 시트·대시보드 댓글 칸이 자동으로 채워짐)
 // ---------------------------------------------------------------------------
 
+// 댓글 구분은 댓글 내용마다 따로 판단 (1.2.2 전에는 게시글 구분을 복사해 두었음)
+function ownCommentCategory(c) {
+  if (c.catOwn || typeof ruleCategory !== "function") return c;
+  if ((c.edited || []).includes("category") || c.catBy === "ai") return { ...c, catOwn: true };
+  return { ...c, category: ruleCategory(c.text || ""), catBy: "rule", catOwn: true };
+}
+
 async function allComments() {
-  return (await getAll("comments")).sort((a, b) => String(a.day).localeCompare(String(b.day)) || (a.serial || 0) - (b.serial || 0));
+  return (await getAll("comments")).map(ownCommentCategory).sort((a, b) => String(a.day).localeCompare(String(b.day)) || (a.serial || 0) - (b.serial || 0));
 }
 
 async function commentsOfPost(postKey) {
