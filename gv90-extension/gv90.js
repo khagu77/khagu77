@@ -832,12 +832,20 @@ async function collect() {
 }
 
 // 커뮤니티 글 화면: 제목·본문·작성 시각·조회수·댓글 수 (댓글 본문은 읽지 않음 — 댓글 수집 단계에서)
+// 본문 글자만: 스크립트·스타일·동영상 대체 문구("Your browser does not support the video tag") 등은 빼고 읽음
+function bodyTextOf(e) {
+  if (!e) return "";
+  const c = e.cloneNode(true);
+  c.querySelectorAll("script, style, noscript, template, video, audio, iframe, object, embed, svg, canvas, button, select").forEach((x) => x.remove());
+  return textOf(c);
+}
+
 async function readCommunityInfo(post) {
   const ad = communityAdapter(post.siteUrl || post.url);
   const doc = await fetchDocument(post.url);
   let body = "";
   for (const sel of ad.bodySelectors || []) {
-    const t = textOf(doc.querySelector(sel));
+    const t = bodyTextOf(doc.querySelector(sel));
     if (t) {
       body = t;
       break;

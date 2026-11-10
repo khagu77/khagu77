@@ -85,17 +85,29 @@ function ruleCategory(text) {
 }
 
 // 주요 내용 (규칙): 제목을 다듬고, 본문 첫 문장이 있으면 짧게 덧붙임
+// 본문에 섞여 들어온 군더더기(스크립트 코드·동영상 대체 문구·링크) 빼기
+function cleanBody(s) {
+  return String(s || "")
+    .replace(/window\.onload[\s\S]*?(?=[가-힣]{2}|$)/g, " ")
+    .replace(/\$\(\s*(?:document|window|function)[\s\S]*?(?=[가-힣]{2}|$)/g, " ")
+    .replace(/(?:function\s*\([^)]*\)\s*\{|var\s+\w+\s*=|document\.\w+|\}\s*\)\s*;?)/g, " ")
+    .replace(/Your browser does not support[^.]*\.?/gi, " ")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function ruleSummary({ title = "", body = "" }) {
   const clean = (s) => String(s || "").replace(/\s+/g, " ").replace(/^\[[^\]]{1,12}\]\s*/, "").trim();
   const t = clean(title);
-  const first = clean(body).split(/(?<=[.!?。]|다\.|요\.)\s+/)[0] || "";
+  const first = clean(cleanBody(body)).split(/(?<=[.!?。]|다\.|요\.)\s+/)[0] || "";
   const add = first && !t.includes(first.slice(0, 12)) ? ` - ${first.slice(0, 60)}${first.length > 60 ? "…" : ""}` : "";
   return (t + add).slice(0, 120);
 }
 
 // 규칙 분석 한 건: x = { title, body|text } → { sentiment, category, summary, car }
 function ruleAnalyze(x) {
-  const text = `${x.title || ""} ${x.body || x.text || ""}`;
+  const text = `${x.title || ""} ${cleanBody(x.body || x.text || "")}`;
   return {
     sentiment: ruleSentiment(text),
     category: ruleCategory(text),
