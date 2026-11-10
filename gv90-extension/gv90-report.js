@@ -262,11 +262,12 @@ function rpChannelRow(c, rowW) {
     right = opCell("긍정 주요 내용", "#1f5fbf", pos, posTop) + opCell("부정 주요 내용", "#d0021b", neg, negTop);
   }
   return (
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${rowW}" style="width:${rowW}px;border-collapse:separate;border:1px solid #e5e7eb;border-left:5px solid ${color};border-radius:8px;background:#ffffff"><tr><td bgcolor="#ffffff" style="background:#ffffff;padding:10px">` +
+    // 테두리·둥근 모서리는 표가 아니라 상자(div)에 — 메일 프로그램이 표의 둥근 모서리를 지우거나 칸 바탕이 모서리를 덮지 않게
+    `<div style="width:${inW}px;border:1px solid #e5e7eb;border-left:5px solid ${color};border-radius:8px;background:#ffffff;padding:10px;overflow:hidden">` +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${inW}" style="width:${inW}px;table-layout:fixed;border-collapse:collapse"><tr>` +
     `<td width="${leftW}" style="width:${leftW}px;vertical-align:top">${box(leftW, left)}</td>` +
     right +
-    `</tr></table></td></tr></table>`
+    `</tr></table></div>`
   );
 }
 
@@ -287,6 +288,7 @@ const RP_LEFT = 240; // 왼쪽 남색 칸 폭
 const RP_LEFT_IN = RP_LEFT - 36; // 안쪽 폭 (여백 18 · 18)
 const RP_BANNER_W = 470;
 const RP_BANNER_H = Math.round((RP_BANNER_W * 350) / 1000); // report-banner.jpg 1000×350
+const RP_BASE_TIME = "15:00"; // 대시보드 '○○ 기준' 시각 (고정)
 const RP_R = 14; // 바깥 모서리 둥글기
 const RP_RIGHT_W = RP_WIDTH - 2 - RP_LEFT - 34; // 오른쪽 여백 12 + 20 (둥근 모서리 안쪽에 들어오게) + 여유 2 // 오른쪽 칸 안쪽 폭 (메일에 붙여도 칸 폭이 그대로 되게 px 로 고정)
 
@@ -330,7 +332,8 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
     `<div style="color:#ffffff;font-size:27px;font-weight:900;letter-spacing:.3px;margin:2px 0 10px">DASHBOARD</div>` +
     `<div style="color:#ffffff;font-size:13px;opacity:.85">모니터링 기간</div>` +
     `<div style="color:#ffffff;font-size:13.5px;font-weight:800;margin:2px 0;letter-spacing:-0.6px">${mdw(d.from)} ~ ${mdw(d.to)}</div>` +
-    `<div style="color:#ffffff;font-size:12px;opacity:.8">${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")} 기준</div>` +
+    // 기준 시각: 날짜는 그날(작성일), 시각은 15:00 고정
+    `<div style="color:#ffffff;font-size:12px;opacity:.8">${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${RP_BASE_TIME} 기준</div>` +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${RP_LEFT_IN}" bgcolor="${RP_NAVY}" style="width:${RP_LEFT_IN}px;border-collapse:collapse;margin:16px 0 14px;background:${RP_NAVY}"><tr><td height="1" style="height:1px;padding:0;background:#4a6390;font-size:0;line-height:0;mso-line-height-rule:exactly">&nbsp;</td></tr></table>` +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" bgcolor="${RP_NAVY}" style="border-collapse:collapse;color:#ffffff;background:${RP_NAVY}"><tr>` +
     [["게시글", d.posts.length], ["댓글", d.totalComments], ["반응", d.posts.length + d.totalComments]]
@@ -350,13 +353,15 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
     (banner ? `<td width="${RP_BANNER_W + 6}" style="width:${RP_BANNER_W}px;padding:0 6px 0 0;vertical-align:top"><img src="${rpEsc(banner)}" width="${RP_BANNER_W}" height="${RP_BANNER_H}" alt="GV90" style="display:block;width:${RP_BANNER_W}px;height:${RP_BANNER_H}px;border-radius:8px"></td>` : "") +
     `<td style="vertical-align:top;padding:0 0 0 6px">` +
     // 요약 칸 높이를 그림 높이와 같게 (테두리 1+1 · 위아래 여백 포함)
-    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" height="${banner ? RP_BANNER_H : ""}" style="width:100%;${banner ? `height:${RP_BANNER_H}px;` : ""}border-collapse:separate;border:1px solid #e5e7eb;border-left:5px solid ${RP_NAVY};border-radius:6px;background:#f9fafb"><tr><td bgcolor="#f9fafb" style="background:#f9fafb;padding:10px 16px;vertical-align:middle">` +
+    // 테두리·둥근 모서리는 상자(div)에, 가운데 맞춤은 안쪽 표로 (높이 = 그림 높이)
+    `<div style="border:1px solid #e5e7eb;border-left:5px solid ${RP_NAVY};border-radius:6px;background:#f9fafb;padding:0 16px;overflow:hidden">` +
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" height="${banner ? RP_BANNER_H - 2 : ""}" style="width:100%;${banner ? `height:${RP_BANNER_H - 2}px;` : ""}border-collapse:collapse"><tr><td style="padding:8px 0;vertical-align:middle">` +
     lines.map((l, i) => `<div style="font-size:13.5px;font-weight:800;color:#111827;line-height:1.6;letter-spacing:-0.6px"${ed}${editable ? `="${i}"` : ""}>• ${rpEsc(String(l).replace(/^•\s*/, ""))}</div>`).join("") +
-    `</td></tr></table></td></tr></table>` +
+    `</td></tr></table></div></td></tr></table>` +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${RP_RIGHT_W}" style="width:${RP_RIGHT_W}px;table-layout:fixed;border-collapse:collapse">${cards.join("")}</table>` +
     (catRows
       ? `<div style="border:1px solid #e5e7eb;border-radius:8px;margin:10px 6px 0;overflow:hidden">` +
-        `<div style="background:#f3f4f6;padding:8px 12px;font-size:14px"><b style="color:${RP_NAVY}">구분(이슈)별 반응</b> <span style="color:#6b7280">(${d.comments.some((c) => c.sentiment) ? "반응" : "게시글"} 기준 · 가장 많이 나온 내용)</span></div>` +
+        `<div style="background:#f3f4f6;padding:8px 12px;font-size:14px;border-radius:7px 7px 0 0"><b style="color:${RP_NAVY}">구분(이슈)별 반응</b> <span style="color:#6b7280">(${d.comments.some((c) => c.sentiment) ? "반응" : "게시글"} 기준 · 가장 많이 나온 내용)</span></div>` +
         `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse">${catRows}</table></div>`
       : "") +
     `</td></tr>` +
