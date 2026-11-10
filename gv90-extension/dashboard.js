@@ -31,7 +31,8 @@ async function load() {
   const days = (await listDays()).slice().reverse(); // 오래된 날 → 최근
   const posts = await allPosts();
   const comments = await allComments();
-  data = { days, posts, comments };
+  const runs = await listRuns().catch(() => []);
+  data = { days, posts, comments, runs };
   render();
   await renderReport();
 }
@@ -43,6 +44,29 @@ async function load() {
 let rpData = null;
 let rpKey = "";
 
+// 그날 수집 후보였지만 보고에 넣지 않은 글: 채널별 건수와 사유 (카드가 0건일 때 '왜 0건인지' 적음)
+function excludedByChannel(d, runs, posts) {
+  const inDb = new Set(posts.map((p) => p.key));
+  const from = d.from || 0;
+  const to = d.to || Date.now();
+  const out = {};
+  const seen = new Set();
+  for (const r of runs) {
+    const end = r.range?.end || r.finishedAt;
+    if (!(end > from && end <= to + 3600e3)) continue;
+    for (const x of r.items || []) {
+      if (!x.key || seen.has(x.key) || inDb.has(x.key)) continue;
+      seen.add(x.key);
+      const ch = x.channel;
+      const why = x.dup ? "이전 보고에 이미 포함된 글" : /열지 못함/.test(x.note || "") ? "본문을 확인할 수 없는 글(회원 전용·삭제)" : !x.related && !x.direct ? "GV90 관련 내용이 아닌 글(다른 차종 이야기·단순 언급)" : "검토 후 보고 대상에서 제외한 글";
+      const o = (out[ch] ||= { n: 0, why: {} });
+      o.n++;
+      o.why[why] = (o.why[why] || 0) + 1;
+    }
+  }
+  return out;
+}
+
 async function renderReport() {
   const n = +$("#rpPeriod").value;
   const days = n ? data.days.slice(-n) : data.days;
@@ -53,6 +77,11 @@ async function renderReport() {
     return;
   }
   rpData = reportData(days, data.posts, data.comments);
+  const st = await loadSettings();
+  rpData.monitor = monitorText(st);
+  // 설정에서 켠 채널은 그날 글이 없어도 카드 자리를 잡음
+  rpData.excluded = excludedByChannel(rpData, data.runs || [], data.posts);
+  rpData.channelsOn = CHANNELS.filter((ch) => st.channels?.[{ 언론: "news", 유튜브: "youtube", 동호회: "cafe", "자동차 커뮤니티": "community" }[ch]]);
   rpKey = `${days[0].day}-${days[days.length - 1].day}`;
   const { gvReportSummary = {} } = await chrome.storage.local.get("gvReportSummary").catch(() => ({}));
   const saved = gvReportSummary[rpKey];

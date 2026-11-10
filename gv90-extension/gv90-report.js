@@ -109,6 +109,27 @@ function rpOpinionRows(list, color) {
 }
 
 function rpCard(c, cardW = 50) {
+  const color0 = RP_CARD[c.ch] || RP_NAVY;
+  if (!c.posts) {
+    // 그날 글이 없는 채널도 자리는 잡아 두고 0건 · 관련 게시글 없음 (후보를 확인했으면 왜 0건인지)
+    const ex = c.excluded;
+    const stat0 = (k) => `<td style="width:33%;padding:0 3px"><div style="background:#f3f4f6;border-radius:6px;padding:8px 10px"><div style="font-size:12px;color:#6b7280">${k}</div><div style="font-size:21px;font-weight:800;color:#9ca3af">0<span style="font-size:12px;font-weight:400;color:#6b7280"> 건</span></div></div></td>`;
+    const why = ex && ex.n ? Object.entries(ex.why).sort((a, b) => b[1] - a[1]).map(([w, n]) => `${w} ${n}건`).join(", ") : "";
+    const note = ex && ex.n
+      ? `수집 후보 <b>${ex.n}건</b>을 확인했으나, 분석 결과 보고 대상(GV90 관련 게시글)이 아니어서 <b>0건</b>으로 집계함<br><span style="color:#9ca3af">사유: ${rpEsc(why)}</span>`
+      : "모니터링 기간에 GV90 관련 게시글이 올라오지 않음";
+    return (
+      `<td style="width:${cardW}%;padding:6px;vertical-align:top">` +
+      `<div style="border:1px solid #e5e7eb;border-top:4px solid ${color0};border-radius:8px;padding:10px 12px;background:#fff">` +
+      `<div><span style="display:inline-block;background:${color0};color:#fff;font-weight:800;font-size:15px;padding:3px 12px;border-radius:999px">${rpEsc(c.ch === "자동차 커뮤니티" ? "커뮤니티" : c.ch)}</span></div>` +
+      `<div style="color:#6b7280;font-size:12px;margin:4px 0 8px;line-height:1.4">&nbsp;</div>` +
+      `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="width:100%;border-collapse:collapse;margin-bottom:8px"><tr>${stat0("게시글")}${stat0("댓글")}${stat0("반응")}</tr></table>` +
+      `<div style="margin:6px 0;padding:22px 14px;background:#f9fafb;border:1px dashed #d1d5db;border-radius:8px;text-align:center">` +
+      `<div style="color:#374151;font-size:15px;font-weight:800;margin-bottom:6px">해당일에 관련 게시글 없음</div>` +
+      `<div style="color:#6b7280;font-size:12.5px;line-height:1.6">${note}</div></div>` +
+      `</div></td>`
+    );
+  }
   const sc = sentCount(c.reacts);
   const total = c.reacts.length;
   const pos = c.reacts.filter((r) => r.sentiment === "긍정");
@@ -135,6 +156,17 @@ function rpCard(c, cardW = 50) {
   );
 }
 
+// 모니터링 채널: 그날 글이 나온 곳이 아니라 설정에서 모니터링하는 전체 (켜 둔 채널 · 카페 · 유튜브 채널 · 커뮤니티)
+function monitorText(s) {
+  const on = s.channels || {};
+  const parts = [];
+  if (on.news) parts.push("언론 네이버 뉴스 전체");
+  if (on.youtube) parts.push(`유튜브 ${(s.youtubeChannels || []).filter((c) => c.on !== false).length}개 채널${s.youtubeSearch ? " + 검색" : ""}`);
+  if (on.cafe) parts.push(`동호회 ${(s.cafes || []).filter((c) => c.on).length}곳`);
+  if (on.community) parts.push(`커뮤니티 ${(s.communities || []).filter((c) => c.on).length}곳`);
+  return parts.join(" · ");
+}
+
 // 대시보드 폭: 채널 카드 4개가 한 줄에 들어가게 넓게 (왼쪽 남색 칸 300 + 오른쪽)
 const RP_WIDTH = 1680;
 const RP_BANNER_W = 640;
@@ -150,8 +182,11 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
   const chText = d.channels.map((c) => `${chNames[c.ch]} ${c.media.length}${c.ch === "유튜브" ? "개 채널" : "곳"}`).join(" · ");
   const ed = editable ? ' contenteditable="true" data-summary' : "";
   // 채널 카드는 한 줄에 모두 (언론 · 유튜브 · 동호회 · 커뮤니티)
-  const cardW = Math.floor(100 / Math.max(1, d.channels.length));
-  const cards = [`<tr>${d.channels.map((c) => rpCard(c, cardW)).join("")}</tr>`];
+  //  그날 글이 없는 채널(예: 유튜브)도 자리를 잡고 '해당일에 관련 게시글 없음'
+  const chOrder = typeof CHANNELS !== "undefined" ? CHANNELS : ["언론", "유튜브", "동호회", "자동차 커뮤니티"];
+  const allCh = chOrder.filter((ch) => !d.channelsOn || d.channelsOn.includes(ch)).map((ch) => d.channels.find((c) => c.ch === ch) || { ch, posts: 0, comments: 0, reacts: [], media: [], excluded: d.excluded?.[ch] });
+  const cardW = Math.floor(100 / Math.max(1, allCh.length));
+  const cards = [`<tr>${allCh.map((c) => rpCard(c, cardW)).join("")}</tr>`];
   const catRows = d.categories
     .sort((a, b) => b.reacts.length - a.reacts.length)
     .map((c) => {
@@ -187,7 +222,7 @@ function reportHtml(d, { banner = "", summary = null, editable = false, now = ne
     rpBar(sc, total, 14) +
     `<div style="margin:10px 0;line-height:2">${rpLegend(sc, total, "#ffffff", 14)}</div>` +
     `<div style="color:${v.hi ? "#ffcf3f" : "#9fd0ff"};font-weight:800;font-size:15px;line-height:1.5;margin:10px 0">${rpEsc(v.text)}</div>` +
-    `<div style="font-size:13px;opacity:.85;line-height:1.5;margin-top:14px">모니터링 채널: ${rpEsc(chText || "-")}</div>` +
+    `<div style="font-size:13px;opacity:.85;line-height:1.5;margin-top:14px">모니터링 채널: ${rpEsc(d.monitor || chText || "-")}</div>` +
     `</td>` +
     // 오른쪽 (왼쪽 남색 칸 두 줄 높이)
     `<td rowspan="2" style="vertical-align:top;padding:16px 16px 12px">` +

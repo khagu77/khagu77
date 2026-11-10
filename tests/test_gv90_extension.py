@@ -325,6 +325,9 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     page.evaluate("dashInit")
     page.locator("#reportBody", has_text="DASHBOARD").wait_for()
     assert "GV90" in page.inner_text("#reportBody")
+    # 모니터링 채널: 그날 글이 나온 곳이 아니라 설정의 전체 모니터링 수
+    assert "모니터링 채널: 언론 네이버 뉴스 전체 · 유튜브 1개 채널 + 검색 · 커뮤니티 1곳" in page.inner_text("#reportBody")
+    assert page.evaluate("(async () => { const d = { ...rpData, channels: rpData.channels.filter((c) => c.ch !== '유튜브'), channelsOn: ['언론', '유튜브', '자동차 커뮤니티'] }; d.excluded = { 유튜브: { n: 2, why: { 'GV90 관련 내용이 아닌 글(다른 차종 이야기·단순 언급)': 2 } } }; const h = reportHtml(d); return h.includes('해당일에 관련 게시글 없음') && h.includes('수집 후보 <b>2건</b>을 확인했으나'); })()")
     page.locator("#trend svg").wait_for()
     page.click("#rpCopy")
     page.locator("#rpInfo", has_text="복사했습니다").wait_for()
