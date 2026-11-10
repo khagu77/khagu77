@@ -461,7 +461,7 @@ def test_gv90_comments(ext, tmp_path: Path):
     page.goto(f"chrome-extension://{ext_id}/dashboard.html")
     page.evaluate("dashInit")
     page.locator("#reportBody", has_text="반응").wait_for()
-    assert "전체 성향 (반응" in page.inner_text("#reportBody")
+    assert "전체 성향 (성향을 분석한 반응" in page.inner_text("#reportBody")
     assert not errors, errors
 
 
