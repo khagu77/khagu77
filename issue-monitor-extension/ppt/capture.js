@@ -87,17 +87,41 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     return out;
   }
 
+  // 글자가 실제로 그려진 범위 (칸 폭보다 글자가 넓게 그려져도 잘리지 않게 — 담당자 지적 2026-11-10:
+  // steamgunz/40752 본문 캡처 오른쪽 끝 글자가 잘림)
+  function textRect(root) {
+    let l = Infinity;
+    let r = -Infinity;
+    const tw = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const range = doc.createRange();
+    for (let n = tw.nextNode(); n; n = tw.nextNode()) {
+      if (!n.nodeValue.trim()) continue;
+      const pe = n.parentElement;
+      if (!pe || pe.closest("[data-rpt-hide]") || pe.closest("[data-rpt-fixed]")) continue;
+      const st = win.getComputedStyle(pe);
+      if (st.visibility === "hidden" || st.display === "none") continue;
+      range.selectNodeContents(n);
+      for (const rc of range.getClientRects()) {
+        if (rc.width < 1 || rc.height < 1) continue;
+        l = Math.min(l, rc.left);
+        r = Math.max(r, rc.right);
+      }
+    }
+    return { left: l, right: r };
+  }
+
   function toPage(el, pad = 2) {
     const own = el.getBoundingClientRect();
     const u = unionRect([el]);
     if (!Number.isFinite(u.left)) return null;
     const M = 40; // 칸 밖으로 튀어나온 아이콘·버튼은 이 정도까지만 포함
+    const tx = textRect(el);
     const l = Math.max(u.left, own.left - M);
     const t = Math.max(u.top, own.top - M);
     const rr = Math.min(u.left + u.width, own.right + M);
     const bb = Math.min(u.top + u.height, own.bottom + M);
-    const r = { left: Math.min(l, own.left), top: Math.min(t, own.top), width: 0, height: 0 };
-    r.width = Math.max(rr, own.right) - r.left;
+    const r = { left: Math.min(l, own.left, Number.isFinite(tx.left) ? tx.left - 2 : Infinity), top: Math.min(t, own.top), width: 0, height: 0 };
+    r.width = Math.max(rr, own.right, Number.isFinite(tx.right) ? Math.min(tx.right + 6, own.right + 600) : -Infinity) - r.left;
     r.height = Math.max(bb, own.bottom) - r.top;
     let x = r.left + window.scrollX - pad;
     let y = r.top + window.scrollY - pad;

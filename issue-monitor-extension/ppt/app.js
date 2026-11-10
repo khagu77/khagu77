@@ -510,13 +510,19 @@ function fieldsFrom(row, info, ai) {
   const aiSpec = ai.spec && ai.spec !== "-" ? ai.spec : hinted.length === 1 ? hinted[0] : "-";
   let spec = carSpec !== "-" ? carSpec : normSpec(code, aiSpec);
   if (spec === "-" && line && line.length === 1) spec = line[0]; // 제원이 하나뿐인 차
+  // 트림으로 제원 정하기 (담당자 지정 2026-11-10: avantemd/1963601 — 작성자 이전 글에 '인스퍼레이션' 계약·출고 → CN8 인스퍼레이션 = 2.0)
+  if (spec === "-" && /^CN8/.test(code)) {
+    const t = [info?.title, info?.bodyText, info?.author, ...(info?.authorPosts || []).map((p) => p.title), ...(info?.authorCertPosts || []).map((p) => (typeof p === "string" ? p : `${p.title || ""} ${p.text || p.body || ""}`)), ...(info?.authorPostTexts || []).map((p) => (typeof p === "string" ? p : `${p.title || ""} ${p.body || p.text || ""}`))].join(" ");
+    if (/인스퍼레이션|인스퍼/.test(t)) spec = /하이브리드|HEV|hev/.test(t) ? "HEV" : "2.0";
+  }
   if (spec === "-" && line && line.length === 2 && line.includes("EV") && /EV$/.test(code)) spec = "EV";
   return {
     title: `${modelName(row.car)}(${row.car}) ${ai.issue}`.trim(),
     code,
     spec,
     kind: row.kind || "품질",
-    level: ai.level || "주의",
+    // ICCU 이슈는 너무 많아 '주의' (화재·사고·인명 피해처럼 아주 심각할 때만 예외, 담당자 지정 2026-11-10)
+    level: /ICCU/i.test(`${ai.issue || ""} ${ai.short || ""} ${ai.body || ""}`) && ai.level && ai.level !== "주의" && !/화재|불이\s?나|불났|연기|사고|추돌|전소|부상|사망/.test(`${ai.issue || ""} ${ai.body || ""}`) ? "주의" : ai.level || "주의",
     progress: progressFor(ai.level, ai.progress),
     cafe: row.cafe,
     url: info?.canonicalUrl || row.url, // naver.me 등은 https://cafe.naver.com/카페주소/글번호 로 통일
