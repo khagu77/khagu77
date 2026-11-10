@@ -241,7 +241,7 @@
     { header: "커뮤니티명", width: 18.5, style: "center" }, // B
     { header: "차종", width: 9, style: "center" }, // C
     { header: "게시일", width: 9.2, style: "date" }, // D (mm월 dd일)
-    { header: "구분", width: 9.5, style: "center" }, // E
+    { header: "구분", width: 16, style: "center" }, // E ('모두 포함(디자인+가격)' 처럼 여러 개일 수 있음)
     { header: "게시글 위치", width: 60, style: "link", link: true }, // F
     { header: "주요 내용", width: 80, style: "text" }, // G
     { header: "성향", width: 9.5, style: "center" }, // H (추가)
@@ -251,7 +251,7 @@
     { header: "커뮤니티명", width: 18.5, style: "center" },
     { header: "차종", width: 9, style: "center" },
     { header: "작성일", width: 9.2, style: "date" },
-    { header: "구분", width: 9.5, style: "center" },
+    { header: "구분", width: 16, style: "center" },
     { header: "게시글 위치", width: 60, style: "link", link: true },
     { header: "댓글", width: 80, style: "text" },
     { header: "성향", width: 9.5, style: "center" },

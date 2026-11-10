@@ -250,7 +250,7 @@ function statsOf(posts, comments = []) {
     posts: posts.length,
     byChannel: countBy(posts, "channel", CHANNELS),
     bySentiment: countBy(posts, "sentiment", typeof SENTIMENTS !== "undefined" ? SENTIMENTS : []),
-    byCategory: countBy(posts, "category", typeof CATEGORIES !== "undefined" ? CATEGORIES : []),
+    byCategory: countBy(typeof catList === "function" ? posts.flatMap((p) => catList(p.category).map((category) => ({ category }))) : posts, "category", typeof CATEGORIES !== "undefined" ? CATEGORIES : []),
     comments: comments.length,
     commentSentiment: countBy(comments, "sentiment", typeof SENTIMENTS !== "undefined" ? SENTIMENTS : []),
   };

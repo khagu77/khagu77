@@ -38,7 +38,7 @@ function reportData(days, allPosts, allComments) {
     const media = [...new Set(ps.map((p) => p.media).filter(Boolean))];
     return { ch, posts: ps.length, comments: Math.max(ccount(ps), comments.filter((c) => c.channel === ch).length), reacts: rs, media };
   }).filter((c) => c.posts);
-  const categories = CATEGORIES.map((cat) => ({ cat, reacts: reacts.filter((r) => (r.category || "일반") === cat) })).filter((c) => c.reacts.length);
+  const categories = CATEGORIES.map((cat) => ({ cat, reacts: reacts.filter((r) => catList(r.category).includes(cat)) })).filter((c) => c.reacts.length);
   return { days, from, to, posts, comments, reacts, totalComments: Math.max(ccount(posts), comments.length), channels, categories };
 }
 

@@ -473,4 +473,20 @@ def test_gv90_resume(ext, tmp_path: Path):
       return items.at(-1).summary;
     }""")
     assert fixed == "Gv90 - 가격 보니 비싸네요.", fixed
+    # 구분 '모두 포함': 무료 분석은 여러 이슈를 다룬 글이면 '모두 포함(…)' · 표에서 여러 개 직접 고르기
+    assert page.evaluate("ruleCategory('GV90 디자인 외관 멋지다 가격 1억3950만원 비싸 사전계약 출고 대기')") == "모두 포함(디자인+가격+판매·출고)"
+    page.evaluate("items = items.filter((x) => x.key !== 'bobae:x'); document.querySelector('#filter').value = ''; renderResults()")
+    first_key = page.evaluate("visibleItems()[0].key")
+    sel = page.locator("#results tbody tr").first.locator("select.cat")
+    sel.select_option("__multi")
+    pop = page.locator(".cat-pop")
+    pop.wait_for()
+    for c in ["디자인", "가격"]:
+        pop.locator(f"input[value='{c}']").check()
+    for c in ["품질", "성능·주행", "편의사양", "판매·출고", "서비스"]:
+        pop.locator(f"input[value='{c}']").uncheck()
+    pop.get_by_text("확인").click()
+    cat = page.evaluate(f"items.find((x) => x.key === '{first_key}').category")
+    assert cat == "모두 포함(디자인+가격)", cat
+    assert page.evaluate(f"items.find((x) => x.key === '{first_key}').edited.includes('category')")
     assert not errors, errors

@@ -341,3 +341,8 @@ a.btnlink:hover { border-color: var(--brand-2); }
   #results th:nth-child(5), #results td:nth-child(5) { padding: 0; font-size: 0; border-left: 0; }
 }
 #estInfo { white-space: pre-line; }
+/* 구분 여러 개 고르기 창 */
+.cat-pop { position: absolute; z-index: 50; background: #fff; border: 1px solid #c9d2e3; border-radius: 10px; box-shadow: 0 8px 24px rgba(15,30,60,.18); padding: 12px 14px; display: grid; gap: 6px; min-width: 220px; font-size: 13px; }
+.cat-pop label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.cat-pop .buttons { display: flex; gap: 6px; justify-content: flex-end; margin-top: 4px; }
+#results select.cat { width: 100%; text-overflow: ellipsis; }

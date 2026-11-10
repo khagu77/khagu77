@@ -7,6 +7,27 @@ const SENTIMENTS = ["긍정", "중립", "부정", "단순비난"];
 const SENTI_CLASS = { 긍정: "pos", 중립: "neu", 부정: "neg", 단순비난: "blame" };
 const CATEGORIES = ["품질", "디자인", "가격", "성능·주행", "편의사양", "판매·출고", "서비스", "일반"];
 
+// 구분이 여러 개: '모두 포함(디자인+가격+판매·출고)' — 글 하나가 여러 이슈를 함께 다룰 때
+const MULTI_CAT = "모두 포함";
+
+// 구분 글자 → 분류 목록 ('모두 포함(디자인+가격)' → ['디자인', '가격'])
+function catList(c) {
+  const s = String(c || "").trim();
+  const m = s.match(/^모두\s*포함\s*\((.*)\)$/);
+  if (!m) return [CATEGORIES.includes(s) ? s : s || "일반"];
+  const list = m[1].split(/\s*\+\s*/).map((x) => x.replace(/^판매출고$/, "판매·출고").replace(/^성능주행$/, "성능·주행")).filter(Boolean);
+  return list.length ? list : ["일반"];
+}
+
+// 분류 목록 → 구분 글자 (0개 '일반', 1개 그대로, 2개 이상 '모두 포함(…)' · 순서는 CATEGORIES 순)
+function catJoin(list) {
+  const set = new Set((list || []).filter((c) => CATEGORIES.includes(c) && c !== "일반"));
+  const out = CATEGORIES.filter((c) => set.has(c));
+  if (!out.length) return "일반";
+  if (out.length === 1) return out[0];
+  return `${MULTI_CAT}(${out.join("+")})`;
+}
+
 // 글에 GV90 이 나오는지 (차종 확인용 · 띄어쓰기·대소문자 무시)
 const CAR_WORDS = ["gv90", "지브이90", "지브이구공", "네오룬", "neolun", "jg1", "제네시스대형suv", "제네시스플래그십suv"];
 
@@ -69,19 +90,14 @@ function ruleSentiment(text) {
   return "중립";
 }
 
-// 구분 (규칙): 단어가 가장 많이 걸리는 분류 (같으면 위 순서) · 없으면 '일반'
+// 구분 (규칙): 단어가 가장 많이 걸리는 분류 + 함께 비중 있게 다룬 분류(단어 2개 이상 · 또는 가장 많은 분류와 같은 수)
+//  → 여러 개면 '모두 포함(디자인+가격+판매·출고)' · 없으면 '일반'
 function ruleCategory(text) {
   const t = compact(text);
-  let best = "일반";
-  let bestN = 0;
-  for (const c of CATEGORIES) {
-    const n = countHits(t, categoryLexicon[c] || []);
-    if (n > bestN) {
-      best = c;
-      bestN = n;
-    }
-  }
-  return best;
+  const hits = CATEGORIES.map((c) => [c, countHits(t, categoryLexicon[c] || [])]);
+  const bestN = Math.max(0, ...hits.map(([, n]) => n));
+  if (!bestN) return "일반";
+  return catJoin(hits.filter(([, n]) => n && (n >= 2 || n === bestN)).map(([c]) => c));
 }
 
 // 주요 내용 (규칙): 제목을 다듬고, 본문 첫 문장이 있으면 짧게 덧붙임
@@ -137,7 +153,8 @@ const AI_SYSTEM = `당신은 현대자동차그룹 제네시스 브랜드의 온
 
 항목마다 다음을 정합니다.
 - related: GV90(JG1·네오룬)에 대한 글이면 true. 다른 차 이야기에 GV90 이름만 스치듯 나오거나(예: 차종 나열), 광고·스팸·무관한 글이면 false.
-- category(구분): 글의 주된 이슈 하나. 품질(결함·고장·소음·누수·리콜 등) / 디자인 / 가격 / 성능·주행 / 편의사양 / 판매·출고(계약·출시·대기·시승) / 서비스(정비·딜러 응대) / 일반(소식 공유·잡담 등 위에 없음).
+- categories(구분): 글이 실제로 다룬 이슈를 모두 고릅니다(주된 것 먼저, 보통 1~3개). 품질(결함·고장·소음·누수·리콜 등) / 디자인 / 가격 / 성능·주행 / 편의사양 / 판매·출고(계약·출시·대기·시승) / 서비스(정비·딜러 응대) / 일반(소식 공유·잡담 등 위에 없음).
+  단어가 스치듯 나온 것은 빼고, 글에서 내용으로 다룬 이슈만 넣습니다. 여러 개를 고르면 보고서에 '모두 포함(디자인+가격+판매·출고)'으로 표기됩니다.
 - sentiment(성향): GV90 과 제네시스에 대한 글쓴이의 태도.
   · 긍정: 호감·만족·기대·칭찬이 중심.
   · 중립: 사실 전달(기사·출시 소식·제원 공유), 단순 질문·정보 요청, 장단점이 비슷하게 섞임.
@@ -157,11 +174,11 @@ const AI_SCHEMA = {
         properties: {
           id: { type: "string" },
           related: { type: "boolean" },
-          category: { type: "string", enum: CATEGORIES },
+          categories: { type: "array", items: { type: "string", enum: CATEGORIES } },
           sentiment: { type: "string", enum: SENTIMENTS },
           summary: { type: "string" },
         },
-        required: ["id", "related", "category", "sentiment", "summary"],
+        required: ["id", "related", "categories", "sentiment", "summary"],
         additionalProperties: false,
       },
     },
@@ -258,7 +275,7 @@ async function aiAnalyze(list, { apiKey, model, kind = "post", isStopped = () =>
           const r = res.get(x.key);
           onResult?.(x, {
             related: !!r.related,
-            category: CATEGORIES.includes(r.category) ? r.category : "일반",
+            category: catJoin(r.categories || [r.category]),
             sentiment: SENTIMENTS.includes(r.sentiment) ? r.sentiment : "중립",
             summary: String(r.summary || "").replace(/\s+/g, " ").trim().slice(0, 200),
             car: CAR_NAME,
@@ -274,4 +291,4 @@ async function aiAnalyze(list, { apiKey, model, kind = "post", isStopped = () =>
   return { usage, failed, fatal: fatal ? aiErrorText(fatal) : "" };
 }
 
-if (typeof module !== "undefined") module.exports = { ruleAnalyze, ruleSentiment, ruleCategory, ruleSummary, mentionsCar, SENTIMENTS, CATEGORIES };
+if (typeof module !== "undefined") module.exports = { ruleAnalyze, ruleSentiment, ruleCategory, ruleSummary, mentionsCar, SENTIMENTS, CATEGORIES, catList, catJoin };

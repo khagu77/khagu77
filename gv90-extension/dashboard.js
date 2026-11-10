@@ -136,7 +136,7 @@ function render() {
   renderTiles(days, posts, ch);
   renderTrend(days, posts);
   renderBars("#byChannel", group(posts, (p) => p.channel), CHANNELS);
-  renderBars("#byCategory", group(posts, (p) => p.category || "일반"), CATEGORIES);
+  renderBars("#byCategory", group(posts.flatMap((p) => catList(p.category).map((c) => ({ ...p, category: c }))), (p) => p.category), CATEGORIES);
   renderBars("#byCommunity", group(posts, (p) => p.media || "-"), null, 12);
   renderComments(comments);
   renderTable("#hotTable", posts.filter((p) => p.views != null || p.ccount != null).sort((a, b) => (b.ccount || 0) * 50 + (b.views || 0) - ((a.ccount || 0) * 50 + (a.views || 0))).slice(0, 15));

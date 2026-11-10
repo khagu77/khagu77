@@ -968,6 +968,62 @@ function markEdited(x, field) {
   x.by = x.by === "ai" ? "ai+edit" : "edit";
 }
 
+// 구분 고르기: 한 개 분류 · '모두 포함(…)' 여러 개 (고르면 체크 상자 창)
+function categorySelect(value, onPick) {
+  const sel = el("select", { class: "cat" });
+  const fill = (v) => {
+    sel.textContent = "";
+    for (const c of CATEGORIES) sel.add(new Option(c, c));
+    if (catList(v).length > 1) sel.add(new Option(v, v));
+    sel.add(new Option("모두 포함 (여러 개 고르기…)", "__multi"));
+    sel.value = v || "일반";
+    sel.title = v || "일반";
+  };
+  fill(value || "일반");
+  let cur = value || "일반";
+  sel.addEventListener("change", async () => {
+    if (sel.value !== "__multi") {
+      cur = sel.value;
+      fill(cur);
+      return onPick(cur);
+    }
+    const picked = await pickCategories(sel, catList(cur));
+    if (picked) {
+      cur = catJoin(picked);
+      onPick(cur);
+    }
+    fill(cur);
+  });
+  return sel;
+}
+
+function pickCategories(anchor, current) {
+  document.querySelector(".cat-pop")?.remove();
+  return new Promise((resolve) => {
+    const boxes = CATEGORIES.filter((c) => c !== "일반").map((c) => el("label", {}, [el("input", { type: "checkbox", value: c, checked: current.includes(c) }), ` ${c}`]));
+    const preview = el("div", { class: "hint" });
+    const upd = () => (preview.textContent = `→ ${catJoin(boxes.map((b) => b.firstChild).filter((i) => i.checked).map((i) => i.value))}`);
+    boxes.forEach((b) => b.firstChild.addEventListener("change", upd));
+    upd();
+    const close = (v) => {
+      pop.remove();
+      document.removeEventListener("mousedown", outside, true);
+      resolve(v);
+    };
+    const ok = el("button", { class: "small primary", text: "확인", onclick: () => close(boxes.map((b) => b.firstChild).filter((i) => i.checked).map((i) => i.value)) });
+    const cancel = el("button", { class: "small", text: "취소", onclick: () => close(null) });
+    const pop = el("div", { class: "cat-pop" }, [el("b", { text: "이 글이 다룬 구분 (여러 개)" }), ...boxes, preview, el("div", { class: "buttons" }, [ok, cancel])]);
+    const outside = (e) => {
+      if (!pop.contains(e.target)) close(null);
+    };
+    document.body.append(pop);
+    const r = anchor.getBoundingClientRect();
+    pop.style.top = `${window.scrollY + r.bottom + 4}px`;
+    pop.style.left = `${Math.max(8, Math.min(window.scrollX + r.left - 60, window.scrollX + document.documentElement.clientWidth - pop.offsetWidth - 8))}px`;
+    setTimeout(() => document.addEventListener("mousedown", outside, true), 0);
+  });
+}
+
 function renderResults() {
   $("#resultBox").hidden = !items.length;
   const tb = $("#results tbody");
@@ -977,9 +1033,11 @@ function renderResults() {
     const cb = el("input", { type: "checkbox", checked: x.checked, onchange: (e) => { x.checked = e.target.checked; x.touched = true; tr.classList.toggle("off", !x.checked); updateCounts(); saveLast(); } });
     const sum = el("input", { type: "text", class: "sum", title: x.title ? `제목: ${x.title}` : "", onchange: (e) => { x.summary = e.target.value; markEdited(x, "summary"); saveLast(); } });
     sum.value = x.summary || "";
-    const cat = el("select", { onchange: (e) => { x.category = e.target.value; markEdited(x, "category"); saveLast(); } });
-    for (const c of CATEGORIES) cat.add(new Option(c, c));
-    cat.value = x.category || "일반";
+    const cat = categorySelect(x.category, (v) => {
+      x.category = v;
+      markEdited(x, "category");
+      saveLast();
+    });
     const sen = el("select", { class: `senti ${SENTI_CLASS[x.sentiment] || "neu"}`, onchange: (e) => { x.sentiment = e.target.value; sen.className = `senti ${SENTI_CLASS[x.sentiment]}`; markEdited(x, "sentiment"); saveLast(); updateCounts(); } });
     for (const v of SENTIMENTS) sen.add(new Option(v, v));
     sen.value = x.sentiment || "중립";
