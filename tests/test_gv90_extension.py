@@ -465,4 +465,12 @@ def test_gv90_resume(ext, tmp_path: Path):
     assert page.evaluate("chrome.storage.local.get('gvResume').then((o) => !o.gvResume)")
     runs = page.evaluate("listRuns().then((r) => r.map((x) => [x.id, x.stopped, x.items.length]))")
     assert ["run-stopped", False, len(keys)] in runs
+    # 예전 버전에서 본문에 섞인 코드·동영상 문구가 주요 내용에 있으면 다시 정리
+    fixed = page.evaluate("""() => {
+      items.push({ key: 'bobae:x', title: 'Gv90', by: 'rule', summary: 'Gv90 - window.onload = function() { $(document).ready(function() { …',
+        body: 'window.onload = function() { $(document).ready(function() { $("#a").hide(); }); }; Your browser does not support the video tag. 가격 보니 비싸네요. https://a.com/x' });
+      fixDirtySummaries();
+      return items.at(-1).summary;
+    }""")
+    assert fixed == "Gv90 - 가격 보니 비싸네요.", fixed
     assert not errors, errors

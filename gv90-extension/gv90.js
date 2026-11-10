@@ -1021,10 +1021,25 @@ async function saveLast() {
   await chrome.storage.local.set({ gvLastResult: { items, curRange, curRunId, mergedRunIds, at: Date.now() } }).catch(() => {});
 }
 
+// 예전 버전에서 본문에 섞여 들어온 코드·동영상 문구·링크가 주요 내용에 있으면 무료 요약을 다시 만듦 (직접 고친 값은 그대로)
+function fixDirtySummaries() {
+  let n = 0;
+  for (const x of items) {
+    if ((x.edited || []).includes("summary")) continue;
+    const dirty = (t) => /window\.onload|\$\(\s*document|function\s*\(|Your browser does not support|https?:\/\//i.test(t || "");
+    if (!dirty(x.summary) && !dirty(x.body)) continue;
+    x.body = cleanBody(x.body);
+    if (!x.by || x.by === "rule" || dirty(x.summary)) x.summary = ruleSummary({ title: x.title, body: x.body });
+    n++;
+  }
+  return n;
+}
+
 async function restoreLast() {
   const { gvLastResult } = await chrome.storage.local.get("gvLastResult").catch(() => ({}));
   if (!gvLastResult || !gvLastResult.items?.length || Date.now() - gvLastResult.at > 3 * 86400000) return;
   ({ items, curRange, curRunId, mergedRunIds } = { mergedRunIds: [], ...gvLastResult });
+  fixDirtySummaries();
   dbKeys = new Set((await allPosts()).map((p) => p.key));
   renderResults();
   setSummary(`지난 결과 ${items.length}건을 불러왔습니다 (${fmtDateTime(gvLastResult.at)} 수집).`);
@@ -1215,6 +1230,7 @@ $("#selDelete").addEventListener("click", () => {
 $("#filter").addEventListener("change", renderResults);
 $("#analyzeRule").addEventListener("click", async () => {
   await persistSettings();
+  fixDirtySummaries();
   for (const x of items) {
     Object.assign(x, ruleAnalyze(x), pickEdited(x));
     if (!x.touched && !x.dup) x.checked = x.related || !!x.direct;
