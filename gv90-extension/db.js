@@ -403,7 +403,8 @@ $("#finalXlsx").addEventListener("click", async (e) => {
   await prepareSaveDir();
   const day = $("#finalBox").dataset.day;
   const s = await loadSettings();
-  const posts = s.xlsxScope === "today" ? await postsOfDay(day) : (await allPosts()).filter((p) => p.day <= day);
+  // 최종 엑셀은 늘 누적 (설정 '엑셀에 담을 범위'와 상관없이 · 그 보고일까지 쌓인 게시글 · 댓글 모두)
+  const posts = (await allPosts()).filter((p) => p.day <= day);
   // 댓글도 게시글과 같은 범위 (기본 누적)
   const postKeys = new Set(posts.map((p) => p.key));
   const comments = (await allComments()).filter((c) => postKeys.has(c.postKey));
