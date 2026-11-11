@@ -426,7 +426,8 @@ async function youtubeSearch(q, range) {
   const data = extractJsonAfter(html, "ytInitialData");
   const out = [];
   walk(data, (k, v) => {
-    if (k !== "videoRenderer" || !v || !v.videoId) return;
+    if (k !== "videoRenderer" || !v || !v.videoId) return; // 쇼츠 칸(reelItemRenderer 등)은 읽지 않음
+    if (/^\/shorts\//.test(v.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url || "")) return false; // 쇼츠
     const parsed = parseKoreanDate(ytText(v.publishedTimeText).replace(/^스트리밍 시간:\s*/, ""));
     const place = placeInRange(parsed, { from: range.start, to: range.end });
     if (place === "older" || place === "newer") return false;
@@ -632,11 +633,17 @@ async function collect() {
         if (id && !vids.has(id)) vids.set(id, { videoId: id, direct: true });
       }
       const list = [...vids.values()];
+      let shorts = 0;
       for (let i = 0; i < list.length && !stopRequested; i++) {
         const v = list[i];
         showWork(`유튜브: 영상 확인 ${i + 1}/${list.length}`, i, list.length);
         if (seen.has(`yt:${v.videoId}`) || found.has(`yt:${v.videoId}`)) continue;
         try {
+          // 쇼츠는 빼고 수집 (직접 넣은 주소는 그대로)
+          if (!v.direct && (await yc.isShort(v.videoId))) {
+            shorts++;
+            continue;
+          }
           const pg = await yc.videoPage(v.videoId);
           // 댓글 수: 영상 화면에 없으면 댓글 머리글에서 (한 번 더 요청)
           if (pg.ccount == null) pg.ccount = await yc.commentCount(pg).catch(() => null);
@@ -654,7 +661,7 @@ async function collect() {
         }
         await sleep(randomBetween([600, 1200]));
       }
-      log(`유튜브: 영상 ${[...found.values()].filter((x) => x.channel === "유튜브").length}건`);
+      log(`유튜브: 영상 ${[...found.values()].filter((x) => x.channel === "유튜브").length}건${shorts ? ` (쇼츠 ${shorts}건 제외)` : ""}`);
       if (!stopRequested) {
         done.youtube = true;
         await saveCp(true);

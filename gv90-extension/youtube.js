@@ -146,6 +146,16 @@ class YoutubeCollector {
   }
 
   // 채널 RSS: 최근 영상 15개 (제목·설명·게시 시각)
+  // 쇼츠인지: youtube.com/shorts/ID 가 그대로 열리면 쇼츠, 일반 영상이면 watch 로 넘겨 줌
+  async isShort(videoId) {
+    try {
+      const r = await fetch(`https://www.youtube.com/shorts/${videoId}`, { method: "HEAD", redirect: "manual", credentials: "omit" });
+      return r.type !== "opaqueredirect" && r.status === 200;
+    } catch {
+      return false;
+    }
+  }
+
   async listChannel(channel, range) {
     const xml = await fetchText(`https://www.youtube.com/feeds/videos.xml?channel_id=${channel.id}`);
     const doc = new DOMParser().parseFromString(xml, "text/xml");
@@ -156,6 +166,9 @@ class YoutubeCollector {
       const id = get("yt:videoId");
       const date = new Date(get("published"));
       if (!id || isNaN(date)) continue;
+      // 쇼츠는 빼고 (피드의 영상 주소가 /shorts/…)
+      const href = [...e.getElementsByTagName("link")].map((l) => l.getAttribute("href") || "").join(" ");
+      if (/\/shorts\//.test(href)) continue;
       if (date < range.from || date >= range.to) continue;
       out.push({
         key: `yt:${id}`,

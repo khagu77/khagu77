@@ -60,6 +60,10 @@ YT_FEED = """<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
  <entry><yt:videoId>gv90video01</yt:videoId><title>GV90 시승기 승차감 최고</title><published>2026-08-05T06:30:00+00:00</published>
   <author><name>자동차채널</name></author><media:group><media:description>제네시스 GV90 리뷰</media:description></media:group></entry>
+ <entry><yt:videoId>gv90short001</yt:videoId><title>GV90 쇼츠 한 컷</title><link rel="alternate" href="https://www.youtube.com/shorts/gv90short001"/><published>2026-08-05T06:40:00+00:00</published>
+  <author><name>자동차채널</name></author><media:group><media:description>GV90</media:description></media:group></entry>
+ <entry><yt:videoId>gv90short002</yt:videoId><title>GV90 쇼츠 두 컷</title><link rel="alternate" href="https://www.youtube.com/watch?v=gv90short002"/><published>2026-08-05T06:45:00+00:00</published>
+  <author><name>자동차채널</name></author><media:group><media:description>GV90</media:description></media:group></entry>
  <entry><yt:videoId>otherotherx</yt:videoId><title>아반떼 세차 영상</title><published>2026-08-05T05:00:00+00:00</published>
   <author><name>자동차채널</name></author><media:group><media:description>-</media:description></media:group></entry>
 </feed>"""
@@ -169,6 +173,12 @@ def ext(tmp_path: Path):
 
         def youtube(route):
             url = route.request.url
+            if "/shorts/" in url:  # 쇼츠면 그대로(200), 일반 영상이면 watch 로 넘김
+                if "gv90short" in url:
+                    route.fulfill(status=200, content_type="text/html", body="<html>shorts</html>")
+                else:
+                    route.fulfill(status=303, headers={"location": url.replace("/shorts/", "/watch?v=")})
+                return
             if "/feeds/videos.xml" in url:
                 route.fulfill(status=200, content_type="application/xml", body=YT_FEED)
             elif "/youtubei/v1/next" in url:
@@ -269,6 +279,7 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     yt = by_key["yt:gv90video01"]
     assert yt["views"] == 15234 and yt["ccount"] == 128 and yt["checked"]
     assert "yt:otherotherx" not in by_key
+    assert "yt:gv90short001" not in by_key and "yt:gv90short002" not in by_key  # 쇼츠 제외 (피드 주소 · 쇼츠 확인)
     # 커뮤니티: 제목에 키워드 · 기간 안 · 조회수·댓글 수 · 부정
     cl = [x for x in items if x["channel"] == "자동차 커뮤니티" and "501" in x["url"]][0]
     assert cl["views"] == 1234 and cl["ccount"] == 2 and cl["sentiment"] == "부정" and cl["category"] == "가격"
