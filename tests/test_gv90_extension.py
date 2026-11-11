@@ -96,7 +96,8 @@ def yt_comment(cid, text):
     return {"payload": {"commentEntityPayload": {"properties": {"commentId": cid, "content": {"content": text}, "publishedTime": "1시간 전"}, "author": {"displayName": "a"}}}}
 
 
-YT_NEXT = {"frameworkUpdates": {"entityBatchUpdate": {"mutations": [yt_comment("Y1", "GV90 디자인 멋지다 최고"), yt_comment("Y2", "흉물 같음 현기차")]}}}
+YT_NEXT = {"frameworkUpdates": {"entityBatchUpdate": {"mutations": [yt_comment("Y1", "GV90 디자인 멋지다 최고"), yt_comment("Y2", "흉물 같음 현기차")]}},
+           "onResponseReceivedEndpoints": [{"reloadContinuationItemsCommand": {"continuationItems": [{"commentsHeaderRenderer": {"countText": {"runs": [{"text": "댓글 "}, {"text": "1,234"}, {"text": "개"}]}}}]}}]}
 
 # 뽐뿌 댓글 목록(JSON, 전체읽기): 2쪽 · 답글은 댓글 안 배열 · 차단·지운 댓글은 빼야 함 (이슈 모니터링 보고서 테스트와 같은 실제 구조)
 PPOM_JSON = {
@@ -125,6 +126,10 @@ def bobae_view(n=11):
             '<dd>작성글: 게시글 16,067 | 댓글 55,929</dd></dl></div>'
             '<div class="bodyCont">본문입니다. 계기판 이야기</div>'
             f'<div class="commentlistbox"><ul>{items}</ul></div></body></html>')
+
+
+def parse_cnt(t):
+    return int(re.sub(r"[^0-9]", "", str(t or "")) or 0)
 
 
 def wait_js(page, expr, timeout=60000):
@@ -533,6 +538,10 @@ def test_gv90_resume(ext, tmp_path: Path):
     page.evaluate("items = items.filter((x) => x.key !== 'bobae:x'); window._keep = items.length; items.forEach((x, i) => { x.checked = i === 0; }); renderResults()")
     page.click("#unselDelete")
     wait_js(page, "items.length === 1 && items[0].checked")
+    # 유튜브 댓글 수: 영상 화면에 없으면 댓글 머리글('댓글 1,234개')에서
+    cc = page.evaluate("""new YoutubeCollector({ log() {}, isStopped: () => false }).commentCount({ html: '',
+      initialData: { itemSectionRenderer: { sectionIdentifier: 'comment-item-section', contents: [{ continuationItemRenderer: { continuationEndpoint: { continuationCommand: { token: 'T1' } } } }] } } })""")
+    assert parse_cnt(cc) == 1234, cc
     # 구분 '모두 포함': 무료 분석은 여러 이슈를 다룬 글이면 '모두 포함(…)' · 표에서 여러 개 직접 고르기
     assert page.evaluate("ruleCategory('GV90 디자인 외관 멋지다 가격 1억3950만원 비싸 사전계약 출고 대기')") == "모두 포함(디자인+가격+판매·출고)"
     page.evaluate("items = items.filter((x) => x.key !== 'bobae:x'); document.querySelector('#filter').value = ''; renderResults()")

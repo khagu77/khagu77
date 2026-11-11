@@ -201,6 +201,34 @@ class YoutubeCollector {
     };
   }
 
+  // 댓글 수: 요즘 영상 화면(HTML)에는 댓글 수가 없어 댓글 첫 묶음을 한 번 받아 머리글('댓글 1,234개')에서 읽음
+  async commentCount(page) {
+    const token = page?.initialData && findCommentsToken(page.initialData);
+    if (!token) return null; // 댓글이 꺼진 영상
+    const apiKey = page.html.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/)?.[1];
+    const clientVersion = page.html.match(/"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"]+)"/)?.[1] || "2.20241001.00.00";
+    const visitorData = page.html.match(/"VISITOR_DATA"\s*:\s*"([^"]+)"/)?.[1];
+    const context = { client: { clientName: "WEB", clientVersion, hl: "ko", gl: "KR" } };
+    if (visitorData) context.client.visitorData = visitorData;
+    const resp = await fetch(`https://www.youtube.com/youtubei/v1/next?prettyPrint=false${apiKey ? `&key=${apiKey}` : ""}`, {
+      method: "POST",
+      credentials: "omit",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context, continuation: token }),
+    });
+    if (!resp.ok) return null;
+    let count = null;
+    walk(await resp.json(), (k, v) => {
+      if (count !== null) return false;
+      if (k === "commentsHeaderRenderer") {
+        const t = ytText(v.countText || v.commentsCount);
+        if (t) count = t;
+        return false;
+      }
+    });
+    return count;
+  }
+
   async readComments(videoId, onProgress) {
     const page = await this.videoPage(videoId);
     if (!page.initialData) throw new Error("영상 정보를 읽지 못함 (삭제/비공개 영상일 수 있음)");

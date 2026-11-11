@@ -638,6 +638,8 @@ async function collect() {
         if (seen.has(`yt:${v.videoId}`) || found.has(`yt:${v.videoId}`)) continue;
         try {
           const pg = await yc.videoPage(v.videoId);
+          // 댓글 수: 영상 화면에 없으면 댓글 머리글에서 (한 번 더 요청)
+          if (pg.ccount == null) pg.ccount = await yc.commentCount(pg).catch(() => null);
           check(`yt:${v.videoId}`);
           const date = v.date || pg.date;
           if (!v.direct && date && !inRange(date) && !v.date) {
