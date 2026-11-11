@@ -65,6 +65,50 @@ function sentiLines(ps, cs, wide = false) {
   );
 }
 
+// 누적 성향 칸: 누적 기간 · 게시글 / 댓글 / 총평가 줄마다 큰 숫자 + 성향 막대(비율) + 건수 + 부정+단순비난 비율
+function sentiPanel(ps, cs, days, editedC = 0) {
+  const tot = Object.fromEntries([...SENTIMENTS, "n"].map((x) => [x, (ps[x] || 0) + (cs[x] || 0)]));
+  const sorted = days.map((d) => d.day).sort();
+  const first = days.find((d) => d.day === sorted[0]);
+  const last = days.find((d) => d.day === sorted[sorted.length - 1]);
+  const when = (ms, day) => (ms ? fmtDateTime(ms).slice(0, 16).replace(/-/g, ".") : prettyDay(day));
+  const period = sorted.length ? `${when(first?.from, sorted[0])} ~ ${when(last?.to, sorted[sorted.length - 1])}` : "-";
+  const VAR = { 긍정: "--pos", 중립: "--neu", 부정: "--neg", 단순비난: "--blame" };
+  // 게시글 · 댓글 · 총평가 세 칸을 가로로 나란히 (칸마다 큰 숫자 · 부정+단순비난 비율 · 성향 막대 · 성향별 건수)
+  const card = (label, o, cls, icon) => {
+    const bad = (o.부정 || 0) + (o.단순비난 || 0);
+    const pct = (n) => (o.n ? Math.round((n / o.n) * 1000) / 10 : 0);
+    const bar = el("div", { class: "sp-bar" });
+    for (const x of SENTIMENTS) {
+      if (!o[x]) continue;
+      const w = pct(o[x]);
+      bar.append(el("div", { class: "sp-seg", style: `flex:${o[x]};background:var(${VAR[x]})`, title: `${x} ${o[x].toLocaleString()} (${w}%)`, text: w >= 9 ? `${w}%` : "" }));
+    }
+    if (!o.n) bar.append(el("div", { class: "sp-empty", text: "자료 없음" }));
+    const hot = o.n && bad / o.n >= 0.3;
+    return el("div", { class: `sp-card ${cls}` },
+      el("div", { class: "sp-top" },
+        el("div", {}, el("div", { class: "sp-name", text: `${icon} ${label}` }), el("div", { class: "sp-num", text: o.n.toLocaleString() }, el("span", { text: " 건" }))),
+        el("div", { class: `sp-bad${hot ? " hot" : ""}` }, el("div", { class: "sp-badnum", text: o.n ? `${pct(bad)}%` : "-" }), el("div", { class: "sp-badlabel", text: "부정+단순비난" })),
+      ),
+      bar,
+      el("div", { class: "sp-grid" },
+        ...SENTIMENTS.map((x) =>
+          el("div", { class: "sp-cell" }, el("span", { class: "sp-dot", style: `background:var(${VAR[x]})` }), el("span", { class: "sp-k", text: x }), el("b", { class: "sp-v", text: (o[x] || 0).toLocaleString() }), el("span", { class: "sp-p", text: `${pct(o[x] || 0)}%` })),
+        ),
+      ),
+    );
+  };
+  return el("div", { class: "sp" },
+    el("div", { class: "sp-head" },
+      el("div", { class: "sp-title", text: "📊 누적 성향" }),
+      el("div", { class: "sp-period" }, el("span", { class: "sp-plabel", text: "누적 기간" }), el("b", { text: period }), el("span", { class: "sp-days", text: `보고일 ${sorted.length}일` })),
+      editedC ? el("div", { class: "sp-edited", text: `✏️ 직접 고친 댓글 성향 ${editedC}개 반영됨` }) : null,
+    ),
+    el("div", { class: "sp-cards" }, card("게시글", ps, "p", "📝"), card("댓글", cs, "c", "💬"), card("총평가 (게시글 + 댓글)", tot, "t", "🧮")),
+  );
+}
+
 async function render() {
   const days = await listDays();
   const posts = await allPosts();
@@ -81,7 +125,7 @@ async function render() {
   const allC = sentiOf(comments);
   $("#dbSummary").textContent = `보고일 ${days.length}일 · 누적 게시물 ${posts.length.toLocaleString()}건${comments.length ? ` · 댓글 ${comments.length.toLocaleString()}건` : ""}`;
   const editedC = comments.filter((c) => (c.edited || []).includes("sentiment")).length;
-  $("#dbSenti").replaceChildren(el("div", { class: "hint", text: `누적 성향${editedC ? ` · 엑셀·표에서 직접 고친 댓글 성향 ${editedC}개 반영됨` : ""}` }), sentiLines(allP, allC, true));
+  $("#dbSenti").replaceChildren(sentiPanel(allP, allC, days, editedC));
   $("#dbSenti").hidden = !posts.length;
   const tb = $("#days tbody");
   tb.textContent = "";

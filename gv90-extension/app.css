@@ -369,7 +369,7 @@ a.btnlink:hover { border-color: var(--brand-2); }
 .sline.st .slabel { color: var(--brand, #0b2a5b); }
 .sline .sitem { margin-right: 4px; white-space: nowrap; }
 .sline .sbad { margin-left: auto; white-space: nowrap; }
-.dbsenti { margin: 4px 0 12px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); display: inline-grid; gap: 4px; }
+.dbsenti { margin: 4px 0 14px; }
 /* 대시보드: 댓글 · 댓글 성향 */
 #commentBox .chead { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
 #commentBox .cnum { font-size: 28px; font-weight: 900; }
@@ -389,3 +389,35 @@ a.btnlink:hover { border-color: var(--brand-2); }
 button.getbtn.finalbtn { font-size: 18px; font-weight: 900; padding: 14px 30px; border-radius: 12px; background: #0b2a5b; color: #fff; border: none; white-space: nowrap; }
 button.getbtn.finalbtn.ready { font-size: 19px; padding: 16px 34px; background: linear-gradient(90deg, #ff3d77, #ff9a00, #ffd400, #00c853, #00b0ff, #7b3fe4, #ff3d77); background-size: 300% 100%; }
 .finalbox .finalbtns { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+/* 데일리 DB: 누적 성향 칸 (게시글 · 댓글 · 총평가 카드 3개 가로) */
+.sp { border: 1px solid var(--line); border-radius: 16px; background: var(--surface, #fff); padding: 16px 18px 18px; box-shadow: 0 2px 12px rgba(15, 30, 60, .06); }
+.sp-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+.sp-title { font-size: 17px; font-weight: 900; color: var(--brand, #0b2a5b); }
+.sp-period { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13.5px; background: var(--surface-2); border-radius: 999px; padding: 5px 6px 5px 14px; }
+.sp-plabel { color: var(--text-2); font-weight: 700; }
+.sp-period b { color: var(--text); font-weight: 800; }
+.sp-days { background: #0b2a5b; color: #fff; border-radius: 999px; padding: 2px 10px; font-weight: 800; font-size: 12px; }
+.sp-edited { margin-left: auto; font-size: 12.5px; color: #92400e; background: #fff7e6; border: 1px solid #f6d58f; border-radius: 999px; padding: 3px 12px; font-weight: 700; }
+.sp-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.sp-card { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px 12px; background: var(--surface, #fff); display: grid; gap: 10px; }
+.sp-card.t { border: 2px solid #0b2a5b; background: linear-gradient(180deg, #f5f8ff, #fff 60%); }
+.sp-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.sp-name { font-size: 13px; font-weight: 800; color: var(--text-2); }
+.sp-card.t .sp-name { color: #0b2a5b; }
+.sp-num { font-size: 30px; font-weight: 900; letter-spacing: -.8px; line-height: 1.15; }
+.sp-num span { font-size: 13px; font-weight: 500; color: var(--text-2); letter-spacing: 0; }
+.sp-bad { text-align: center; border-radius: 12px; padding: 6px 12px; background: var(--surface-2); min-width: 96px; }
+.sp-bad.hot { background: #fdecec; }
+.sp-badnum { font-size: 22px; font-weight: 900; color: var(--text-2); line-height: 1.2; }
+.sp-bad.hot .sp-badnum { color: var(--neg); }
+.sp-badlabel { font-size: 11px; color: var(--text-2); font-weight: 700; }
+.sp-bar { display: flex; gap: 2px; height: 22px; border-radius: 7px; overflow: hidden; background: var(--surface-2); }
+.sp-seg { color: #fff; font-size: 11.5px; font-weight: 800; display: flex; align-items: center; justify-content: center; white-space: nowrap; overflow: hidden; }
+.sp-empty { font-size: 12px; color: var(--text-2); padding: 0 8px; display: flex; align-items: center; }
+.sp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; }
+.sp-cell { display: grid; grid-template-columns: 10px auto 1fr auto; align-items: center; gap: 6px; font-size: 13px; padding: 3px 0; border-bottom: 1px dashed var(--line); }
+.sp-dot { width: 10px; height: 10px; border-radius: 50%; }
+.sp-k { color: var(--text-2); font-weight: 700; }
+.sp-v { text-align: right; font-size: 14px; }
+.sp-p { color: var(--text-2); font-size: 12px; min-width: 44px; text-align: right; }
+@media (max-width: 1100px) { .sp-cards { grid-template-columns: 1fr; } }
