@@ -215,8 +215,9 @@ function aiErrorText(e) {
 
 // 한 묶음 분석 → Map(id → 결과)
 async function aiAnalyzeBatch(client, model, batch, kind, usage) {
-  const input = batch.map((x) => ({
-    id: x.key,
+  // id 는 짧은 번호로 (긴 글 주소를 그대로 주면 AI 가 가끔 잘못 옮겨 적어 결과가 빠짐)
+  const input = batch.map((x, i) => ({
+    id: `n${i + 1}`,
     종류: kind === "comment" ? "댓글" : "게시물",
     채널: x.channel || "",
     매체: x.media || "",
@@ -241,10 +242,14 @@ async function aiAnalyzeBatch(client, model, batch, kind, usage) {
   if (msg.stop_reason === "refusal") throw new Error("Claude 가 분석을 거절했습니다");
   if (msg.stop_reason === "max_tokens") throw new Error("결과가 너무 길어 잘렸습니다");
   const parsed = JSON.parse(msg.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
-  const byId = new Map((parsed.items || []).map((r) => [r.id, r]));
-  const missing = batch.filter((x) => !byId.get(x.key)).length;
-  if (missing) throw new Error(`결과 ${missing}건이 빠졌습니다`);
-  return byId;
+  const got = new Map((parsed.items || []).map((r) => [String(r.id), r]));
+  // 받은 것만 돌려줌 (빠진 건은 부른 쪽에서 그것만 다시 물음)
+  const byKey = new Map();
+  batch.forEach((x, i) => {
+    const r = got.get(`n${i + 1}`);
+    if (r) byKey.set(x.key, r);
+  });
+  return byKey;
 }
 
 // 여러 건 AI 분석: list 의 각 항목에 결과를 적용(onResult(x, r)) · 진행은 onProgress(done, total)
@@ -258,21 +263,24 @@ async function aiAnalyze(list, { apiKey, model, kind = "post", isStopped = () =>
   let done = 0;
   let failed = 0;
   let fatal = null;
+  let lastError = "";
   const worker = async () => {
     while (next < batches.length && !fatal && !isStopped()) {
       const batch = batches[next++];
-      let res = null;
-      for (let attempt = 1; attempt <= 3 && !res && !fatal; attempt++) {
+      // 결과가 빠진 건만 다시 물어봄 (최대 3번) · 그래도 안 되면 그 건만 무료 분석 결과로 둠
+      let pending = batch;
+      for (let attempt = 1; attempt <= 3 && pending.length && !fatal && !isStopped(); attempt++) {
+        let res = null;
         try {
-          res = await aiAnalyzeBatch(client, model, batch, kind, usage);
+          res = await aiAnalyzeBatch(client, model, pending, kind, usage);
         } catch (e) {
           if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) fatal = e;
-          else if (attempt === 3) console.warn("AI 분석 실패", e);
+          else lastError = String(e?.message || e);
+          continue;
         }
-      }
-      if (res) {
-        for (const x of batch) {
+        for (const x of pending) {
           const r = res.get(x.key);
+          if (!r) continue;
           onResult?.(x, {
             related: !!r.related,
             category: catJoin(r.categories || [r.category]),
@@ -282,13 +290,16 @@ async function aiAnalyze(list, { apiKey, model, kind = "post", isStopped = () =>
             by: "ai",
           });
         }
-      } else failed += batch.length;
+        pending = pending.filter((x) => !res.has(x.key));
+        if (pending.length) lastError = `결과 ${pending.length}건이 빠져 그 건만 다시 물어봄`;
+      }
+      failed += pending.length;
       done++;
       onProgress?.(done, batches.length);
     }
   };
   await Promise.all(Array.from({ length: AI_PARALLEL }, worker));
-  return { usage, failed, fatal: fatal ? aiErrorText(fatal) : "" };
+  return { usage, failed, fatal: fatal ? aiErrorText(fatal) : "", lastError: failed ? lastError : "" };
 }
 
 if (typeof module !== "undefined") module.exports = { ruleAnalyze, ruleSentiment, ruleCategory, ruleSummary, mentionsCar, SENTIMENTS, CATEGORIES, catList, catJoin };
