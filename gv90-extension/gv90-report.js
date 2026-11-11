@@ -255,11 +255,18 @@ function rpChannelRow(c, rowW) {
       `<div style="white-space:nowrap;overflow:hidden">${chip} <span style="color:#6b7280;font-size:11.5px" title="${rpEsc(c.media.join(" · "))}">${rpEsc(media)}</span></div>` +
       stats +
       rpBar(sc, total, 8) +
-      `<div style="margin:5px 0 4px;line-height:1.6">${rpLegend(sc, total, "#1f2937", 11)}</div>` +
-      rpVerdict(sc, total, 11).html;
-    const opCell = (t, col, list, top) =>
-      `<td width="${opW + 12}" style="width:${opW}px;vertical-align:top;padding:0 0 0 12px">${box(opW, `${head(t, col, list.length)}<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${opW}" style="width:${opW}px;table-layout:fixed;border-collapse:collapse">${rpOpinionRows(top, col, 64, opW)}</table>`)}</td>`;
-    right = opCell("긍정 주요 내용", "#1f5fbf", pos, posTop) + opCell("부정 주요 내용", "#d0021b", neg, negTop);
+      `<div style="margin:5px 0 0;line-height:1.6">${rpLegend(sc, total, "#1f2937", 11)}</div>`;
+    // 판정 한 줄(얇게)을 긍정·부정 주요 내용 위에 — 왼쪽·오른쪽 높이를 비슷하게
+    const v = rpVerdict(sc, total, 11);
+    const same = /비슷한/.test(v.text);
+    const vline = `<div style="background:${same ? "#f3f4f6" : v.hi ? "#fdecec" : "#e8f1fc"};color:${same ? "#374151" : v.hi ? "#d0021b" : "#1f5fbf"};font-weight:700;font-size:11.5px;padding:4px 10px;border-radius:4px;margin:0 0 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${rpEsc(v.text)}</div>`;
+    const opCell = (t, col, list, top, pad) =>
+      `<td width="${opW + pad}" style="width:${opW}px;vertical-align:top;padding:0 0 0 ${pad}px">${box(opW, `${head(t, col, list.length)}<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${opW}" style="width:${opW}px;table-layout:fixed;border-collapse:collapse">${rpOpinionRows(top, col, 64, opW)}</table>`)}</td>`;
+    const rw = opW * 2 + 12;
+    right =
+      `<td colspan="2" width="${rw + 12}" style="width:${rw}px;vertical-align:top;padding:0 0 0 12px">` +
+      box(rw, vline + `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${rw}" style="width:${rw}px;table-layout:fixed;border-collapse:collapse"><tr>${opCell("긍정 주요 내용", "#1f5fbf", pos, posTop, 0)}${opCell("부정 주요 내용", "#d0021b", neg, negTop, 12)}</tr></table>`) +
+      `</td>`;
   }
   return (
     // 테두리·둥근 모서리는 표가 아니라 상자(div)에 — 메일 프로그램이 표의 둥근 모서리를 지우거나 칸 바탕이 모서리를 덮지 않게
