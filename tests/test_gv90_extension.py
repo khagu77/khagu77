@@ -467,6 +467,15 @@ def test_gv90_comments(ext, tmp_path: Path):
     assert ws.max_row - 1 == n1
     assert "판매·출고" in [r[7].value for r in ws.iter_rows(min_row=2)]
     assert isinstance(wb["게시글별 댓글 성향"]["A2"].value, int)  # 게시글 번호는 숫자 (오류 표시 안 나게)
+    # 나중에 다시 수집한 글의 댓글도 그 게시글 자리에 (맨 뒤로 가지 않음)
+    order = page.evaluate("""(() => {
+      const posts = [{ key: 'c1', channel: '자동차 커뮤니티', day: '20261111', date: 2 }, { key: 'y1', channel: '유튜브', day: '20261111', date: 1 }];
+      const cs = [{ postKey: 'c1', text: 'c-a', channel: '자동차 커뮤니티' }, { postKey: 'c1', text: 'c-b', channel: '자동차 커뮤니티' }, { postKey: 'y1', text: 'y-a', channel: '유튜브' }];
+      const bytes = Gv90Xlsx.buildComments({ comments: cs, posts });
+      let s = ''; for (const b of bytes) s += String.fromCharCode(b); return btoa(s);
+    })()""")
+    wo = load_workbook(BytesIO(base64.b64decode(order)))["댓글"]
+    assert [r[6].value for r in wo.iter_rows(min_row=2)] == ["y-a", "c-a", "c-b"]
     wg = wb["게시글별 댓글 성향"]
     assert [c.value for c in wg[1]] == ["No", "커뮤니티명 / 게시글 위치", "제목", "주요 내용 · 댓글", "게시일 · 작성일", "구분", "성향"]
     # 게시글 줄: 커뮤니티명 · 제목 / 첫 댓글 줄 B칸: 게시글 위치(링크)
