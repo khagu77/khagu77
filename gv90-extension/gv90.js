@@ -749,7 +749,7 @@ async function collect() {
         }
         for (const u of direct.filter((u) => { try { return communityAdapter(u) && new URL(u).hostname.replace(/^m\./, "www.") === new URL(site.url).hostname.replace(/^m\./, "www."); } catch { return false; } })) {
           const ad = communityAdapter(site.url);
-          list.push({ key: `${ad.domain}:${u}`, channel: "community", source: site.name, domain: ad.domain, siteUrl: site.url, url: u, title: "", date: null, exact: false, snippet: "", direct: true });
+          list.push({ key: `${ad.domain}:${ad.articleId(u) || u}`, channel: "community", source: site.name, domain: ad.domain, siteUrl: site.url, url: u, title: "", date: null, exact: false, snippet: "", direct: true });
         }
         for (let j = 0; j < list.length && !stopRequested; j++) {
           const p = list[j];

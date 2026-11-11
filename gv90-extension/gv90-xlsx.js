@@ -282,15 +282,27 @@
     return build(rawSheets({ posts, daily }));
   }
 
+  // 게시글 순서: 보고일(오래된 → 최근) → 채널(언론 · 유튜브 · 동호회 · 커뮤니티) → 게시일 → 저장 순서
+  //  연번은 이 순서대로 1부터 (지난 보고일 글은 앞에 그대로 · 새 보고일 글이 아래로 이어짐)
+  const POST_CH = ["언론", "유튜브", "동호회", "자동차 커뮤니티"];
+  function postOrder(posts) {
+    const ci = (c) => (POST_CH.indexOf(c) < 0 ? 9 : POST_CH.indexOf(c));
+    return (posts || [])
+      .map((p, i) => ({ p, i }))
+      .sort((a, b) => String(a.p.day || "").localeCompare(String(b.p.day || "")) || ci(a.p.channel) - ci(b.p.channel) || (a.p.date || 0) - (b.p.date || 0) || (a.p.serial || 0) - (b.p.serial || 0) || a.i - b.i)
+      .map((x) => x.p);
+  }
+
   // dailyComments: 최종 엑셀이면 일자별 집계 아래에 댓글 표도 (게시물 표와 같은 모양)
   function rawSheets({ posts, daily = null, dailyComments = null }) {
+    posts = postOrder(posts);
     const sheets = [
       {
         name: RAW_SHEET,
         columns: RAW_COLUMNS,
         headHeight: HEAD_H,
         cursorEnd: true,
-        rows: posts.map((p, i) => [p.serial || i + 1, p.channel || "", p.media || "", p.car || "GV90", asDate(p.date), p.url, p.summary || p.title || "", p.category || "", p.sentiment || ""]),
+        rows: posts.map((p, i) => [i + 1, p.channel || "", p.media || "", p.car || "GV90", asDate(p.date), p.url, p.summary || p.title || "", p.category || "", p.sentiment || ""]),
         cellStyle: sentiStyle(8),
       },
     ];
@@ -414,13 +426,14 @@
     //  → 나중에 다시 수집한 글의 댓글도 그 게시글 자리에 들어가고, 새 보고일 댓글은 아래로 이어짐
     const CH = ["언론", "유튜브", "동호회", "자동차 커뮤니티"];
     const pOf = new Map((posts || []).map((p) => [p.key, p]));
+    const ord = new Map(postOrder(posts).map((p, i) => [p.key, i + 1])); // 게시글 엑셀 연번 순서
     const firstAt = new Map();
     comments.forEach((c, i) => {
       if (!firstAt.has(c.postKey)) firstAt.set(c.postKey, i);
     });
     const rank = (c) => {
       const p = pOf.get(c.postKey) || {};
-      return [String(p.day || c.day || ""), p.serial || 1e9, CH.indexOf(p.channel || c.channel), p.date || c.date || 0, firstAt.get(c.postKey)];
+      return [String(p.day || c.day || ""), ord.get(c.postKey) || 1e9, CH.indexOf(p.channel || c.channel), p.date || c.date || 0, firstAt.get(c.postKey)];
     };
     comments = comments
       .map((c, i) => ({ c, i, r: rank(c) }))

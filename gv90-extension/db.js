@@ -28,7 +28,8 @@ function keyOfUrl(url) {
   const cafe = u.match(/cafe\.naver\.com\/(?:f-e\/cafes\/(\d+)\/articles\/(\d+)|([A-Za-z0-9_-]+)\/(\d+))/);
   if (cafe) return cafe[1] ? `cafe:${cafe[1]}/${cafe[2]}` : `cafe:${cafe[3]}/${cafe[4]}`;
   const ad = communityAdapter(u);
-  if (ad) return `${ad.domain}:${u}`;
+  // 커뮤니티: 수집기와 같은 키 (사이트:글번호) — 주소 전체로 만들면 같은 글이 두 번 들어감
+  if (ad) return `${ad.domain}:${ad.articleId(u) || u}`;
   return `newsx:${u.replace(/[#?].*$/, "").replace(/\/$/, "").toLowerCase()}`;
 }
 
@@ -421,4 +422,29 @@ $("#finalFix").addEventListener("click", () => {
   $("#fixFile").click();
 });
 
-const dbInit = render().then(renderFinal);
+// 예전 수정본 올리기로 같은 커뮤니티 글이 두 번 들어간 것 정리: 올린 쪽(by: upload)의 고친 값을 원래 글에 옮기고 지움
+async function mergeUploadDuplicates() {
+  const posts = await allPosts();
+  const byKey = new Map(posts.map((p) => [p.key, p]));
+  const drop = [];
+  for (const p of posts) {
+    if (p.by !== "upload" || !p.url) continue;
+    const k = keyOfUrl(p.url);
+    const orig = k !== p.key ? byKey.get(k) : null;
+    if (!orig) continue;
+    await updatePost(orig.key, { media: p.media || orig.media, summary: p.summary || orig.summary, category: p.category || orig.category, sentiment: p.sentiment || orig.sentiment, by: "edit" });
+    drop.push(p.key);
+  }
+  if (!drop.length) return 0;
+  await deletePosts(drop);
+  for (const d of await listDays()) await refreshDay(d.day);
+  return drop.length;
+}
+
+const dbInit = mergeUploadDuplicates()
+  .then((n) => {
+    if (n) setInfo(`✔ 수정본 올리기로 두 번 들어갔던 게시물 ${n}건을 하나로 합쳤습니다 (고친 값은 원래 글에 반영).`, "ok");
+  })
+  .catch(() => {})
+  .then(render)
+  .then(renderFinal);

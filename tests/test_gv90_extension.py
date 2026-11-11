@@ -297,6 +297,12 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     assert ws.column_dimensions["C"].width > 50 and ws["C2"].alignment.horizontal == "left"
     rows = [[c.value for c in r] for r in ws.iter_rows(min_row=2)]
     assert [r[0] for r in rows] == list(range(1, len(rows) + 1))  # 연번 이어짐 (누적)
+    # 순서: 보고일 → 채널(언론 · 유튜브 · 동호회 · 커뮤니티) → 게시일
+    CHO = ["언론", "유튜브", "동호회", "자동차 커뮤니티"]
+    chs = [CHO.index(r[1]) for r in rows]
+    days = page.evaluate("(async () => { const m = {}; for (const p of await allPosts()) m[p.url] = p.day; return m; })()")
+    keyseq = [(days[r[5]], CHO.index(r[1])) for r in rows]
+    assert keyseq == sorted(keyseq), keyseq
     urls = {r[5]: r for r in rows}
     assert "https://n.news.naver.com/mnews/article/002/0000000002" in urls  # 지난 보고 글도 누적 엑셀에
     assert urls["https://www.clien.net/service/board/cm_car/501"][8] == "부정"
@@ -328,9 +334,14 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     # 휴일 회차는 보고됨 처리
     assert page.evaluate("(async () => (await listRuns()).find((r) => r.id === 'run-holiday').reportedAt > 0)()")
 
+    # 예전 수정본 올리기로 두 번 들어간 커뮤니티 글 (키가 주소 전체) → 데일리 DB 를 열면 하나로 합침
+    page.evaluate("""(async () => { const o = (await allPosts()).find((p) => p.key === 'clien.net:501');
+      await savePosts([{ ...o, key: 'clien.net:' + o.url, summary: '엑셀에서 고친 요약', by: 'upload' }], o.day); })()""")
     # 데일리 DB 화면
     page.goto(f"chrome-extension://{ext_id}/db.html")
     page.evaluate("dbInit")
+    dup = page.evaluate("(async () => (await allPosts()).filter((p) => p.url.includes('cm_car/501')).map((p) => [p.key, p.summary]))()")
+    assert dup == [["clien.net:501", "엑셀에서 고친 요약"]], dup
     assert page.locator("#days tbody tr").count() == 2
     # 성향별: 게시글 · 댓글 · 총평가 나눠 표시 (위쪽 누적 성향도)
     first = page.locator("#days tbody tr").first.inner_text()
@@ -353,6 +364,8 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     assert vals[hrow][2] == "채널별 댓글" and vals[hrow][6] == "성향별 댓글" and vals[hrow + 1][6] == "긍정"
     tot = next(r for r in vals[hrow:] if r[0] == "합계")
     assert tot[1] == 1 and tot[6] == 1  # 댓글 1개 · 긍정 1
+    # 수정본 올리기의 게시글 찾기 키 = 수집기 키 (커뮤니티 글이 두 번 들어가지 않게)
+    assert page.evaluate("keyOfUrl('https://www.clien.net/service/board/cm_car/501')") == "clien.net:501"
     page.locator("#days tbody tr").first.locator("button", has_text="게시물 보기").click()
     page.locator("#dayPosts tbody tr .counts.hot").first.wait_for()
 
