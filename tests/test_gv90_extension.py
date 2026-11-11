@@ -297,10 +297,11 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     assert ws.column_dimensions["C"].width > 50 and ws["C2"].alignment.horizontal == "left"
     rows = [[c.value for c in r] for r in ws.iter_rows(min_row=2)]
     assert [r[0] for r in rows] == list(range(1, len(rows) + 1))  # 연번 이어짐 (누적)
-    # 순서: 채널(언론 · 유튜브 · 동호회 · 커뮤니티)끼리 모음 (누적이어도 보고일마다 섞이지 않게)
+    # 순서: 보고일마다 이전 데이터 뒤에 이어 붙임 · 그날 안에서는 채널(언론 · 유튜브 · 동호회 · 커뮤니티)
     CHO = ["언론", "유튜브", "동호회", "자동차 커뮤니티"]
-    chs = [CHO.index(r[1]) for r in rows]
-    assert chs == sorted(chs), chs
+    days = page.evaluate("(async () => { const m = {}; for (const p of await allPosts()) m[p.url] = p.day; return m; })()")
+    keyseq = [(days[r[5]], CHO.index(r[1])) for r in rows]
+    assert keyseq == sorted(keyseq), keyseq
     urls = {r[5]: r for r in rows}
     assert "https://n.news.naver.com/mnews/article/002/0000000002" in urls  # 지난 보고 글도 누적 엑셀에
     assert urls["https://www.clien.net/service/board/cm_car/501"][8] == "부정"
@@ -499,14 +500,14 @@ def test_gv90_comments(ext, tmp_path: Path):
     })()""")
     wo = load_workbook(BytesIO(base64.b64decode(order)))["댓글"]
     assert [r[6].value for r in wo.iter_rows(min_row=2)] == ["y-a", "c-a", "c-b"]
-    # 누적: 게시글 엑셀과 같은 순서 (채널 → 게시일)
+    # 누적: 게시글 엑셀과 같은 순서 (보고일마다 이어 붙임)
     order2 = page.evaluate("""(() => {
       const posts = [{ key: 'new', channel: '언론', day: '20261111', serial: 3 }, { key: 'old', channel: '자동차 커뮤니티', day: '20261110', serial: 1 }];
       const cs = [{ postKey: 'new', text: 'n-a', channel: '언론' }, { postKey: 'old', text: 'o-a', channel: '자동차 커뮤니티' }];
       const bytes = Gv90Xlsx.buildComments({ comments: cs, posts });
       let s = ''; for (const b of bytes) s += String.fromCharCode(b); return btoa(s);
     })()""")
-    assert [r[6].value for r in load_workbook(BytesIO(base64.b64decode(order2)))["댓글"].iter_rows(min_row=2)] == ["n-a", "o-a"]  # 언론 글 댓글 먼저 (채널 순서)
+    assert [r[6].value for r in load_workbook(BytesIO(base64.b64decode(order2)))["댓글"].iter_rows(min_row=2)] == ["o-a", "n-a"]  # 지난 보고일 댓글 먼저, 새 보고일 댓글이 뒤에
     wg = wb["게시글별 댓글 성향"]
     assert [c.value for c in wg[1]] == ["No", "커뮤니티명 / 게시글 위치", "제목", "주요 내용 · 댓글", "게시일 · 작성일", "구분", "성향"]
     # 게시글 줄: 커뮤니티명 · 제목 / 첫 댓글 줄 B칸: 게시글 위치(링크)
