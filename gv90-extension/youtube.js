@@ -29,7 +29,8 @@ function extractJsonAfter(html, marker) {
   let idx = html.indexOf(marker);
   while (idx !== -1) {
     const start = html.indexOf("{", idx + marker.length);
-    if (start !== -1 && /^\s*=\s*$/.test(html.slice(idx + marker.length, start))) {
+    // var ytInitialData = {…} 뿐 아니라 window["ytInitialData"] = {…} 모양도 (유튜브가 번갈아 씀)
+    if (start !== -1 && /^\s*(?:["']\])?\s*=\s*$/.test(html.slice(idx + marker.length, start))) {
       let depth = 0;
       let inStr = false;
       let quote = "";
@@ -230,8 +231,13 @@ class YoutubeCollector {
   }
 
   async readComments(videoId, onProgress) {
-    const page = await this.videoPage(videoId);
-    if (!page.initialData) throw new Error("영상 정보를 읽지 못함 (삭제/비공개 영상일 수 있음)");
+    // 영상 화면을 가끔 덜 받아 오는 때가 있어 두 번 더 시도 (실제로 삭제·비공개면 세 번 다 실패)
+    let page = await this.videoPage(videoId);
+    for (let i = 0; i < 2 && !page.initialData; i++) {
+      await sleep(2000 + i * 2000);
+      page = await this.videoPage(videoId);
+    }
+    if (!page.initialData) throw new Error("영상 정보를 읽지 못함 (세 번 시도 · 삭제/비공개 영상이거나 유튜브가 잠시 막음 → '수집 전·0개·실패 글만 선택'으로 다시 수집)");
     const first = findCommentsToken(page.initialData);
     if (!first) return { page, comments: [] }; // 댓글이 꺼진 영상
     const apiKey = page.html.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/)?.[1];

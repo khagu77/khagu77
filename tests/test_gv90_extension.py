@@ -542,6 +542,8 @@ def test_gv90_resume(ext, tmp_path: Path):
     cc = page.evaluate("""new YoutubeCollector({ log() {}, isStopped: () => false }).commentCount({ html: '',
       initialData: { itemSectionRenderer: { sectionIdentifier: 'comment-item-section', contents: [{ continuationItemRenderer: { continuationEndpoint: { continuationCommand: { token: 'T1' } } } }] } } })""")
     assert parse_cnt(cc) == 1234, cc
+    # 영상 화면이 window["ytInitialData"] = {…} 모양이어도 읽음
+    assert page.evaluate("""extractJsonAfter('<script>window["ytInitialData"] = {"a": {"b": 1}};</script>', 'ytInitialData').a.b""") == 1
     # 구분 '모두 포함': 무료 분석은 여러 이슈를 다룬 글이면 '모두 포함(…)' · 표에서 여러 개 직접 고르기
     assert page.evaluate("ruleCategory('GV90 디자인 외관 멋지다 가격 1억3950만원 비싸 사전계약 출고 대기')") == "모두 포함(디자인+가격+판매·출고)"
     page.evaluate("items = items.filter((x) => x.key !== 'bobae:x'); document.querySelector('#filter').value = ''; renderResults()")
