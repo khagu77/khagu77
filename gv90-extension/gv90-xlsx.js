@@ -282,14 +282,14 @@
     return build(rawSheets({ posts, daily }));
   }
 
-  // 게시글 순서: 보고일(오래된 → 최근) → 채널(언론 · 유튜브 · 동호회 · 커뮤니티) → 게시일 → 저장 순서
-  //  연번은 이 순서대로 1부터 (지난 보고일 글은 앞에 그대로 · 새 보고일 글이 아래로 이어짐)
+  // 게시글 순서: 채널(언론 · 유튜브 · 동호회 · 커뮤니티) → 게시일 → 보고일 → 저장 순서 (누적이어도 채널끼리 모음)
+  //  연번은 이 순서대로 1부터
   const POST_CH = ["언론", "유튜브", "동호회", "자동차 커뮤니티"];
   function postOrder(posts) {
     const ci = (c) => (POST_CH.indexOf(c) < 0 ? 9 : POST_CH.indexOf(c));
     return (posts || [])
       .map((p, i) => ({ p, i }))
-      .sort((a, b) => String(a.p.day || "").localeCompare(String(b.p.day || "")) || ci(a.p.channel) - ci(b.p.channel) || (a.p.date || 0) - (b.p.date || 0) || (a.p.serial || 0) - (b.p.serial || 0) || a.i - b.i)
+      .sort((a, b) => ci(a.p.channel) - ci(b.p.channel) || (a.p.date || 0) - (b.p.date || 0) || String(a.p.day || "").localeCompare(String(b.p.day || "")) || (a.p.serial || 0) - (b.p.serial || 0) || a.i - b.i)
       .map((x) => x.p);
   }
 
@@ -422,7 +422,7 @@
 
   function commentSheets({ comments, posts }) {
     const SENT = ["긍정", "중립", "부정", "단순비난"];
-    // 댓글 순서: 게시글 엑셀과 같은 순서(누적 · 보고일 오래된 → 최근, 같은 날은 게시글 연번 → 채널 → 게시일) 다음 그 글 안의 원래 순서
+    // 댓글 순서: 게시글 엑셀 연번 순서(채널 → 게시일) 다음 그 글 안의 원래 순서
     //  → 나중에 다시 수집한 글의 댓글도 그 게시글 자리에 들어가고, 새 보고일 댓글은 아래로 이어짐
     const CH = ["언론", "유튜브", "동호회", "자동차 커뮤니티"];
     const pOf = new Map((posts || []).map((p) => [p.key, p]));
@@ -437,7 +437,7 @@
     };
     comments = comments
       .map((c, i) => ({ c, i, r: rank(c) }))
-      .sort((a, b) => a.r[0].localeCompare(b.r[0]) || a.r[1] - b.r[1] || a.r[2] - b.r[2] || a.r[3] - b.r[3] || a.r[4] - b.r[4] || a.i - b.i)
+      .sort((a, b) => a.r[1] - b.r[1] || a.r[0].localeCompare(b.r[0]) || a.r[2] - b.r[2] || a.r[3] - b.r[3] || a.r[4] - b.r[4] || a.i - b.i)
       .map((x) => x.c);
     const byPost = new Map();
     for (const c of comments) {

@@ -422,18 +422,32 @@ $("#finalFix").addEventListener("click", () => {
   $("#fixFile").click();
 });
 
-// 예전 수정본 올리기로 같은 커뮤니티 글이 두 번 들어간 것 정리: 올린 쪽(by: upload)의 고친 값을 원래 글에 옮기고 지움
+// 같은 글이 두 번 들어간 것 정리 (예전 수정본 올리기가 커뮤니티 글을 주소 전체로 찾아 새 글로 넣었음 · 그 뒤 고친 표시가 붙은 것 포함)
+//  같은 글(사이트:글번호 · 기사 · 영상 · 카페 글)끼리 묶어 수집기가 만든 원래 글 하나만 남기고, 엑셀에서 고친 값은 원래 글에 옮김
 async function mergeUploadDuplicates() {
   const posts = await allPosts();
-  const byKey = new Map(posts.map((p) => [p.key, p]));
-  const drop = [];
+  const groups = new Map();
   for (const p of posts) {
-    if (p.by !== "upload" || !p.url) continue;
-    const k = keyOfUrl(p.url);
-    const orig = k !== p.key ? byKey.get(k) : null;
-    if (!orig) continue;
-    await updatePost(orig.key, { media: p.media || orig.media, summary: p.summary || orig.summary, category: p.category || orig.category, sentiment: p.sentiment || orig.sentiment, by: "edit" });
-    drop.push(p.key);
+    if (!p.url) continue;
+    let k;
+    try {
+      k = keyOfUrl(p.url);
+    } catch {
+      continue;
+    }
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(p);
+  }
+  const drop = [];
+  for (const [k, list] of groups) {
+    if (list.length < 2) continue;
+    // 남길 글: 키가 수집기 키와 같은 글 → 없으면 먼저 보고된 글
+    list.sort((a, b) => (a.key === k ? -1 : b.key === k ? 1 : 0) || String(a.day).localeCompare(String(b.day)));
+    const keep = list[0];
+    const edited = list.slice(1).filter((p) => p.by === "upload" || p.by === "edit");
+    const src = edited[edited.length - 1];
+    if (src) await updatePost(keep.key, { media: src.media || keep.media, summary: src.summary || keep.summary, category: src.category || keep.category, sentiment: src.sentiment || keep.sentiment, by: "edit" });
+    drop.push(...list.slice(1).map((p) => p.key));
   }
   if (!drop.length) return 0;
   await deletePosts(drop);
