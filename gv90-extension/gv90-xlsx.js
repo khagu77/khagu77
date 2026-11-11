@@ -270,7 +270,8 @@
     return build(rawSheets({ posts, daily }));
   }
 
-  function rawSheets({ posts, daily = null }) {
+  // dailyComments: 최종 엑셀이면 일자별 집계 아래에 댓글 표도 (게시물 표와 같은 모양)
+  function rawSheets({ posts, daily = null, dailyComments = null }) {
     const sheets = [
       {
         name: RAW_SHEET,
@@ -299,9 +300,43 @@
         for (const c of CH) sum.byChannel[c] = (sum.byChannel[c] || 0) + (st.byChannel?.[c] || 0);
         for (const x of SENT) sum.bySentiment[x] = (sum.bySentiment[x] || 0) + (st.bySentiment?.[x] || 0);
       }
-      const rows = daily.map((d) => line(`${d.day.slice(0, 4)}-${d.day.slice(4, 6)}-${d.day.slice(6, 8)}`, d.stats || {}));
+      const label = (day) => `${day.slice(0, 4)}-${day.slice(4, 6)}-${day.slice(6, 8)}`;
+      const rows = daily.map((d) => line(label(d.day), d.stats || {}));
       rows.push(line("합계", sum));
+      const kinds = rows.map((_, i) => (i === rows.length - 1 ? "total" : "data"));
       const N = { v: "", s: "headNavy" };
+      const merges = ["A2:A3", "B2:B3", "C2:F2", "G2:J2", "K2:K3"];
+      // 댓글 표: 게시물 표 아래 한 줄 띄우고 같은 모양 (보고일 · 댓글 · 채널별 댓글 · 성향별 댓글 · 부정+단순비난 비율)
+      if (dailyComments) {
+        const pOf = new Map(posts.map((p) => [p.key, p]));
+        const byDay = new Map(daily.map((d) => [d.day, { posts: 0, byChannel: {}, bySentiment: {} }]));
+        const csum = { posts: 0, byChannel: {}, bySentiment: {} };
+        for (const c of dailyComments) {
+          const st = byDay.get(pOf.get(c.postKey)?.day || c.day);
+          if (!st) continue;
+          const ch = c.channel || pOf.get(c.postKey)?.channel;
+          for (const o of [st, csum]) {
+            o.posts++;
+            if (ch) o.byChannel[ch] = (o.byChannel[ch] || 0) + 1;
+            if (c.sentiment) o.bySentiment[c.sentiment] = (o.bySentiment[c.sentiment] || 0) + 1;
+          }
+        }
+        const blank = Array(11).fill("");
+        const h1 = ["보고일", "댓글", "채널별 댓글", "", "", "", "성향별 댓글", "", "", "", "부정+단순비난 비율"];
+        const h2 = ["", "", ...CH.map((c) => (c === "자동차 커뮤니티" ? "커뮤니티" : c)), ...SENT, ""];
+        rows.push(blank);
+        kinds.push("blank");
+        const hr = rows.length + 4; // 엑셀 줄 번호 (위 2줄 + 칸 이름 1줄 다음)
+        rows.push(h1, h2);
+        kinds.push("h1", "h2");
+        merges.push(`A${hr}:A${hr + 1}`, `B${hr}:B${hr + 1}`, `C${hr}:F${hr}`, `G${hr}:J${hr}`, `K${hr}:K${hr + 1}`);
+        for (const d of daily) {
+          rows.push(line(label(d.day), byDay.get(d.day)));
+          kinds.push("data");
+        }
+        rows.push(line("합계", csum));
+        kinds.push("total");
+      }
       sheets.push({
         name: "일자별 집계",
                 // 맨 위 줄: 오른쪽에 (단위 : 건)
@@ -309,7 +344,7 @@
           [...Array(10).fill({ v: "", s: "plain" }), { v: "(단위 : 건)", s: "note" }],
           [{ v: "보고일", s: "headNavy" }, { v: "게시물", s: "headNavy" }, { v: "채널별 게시물", s: "headNavy" }, N, N, N, { v: "성향별 게시물", s: "headNavy" }, N, N, N, { v: "부정+단순비난 비율", s: "headNavy" }],
         ],
-        merges: ["A2:A3", "B2:B3", "C2:F2", "G2:J2", "K2:K3"],
+        merges,
         columns: [
           { header: "", width: 13, style: "bold", headStyle: "headNavy" },
           { header: "", width: 9, style: "bold", headStyle: "headNavy" },
@@ -319,7 +354,11 @@
         ],
         rows,
         cellStyle: (ri, ci, v) => {
-          if (ri === rows.length - 1) return ci >= 6 && ci <= 9 ? SENTI_S[SENT[ci - 6]] : ci === 10 ? (typeof v === "number" && v >= 0.3 ? "pctNeg" : typeof v === "number" ? "pctTotal" : "total") : "total";
+          const k = kinds[ri];
+          if (k === "blank") return "plain";
+          if (k === "h1") return "headNavy";
+          if (k === "h2") return ci >= 2 && ci <= 5 ? "head" : ci >= 6 && ci <= 9 ? HEAD_S[SENT[ci - 6]] : "headNavy";
+          if (k === "total") return ci >= 6 && ci <= 9 ? SENTI_S[SENT[ci - 6]] : ci === 10 ? (typeof v === "number" && v >= 0.3 ? "pctNeg" : typeof v === "number" ? "pctTotal" : "total") : "total";
           if (ci >= 6 && ci <= 9) return v ? SENTI_S[SENT[ci - 6]] : "center";
           if (ci === 10) return typeof v === "number" ? (v >= 0.3 ? "pctNeg" : "pct") : "center";
           return null;
@@ -336,7 +375,7 @@
 
   // 최종 엑셀: 게시글 · 게시글 댓글 성향 · 일자별 집계 (3개 탭)
   function buildFinal({ posts, comments = [], daily = null }) {
-    const raw = rawSheets({ posts, daily });
+    const raw = rawSheets({ posts, daily, dailyComments: comments });
     const sheets = [{ ...raw[0], name: "게시글" }];
     if (comments.length) sheets.push({ ...commentSheets({ comments, posts })[1], name: "게시글 댓글 성향" });
     const day = raw.find((x) => x.name === "일자별 집계");

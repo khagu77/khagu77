@@ -341,6 +341,13 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     })()""")
     wf = load_workbook(BytesIO(base64.b64decode(fb)))
     assert wf.sheetnames == ["게시글", "게시글 댓글 성향", "일자별 집계"], wf.sheetnames
+    # 일자별 집계: 게시물 표 아래에 댓글 표 (같은 모양)
+    wd2 = wf["일자별 집계"]
+    vals = [[c.value for c in r] for r in wd2.iter_rows()]
+    hrow = next(i for i, r in enumerate(vals) if r[0] == "보고일" and r[1] == "댓글")
+    assert vals[hrow][2] == "채널별 댓글" and vals[hrow][6] == "성향별 댓글" and vals[hrow + 1][6] == "긍정"
+    tot = next(r for r in vals[hrow:] if r[0] == "합계")
+    assert tot[1] == 1 and tot[6] == 1  # 댓글 1개 · 긍정 1
     page.locator("#days tbody tr").first.locator("button", has_text="게시물 보기").click()
     page.locator("#dayPosts tbody tr .counts.hot").first.wait_for()
 
