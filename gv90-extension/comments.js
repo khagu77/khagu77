@@ -313,7 +313,10 @@ async function collect() {
 function visibleComments() {
   const pk = $("#postFilter").value;
   const sf = $("#sentFilter").value;
-  return comments.filter((c) => (!pk || c.postKey === pk) && (!sf || c.sentiment === sf));
+  const ch = $("#chSel").value;
+  const by = $("#bySel").value;
+  const byOk = (c) => !by || (by === "ai" ? c.by === "ai" : by === "edit" ? (c.edited || []).includes("sentiment") : c.by !== "ai" && !(c.edited || []).includes("sentiment"));
+  return comments.filter((c) => (!pk || c.postKey === pk) && (!sf || c.sentiment === sf) && (!ch || c.channel === ch) && byOk(c));
 }
 
 function renderComments() {
@@ -322,7 +325,9 @@ function renderComments() {
   tb.textContent = "";
   const list = visibleComments();
   const postOf = new Map(posts.map((p) => [p.key, p]));
-  for (const c of list.slice(0, 2000)) {
+  // 모두 보여 줌 (많으면 나눠 그려 화면이 멈추지 않게)
+  const frag = document.createDocumentFragment();
+  for (const c of list) {
     const sen = el("select", { class: `senti ${SENTI_CLASS[c.sentiment] || "neu"}`, onchange: async (e) => {
       c.sentiment = e.target.value;
       c.edited = [...new Set([...(c.edited || []), "sentiment"])];
@@ -339,7 +344,7 @@ function renderComments() {
       await updateComment(c.key, { category: c.category, edited: c.edited, catOwn: true });
     });
     const p = postOf.get(c.postKey);
-    tb.append(
+    frag.append(
       el("tr", {},
         el("td", {}, chChip(c.channel)),
         el("td", { class: "nowrap", text: c.media }),
@@ -351,7 +356,8 @@ function renderComments() {
       ),
     );
   }
-  if (list.length > 2000) tb.append(el("tr", {}, el("td", { colspan: 7, class: "hint", text: `… 2,000개까지만 보입니다 (전체 ${list.length.toLocaleString()}개는 엑셀에)` })));
+  tb.append(frag);
+  $("#visCount").textContent = `표에 ${list.length.toLocaleString()}개`;
   updateCommentCount();
 }
 
@@ -479,6 +485,8 @@ $("#stop").addEventListener("click", () => {
 });
 $("#postFilter").addEventListener("change", renderComments);
 $("#sentFilter").addEventListener("change", renderComments);
+$("#chSel").addEventListener("change", renderComments);
+$("#bySel").addEventListener("change", renderComments);
 $("#analyzeRule").addEventListener("click", reanalyzeRule);
 $("#analyzeAi").addEventListener("click", () => analyzeAi().catch((e) => { running = false; hideWork(); $("#analyzeAi").disabled = false; setSummary(`AI 분석 오류: ${e.message}`, "err"); }));
 $("#makeXlsx").addEventListener("click", () => prepareSaveDir().then(makeXlsx));

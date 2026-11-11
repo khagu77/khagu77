@@ -468,6 +468,14 @@ def test_gv90_comments(ext, tmp_path: Path):
     page.click("#start")
     wait_js(page, "!running", 60000)
     assert page.evaluate("(async () => (await allComments()).length)()") == n1
+    # 댓글 표: 모두 보임 · 채널 · 분석(AI 안 됨) 거르기
+    page.select_option("#chSel", "유튜브")
+    n_yt = page.evaluate("comments.filter((c) => c.channel === '유튜브').length")
+    assert page.locator("#commentTable tbody tr").count() == n_yt and n_yt > 0
+    page.select_option("#chSel", "")
+    page.select_option("#bySel", "notai")
+    assert page.locator("#commentTable tbody tr").count() == page.evaluate("comments.length")  # 무료 분석만 한 상태
+    page.select_option("#bySel", "")
     # 댓글 표에서 성향 고치기 → DB
     # 댓글 구분은 댓글마다 내용으로 (원글 구분 '가격'을 복사하지 않음)
     cats = page.evaluate("(async () => (await allComments()).map((c) => [c.category, ruleCategory(c.text)]))()")

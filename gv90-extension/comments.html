@@ -70,7 +70,10 @@
       <h2>2. 수집한 댓글 · 성향 <span class="hint" id="commentSummary"></span></h2>
       <div class="row">
         <label class="inline">게시글 <select id="postFilter"><option value="">전체</option></select></label>
+        <label class="inline">채널 <select id="chSel"><option value="">전체</option><option>언론</option><option>유튜브</option><option>동호회</option><option value="자동차 커뮤니티">커뮤니티</option></select></label>
         <label class="inline">성향 <select id="sentFilter"><option value="">전체</option><option>긍정</option><option>중립</option><option>부정</option><option>단순비난</option></select></label>
+        <label class="inline">분석 <select id="bySel"><option value="">전체</option><option value="notai">AI 분석 안 됨 (실패·무료 분석)</option><option value="ai">AI 분석됨</option><option value="edit">직접 고친 댓글</option></select></label>
+        <span id="visCount" class="hint"></span>
         <button id="analyzeRule" class="small" title="단어 사전으로 다시 분석 (표에서 직접 고친 성향은 그대로)">무료 분석 다시 하기</button>
         <button id="analyzeAi" class="small" title="Claude AI 가 원글 제목과 함께 댓글마다 성향을 다시 정합니다 (비용 듦 · 실행 전 예상 비용 표시)">💰 Claude AI 로 댓글 성향 추가 분석 <span class="badge ai">AI</span></button>
       </div>
