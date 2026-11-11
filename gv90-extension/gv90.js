@@ -1262,7 +1262,11 @@ $("#analyzeAi").addEventListener("click", async () => {
   stopRequested = false;
   $("#analyzeAi").disabled = true;
   try {
-    await analyze(items.filter((x) => !x.dup), { forceAi: true });
+    // 이미 AI 로 분석한 글은 빼고 (지난번 실패해 무료 분석으로 남은 글만 다시 · 비용 아낌)
+    let list = items.filter((x) => !x.dup);
+    const fresh = list.filter((x) => !String(x.by || "").startsWith("ai"));
+    if (fresh.length && fresh.length < list.length && confirm(`AI 분석이 아직 안 된 글 ${fresh.length}건만 분석할까요?\n(이미 AI 로 분석한 ${list.length - fresh.length}건은 그대로 둡니다 · [취소]는 모두 다시)`)) list = fresh;
+    await analyze(list, { forceAi: true });
   } finally {
     running = false;
     $("#analyzeAi").disabled = false;

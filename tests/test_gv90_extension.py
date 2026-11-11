@@ -476,6 +476,14 @@ def test_gv90_comments(ext, tmp_path: Path):
     })()""")
     wo = load_workbook(BytesIO(base64.b64decode(order)))["댓글"]
     assert [r[6].value for r in wo.iter_rows(min_row=2)] == ["y-a", "c-a", "c-b"]
+    # 누적: 지난 보고일 댓글이 위, 새 보고일 댓글이 아래로 이어짐 (게시글 엑셀과 같은 순서)
+    order2 = page.evaluate("""(() => {
+      const posts = [{ key: 'new', channel: '언론', day: '20261111', serial: 3 }, { key: 'old', channel: '자동차 커뮤니티', day: '20261110', serial: 1 }];
+      const cs = [{ postKey: 'new', text: 'n-a', channel: '언론' }, { postKey: 'old', text: 'o-a', channel: '자동차 커뮤니티' }];
+      const bytes = Gv90Xlsx.buildComments({ comments: cs, posts });
+      let s = ''; for (const b of bytes) s += String.fromCharCode(b); return btoa(s);
+    })()""")
+    assert [r[6].value for r in load_workbook(BytesIO(base64.b64decode(order2)))["댓글"].iter_rows(min_row=2)] == ["o-a", "n-a"]
     wg = wb["게시글별 댓글 성향"]
     assert [c.value for c in wg[1]] == ["No", "커뮤니티명 / 게시글 위치", "제목", "주요 내용 · 댓글", "게시일 · 작성일", "구분", "성향"]
     # 게시글 줄: 커뮤니티명 · 제목 / 첫 댓글 줄 B칸: 게시글 위치(링크)

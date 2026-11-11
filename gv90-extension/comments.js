@@ -394,8 +394,13 @@ async function reanalyzeRule() {
 async function analyzeAi() {
   settings = await loadSettings();
   if (!settings.apiKey) return setSummary("⚙ 설정의 'Claude AI 판독'에 API 키를 넣어 주세요.", "err");
-  const list = visibleComments().filter((c) => !(c.edited || []).includes("sentiment"));
+  let list = visibleComments().filter((c) => !(c.edited || []).includes("sentiment"));
   if (!list.length) return;
+  // 이미 AI 로 분석한 댓글은 빼고 (지난번 실패해 무료 분석으로 남은 댓글만 다시 · 비용 아낌)
+  const fresh = list.filter((c) => c.by !== "ai");
+  if (fresh.length && fresh.length < list.length) {
+    if (confirm(`AI 분석이 아직 안 된 댓글 ${fresh.length.toLocaleString()}개만 분석할까요?\n(이미 AI 로 분석한 ${(list.length - fresh.length).toLocaleString()}개는 그대로 둡니다)\n\n[취소]를 누르면 표에 보이는 댓글 ${list.length.toLocaleString()}개를 모두 다시 분석할지 묻습니다.`)) list = fresh;
+  } else if (!fresh.length && !confirm(`표에 보이는 댓글 ${list.length.toLocaleString()}개는 모두 이미 AI 로 분석했습니다. 다시 분석할까요?`)) return;
   const items = list.map((c) => ({ ...c, body: c.text, title: "" }));
   const est = aiEstimate(items, settings.model);
   if (!confirm(`표에 보이는 댓글 ${list.length.toLocaleString()}개의 성향을 Claude AI 로 다시 정합니다 (원글 제목 참고).\n예상 비용 ${fmtWon(est)} · 예상 소요 시간 ${fmtDur(Math.ceil(list.length / AI_BATCH / AI_PARALLEL) * 30)} · ${AI_MODELS.find(([id]) => id === settings.model)?.[1] || settings.model}\n\n계속할까요?`)) return;
@@ -431,11 +436,14 @@ async function makeXlsx() {
   const s = await loadSettings();
   const name = reportFileName({ ...s, fileName: String(s.fileName || "").replace(/\s*게시글\s*/g, " ").replace(/raw data/i, "").replace(/\s+/g, " ").trim() + " 댓글 raw data" }, new Date());
   const allPostList = await allPosts();
-  const bytes = Gv90Xlsx.buildComments({ comments, posts: allPostList });
+  // 게시글 엑셀처럼 누적 (설정 '엑셀에 담을 범위'가 '이번 보고분만'이면 화면에 보이는 게시글의 댓글만)
+  const keys = new Set(allPostList.map((p) => p.key));
+  const list = s.xlsxScope === "today" ? comments : (await allComments()).filter((c) => keys.has(c.postKey));
+  const bytes = Gv90Xlsx.buildComments({ comments: list, posts: allPostList });
   pendingXlsx = { bytes, name };
   try {
     const where = await saveFile(bytes, name);
-    $("#saveInfo").textContent = `✔ 댓글 ${comments.length.toLocaleString()}개를 ${where} 바로 저장했습니다.`;
+    $("#saveInfo").textContent = `✔ 댓글 ${list.length.toLocaleString()}개(${s.xlsxScope === "today" ? "이번 보고분" : "누적"})를 ${where} 바로 저장했습니다.`;
     $("#saveInfo").className = "hint ok";
     markSaved($("#getXlsx"), "✔ 댓글 엑셀 저장 완료!", where);
   } catch (e) {

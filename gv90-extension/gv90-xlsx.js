@@ -346,7 +346,8 @@
 
   function commentSheets({ comments, posts }) {
     const SENT = ["긍정", "중립", "부정", "단순비난"];
-    // 댓글 순서: 나중에 다시 수집한 글의 댓글도 그 게시글 자리에 오게 — 게시글 순서(보고일 최신 → 채널 → 게시일 → 연번) 다음 그 글 안의 원래 순서
+    // 댓글 순서: 게시글 엑셀과 같은 순서(누적 · 보고일 오래된 → 최근, 같은 날은 게시글 연번 → 채널 → 게시일) 다음 그 글 안의 원래 순서
+    //  → 나중에 다시 수집한 글의 댓글도 그 게시글 자리에 들어가고, 새 보고일 댓글은 아래로 이어짐
     const CH = ["언론", "유튜브", "동호회", "자동차 커뮤니티"];
     const pOf = new Map((posts || []).map((p) => [p.key, p]));
     const firstAt = new Map();
@@ -355,11 +356,11 @@
     });
     const rank = (c) => {
       const p = pOf.get(c.postKey) || {};
-      return [String(p.day || c.day || ""), CH.indexOf(p.channel || c.channel), p.date || c.date || 0, p.serial || 0, firstAt.get(c.postKey)];
+      return [String(p.day || c.day || ""), p.serial || 1e9, CH.indexOf(p.channel || c.channel), p.date || c.date || 0, firstAt.get(c.postKey)];
     };
     comments = comments
       .map((c, i) => ({ c, i, r: rank(c) }))
-      .sort((a, b) => b.r[0].localeCompare(a.r[0]) || a.r[1] - b.r[1] || a.r[2] - b.r[2] || a.r[3] - b.r[3] || a.r[4] - b.r[4] || a.i - b.i)
+      .sort((a, b) => a.r[0].localeCompare(b.r[0]) || a.r[1] - b.r[1] || a.r[2] - b.r[2] || a.r[3] - b.r[3] || a.r[4] - b.r[4] || a.i - b.i)
       .map((x) => x.c);
     const byPost = new Map();
     for (const c of comments) {

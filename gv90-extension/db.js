@@ -335,8 +335,9 @@ $("#finalXlsx").addEventListener("click", async (e) => {
   const day = $("#finalBox").dataset.day;
   const s = await loadSettings();
   const posts = s.xlsxScope === "today" ? await postsOfDay(day) : (await allPosts()).filter((p) => p.day <= day);
-  const dayKeys = new Set((await postsOfDay(day)).map((p) => p.key));
-  const comments = (await allComments()).filter((c) => dayKeys.has(c.postKey));
+  // 댓글도 게시글과 같은 범위 (기본 누적)
+  const postKeys = new Set(posts.map((p) => p.key));
+  const comments = (await allComments()).filter((c) => postKeys.has(c.postKey));
   const daily = (await listDays()).filter((d) => d.day <= day).reverse();
   const bytes = Gv90Xlsx.buildFinal({ posts, comments, daily });
   const name = reportFileName({ ...s, fileName: String(s.fileName || "").replace(/\s*게시글\s*/g, " ").replace(/raw data/i, "").replace(/\s+/g, " ").trim() + " 최종" }, new Date(+day.slice(0, 4), +day.slice(4, 6) - 1, +day.slice(6, 8)));
