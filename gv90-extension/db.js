@@ -245,18 +245,30 @@ async function applyCommentFixes(rows) {
   if (!rows.length) return { seen: 0, changed: 0, missed: 0 };
   const norm = (t) => String(t || "").replace(/^\s*(?:↳|↪\s*답글:)\s*/, "").replace(/\s+/g, " ").trim();
   const nurl = (u) => String(u || "").replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/$/, "");
+  // 느슨한 비교: 띄어쓰기·보이지 않는 글자·따옴표 모양·끝의 '…' 차이는 무시 (엑셀이 바꾸는 경우)
+  const loose = (t) => norm(t).normalize("NFC").replace(/[\s\u200b-\u200d\ufeff]/g, "").replace(/[“”″]/g, '"').replace(/[‘’′]/g, "'").replace(/…$/, "");
   const all = await allComments();
   const byKey = new Map();
+  const byText = new Map();
   for (const c of all) {
     byKey.set(`${nurl(c.url)}|${norm(c.text)}`, c);
     byKey.set(`${c.postKey}|${norm(c.text)}`, c);
+    byKey.set(`${nurl(c.url)}|~${loose(c.text)}`, c);
+    const lt = loose(c.text);
+    byText.set(lt, byText.has(lt) ? null : c); // 내용만으로 찾기는 하나뿐일 때만
   }
   const changed = [];
+  const missedText = [];
   let missed = 0;
   for (const r of rows) {
-    const c = byKey.get(`${nurl(r.url)}|${norm(r.summary)}`) || byKey.get(`${keyOfUrl(r.url)}|${norm(r.summary)}`);
+    const c =
+      byKey.get(`${nurl(r.url)}|${norm(r.summary)}`) ||
+      byKey.get(`${keyOfUrl(r.url)}|${norm(r.summary)}`) ||
+      byKey.get(`${nurl(r.url)}|~${loose(r.summary)}`) ||
+      byText.get(loose(r.summary));
     if (!c) {
       missed++;
+      if (missedText.length < 3) missedText.push(norm(r.summary).slice(0, 30));
       continue;
     }
     const patch = {};
@@ -267,7 +279,7 @@ async function applyCommentFixes(rows) {
     changed.push({ ...c, ...patch, edited, by: patch.sentiment ? "edit" : c.by, catOwn: true });
   }
   if (changed.length) await putComments(changed);
-  return { seen: rows.length, changed: changed.length, missed };
+  return { seen: rows.length, changed: changed.length, missed, missedText };
 }
 
 $("#fixFile").addEventListener("change", async (e) => {
@@ -287,7 +299,12 @@ $("#fixFile").addEventListener("change", async (e) => {
       const key = keyOfUrl(r.url);
       const old = posts.get(key);
       if (old) {
-        const patch = { media: r.community || old.media, category: r.category || old.category, summary: r.summary || old.summary, sentiment: SENTIMENTS.includes(r.sentiment) ? r.sentiment : old.sentiment };
+        const patch = { media: r.community || old.media, category: r.category || old.category, summary: r.summary || old.summary, sentiment: SENTIMENTS.includes(r.sentiment) ? r.sentiment : old.sentiment, car: r.car || old.car };
+        // 게시일을 날짜로 고쳤으면 반영 (시각은 그대로)
+        if (r.date && old.date && todayKey(r.date) !== todayKey(new Date(old.date))) {
+          const o = new Date(old.date);
+          patch.date = new Date(r.date.getFullYear(), r.date.getMonth(), r.date.getDate(), o.getHours(), o.getMinutes()).getTime();
+        }
         if (Object.keys(patch).some((k) => patch[k] !== old[k])) {
           await updatePost(key, { ...patch, by: "edit" });
           changed++;
@@ -299,7 +316,7 @@ $("#fixFile").addEventListener("change", async (e) => {
     if (fresh.length) added = (await savePosts(fresh, fixDay)).added;
     await saveDayFile(fixDay, f.name.replace(/\s*\(\d+\)(?=\.xlsx$)/i, ""), bytes);
     for (const d of await listDays()) await refreshDay(d.day);
-    setInfo(`✔ ${prettyDay(fixDay)} 수정본: 바뀐 게시물 ${changed}건 · 새로 넣은 게시물 ${added}건${cfix.seen ? ` · 바뀐 댓글 ${cfix.changed}개${cfix.missed ? ` (못 찾은 댓글 ${cfix.missed}개)` : ""}` : ""} · 그날 엑셀을 이 파일로 바꿨습니다.`, "ok");
+    setInfo(`✔ ${prettyDay(fixDay)} 수정본: 바뀐 게시물 ${changed}건 · 새로 넣은 게시물 ${added}건${cfix.seen ? ` · 바뀐 댓글 ${cfix.changed}개${cfix.missed ? ` (DB 에서 못 찾은 댓글 ${cfix.missed}개: "${cfix.missedText.join('", "')}"…)` : ""}` : " · 댓글 줄 없음(게시글만 반영)"} · 그날 엑셀을 이 파일로 바꿨습니다.`, "ok");
     celebrate(null);
     render().then(renderFinal);
   } catch (err) {
