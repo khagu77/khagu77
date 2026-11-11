@@ -101,6 +101,9 @@
     headGv: 31, // 게시글·댓글 머리글 (남색 #002060 바탕 · 흰 굵은 11pt · 가운데)
     plain: 0, note: 32, // 표 위 '(단위 : 건)' (테두리 없음 · 오른쪽 정렬)
     pct: 33, pctNeg: 34, pctTotal: 35, pctNegTotal: 36, // 비율 (숫자 0.0% · 빨강 · 합계 줄 회색 바탕)
+    numCenter: 37, numBold: 38, numTotal: 39, // 건수 (#,##0 · 천 단위 쉼표)
+    numPos: 40, numNeu: 41, numNeg: 42, numBlame: 43, // 성향 건수 (성향 색 · 쉼표)
+    numPosT: 44, numNeuT: 45, numNegT: 46, numBlameT: 47, // 합계 줄 성향 건수 (회색 바탕)
   };
   const SENTI_S = { 긍정: "pos", 중립: "neu", 부정: "neg", 단순비난: "blame" };
   const FONT = '<name val="현대산스 Text"/><family val="3"/><charset val="129"/>';
@@ -130,14 +133,17 @@
       xf(15, 0, "left", ' indent="3"') + // 30 대댓글 (3칸 들여쓰기 · 회색 — 댓글보다 조금만 더)
       xf(16, 10, "center") + // 31 게시글·댓글 머리글
       `<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>` + // 32 단위 표기
-      [[4, 0], [10, 0], [13, 9], [10, 9]].map(([font, fill]) => `<xf numFmtId="177" fontId="${font}" fillId="${fill}" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"${fill ? ' applyFill="1"' : ""} applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>`).join(""); // 33~36 비율
+      [[4, 0], [10, 0], [13, 9], [10, 9]].map(([font, fill]) => `<xf numFmtId="177" fontId="${font}" fillId="${fill}" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"${fill ? ' applyFill="1"' : ""} applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>`).join("") + // 33~36 비율
+      [[4, 0], [13, 0], [13, 9], [8, 0], [9, 0], [10, 0], [11, 0], [8, 9], [9, 9], [10, 9], [11, 9]]
+        .map(([font, fill]) => `<xf numFmtId="3" fontId="${font}" fillId="${fill}" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"${fill ? ' applyFill="1"' : ""} applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>`)
+        .join(""); // 37~47 쉼표 건수
     const firstFont = '<font><sz val="11"/><color theme="1"/><name val="맑은 고딕"/><family val="2"/><charset val="129"/><scheme val="minor"/></font>';
     return base
       .replace(/<numFmts count="1">([\s\S]*?)<\/numFmts>/, (all, inner) => `<numFmts count="2">${inner}<numFmt numFmtId="177" formatCode="0.0%"/></numFmts>`)
       .replace(firstFont, `<font><sz val="10"/><color theme="1"/>${FONT}</font>`) // 기본 글꼴
       .replace(/<fonts count="8"([^>]*)>([\s\S]*?)<\/fonts>/, (all, attrs, inner) => `<fonts count="17"${attrs}>${inner}${fonts}</fonts>`)
       .replace(/<fills count="4">([\s\S]*?)<\/fills>/, (all, inner) => `<fills count="11">${inner}${fills}</fills>`)
-      .replace(/<cellXfs count="14">([\s\S]*?)<\/cellXfs>/, (all, inner) => `<cellXfs count="37">${inner}${xfs}</cellXfs>`);
+      .replace(/<cellXfs count="14">([\s\S]*?)<\/cellXfs>/, (all, inner) => `<cellXfs count="48">${inner}${xfs}</cellXfs>`);
   }
 
   // excelSerial: 날짜만 (시각 버림)
@@ -152,6 +158,12 @@
       if (v === null || v === undefined || v === "") return `<c r="${ref}" s="${s}"/>`;
       if (v instanceof Date) return `<c r="${ref}" s="${s}"><v>${serialDay(v)}</v></c>`;
       if (typeof v === "number" && isFinite(v)) return `<c r="${ref}" s="${s}"><v>${v}</v></c>`;
+      // 수식: { f: "SUM(B4:B5)", v: 미리 계산한 값 } (엑셀에서 바로 보이게 값도 함께)
+      if (v && typeof v === "object" && v.f) {
+        const cv = v.v;
+        if (typeof cv === "number" && isFinite(cv)) return `<c r="${ref}" s="${s}"><f>${esc(v.f)}</f><v>${cv}</v></c>`;
+        return `<c r="${ref}" s="${s}" t="str"><f>${esc(v.f)}</f><v>${esc(cv ?? "")}</v></c>`;
+      }
       return `<c r="${ref}" s="${s}" t="inlineStr"><is><t xml:space="preserve">${esc(v)}</t></is></c>`;
     };
     const top = sheet.top || []; // 묶음 머리글 줄들 [[{ v, s }…]…]
@@ -334,6 +346,18 @@
         rows.push(line("합계", csum));
         kinds.push("total");
       }
+      // 합계 줄은 SUM 수식 · 부정+단순비난 비율은 줄마다 수식 (엑셀에서 숫자를 고치면 다시 계산)
+      const COLS = "ABCDEFGHIJK";
+      const formulas = (start, end) => {
+        const t = end + 1;
+        for (let ci = 1; ci <= 9; ci++) rows[t][ci] = { f: `SUM(${COLS[ci]}${start + 4}:${COLS[ci]}${end + 4})`, v: rows[t][ci] };
+        for (let i = start; i <= t; i++) {
+          const r = i + 4;
+          rows[i][10] = { f: `IF(B${r}=0,"-",(I${r}+J${r})/B${r})`, v: rows[i][10] };
+        }
+      };
+      formulas(0, daily.length - 1);
+      if (dailyComments) formulas(daily.length + 3, daily.length * 2 + 2);
       sheets.push({
         name: "일자별 집계",
                 // 맨 위 줄: 오른쪽에 (단위 : 건)
@@ -355,11 +379,14 @@
           if (k === "blank") return "plain";
           if (k === "h1") return "headNavy";
           if (k === "h2") return ci >= 2 && ci <= 5 ? "head" : ci >= 6 && ci <= 9 ? HEAD_S[SENT[ci - 6]] : "headNavy";
-          // 성향 숫자는 0 이어도 성향 색 · 부정+단순비난 비율은 늘 빨강 (보고 양식)
-          if (k === "total") return ci >= 6 && ci <= 9 ? SENTI_S[SENT[ci - 6]] : ci === 10 ? (typeof v === "number" ? "pctNegTotal" : "total") : "total";
-          if (ci >= 6 && ci <= 9) return SENTI_S[SENT[ci - 6]];
-          if (ci === 10) return typeof v === "number" ? "pctNeg" : "center";
-          return null;
+          // 성향 숫자는 0 이어도 성향 색 · 부정+단순비난 비율은 늘 빨강 · 건수는 천 단위 쉼표 (보고 양식)
+          const NUM = ["numPos", "numNeu", "numNeg", "numBlame"];
+          if (k === "total") return ci === 0 ? "total" : ci <= 5 ? "numTotal" : ci <= 9 ? `${NUM[ci - 6]}T` : "pctNegTotal";
+          if (ci === 0) return "center";
+          if (ci === 1) return "numBold";
+          if (ci <= 5) return "numCenter";
+          if (ci <= 9) return NUM[ci - 6];
+          return "pctNeg";
         },
       });
     }

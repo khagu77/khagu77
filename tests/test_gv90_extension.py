@@ -309,6 +309,11 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     # 게시글 엑셀: 댓글 시트 없음 · 일자별 집계에도 댓글 열 없음
     assert "댓글" not in wb.sheetnames
     assert wd["K1"].value == "(단위 : 건)" and wd["B2"].value == "게시물" and wd["C2"].value == "채널별 게시물" and wd["K2"].value == "부정+단순비난 비율"
+    # 합계·비율은 수식 (엑셀에서 다시 계산) · 값도 함께 들어 있음 · 건수는 천 단위 쉼표
+    tot_row = next(r for r in range(4, wd.max_row + 1) if wd.cell(r, 1).value == "합계")
+    assert str(wd.cell(tot_row, 2).value).startswith("=SUM(B4:") and str(wd.cell(4, 11).value).startswith("=IF(B4=0")
+    assert wd.cell(4, 2).number_format == "#,##0"
+    wd = load_workbook(BytesIO(base64.b64decode(b64[1])), data_only=True)["일자별 집계"]
     lrow = [wd.cell(r, 11) for r in range(4, wd.max_row + 1)]
     assert all(isinstance(c.value, (int, float)) and c.number_format == "0.0%" for c in lrow if c.value != "-"), [(c.value, c.number_format) for c in lrow]
     import zipfile
@@ -339,7 +344,7 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
       const bytes = Gv90Xlsx.buildFinal({ posts, comments: [{ postKey: posts[0].key, text: 'GV90 좋네요', sentiment: '긍정', category: '디자인', date: Date.now() }], daily: (await listDays()).reverse() });
       let s = ''; for (const b of bytes) s += String.fromCharCode(b); return btoa(s);
     })()""")
-    wf = load_workbook(BytesIO(base64.b64decode(fb)))
+    wf = load_workbook(BytesIO(base64.b64decode(fb)), data_only=True)
     assert wf.sheetnames == ["게시글", "게시글 댓글 성향", "일자별 집계"], wf.sheetnames
     # 일자별 집계: 게시물 표 아래에 댓글 표 (같은 모양)
     wd2 = wf["일자별 집계"]
