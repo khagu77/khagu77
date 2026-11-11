@@ -79,7 +79,8 @@ async function render() {
   const allP = sentiOf(posts);
   const allC = sentiOf(comments);
   $("#dbSummary").textContent = `보고일 ${days.length}일 · 누적 게시물 ${posts.length.toLocaleString()}건${comments.length ? ` · 댓글 ${comments.length.toLocaleString()}건` : ""}`;
-  $("#dbSenti").replaceChildren(el("div", { class: "hint", text: "누적 성향" }), sentiLines(allP, allC, true));
+  const editedC = comments.filter((c) => (c.edited || []).includes("sentiment")).length;
+  $("#dbSenti").replaceChildren(el("div", { class: "hint", text: `누적 성향${editedC ? ` · 엑셀·표에서 직접 고친 댓글 성향 ${editedC}개 반영됨` : ""}` }), sentiLines(allP, allC, true));
   $("#dbSenti").hidden = !posts.length;
   const tb = $("#days tbody");
   tb.textContent = "";
