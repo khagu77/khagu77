@@ -100,7 +100,8 @@ async function render() {
         el("td", { class: "acts" },
           el("button", { class: "small", text: "게시물 보기", onclick: () => showDay(d.day) }),
           el("button", { class: "small getbtn", text: "📥 엑셀 저장", onclick: (e) => downloadDay(d.day, e.currentTarget) }),
-          el("button", { class: "small", text: "수정본 올리기", onclick: () => { fixDay = d.day; $("#fixFile").value = ""; $("#fixFile").click(); } }),
+          el("button", { class: "small", text: "💬 댓글 엑셀 저장", title: "그날까지의 댓글 (누적 · 게시글 순서)", onclick: (e) => downloadDayComments(d.day, e.currentTarget) }),
+          el("button", { class: "small", text: "수정본 올리기", title: "게시글 엑셀 · 댓글 엑셀 · 최종 엑셀 모두 올릴 수 있음 (고친 구분·주요 내용·성향 반영 · 댓글 포함)", onclick: () => { fixDay = d.day; $("#fixFile").value = ""; $("#fixFile").click(); } }),
           el("button", { class: "small danger", text: "삭제", onclick: () => removeDay(d.day) }),
         ),
       ),
@@ -125,6 +126,22 @@ async function downloadDay(day, btn) {
   celebrate(btn);
 }
 
+// 그날까지의 댓글 엑셀 (누적 · '엑셀에 담을 범위'가 '이번 보고분만'이면 그날 글의 댓글만)
+async function downloadDayComments(day, btn) {
+  if (!confirmResave(btn)) return;
+  await prepareSaveDir();
+  const s = await loadSettings();
+  const posts = (await allPosts()).filter((p) => (s.xlsxScope === "today" ? p.day === day : p.day <= day));
+  const keys = new Set(posts.map((p) => p.key));
+  const comments = (await allComments()).filter((c) => keys.has(c.postKey));
+  if (!comments.length) return setInfo(`${prettyDay(day)}: 저장할 댓글이 없습니다. 댓글 수집 화면에서 먼저 모아 주세요.`, "err");
+  const name = reportFileName({ ...s, fileName: String(s.fileName || "").replace(/\s*게시글\s*/g, " ").replace(/raw data/i, "").replace(/\s+/g, " ").trim() + " 댓글 raw data" }, new Date(+day.slice(0, 4), +day.slice(4, 6) - 1, +day.slice(6, 8)));
+  const where = await saveFile(Gv90Xlsx.buildComments({ comments, posts }), name);
+  setInfo(`✔ 댓글 ${comments.length.toLocaleString()}개를 ${where} 저장했습니다.`, "ok");
+  markSaved(btn, "✔ 저장 완료!", where);
+  celebrate(btn);
+}
+
 async function removeDay(day) {
   const n = (await postsOfDay(day)).length;
   if (!confirm(`${prettyDay(day)} 보고분(게시물 ${n}건)을 데일리 DB 에서 지울까요?\n(다른 날짜의 게시물은 그대로입니다. 되돌릴 수 없으니 먼저 백업을 받아 두세요)`)) return;
@@ -132,7 +149,7 @@ async function removeDay(day) {
   if (openDay === day) openDay = null;
   $("#dayBox").hidden = !openDay;
   setInfo(`${prettyDay(day)} 보고분을 지웠습니다.`);
-  render();
+  render().then(renderFinal);
 }
 
 async function showDay(day) {
@@ -161,7 +178,7 @@ async function showDay(day) {
           if (!confirm(`'${(p.summary || p.title).slice(0, 40)}' 게시물을 DB 에서 지울까요?`)) return;
           await deletePosts([p.key]);
           await refreshDay(day);
-          render();
+          render().then(renderFinal);
         } })),
       ),
     );
@@ -216,19 +233,52 @@ $("#rawFile").addEventListener("change", async (e) => {
     }
     setInfo(`✔ ${f.name}: GV90 행 ${rows.length}건 중 새 게시물 ${added}건을 ${byDay.size}개 보고일로 등록했습니다.`, "ok");
     celebrate(null);
-    render();
+    render().then(renderFinal);
   } catch (err) {
     setInfo(`등록하지 못했습니다: ${err.message}`, "err");
   }
 });
 
 // 수정본 올리기: 같은 URL 의 커뮤니티명·구분·주요 내용·성향을 바꾸고, 그날 엑셀을 이 파일로 바꿈
+// 엑셀에서 고친 댓글의 구분·성향을 DB 에 반영 (같은 게시글 주소 + 같은 댓글 내용)
+async function applyCommentFixes(rows) {
+  if (!rows.length) return { seen: 0, changed: 0, missed: 0 };
+  const norm = (t) => String(t || "").replace(/^\s*(?:↳|↪\s*답글:)\s*/, "").replace(/\s+/g, " ").trim();
+  const nurl = (u) => String(u || "").replace(/^https?:\/\/(www\.|m\.)?/, "").replace(/\/$/, "");
+  const all = await allComments();
+  const byKey = new Map();
+  for (const c of all) {
+    byKey.set(`${nurl(c.url)}|${norm(c.text)}`, c);
+    byKey.set(`${c.postKey}|${norm(c.text)}`, c);
+  }
+  const changed = [];
+  let missed = 0;
+  for (const r of rows) {
+    const c = byKey.get(`${nurl(r.url)}|${norm(r.summary)}`) || byKey.get(`${keyOfUrl(r.url)}|${norm(r.summary)}`);
+    if (!c) {
+      missed++;
+      continue;
+    }
+    const patch = {};
+    if (SENTIMENTS.includes(r.sentiment) && r.sentiment !== c.sentiment) patch.sentiment = r.sentiment;
+    if (r.category && r.category !== c.category) patch.category = r.category;
+    if (!Object.keys(patch).length) continue;
+    const edited = [...new Set([...(c.edited || []), ...Object.keys(patch)])];
+    changed.push({ ...c, ...patch, edited, by: patch.sentiment ? "edit" : c.by, catOwn: true });
+  }
+  if (changed.length) await putComments(changed);
+  return { seen: rows.length, changed: changed.length, missed };
+}
+
 $("#fixFile").addEventListener("change", async (e) => {
   const f = e.target.files[0];
   if (!f || !fixDay) return;
   try {
     const bytes = new Uint8Array(await f.arrayBuffer());
-    const rows = (await Gv90Xlsx.read(bytes)).filter((r) => !r.isComment && r.url);
+    const all = await Gv90Xlsx.read(bytes);
+    const rows = all.filter((r) => !r.isComment && r.url);
+    // 댓글 줄(댓글 엑셀 '댓글' 시트 · 최종 엑셀 '게시글 댓글 성향' 탭): 같은 글의 같은 댓글을 찾아 구분·성향 반영
+    const cfix = await applyCommentFixes(all.filter((r) => r.isComment && r.url && r.summary));
     const posts = new Map((await allPosts()).map((p) => [p.key, p]));
     let changed = 0;
     let added = 0;
@@ -249,9 +299,9 @@ $("#fixFile").addEventListener("change", async (e) => {
     if (fresh.length) added = (await savePosts(fresh, fixDay)).added;
     await saveDayFile(fixDay, f.name.replace(/\s*\(\d+\)(?=\.xlsx$)/i, ""), bytes);
     for (const d of await listDays()) await refreshDay(d.day);
-    setInfo(`✔ ${prettyDay(fixDay)} 수정본: 바뀐 게시물 ${changed}건 · 새로 넣은 게시물 ${added}건 · 그날 엑셀을 이 파일로 바꿨습니다.`, "ok");
+    setInfo(`✔ ${prettyDay(fixDay)} 수정본: 바뀐 게시물 ${changed}건 · 새로 넣은 게시물 ${added}건${cfix.seen ? ` · 바뀐 댓글 ${cfix.changed}개${cfix.missed ? ` (못 찾은 댓글 ${cfix.missed}개)` : ""}` : ""} · 그날 엑셀을 이 파일로 바꿨습니다.`, "ok");
     celebrate(null);
-    render();
+    render().then(renderFinal);
   } catch (err) {
     setInfo(`수정본을 올리지 못했습니다: ${err.message}`, "err");
   }
@@ -292,7 +342,7 @@ $("#backupFile").addEventListener("change", async (e) => {
   try {
     const r = await importBackup(JSON.parse(await f.text()));
     setInfo(`✔ 백업을 불러왔습니다: 게시물 ${r.posts}건 · 댓글 ${r.comments}건 · 보고일 ${r.days}일`, "ok");
-    render();
+    render().then(renderFinal);
   } catch (err) {
     setInfo(`백업을 불러오지 못했습니다: ${err.message}`, "err");
   }
@@ -345,6 +395,13 @@ $("#finalXlsx").addEventListener("click", async (e) => {
   setInfo(`✔ 최종 엑셀(게시글 ${posts.length}건 · 댓글 ${comments.length}개)을 ${where} 저장했습니다.`, "ok");
   markSaved(btn, "✔ 최종 엑셀 저장 완료!", where);
   celebrate(btn);
+});
+
+$("#finalFix").addEventListener("click", () => {
+  fixDay = $("#finalBox").dataset.day;
+  if (!fixDay) return;
+  $("#fixFile").value = "";
+  $("#fixFile").click();
 });
 
 const dbInit = render().then(renderFinal);

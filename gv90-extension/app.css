@@ -388,3 +388,4 @@ a.btnlink:hover { border-color: var(--brand-2); }
 .finalbox #finalStatus { font-size: 13.5px; color: var(--text); margin-bottom: 2px; }
 button.getbtn.finalbtn { font-size: 18px; font-weight: 900; padding: 14px 30px; border-radius: 12px; background: #0b2a5b; color: #fff; border: none; white-space: nowrap; }
 button.getbtn.finalbtn.ready { font-size: 19px; padding: 16px 34px; background: linear-gradient(90deg, #ff3d77, #ff9a00, #ffd400, #00c853, #00b0ff, #7b3fe4, #ff3d77); background-size: 300% 100%; }
+.finalbox .finalbtns { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }

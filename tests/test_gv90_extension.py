@@ -502,6 +502,29 @@ def test_gv90_comments(ext, tmp_path: Path):
     assert wg["A2"].value == 1 and wg["B2"].value and wg["C2"].value
     assert wg["A3"].value == "1-1" and str(wg["B3"].value).startswith("http") and wg["B3"].hyperlink is not None
     assert wg["A4"].value != "1-2" or not wg["B4"].value
+    # 댓글 수정본 올리기: 엑셀에서 고친 댓글 성향·구분을 DB 에 (게시글별 댓글 성향 탭 · 답글 줄)
+    target = page.evaluate("(async () => { const c = (await allComments()).find((c) => c.isReply); return [c.text, c.sentiment]; })()")
+    new_sent = "부정" if target[1] != "부정" else "긍정"
+    wfix = load_workbook(BytesIO(base64.b64decode(b64[1])))
+    wsg = wfix["게시글별 댓글 성향"]
+    hit = 0
+    for r in range(2, wsg.max_row + 1):
+        if str(wsg.cell(r, 4).value or "").endswith(target[0]):
+            wsg.cell(r, 7).value = new_sent
+            wsg.cell(r, 6).value = "모두 포함(가격+편의사양)"
+            hit += 1
+    assert hit == 1
+    fixp = tmp_path / "fix.xlsx"
+    wfix.save(fixp)
+    page.goto(f"chrome-extension://{ext_id}/db.html")
+    page.evaluate("dbInit")
+    page.locator("#finalFix").wait_for()
+    with page.expect_file_chooser() as fc:
+        page.click("#finalFix")
+    fc.value.set_files(str(fixp))
+    page.locator("#info", has_text="바뀐 댓글 1개").wait_for()
+    got = page.evaluate(f"(async () => {{ const c = (await allComments()).find((c) => c.text === {json.dumps(target[0])}); return [c.sentiment, c.category, c.edited]; }})()")
+    assert got[0] == new_sent and got[1] == "모두 포함(가격+편의사양)" and "sentiment" in got[2], got
     # 대시보드: 반응 = 게시글 + 댓글 성향
     page.goto(f"chrome-extension://{ext_id}/dashboard.html")
     page.evaluate("dashInit")

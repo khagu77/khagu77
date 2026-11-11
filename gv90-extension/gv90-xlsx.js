@@ -580,6 +580,32 @@
           cells[ci] = { val, link: links[ref] || null };
         }
       }
+      // '게시글(별) 댓글 성향' 시트: 게시글 줄 아래 댓글 줄(1-1 …) · 게시글 위치는 첫 댓글 줄 B칸 → 댓글마다 그 주소로
+      const h0 = (grid[0] || []).map((c) => String(c?.val || "").trim());
+      if (h0.includes("주요 내용 · 댓글")) {
+        const ci = (n) => h0.indexOf(n);
+        const cNo = ci("No");
+        const cText = ci("주요 내용 · 댓글");
+        const cCat = ci("구분");
+        const cSen = ci("성향");
+        const cUrl = h0.findIndex((x) => /게시글 위치/.test(x));
+        let curUrl = "";
+        for (let r = 1; r < grid.length; r++) {
+          const row = grid[r];
+          if (!row) continue;
+          const no = String(row[cNo]?.val ?? "").trim();
+          const u = row[cUrl] ? String(row[cUrl].link || row[cUrl].val || "").trim() : "";
+          if (!/-/.test(no)) {
+            curUrl = ""; // 게시글 줄: 다음 첫 댓글 줄에서 주소
+            continue;
+          }
+          if (/^https?:\/\//.test(u)) curUrl = u;
+          const text = String(row[cText]?.val ?? "").replace(/^\s*(?:↳|↪\s*답글:)\s*/, "").trim();
+          if (!text || !curUrl) continue;
+          out.push({ sheet: sheetName, serial: null, community: "", car: "", date: null, category: String(row[cCat]?.val ?? "").trim(), url: curUrl, summary: text, sentiment: String(row[cSen]?.val ?? "").trim(), isComment: true });
+        }
+        continue;
+      }
       let hr = -1;
       let col = null;
       for (let r = 0; r < Math.min(grid.length, 10) && hr < 0; r++) {
@@ -618,9 +644,9 @@
           date,
           category: String(get(col.category) ?? "").trim(),
           url,
-          summary: String(get(col.summary) ?? "").trim(),
+          summary: String(get(col.summary) ?? "").trim().replace(/^↪\s*답글:\s*/, ""),
           sentiment: String(get(col.sentiment) ?? "").trim(),
-          isComment: sheetName === "댓글",
+          isComment: sheetName === "댓글" || h0[col.summary] === "댓글",
         });
       }
     }
