@@ -363,6 +363,10 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     assert vals[hrow][2] == "채널별 댓글" and vals[hrow][6] == "성향별 댓글" and vals[hrow + 1][6] == "긍정"
     tot = next(r for r in vals[hrow:] if r[0] == "합계")
     assert tot[1] == 1 and tot[6] == 1  # 댓글 1개 · 긍정 1
+    # 보고일 줄 버튼: 게시글 엑셀 저장 · 댓글 엑셀 저장 · 게시글/댓글 수정본 올리기 (최종 엑셀은 위 칸에서만)
+    acts = page.locator("#days tbody tr").first.inner_text()
+    for t in ["게시글 엑셀 저장", "댓글 엑셀 저장", "게시글 수정본 올리기", "댓글 수정본 올리기"]:
+        assert t in acts, acts
     # 수정본 올리기의 게시글 찾기 키 = 수집기 키 (커뮤니티 글이 두 번 들어가지 않게)
     assert page.evaluate("keyOfUrl('https://www.clien.net/service/board/cm_car/501')") == "clien.net:501"
     page.locator("#days tbody tr").first.locator("button", has_text="게시물 보기").click()

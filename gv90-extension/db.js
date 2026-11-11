@@ -3,6 +3,7 @@
 
 let openDay = null;
 let fixDay = null;
+let fixMode = "all"; // 수정본 종류: post(게시글 엑셀) · comment(댓글 엑셀) · all(최종 엑셀)
 
 function setInfo(text, cls = "") {
   $("#info").textContent = text;
@@ -101,9 +102,10 @@ async function render() {
         el("td", { class: "hint", text: d.fileName || "-" }),
         el("td", { class: "acts" },
           el("button", { class: "small", text: "게시물 보기", onclick: () => showDay(d.day) }),
-          el("button", { class: "small getbtn", text: "📥 엑셀 저장", onclick: (e) => downloadDay(d.day, e.currentTarget) }),
-          el("button", { class: "small", text: "💬 댓글 엑셀 저장", title: "그날까지의 댓글 (누적 · 게시글 순서)", onclick: (e) => downloadDayComments(d.day, e.currentTarget) }),
-          el("button", { class: "small", text: "수정본 올리기", title: "게시글 엑셀 · 댓글 엑셀 · 최종 엑셀 모두 올릴 수 있음 (고친 구분·주요 내용·성향 반영 · 댓글 포함)", onclick: () => { fixDay = d.day; $("#fixFile").value = ""; $("#fixFile").click(); } }),
+          el("button", { class: "small getbtn", text: "📥 게시글 엑셀 저장", title: "그날까지의 게시글 raw data (누적)", onclick: (e) => downloadDay(d.day, e.currentTarget) }),
+          el("button", { class: "small", text: "💬 댓글 엑셀 저장", title: "그날까지의 댓글 raw data (누적)", onclick: (e) => downloadDayComments(d.day, e.currentTarget) }),
+          el("button", { class: "small", text: "✏️ 게시글 수정본 올리기", title: "게시글 엑셀에서 고친 구분·주요 내용·성향을 반영", onclick: () => openFix(d.day, "post") }),
+          el("button", { class: "small", text: "✏️ 댓글 수정본 올리기", title: "댓글 엑셀에서 고친 구분·성향을 반영", onclick: () => openFix(d.day, "comment") }),
           el("button", { class: "small danger", text: "삭제", onclick: () => removeDay(d.day) }),
         ),
       ),
@@ -113,15 +115,13 @@ async function render() {
 }
 
 // 그날 엑셀: 저장해 둔 파일 (없으면 그날까지 누적으로 새로 만듦)
+// 게시글 엑셀: 그날까지의 게시글로 늘 새로 만듦 (수정본으로 올린 최종 엑셀 등이 대신 받아지지 않게)
 async function downloadDay(day, btn) {
   if (!confirmResave(btn)) return;
   await prepareSaveDir();
-  let f = await getDayFile(day);
-  if (!f) {
-    const posts = (await allPosts()).filter((p) => p.day <= day);
-    const s = await loadSettings();
-    f = { name: reportFileName(s, new Date(+day.slice(0, 4), +day.slice(4, 6) - 1, +day.slice(6, 8))), bytes: Gv90Xlsx.buildRaw({ posts, daily: (await listDays()).filter((d) => d.day <= day).reverse() }) };
-  }
+  const s = await loadSettings();
+  const posts = (await allPosts()).filter((p) => (s.xlsxScope === "today" ? p.day === day : p.day <= day));
+  const f = { name: reportFileName(s, new Date(+day.slice(0, 4), +day.slice(4, 6) - 1, +day.slice(6, 8))), bytes: Gv90Xlsx.buildRaw({ posts, daily: (await listDays()).filter((d) => d.day <= day).reverse() }) };
   const where = await saveFile(f.bytes, f.name);
   setInfo(`✔ ${where} 저장했습니다.`, "ok");
   markSaved(btn, "✔ 저장 완료!", where);
@@ -290,9 +290,13 @@ $("#fixFile").addEventListener("change", async (e) => {
   try {
     const bytes = new Uint8Array(await f.arrayBuffer());
     const all = await Gv90Xlsx.read(bytes);
-    const rows = all.filter((r) => !r.isComment && r.url);
+    // 게시글 수정본은 게시글 줄만, 댓글 수정본은 댓글 줄만, 최종 엑셀은 둘 다
+    const rows = fixMode === "comment" ? [] : all.filter((r) => !r.isComment && r.url);
+    const crow = fixMode === "post" ? [] : all.filter((r) => r.isComment && r.url && r.summary);
+    if (fixMode === "post" && !rows.length) throw new Error("게시글 줄을 찾지 못했습니다 — 게시글 엑셀(또는 최종 엑셀)을 올려 주세요");
+    if (fixMode === "comment" && !crow.length) throw new Error("댓글 줄을 찾지 못했습니다 — 댓글 엑셀(또는 최종 엑셀)을 올려 주세요");
     // 댓글 줄(댓글 엑셀 '댓글' 시트 · 최종 엑셀 '게시글 댓글 성향' 탭): 같은 글의 같은 댓글을 찾아 구분·성향 반영
-    const cfix = await applyCommentFixes(all.filter((r) => r.isComment && r.url && r.summary));
+    const cfix = await applyCommentFixes(crow);
     const posts = new Map((await allPosts()).map((p) => [p.key, p]));
     let changed = 0;
     let added = 0;
@@ -316,9 +320,11 @@ $("#fixFile").addEventListener("change", async (e) => {
       }
     }
     if (fresh.length) added = (await savePosts(fresh, fixDay)).added;
-    await saveDayFile(fixDay, f.name.replace(/\s*\(\d+\)(?=\.xlsx$)/i, ""), bytes);
     for (const d of await listDays()) await refreshDay(d.day);
-    setInfo(`✔ ${prettyDay(fixDay)} 수정본: 바뀐 게시물 ${changed}건 · 새로 넣은 게시물 ${added}건${cfix.seen ? ` · 바뀐 댓글 ${cfix.changed}개${cfix.missed ? ` (DB 에서 못 찾은 댓글 ${cfix.missed}개: "${cfix.missedText.join('", "')}"…)` : ""}` : " · 댓글 줄 없음(게시글만 반영)"} · 그날 엑셀을 이 파일로 바꿨습니다.`, "ok");
+    const pt = `바뀐 게시물 ${changed}건${added ? ` · 새로 넣은 게시물 ${added}건` : ""}`;
+    const ct = `바뀐 댓글 ${cfix.changed}개${cfix.missed ? ` (DB 에서 못 찾은 댓글 ${cfix.missed}개: "${cfix.missedText.join('", "')}"…)` : ""}`;
+    const kind = { post: "게시글 수정본", comment: "댓글 수정본", all: "최종 엑셀 수정본" }[fixMode];
+    setInfo(`✔ ${kind} 반영: ${fixMode === "post" ? pt : fixMode === "comment" ? ct : `${pt} · ${ct}`}`, "ok");
     celebrate(null);
     render().then(renderFinal);
   } catch (err) {
@@ -417,12 +423,14 @@ $("#finalXlsx").addEventListener("click", async (e) => {
   celebrate(btn);
 });
 
-$("#finalFix").addEventListener("click", () => {
-  fixDay = $("#finalBox").dataset.day;
-  if (!fixDay) return;
+function openFix(day, mode) {
+  if (!day) return;
+  fixDay = day;
+  fixMode = mode;
   $("#fixFile").value = "";
   $("#fixFile").click();
-});
+}
+$("#finalFix").addEventListener("click", () => openFix($("#finalBox").dataset.day, "all"));
 
 // 같은 글이 두 번 들어간 것 정리 (예전 수정본 올리기가 커뮤니티 글을 주소 전체로 찾아 새 글로 넣었음 · 그 뒤 고친 표시가 붙은 것 포함)
 //  같은 글(사이트:글번호 · 기사 · 영상 · 카페 글)끼리 묶어 수집기가 만든 원래 글 하나만 남기고, 엑셀에서 고친 값은 원래 글에 옮김
