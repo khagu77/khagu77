@@ -100,7 +100,7 @@
     commentText: 29, replyText: 30, // 댓글은 2칸, 대댓글은 5칸 들여쓰기 (대댓글은 회색 글자)
     headGv: 31, // 게시글·댓글 머리글 (남색 #002060 바탕 · 흰 굵은 11pt · 가운데)
     plain: 0, note: 32, // 표 위 '(단위 : 건)' (테두리 없음 · 오른쪽 정렬)
-    pct: 33, pctNeg: 34, pctTotal: 35, // 비율 (숫자 0.0% · 30% 이상 빨강 · 합계 줄)
+    pct: 33, pctNeg: 34, pctTotal: 35, pctNegTotal: 36, // 비율 (숫자 0.0% · 빨강 · 합계 줄 회색 바탕)
   };
   const SENTI_S = { 긍정: "pos", 중립: "neu", 부정: "neg", 단순비난: "blame" };
   const FONT = '<name val="현대산스 Text"/><family val="3"/><charset val="129"/>';
@@ -130,14 +130,14 @@
       xf(15, 0, "left", ' indent="3"') + // 30 대댓글 (3칸 들여쓰기 · 회색 — 댓글보다 조금만 더)
       xf(16, 10, "center") + // 31 게시글·댓글 머리글
       `<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>` + // 32 단위 표기
-      [[4, 0], [10, 0], [13, 9]].map(([font, fill]) => `<xf numFmtId="177" fontId="${font}" fillId="${fill}" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"${fill ? ' applyFill="1"' : ""} applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>`).join(""); // 33~35 비율
+      [[4, 0], [10, 0], [13, 9], [10, 9]].map(([font, fill]) => `<xf numFmtId="177" fontId="${font}" fillId="${fill}" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"${fill ? ' applyFill="1"' : ""} applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>`).join(""); // 33~36 비율
     const firstFont = '<font><sz val="11"/><color theme="1"/><name val="맑은 고딕"/><family val="2"/><charset val="129"/><scheme val="minor"/></font>';
     return base
       .replace(/<numFmts count="1">([\s\S]*?)<\/numFmts>/, (all, inner) => `<numFmts count="2">${inner}<numFmt numFmtId="177" formatCode="0.0%"/></numFmts>`)
       .replace(firstFont, `<font><sz val="10"/><color theme="1"/>${FONT}</font>`) // 기본 글꼴
       .replace(/<fonts count="8"([^>]*)>([\s\S]*?)<\/fonts>/, (all, attrs, inner) => `<fonts count="17"${attrs}>${inner}${fonts}</fonts>`)
       .replace(/<fills count="4">([\s\S]*?)<\/fills>/, (all, inner) => `<fills count="11">${inner}${fills}</fills>`)
-      .replace(/<cellXfs count="14">([\s\S]*?)<\/cellXfs>/, (all, inner) => `<cellXfs count="36">${inner}${xfs}</cellXfs>`);
+      .replace(/<cellXfs count="14">([\s\S]*?)<\/cellXfs>/, (all, inner) => `<cellXfs count="37">${inner}${xfs}</cellXfs>`);
   }
 
   // excelSerial: 날짜만 (시각 버림)
@@ -321,12 +321,9 @@
             if (c.sentiment) o.bySentiment[c.sentiment] = (o.bySentiment[c.sentiment] || 0) + 1;
           }
         }
-        const blank = Array(11).fill("");
         const h1 = ["보고일", "댓글", "채널별 댓글", "", "", "", "성향별 댓글", "", "", "", "부정+단순비난 비율"];
         const h2 = ["", "", ...CH.map((c) => (c === "자동차 커뮤니티" ? "커뮤니티" : c)), ...SENT, ""];
-        rows.push(blank);
-        kinds.push("blank");
-        const hr = rows.length + 4; // 엑셀 줄 번호 (위 2줄 + 칸 이름 1줄 다음)
+        const hr = rows.length + 4; // 게시물 표 합계 줄 바로 아래부터 (빈 줄 없이) // 엑셀 줄 번호 (위 2줄 + 칸 이름 1줄 다음)
         rows.push(h1, h2);
         kinds.push("h1", "h2");
         merges.push(`A${hr}:A${hr + 1}`, `B${hr}:B${hr + 1}`, `C${hr}:F${hr}`, `G${hr}:J${hr}`, `K${hr}:K${hr + 1}`);
@@ -346,11 +343,11 @@
         ],
         merges,
         columns: [
-          { header: "", width: 13, style: "bold", headStyle: "headNavy" },
+          { header: "", width: 13, style: "center", headStyle: "headNavy" },
           { header: "", width: 9, style: "bold", headStyle: "headNavy" },
           ...CH.map((c) => ({ header: c === "자동차 커뮤니티" ? "커뮤니티" : c, width: 10, style: "center", headStyle: "head" })),
           ...SENT.map((x) => ({ header: x, width: 10, headStyle: HEAD_S[x] })),
-          { header: "", width: 14, style: "center", headStyle: "headNavy" },
+          { header: "", width: 20, style: "center", headStyle: "headNavy" },
         ],
         rows,
         cellStyle: (ri, ci, v) => {
@@ -358,9 +355,10 @@
           if (k === "blank") return "plain";
           if (k === "h1") return "headNavy";
           if (k === "h2") return ci >= 2 && ci <= 5 ? "head" : ci >= 6 && ci <= 9 ? HEAD_S[SENT[ci - 6]] : "headNavy";
-          if (k === "total") return ci >= 6 && ci <= 9 ? SENTI_S[SENT[ci - 6]] : ci === 10 ? (typeof v === "number" && v >= 0.3 ? "pctNeg" : typeof v === "number" ? "pctTotal" : "total") : "total";
-          if (ci >= 6 && ci <= 9) return v ? SENTI_S[SENT[ci - 6]] : "center";
-          if (ci === 10) return typeof v === "number" ? (v >= 0.3 ? "pctNeg" : "pct") : "center";
+          // 성향 숫자는 0 이어도 성향 색 · 부정+단순비난 비율은 늘 빨강 (보고 양식)
+          if (k === "total") return ci >= 6 && ci <= 9 ? SENTI_S[SENT[ci - 6]] : ci === 10 ? (typeof v === "number" ? "pctNegTotal" : "total") : "total";
+          if (ci >= 6 && ci <= 9) return SENTI_S[SENT[ci - 6]];
+          if (ci === 10) return typeof v === "number" ? "pctNeg" : "center";
           return null;
         },
       });
