@@ -181,8 +181,10 @@ async function collectOne(p, tools) {
     const ids = newsIds(p.url);
     if (!ids) return { list: [], how: "언론사 사이트 기사" };
     const list = await nc.readComments({ ...ids, url: p.url }, (n) => showWork(`언론 댓글 읽는 중 · ${n}개`, 0, 0));
+    // 지금 기사 화면의 댓글 수(현재 댓글)로 다시 (게시물을 모은 뒤 늘어난 만큼)
+    const ccount = await nc.commentCount({ ...ids, url: p.url }).catch(() => null);
     await sleep(randomBetween(delays.news));
-    return { list, how: "네이버 뉴스 댓글" };
+    return { list, how: "네이버 뉴스 댓글", ccount };
   }
   if (p.channel === "유튜브") {
     const id = p.src?.videoId || parseYoutubeId(p.url) || String(p.key).replace(/^yt:/, "");

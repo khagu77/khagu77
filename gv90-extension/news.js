@@ -219,7 +219,7 @@ class NewsCollector {
   }
 
   // 댓글 상자 API (JSONP) 한 번 부르기
-  async cbox(post, page, parentCommentNo = null) {
+  async cbox(post, page, parentCommentNo, next) {
     const params = new URLSearchParams({
       ticket: "news",
       templateId: "default_society",
@@ -239,6 +239,11 @@ class NewsCollector {
       sort: "new",
     });
     if (parentCommentNo) params.set("parentCommentNo", String(parentCommentNo));
+    // '더 보기' 방식: 다음 묶음은 앞 응답의 morePage.next 로 (쪽 번호만으로는 100개 뒤를 못 받음)
+    if (next) {
+      params.set("moreParam.direction", "next");
+      params.set("moreParam.next", String(next));
+    }
     const res = await fetch(`https://apis.naver.com/commentBox/cbox/web_naver_list_jsonp.json?${params}`, { credentials: "include", cache: "no-store" });
     if (!res.ok) throw new Error(`${res.status} 응답 (댓글)`);
     const text = await res.text();
@@ -255,9 +260,11 @@ class NewsCollector {
     return c.comment ?? c.total ?? r.pageModel?.totalRows ?? (r.commentList || []).length;
   }
 
+  // 댓글 전부: 100개씩 '더 보기'(morePage.next)로 끝까지 · 답글(옵션)은 댓글마다 끝까지
   async readComments(post, onProgress) {
     const out = [];
     const seen = new Set();
+    let next = null;
     const push = (c, isReply) => {
       if (!c || c.deleted || c.blindReport || c.secret || !c.contents || seen.has(c.commentNo)) return;
       seen.add(c.commentNo);
@@ -266,23 +273,35 @@ class NewsCollector {
     };
     for (let page = 1; page <= 100; page++) {
       if (this.isStopped()) throw new StopError("중지됨");
-      const r = await this.cbox(post, page);
+      const r = await this.cbox(post, page, null, next);
       const list = r.commentList || [];
+      const before = seen.size;
       for (const c of list) {
         push(c, false);
         if (this.replies && c.replyCount > 0) {
           await this.wait(this.delays.news);
           try {
-            const rr = await this.cbox(post, 1, c.commentNo);
-            for (const x of rr.commentList || []) if (x.commentNo !== c.commentNo) push(x, true);
+            // 답글도 100개가 넘으면 이어서
+            let rnext = null;
+            for (let rp = 1; rp <= 30; rp++) {
+              const rr = await this.cbox(post, rp, c.commentNo, rnext);
+              const rl = rr.commentList || [];
+              const rb = seen.size;
+              for (const x of rl) if (x.commentNo !== c.commentNo) push(x, true);
+              rnext = rr.morePage?.next;
+              if (!rl.length || seen.size === rb || (!rnext && rl.length < 100)) break;
+              await this.wait(this.delays.news);
+            }
           } catch {
             /* 답글은 못 읽어도 넘어감 */
           }
         }
       }
       onProgress?.(out.length);
+      next = r.morePage?.next || null;
       const total = r.pageModel?.totalPages || r.pageModel?.lastPage;
-      if (!list.length || (total && page >= total)) break;
+      // 새 댓글이 없거나 · 다음 묶음이 없고 마지막 쪽이면 끝
+      if (!list.length || seen.size === before || (!next && total && page >= total) || (!next && !total && list.length < 100)) break;
       await this.wait(this.delays.news);
     }
     return out;

@@ -49,10 +49,18 @@ NEWS_COMMENTS = ["GV90 실내 정말 고급스럽네요 만족", "가격이 너�
 
 
 def cbox(url):
+    # 네이버 '더 보기' 방식: 첫 묶음 뒤에 morePage.next 를 주고, moreParam.next 로 다음 묶음 (쪽 번호만 바꾸면 같은 첫 묶음)
     q = parse_qs(urlparse(url).query)
     texts = NEWS_COMMENTS if q["objectId"][0].endswith("0000000001") and not q.get("parentCommentNo") else []
-    data = {"success": True, "result": {"count": {"comment": 31 if texts else 0}, "pageModel": {"totalPages": 1}, "commentList": [
-        {"commentNo": i + 1, "contents": t, "regTime": "2026-08-05T16:0%d:00+0900" % i, "userName": "u", "replyCount": 0} for i, t in enumerate(texts)]}}
+    nums = list(enumerate(texts))
+    more = None
+    if texts:
+        if q.get("moreParam.next") == ["N2"]:
+            nums = nums[2:]
+        else:
+            nums, more = nums[:2], {"next": "N2"}
+    data = {"success": True, "result": {"count": {"comment": 31 if texts else 0}, "pageModel": {"totalPages": 1}, "morePage": more or {}, "commentList": [
+        {"commentNo": i + 1, "contents": t, "regTime": "2026-08-05T16:0%d:00+0900" % i, "userName": "u", "replyCount": 0} for i, t in nums]}}
     return "cb(" + json.dumps(data, ensure_ascii=False) + ");"
 
 
