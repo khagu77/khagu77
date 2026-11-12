@@ -89,51 +89,48 @@
     return { ...res, scale: s };
   }
 
-  // 긴 본문을 여러 단으로: 줄 경계에서 높이가 비슷하게 나누고, 각 단은 글자 끝에서 오른쪽 여백을 자른다.
-  // 두 단을 먼저 해 보고(글자 최소 36%), 그래도 안 되면 세 단(최소 30%). 단들이 안내선 안(4.56~18.66cm, 댓글 위)에 들어오게.
+  // 긴 본문 (51%·46% 로도 안 들어갈 때): 제목·댓글처럼 왼쪽 안내선(3.66cm)에 바짝 붙여, 본문 전체를 최대 2열로 넣는다.
+  // 1열(글자를 줄여 한 단)과 2열(줄 경계에서 높이가 비슷하게 나눔) 중 글자가 더 크게 들어가는 쪽. 본문은 자르지 않는다.
+  // (담당자 지정 2026-11-12: newgenesisdh/2358243 처럼 본문이 아주 긴 글 — 예전엔 4.56cm 에서 시작하고 3열까지 나누거나 아래를 잘랐음)
   const COL_GAP = 0.4 * CM;
-  const SPLIT_TRIES = [
-    [2, 0.36],
-    [3, 0.3],
-  ];
   function splitBody(body, p, y) {
-    if (!body.cuts || body.cuts.length < 4 || p.avail < 2 * CM) return null;
-    const areaW = G.xRight - G.xBody;
+    if (p.avail < 1 * CM) return null;
+    const x0 = G.xText;
+    const areaW = G.xRight - x0;
     const H = body.canvas.height;
     const inkW = Math.max(1, body.inkWidth || body.canvas.width);
     const emuPerPx = CSS_PX_EMU / body.dpr;
-    for (const [k, minScale] of SPLIT_TRIES) {
-      if (body.cuts.length < k * 2) continue;
-      // k 단의 경계: 각 목표 높이(H·i/k)에 가장 가까운 줄 경계
+    let best = null;
+    for (const k of [1, 2]) {
       const bounds = [0];
-      for (let i = 1; i < k; i++) {
-        const target = (H * i) / k;
-        let best = body.cuts[0];
-        for (const c of body.cuts) if (Math.abs(c - target) < Math.abs(best - target)) best = c;
-        if (best <= bounds[bounds.length - 1] || best >= H) break;
-        bounds.push(best);
+      if (k === 2) {
+        if (!body.cuts || body.cuts.length < 2) continue;
+        let b = body.cuts[0];
+        for (const c of body.cuts) if (Math.abs(c - H / 2) < Math.abs(b - H / 2)) b = c;
+        if (b <= 0 || b >= H) continue;
+        bounds.push(b);
       }
       bounds.push(H);
-      if (bounds.length !== k + 1) continue;
       const colMax = (areaW - (k - 1) * COL_GAP) / k;
       const tallest = Math.max(...bounds.slice(1).map((b, i) => b - bounds[i]));
-      let scale = Math.min(p.scale, colMax / (inkW * emuPerPx), p.avail / (tallest * emuPerPx));
-      if (scale < minScale) continue;
-      const w = inkW * emuPerPx * scale;
-      return {
-        plan: { ...p, scale, fits: true, body: null },
-        placements: bounds.slice(0, -1).map((y0, i) => ({
-          kind: "body",
-          item: body,
-          region: { y0, y1: bounds[i + 1], w: inkW },
-          x: G.xBody + i * (colMax + COL_GAP),
-          y,
-          w,
-          h: (bounds[i + 1] - y0) * emuPerPx * scale,
-        })),
-      };
+      const scale = Math.min(p.scale, colMax / (inkW * emuPerPx), p.avail / (tallest * emuPerPx));
+      if (!best || scale > best.scale * 1.02) best = { k, bounds, colMax, scale };
     }
-    return null;
+    if (!best) return null;
+    const { bounds, scale } = best;
+    const w = inkW * emuPerPx * scale;
+    return {
+      plan: { ...p, scale, fits: true, body: null },
+      placements: bounds.slice(0, -1).map((y0, i) => ({
+        kind: "body",
+        item: body,
+        region: { y0, y1: bounds[i + 1], w: inkW },
+        x: x0 + i * (w + COL_GAP), // 둘째 단은 첫 단 바로 옆에 (사이 0.4cm)
+        y,
+        w,
+        h: (bounds[i + 1] - y0) * emuPerPx * scale,
+      })),
+    };
   }
 
   // 본문 글이 없는 글(영상·사진만): 가로로 긴 영상·사진을 본문 자리(4.56~18.66cm, 제목 아래·댓글 위)에
@@ -194,7 +191,7 @@
       return { scale, cs, body, avail, fits: !body || body.h <= avail };
     };
     // 담당자가 고른 댓글(최대 2개)은 반드시 모두 넣는다 (2026-10-20 담당자 지적: 2개 골랐는데 1개만 들어감)
-    // 안 들어가면: 51% → 46% → 본문을 두 단으로 나눔 → 본문 아래를 자름. 본문 자리가 거의 없을 때만 댓글을 줄인다
+    // 안 들어가면: 51% → 46% → (댓글 2개 나란히) → 본문을 왼쪽에 붙여 최대 2열로 모두 넣음. 본문 자리가 거의 없을 때만 댓글을 줄인다
     const n = comments.length;
     let chosen = plan(n, SCALES[0]);
     if (!chosen.fits) chosen = plan(n, SCALES[1]);
