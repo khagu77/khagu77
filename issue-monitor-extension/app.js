@@ -2231,7 +2231,10 @@ async function refineUncertainCars(src, items, judged, ctx) {
     const fixed = await ctx.ai.refineCars(asks);
     let changed = 0;
     let dropped = 0;
-    for (const [key, r] of fixed) {
+    // AI 결과가 없는 글(AI 실패·빈 답)도 아래 '작성자 글에 나온 차' 확인을 하도록 모든 글을 돈다
+    for (const a0 of asks) {
+      const key = a0.key;
+      const r = fixed.get(key) || {};
       const j = judged.get(key);
       if (!j) continue;
       if (r.other_brand) {
@@ -2252,11 +2255,23 @@ async function refineUncertainCars(src, items, judged, ctx) {
         const a = asks.find((x) => x.key === key);
         const codes = state.carCodeList || parseCarCodes(state.settings.carCodes);
         const text = a ? [a.nick, ...(a.authorTitles || []), ...(a.authorTexts || []).map((t) => `${t.title}\n${t.body}\n${t.comments || ""}`)].join("\n") : "";
-        const found = [...new Set(titleCarCodes(text, codes).map((c) => c.split(" ")[0]))];
+        let found = [...new Set(titleCarCodes(text, codes).map((c) => c.split(" ")[0]))];
+        if (found.length > 1 && a) {
+          // 여러 차가 나오면 작성자의 다른 글 제목에 가장 많이 나온 차가 절반을 넘을 때 그 차로
+          const cnt = new Map();
+          for (const t of a.authorTitles || []) for (const b of new Set(titleCarCodes(t, codes).map((c) => c.split(" ")[0]))) cnt.set(b, (cnt.get(b) || 0) + 1);
+          const total = [...cnt.values()].reduce((x, y) => x + y, 0);
+          const top = [...cnt.entries()].sort((x, y) => y[1] - x[1])[0];
+          if (top && top[1] * 2 > total) found = [top[0]];
+        }
         if (found.length === 1 && !(a && a.needCar && !text)) {
-          // 카페 기본 차종 중 같은 차가 있으면 그 표기(세대·PE)를 우선
+          // 카페 기본 차종 중 같은 차가 있으면 그 표기(세대·PE)를 우선, 연식이 보이면 코드표 적용 시기로 (예: 24년식 아이오닉6 → CE)
           const hints = String((a && a.carHint) || "").split("/").map((x) => x.trim()).filter(Boolean);
-          const pick = hints.find((h) => h.split(" ")[0] === found[0]) || titleCarCodes(text, codes).find((c) => c.split(" ")[0] === found[0]);
+          const same = hints.filter((h) => h.split(" ")[0] === found[0]);
+          const yr = findModelYear(text);
+          const y = yr ? 2000 + +yr.slice(0, 2) : 0;
+          const byYear = y && same.length > 1 && state.codeYears ? same.filter((h) => (state.codeYears[h] || 0) <= y).sort((p, q) => (state.codeYears[q] || 0) - (state.codeYears[p] || 0))[0] : null;
+          const pick = byYear || same[0] || titleCarCodes(text, codes).find((c) => c.split(" ")[0] === found[0]);
           if (pick) {
             j.car_code = pick;
             changed++;

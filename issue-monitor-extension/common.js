@@ -371,11 +371,14 @@ function titleCarCodes(title, carCodes) {
       } else if (!t.toUpperCase().includes(nn.toUpperCase())) continue;
       const base = code.split(" ")[0];
       const prev = found.get(base);
-      if (!prev || nn.length > prev.len) found.set(base, { code, len: nn.length });
+      if (!prev || nn.length > prev.len) found.set(base, { code, len: nn.length, name: nn.toUpperCase() });
     }
   }
   // "스타리아EV" 처럼 더 긴 이름 안에 들어간 짧은 이름(스타리아)은 같은 기본 코드라 하나로 묶임
-  return [...found.values()].map((x) => x.code);
+  // 다른 차의 더 긴 이름 안에 든 짧은 이름도 뺀다: "아이오닉6" 글에서 '아이오닉'(AE, 옛 아이오닉)이 함께 잡히지 않게
+  // (담당자 지적 2026-11-12: cafeclip/1325184 — 작성자 글 제목에 '24년식 아이오닉6'가 있는데 AE 까지 잡혀 차종 "-")
+  const vals = [...found.values()];
+  return vals.filter((x) => !vals.some((y) => y !== x && y.name.length > x.name.length && y.name.includes(x.name))).map((x) => x.code);
 }
 
 // 코드표에서 별칭으로 차종 코드 찾기 (AI 없이 쓸 때)
