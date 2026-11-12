@@ -201,6 +201,12 @@ class YoutubeCollector {
         const t = ytText(v.commentCount || v.countText);
         if (t) ccount = t;
       }
+      // 요즘 영상 화면: 댓글 칸(engagement panel) 머리글의 숫자 (contextualInfo)
+      if (k === "engagementPanelSectionListRenderer" && /comment/i.test(v?.panelIdentifier || v?.targetId || "")) {
+        const t = ytText(v?.header?.engagementPanelTitleHeaderRenderer?.contextualInfo);
+        if (t) ccount = t;
+        return false;
+      }
     });
     return {
       html,
@@ -236,6 +242,11 @@ class YoutubeCollector {
       if (count !== null) return false;
       if (k === "commentsHeaderRenderer") {
         const t = ytText(v.countText || v.commentsCount);
+        if (t) count = t;
+        return false;
+      }
+      if (k === "engagementPanelTitleHeaderRenderer" && v?.contextualInfo) {
+        const t = ytText(v.contextualInfo);
         if (t) count = t;
         return false;
       }
