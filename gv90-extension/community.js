@@ -294,6 +294,11 @@ class CommunityCollector {
     }
     // 이 글의 댓글 수 (작성자 정보 줄의 '댓글 N' 은 빼고 · 조회수보다 큰 수는 버림)
     let expected = articleCommentCount(doc, ad, { listCount: post.listCcount ?? post.ccount ?? null, views, title: post.title }) || 0;
+    // 뽐뿌: 글 화면 글자(한 쪽 30개 등) 대신 댓글 목록의 총 댓글 수
+    if (ad.domain === "ppomppu.co.kr") {
+      const t = await ppomppuCommentTotal(post.url);
+      if (t != null) expected = t;
+    }
     // 뽐뿌: 댓글을 처음 화면에 다 넣지 않고 '다음 코멘트 더 보기'·쪽 번호를 누를 때 JSON 으로 받아 그린다 → 그 목록을 직접 1쪽부터 끝까지 받는다
     if (ad.domain === "ppomppu.co.kr") {
       const api = await readPpomppuCommentsApi(post.url, { isStopped: this.isStopped }).catch(() => null);
@@ -420,6 +425,23 @@ function expandCommentPage() {
 
 // 뽐뿌 댓글 목록(JSON): /zboard/comment.php?id=&no=&c_page=N&comment_mode=sort_asc&cmd=get_comment_json 을 1쪽부터 total_page 까지
 // 칸 이름을 다 확인하지 못해 본문·작성일·답글 여부를 넓게 찾는다. 못 받으면 null (→ 화면 읽기 방식으로)
+// 뽐뿌 댓글 수: 글 화면 글자(한 쪽 30개 등)가 아니라 댓글 목록(get_comment_json) 1쪽의 total_comment
+async function ppomppuCommentTotal(url) {
+  try {
+    const u = new URL(String(url).replace(/&amp;/g, "&"));
+    const id = u.searchParams.get("id");
+    const no = u.searchParams.get("no");
+    if (!id || !no) return null;
+    const q = new URL("https://www.ppomppu.co.kr/zboard/comment.php");
+    for (const [k, v] of Object.entries({ id, no, c_page: 1, comment_mode: "sort_asc", cmd: "get_comment_json" })) q.searchParams.set(k, v);
+    const j = JSON.parse(await fetchText(q.toString(), { credentials: "include" }));
+    const n = +String(j.total_comment ?? j.totalComment ?? j.total ?? "").replace(/,/g, "");
+    return isFinite(n) && String(j.total_comment ?? j.totalComment ?? j.total ?? "") !== "" ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 async function readPpomppuCommentsApi(url, { isStopped = () => false } = {}) {
   let u;
   try {

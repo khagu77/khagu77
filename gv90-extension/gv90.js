@@ -885,7 +885,12 @@ async function readCommunityInfo(post) {
     views = vm ? +vm[1].replace(/,/g, "") : null;
   }
   // 이 글의 댓글 수: 제목 옆 [N] → 목록의 댓글 수 → 본문 근처 '댓글 N' (작성자 정보 줄의 총 댓글 수는 빼고 · 조회수보다 큰 수는 버림)
-  const ccount = articleCommentCount(doc, ad, { listCount: post.ccount ?? null, views, title: post.title });
+  let ccount = articleCommentCount(doc, ad, { listCount: post.ccount ?? null, views, title: post.title });
+  // 뽐뿌는 댓글 목록에서 정확한 총 댓글 수
+  if (ad.domain === "ppomppu.co.kr") {
+    const t = await ppomppuCommentTotal(post.url);
+    if (t != null) ccount = t;
+  }
   return { title: post.title, body: body.slice(0, 3000), date, views, ccount };
 }
 

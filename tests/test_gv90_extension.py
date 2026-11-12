@@ -444,6 +444,8 @@ def test_gv90_comments(ext, tmp_path: Path):
         [bobae_view(), CLIEN_VIEW, PPOM_VIEW],
     )
     assert counts[0] == 11 and counts[2] < 1000 and counts[3] == 2 and counts[4] == 5, counts
+    # 뽐뿌 댓글 수는 댓글 목록(get_comment_json)의 total_comment (글 화면의 한 쪽 개수 등이 아니라)
+    assert page.evaluate("ppomppuCommentTotal('https://www.ppomppu.co.kr/zboard/view.php?id=car&no=980300')") == 6
     assert counts[1] is None or counts[1] <= 1775, counts
     rows = page.locator("#postTable tbody tr")
     assert rows.count() == 6
