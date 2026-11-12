@@ -87,7 +87,7 @@ CLIEN_LIST = (
 )
 CLIEN_VIEW = (
     '<html><body><h3 class="post_subject">GV90 실물 보니 실망입니다 비싸요</h3>'
-    '<div class="post_author"><span class="view_count date">2026-08-05 10:00:00</span> <span class="view_count">조회 1,234</span></div>'
+    '<div class="post_author"><span class="view_count date">2026-08-05 10:00:00</span> <span class="view_count"><i class="fa fa-eye"></i><strong>1,234</strong></span></div>'
     '<div class="post_article">가격이 너무 비싸서 실망입니다. 옵션도 아쉽네요.</div>'
     '<div class="comment_head">댓글 2</div>'
     '<div class="comment_row"><div class="comment_view">그래도 실내는 좋던데요</div><span class="timestamp">2026-08-05 10:10:00</span></div>'

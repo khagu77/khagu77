@@ -53,6 +53,8 @@ function communityAdapter(url) {
       articleUrl: (id) => `https://www.clien.net/service/board/${board}/${id}`,
       bodySelectors: [".post_article", ".post_content", ".post_view"],
       dateSelectors: [".post_author .view_count.date", ".post_author", ".post_information"],
+      // 조회수: 클리앙은 '조회' 글자 없이 눈 모양 아이콘 옆 숫자만 (view_count 중 날짜가 아닌 칸)
+      viewSelectors: [".post_author .view_count:not(.date) strong", ".post_author .view_count:not(.date)", ".post_information .view_count:not(.date)", ".view_count:not(.date) strong"],
       commentItems: [".comment_row", ".comment .comment_row"],
       commentText: [".comment_view", ".comment_content"],
       commentDate: [".timestamp", ".comment_time", ".comment_info"],
@@ -281,7 +283,15 @@ class CommunityCollector {
     const tPos = post.title ? fullText.indexOf(post.title.slice(0, 12)) : -1;
     const nearText = tPos >= 0 ? fullText.slice(Math.max(0, tPos - 300), tPos + 3000) : fullText.slice(0, 8000);
     const vm = nearText.match(/조회(?:수)?\s*[:：]?\s*(\d[\d,]*)/) || fullText.match(/조회(?:수)?\s*[:：]?\s*(\d[\d,]*)/);
-    const views = vm ? +vm[1].replace(/,/g, "") : null;
+    let views = vm ? +vm[1].replace(/,/g, "") : null;
+    // 클리앙처럼 '조회' 글자 없이 숫자만 있는 곳은 사이트별 자리에서
+    for (const sel of ad.viewSelectors || []) {
+      const t = textOf(doc.querySelector(sel)).replace(/조회(?:수)?\s*[:：]?/, "").trim();
+      if (/^[\d.,]+$/.test(t)) {
+        views = +t.replace(/,/g, "");
+        break;
+      }
+    }
     // 이 글의 댓글 수 (작성자 정보 줄의 '댓글 N' 은 빼고 · 조회수보다 큰 수는 버림)
     let expected = articleCommentCount(doc, ad, { listCount: post.listCcount ?? post.ccount ?? null, views, title: post.title }) || 0;
     // 뽐뿌: 댓글을 처음 화면에 다 넣지 않고 '다음 코멘트 더 보기'·쪽 번호를 누를 때 JSON 으로 받아 그린다 → 그 목록을 직접 1쪽부터 끝까지 받는다

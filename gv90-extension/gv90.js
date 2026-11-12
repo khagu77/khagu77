@@ -871,8 +871,19 @@ async function readCommunityInfo(post) {
   }
   const t0 = post.title ? full.indexOf(post.title.slice(0, 12)) : -1;
   const near = t0 >= 0 ? full.slice(Math.max(0, t0 - 300), t0 + 3000) : full.slice(0, 8000);
-  const vm = near.match(/조회(?:수)?\s*[:：]?\s*(\d[\d,]*)/) || full.match(/조회(?:수)?\s*[:：]?\s*(\d[\d,]*)/);
-  const views = vm ? +vm[1].replace(/,/g, "") : null;
+  // 조회수: 사이트별 자리(클리앙은 '조회' 글자 없이 숫자만) → 없으면 '조회 N' 글자로
+  let views = null;
+  for (const sel of ad.viewSelectors || []) {
+    const t = textOf(doc.querySelector(sel)).replace(/조회(?:수)?\s*[:：]?/, "").trim();
+    if (/^[\d.,]+\s*(?:천|만|k|K)?$/.test(t)) {
+      views = parseCount(t);
+      break;
+    }
+  }
+  if (views == null) {
+    const vm = near.match(/조회(?:수)?\s*[:：]?\s*(\d[\d,]*)/) || full.match(/조회(?:수)?\s*[:：]?\s*(\d[\d,]*)/);
+    views = vm ? +vm[1].replace(/,/g, "") : null;
+  }
   // 이 글의 댓글 수: 제목 옆 [N] → 목록의 댓글 수 → 본문 근처 '댓글 N' (작성자 정보 줄의 총 댓글 수는 빼고 · 조회수보다 큰 수는 버림)
   const ccount = articleCommentCount(doc, ad, { listCount: post.ccount ?? null, views, title: post.title });
   return { title: post.title, body: body.slice(0, 3000), date, views, ccount };
