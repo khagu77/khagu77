@@ -1675,7 +1675,9 @@ def test_lx3_daily_yellow(tmp_path: Path):
         page.set_input_files("#dailyFiles", str(daily))
         page.locator("#dailyInfo", has_text="✔").wait_for()
         info = page.inner_text("#dailyInfo")
-        assert "노란색 시트 글 4개 확인" in info and "새로 넣음 2개" in info and "이미 찾은 글 체크 1개" in info and "밖 1개" in info, info
+        # 11-01 글(기간 밖)은 글을 열기 전에 게시일로 뺌
+        assert "노란색 시트 글 3개 확인" in info and "새로 넣음 2개" in info and "이미 찾은 글 체크 1개" in info, info
+        assert not page.evaluate("opened.some((u) => u.includes('ioniq9owners'))")
         got = page.evaluate("""() => items.map((x) => ({ url: isCafeItem(x) ? articleUrl(x) : x.url, checked: x.checked, ch: x.channel || '동호회',
           name: isCafeItem(x) ? cafeNames[x.cafeId] || x.media || x.cafeId : x.media, title: x.title, date: x.date ? x.date.toISOString() : null, note: x.note }))""")
         assert len(got) == 3, got  # 예전 짧은 주소 글은 빠지고, 같은 글은 한 줄
@@ -1698,8 +1700,46 @@ def test_lx3_daily_yellow(tmp_path: Path):
           lastRange = { from: '2026-11-09T11:30', to: '2026-11-10T11:30' };
           await fixOldDaily(); }""")
         assert page.evaluate("items.length") == 3 and not page.evaluate("items.some((x) => (x.url || '').includes('naver.me'))")
+        # raw data 양식(연번 열 · 현대자동차/제네시스 시트 · 몇 달 치 누적)에 엑셀에서 테마 색(황금색 밝게)으로 칠한 노란색도 읽음,
+        # 게시일이 찾는 기간인 행만
+        from openpyxl import Workbook as _Wb
+        from openpyxl.styles import PatternFill as _Fill
+        from openpyxl.styles.colors import Color as _Color
+        rawwb = _Wb()
+        ws = rawwb.active
+        ws.title = "현대자동차"
+        ws.append(["연번", "커뮤니티명", "차종", "게시일", "구분", "게시글 위치", "주요 내용"])
+        ws.append([1, "팰리세이드 피플", "LX3", date(2026, 9, 1), "품질", "https://cafe.naver.com/palisadepeople/1", "예전 시트 리콜 글"])
+        ws.append([2, "팰리세이드 피플", "LX3", date(2026, 11, 10), "품질", "https://cafe.naver.com/palisadepeople/2", "시트 리콜 의견"])
+        ws.append([3, "팰리세이드 피플", "LX3", date(2026, 11, 10), "품질", "https://cafe.naver.com/palisadepeople/3", "노란색 아님"])
+        gold = _Fill(fill_type="solid", fgColor=_Color(theme=7, tint=0.5999))
+        for r in (2, 3):
+            ws.cell(r, 7).fill = gold
+        ws2 = rawwb.create_sheet("제네시스")
+        ws2.append(["연번", "커뮤니티명", "차종", "게시일", "구분", "게시글 위치", "주요 내용"])
+        ws2.append([1, "GV80 오너스", "JX PE", date(2026, 11, 9), "품질", "https://cafe.naver.com/gv80owners/9", "2열 시트 끼임"])
+        ws2.cell(2, 7).fill = _Fill(fill_type="solid", fgColor="FFFFFF00")
+        rawpath = tmp_path / "261110_차종별 온라인 동향 raw data.xlsx"
+        rawwb.save(rawpath)
+        # 지금 엑셀 기본 테마처럼 accent4 = 황금색(FFC000) (openpyxl 기본 테마는 예전 엑셀 색)
+        import zipfile as _zf
+        src = _zf.ZipFile(rawpath)
+        files = {n: src.read(n) for n in src.namelist()}
+        src.close()
+        files["xl/theme/theme1.xml"] = re.sub(rb"(<a:accent4>\s*<a:srgbClr val=\")[0-9A-Fa-f]{6}", rb"\1FFC000", files["xl/theme/theme1.xml"])
+        with _zf.ZipFile(rawpath, "w") as out:
+            for n, b in files.items():
+                out.writestr(n, b)
+        rb64 = base64.b64encode(rawpath.read_bytes()).decode()
+        got = page.evaluate("""async (b64) => {
+          const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+          const rows = await dailyRowsFromFiles([new File([bytes], '261110_차종별 온라인 동향 raw data.xlsx')],
+            { from: new Date(2026, 10, 9, 11, 30), to: new Date(2026, 10, 10, 11, 30) });
+          return rows.map((r) => r.url); }""", rb64)
+        assert sorted(got) == ["https://cafe.naver.com/gv80owners/9", "https://cafe.naver.com/palisadepeople/2"], got
         # 찾기 처음: 폴더에서 찾는 기간(11-09~11-10)의 일일동향 엑셀만 읽음 (다른 날짜·다른 파일은 무시, 같은 날짜는 최근 파일)
         b64 = base64.b64encode(daily.read_bytes()).decode()
+        page.evaluate("document.querySelector('#log').innerHTML = ''")
         res = page.evaluate("""async (b64) => {
           const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
           const file = (name, t) => ({ kind: 'file', getFile: async () => new File([bytes], name, { lastModified: t }) });
@@ -1708,11 +1748,12 @@ def test_lx3_daily_yellow(tmp_path: Path):
             yield ['261105_차종별 온라인 동향_통합.xlsx', file('261105_차종별 온라인 동향_통합.xlsx', 1)];
             yield ['261110_차종별 온라인 동향_통합.xlsx', file('261110_차종별 온라인 동향_통합.xlsx', 2)];
             yield ['보고서', sub];
+            yield ['261110_차종별 온라인 동향 raw data.xlsx', file('261110_차종별 온라인 동향 raw data.xlsx', 9)];
             yield ['메모.xlsx', file('메모.xlsx', 4)];
           } };
           const rows = await dailyRowsFromDir(dir, { from: new Date(2026, 10, 9, 11, 30), to: new Date(2026, 10, 10, 11, 30) });
           return { n: rows.length, log: document.querySelector('#log').innerText };
         }""", b64)
-        assert res["n"] == 4 and "(1).xlsx" in res["log"] and "261105" not in res["log"], res
+        assert res["n"] == 3 and "(1).xlsx" in res["log"] and "261105" not in res["log"] and "raw data.xlsx:" not in res["log"], res
         assert not errors, errors
         ctx.close()

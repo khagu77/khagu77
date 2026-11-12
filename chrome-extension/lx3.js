@@ -1882,7 +1882,8 @@ async function dailyRowsFromDir(dir, win) {
       if (!m || m[1] < lo || m[1] > hi) continue;
       const f = await h.getFile();
       const old = picked.get(m[1]);
-      if (!old || f.lastModified > old.lastModified) picked.set(m[1], f);
+      const rank = (x) => (/통합/.test(x.name) ? 2 : /raw/i.test(x.name) ? 0 : 1); // 통합 → 그 밖 → raw data 순
+      if (!old || rank(f) > rank(old) || (rank(f) === rank(old) && f.lastModified > old.lastModified)) picked.set(m[1], f);
     }
   };
   await scan(dir, 0);
@@ -1890,20 +1891,26 @@ async function dailyRowsFromDir(dir, win) {
     log(`✖ '${dir.name}' 폴더에 ${lo}~${hi} 오전 일일동향 엑셀(…_차종별 온라인 동향_통합.xlsx)이 없음 (노란색 글 확인 못 함)`);
     return [];
   }
-  return dailyRowsFromFiles([...picked.values()]);
+  return dailyRowsFromFiles([...picked.values()], win);
 }
 
-async function dailyRowsFromFiles(files) {
+// win: 찾는 기간 — 게시일이 그 기간(날짜 기준)인 행만 (raw data 처럼 몇 달 치가 쌓인 파일에서 예전 글을 열지 않게)
+async function dailyRowsFromFiles(files, win = null) {
   const rows = [];
   const seenUrl = new Set();
+  const lo = win ? new Date(win.from.getFullYear(), win.from.getMonth(), win.from.getDate()) : null;
+  const inRange = (r) => !win || (r.date ? r.date >= lo && r.date <= win.to : !/raw/i.test(r.file));
   for (const f of files) {
-    const got = (await readDailyRows(new Uint8Array(await f.arrayBuffer()), f.name)).filter((r) => r.yellow && DAILY_CAR_RE.test(r.car));
+    const all = (await readDailyRows(new Uint8Array(await f.arrayBuffer()), f.name)).map((r) => ({ ...r, file: f.name }));
+    const yellow = all.filter((r) => r.yellow);
+    const car = yellow.filter((r) => DAILY_CAR_RE.test(r.car));
+    const got = car.filter(inRange);
     for (const r of got) {
       if (seenUrl.has(r.url)) continue;
       seenUrl.add(r.url);
       rows.push(r);
     }
-    log(`· 오전 일일동향 ${f.name}: 노란색 시트 글 ${got.length}개`);
+    log(`· 오전 일일동향 ${f.name}: 글 ${all.length}행 · 노란색 ${yellow.length}행 · 그중 LX3·ME1·MX5·JX ${car.length}행 → 찾는 기간 게시글 ${got.length}개`);
   }
   return rows;
 }
@@ -1917,9 +1924,31 @@ async function readDailyRows(bytes, fileName = "") {
   if (st) {
     const doc = new DOMParser().parseFromString(st, "application/xml");
     const fillsEl = doc.getElementsByTagName("fills")[0];
+    // 노란 계열이면 칠한 방식과 상관없이 노란색 (FFFF00 · 엑셀 기본 팔레트 번호 · 테마 색(+밝기) 모두)
+    const theme = await wb.text("xl/theme/theme1.xml").catch(() => null);
+    const themeRgb = [];
+    if (theme) {
+      const order = ["lt1", "dk1", "lt2", "dk2", "accent1", "accent2", "accent3", "accent4", "accent5", "accent6", "hlink", "folHlink"];
+      for (const name of order) {
+        const m = theme.match(new RegExp(`<a:${name}>[\\s\\S]*?(?:srgbClr val|lastClr)="([0-9A-Fa-f]{6})"`));
+        themeRgb.push(m ? m[1] : null);
+      }
+    }
+    const yellowish = (hex, tint = 0) => {
+      if (!hex) return false;
+      let [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(-6).slice(i, i + 2), 16));
+      if (tint > 0) [r, g, b] = [r, g, b].map((c) => c + (255 - c) * tint);
+      else if (tint < 0) [r, g, b] = [r, g, b].map((c) => c * (1 + tint));
+      return r >= 200 && g >= 170 && b < r - 40 && b < g - 30;
+    };
     const fills = fillsEl ? [...fillsEl.getElementsByTagName("fill")].map((f) => {
       const fg = f.getElementsByTagName("fgColor")[0];
-      return !!fg && (/FFFF00$/i.test(fg.getAttribute("rgb") || "") || fg.getAttribute("indexed") === "13");
+      if (!fg) return false;
+      const tint = Number(fg.getAttribute("tint") || 0);
+      if (fg.getAttribute("rgb")) return yellowish(fg.getAttribute("rgb"), tint);
+      if (fg.getAttribute("indexed")) return ["5", "13", "26", "43", "51"].includes(fg.getAttribute("indexed"));
+      if (fg.getAttribute("theme")) return yellowish(themeRgb[+fg.getAttribute("theme")], tint);
+      return false;
     }) : [];
     const xfs = doc.getElementsByTagName("cellXfs")[0];
     if (xfs) [...xfs.getElementsByTagName("xf")].forEach((xf, i) => fills[+xf.getAttribute("fillId")] && yellow.add(i));
@@ -1933,6 +1962,14 @@ async function readDailyRows(bytes, fileName = "") {
     const styleOf = {}; // A5 → 서식 번호
     for (const m of xml.matchAll(/<c\b[^>]*?\br="([A-Z]+\d+)"[^>]*?\bs="(\d+)"/g)) styleOf[m[1]] = +m[2];
     for (const m of xml.matchAll(/<c\b[^>]*?\bs="(\d+)"[^>]*?\br="([A-Z]+\d+)"/g)) styleOf[m[2]] = +m[1];
+    // 행마다 노란색 칸이 있는지 (행 전체를 칠한 경우 포함)
+    const yellowRow = new Set();
+    for (const [ref, st] of Object.entries(styleOf)) if (yellow.has(st)) yellowRow.add(+ref.replace(/[A-Z]+/, ""));
+    for (const m of xml.matchAll(/<row\b[^>]*>/g)) {
+      const rr = (m[0].match(/\br="(\d+)"/) || [])[1];
+      const rs = (m[0].match(/\bs="(\d+)"/) || [])[1];
+      if (rr && rs && /customFormat="1"/.test(m[0]) && yellow.has(+rs)) yellowRow.add(+rr);
+    }
     // 셀에 걸린 링크 (보이는 글자가 주소가 아닐 때)
     const links = {};
     const relPath = sheet.path.replace(/([^/]+)$/, "_rels/$1.rels");
@@ -1948,24 +1985,27 @@ async function readDailyRows(bytes, fileName = "") {
       const id = (m[0].match(/\br:id="([^"]+)"/) || [])[1];
       if (ref && id && relTarget[id]) links[ref] = relTarget[id];
     }
+    const linkOfRow = {};
+    for (const [ref, u] of Object.entries(links)) linkOfRow[+ref.replace(/[A-Z]+/, "")] ??= u;
     const rows = await wb.readRows(sheet.name);
     let col = null;
     for (const r of rows) {
       const cols = Object.keys(r.cells);
-      const find = (name) => cols.find((c) => String(r.cells[c]).replace(/\s+/g, "") === name.replace(/\s+/g, ""));
+      const find = (name) => cols.find((c) => String(r.cells[c]).replace(/\s+/g, "") === name.replace(/\s+/g, ""))
+        || cols.find((c) => typeof r.cells[c] === "string" && r.cells[c].length < 12 && r.cells[c].replace(/\s+/g, "").includes(name.replace(/\s+/g, "")));
       if (!col) {
-        if (find("커뮤니티명") && find("주요 내용")) {
+        if (find("커뮤니티") && find("주요 내용")) {
           const cat = find("구분");
           const next = (c) => String.fromCharCode(c.charCodeAt(0) + 1);
-          col = { community: find("커뮤니티명"), car: find("차종"), date: find("게시일"), url: find("게시글 위치") || find("URL") || (cat ? next(cat) : null), summary: find("주요 내용") };
+          col = { community: find("커뮤니티"), car: find("차종"), date: find("게시일"), url: find("게시글 위치") || find("URL") || (cat ? next(cat) : null), summary: find("주요 내용") };
         }
         continue;
       }
       const get = (c) => (c && r.cells[c] !== undefined ? r.cells[c] : "");
       let url = String(get(col.url)).trim();
-      if (!/^https?:\/\//i.test(url)) url = links[`${col.url}${r.r}`] || Object.entries(links).find(([ref]) => +ref.replace(/[A-Z]+/, "") === r.r)?.[1] || url;
+      if (!/^https?:\/\//i.test(url)) url = links[`${col.url}${r.r}`] || linkOfRow[r.r] || url;
       if (!/^https?:\/\//i.test(url)) continue;
-      const isYellow = cols.some((c) => yellow.has(styleOf[`${c}${r.r}`])) || yellow.has(styleOf[`${col.summary}${r.r}`]);
+      const isYellow = yellowRow.has(r.r);
       // 게시일: 엑셀 날짜 숫자 · '10월 06일' · '2026.10.06'
       const dv = get(col.date);
       let date = null;
@@ -2143,7 +2183,7 @@ function setupDaily() {
     markRunning(true);
     stopRequested = false;
     try {
-      const r = await addDailyRows(await dailyRowsFromFiles(files), win);
+      const r = await addDailyRows(await dailyRowsFromFiles(files, win), win);
       mergeSameArticles();
       markDuplicates();
       renderResults();
