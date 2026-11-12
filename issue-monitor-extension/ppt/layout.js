@@ -93,10 +93,14 @@
   // 1열(글자를 줄여 한 단)과 2열(줄 경계에서 높이가 비슷하게 나눔) 중 글자가 더 크게 들어가는 쪽. 본문은 자르지 않는다.
   // (담당자 지정 2026-11-12: newgenesisdh/2358243 처럼 본문이 아주 긴 글 — 예전엔 4.56cm 에서 시작하고 3열까지 나누거나 아래를 잘랐음)
   const COL_GAP = 0.4 * CM;
-  function splitBody(body, p, y) {
+  // 긴 본문일 때 사진은 오른쪽 끝 좁은 한 줄(3cm)로 세로로 쌓고, 본문은 그 앞까지 넓게 쓴다
+  // (담당자 예시 2026-11-12 newgenesisdh/2358243: 본문 2열이 슬라이드 폭을 거의 다 쓰고 사진은 오른쪽 끝에 작게)
+  const NARROW_W = 3 * CM;
+  function splitBody(body, p, y, hasImages = false) {
     if (p.avail < 1 * CM) return null;
     const x0 = G.xText;
-    const areaW = G.xRight - x0;
+    const right = hasImages ? G.xImgR - NARROW_W - COL_GAP : G.xImgR;
+    const areaW = right - x0;
     const H = body.canvas.height;
     const inkW = Math.max(1, body.inkWidth || body.canvas.width);
     const emuPerPx = CSS_PX_EMU / body.dpr;
@@ -220,7 +224,7 @@
       if (rowMode) chosen = rowMode.plan;
     }
     let split = null;
-    if (!chosen.fits && visuals.body) split = splitBody(visuals.body, chosen, y);
+    if (!chosen.fits && visuals.body) split = splitBody(visuals.body, chosen, y, !!(visuals.images || []).length);
     if (split) {
       chosen = split.plan;
       placements.push(...split.placements);
@@ -287,6 +291,22 @@
         }
       }
       images = images.filter((im) => !wide.includes(im));
+    }
+    if (images.length && split) {
+      // 긴 본문: 사진·영상은 오른쪽 끝 좁은 한 줄(3cm)에 위에서부터 세로로, 넘치면 같은 비율로 줄임
+      const x0 = G.xImgR - NARROW_W;
+      const hs = images.map((im) => (NARROW_W * im.cssHeight) / im.cssWidth);
+      const total = hs.reduce((a, b) => a + b, 0) + (images.length - 1) * IMG_GAP;
+      const room = imagesBottom - G.yTop;
+      const sc = Math.min(1, room / total);
+      let yy = G.yTop;
+      images.forEach((im, k) => {
+        const w = NARROW_W * sc;
+        const h = hs[k] * sc;
+        placements.push({ kind: "image", item: im, x: x0 + (NARROW_W - w) / 2, y: yy, w, h });
+        yy += h + IMG_GAP;
+      });
+      images = [];
     }
     if (images.length) {
       const normal = layoutImagesUniform(images, G.yImg, imagesBottom);
