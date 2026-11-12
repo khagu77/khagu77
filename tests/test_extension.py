@@ -338,7 +338,7 @@ LX3_SEARCH = {
         ("1003", "2열 시트 폴딩 오류", "2026.10.11."),
         ("1004", "시트 리콜 언제 하나요", "2026.10.11."),
         ("1005", "오늘 오후 시트 리콜 글", "2026.10.12. 13:00"),
-        ("1010", "카시트 질문", "2026.10.11."),  # 관련 없는 글(체크 해제)이지만 날짜만 보여 열어서 확인 → 오전 글이라 뺌
+        ("1010", "카시트 질문", "2026.10.11."),  # 관련 없는 글(체크 해제) · 날짜만 보임 → 열지 않고 두었다가 직접 체크하면 확인 → 오전 글이라 뺌
     ],
     ("111", 2): [("1006", "전동 시트 사망 사고 기사", "2026.10.11. 12:30"), ("1007", "옛날 시트 글", "2026.10.10.")],
     ("111", 3): [("1008", "더 옛날 시트 글", "2026.10.09.")],
@@ -540,6 +540,15 @@ def test_lx3(tmp_path: Path):
         got = [(rows.nth(i).locator("td").nth(1).inner_text(), rows.nth(i).locator("td").nth(2).inner_text(),
                 rows.nth(i).locator("td").nth(3).inner_text(), rows.nth(i).locator("td").nth(4).inner_text(),
                 rows.nth(i).locator("input").is_checked()) for i in range(rows.count())]
+        # 체크 안 된(관련 없는) 글은 날짜만 보여도 열지 않고 '시간 미확인'으로 둠 → 직접 체크하면 그 글만 열어 확인(오전 글이라 뺌)
+        assert got[0] == ("2026-10-11", "AA 동호회", "카시트 질문", "https://cafe.naver.com/aacafe/1010", False), got
+        assert "체크하면 작성 시간 확인" in rows.nth(0).locator("td").nth(5).inner_text()
+        assert not any(r.startswith("/f-e/cafes/111/articles/1010") for r in server.requests)
+        rows.nth(0).locator("input").check()
+        page.locator("#summary", has_text="기간 밖 글이라 결과 표에서 뺐습니다").wait_for(timeout=60000)
+        got = [(rows.nth(i).locator("td").nth(1).inner_text(), rows.nth(i).locator("td").nth(2).inner_text(),
+                rows.nth(i).locator("td").nth(3).inner_text(), rows.nth(i).locator("td").nth(4).inner_text(),
+                rows.nth(i).locator("input").is_checked()) for i in range(rows.count())]
         assert got == [
             ("2026-10-11 12:30", "AA 동호회", "전동 시트 사망 사고 기사", "https://cafe.naver.com/aacafe/1006", True),
             ("2026-10-11 15:22", "AA 동호회", "2열 시트 폴딩 오류", "https://cafe.naver.com/aacafe/1003", True),
@@ -547,7 +556,7 @@ def test_lx3(tmp_path: Path):
             ("2026-10-12 08:00", "AA 동호회", "카시트 추천 부탁드려요", "https://cafe.naver.com/aacafe/1002", False),
             ("2026-10-12 09:30", "AA 동호회", "팰리세이드 전동시트 끼임 사고 무섭네요", "https://cafe.naver.com/aacafe/1001", True),
         ], (got, summary, page.inner_text("#log"))
-        assert "찾은 글 5개 (관련 글로 체크 4개)" in summary, summary
+        assert "찾은 글 6개 (관련 글로 체크 4개)" in summary, summary  # 시간 미확인 1개 포함 (직접 체크 → 기간 밖이라 뺌)
         # 선택 반전: 체크된 글은 해제, 해제된 글은 체크 → 다시 반전하면 원래대로
         checks = lambda: [rows.nth(i).locator("input").is_checked() for i in range(rows.count())]
         before = checks()
@@ -640,7 +649,7 @@ def test_lx3(tmp_path: Path):
     assert naver_api == []
     assert any("/cafes/111/" in r and "page=5" in r for r in server.requests), server.requests  # 기간 전 글뿐인 쪽이 한 번 나와도 계속
     assert not any("/cafes/111/" in r and "page=6" in r for r in server.requests), server.requests  # 3·4·5쪽 연달아 기간 전 → 멈춤
-    assert any(r.startswith("/f-e/cafes/111/articles/1010") for r in server.requests)  # 체크 해제된 글도 시간 확인
+    assert any(r.startswith("/f-e/cafes/111/articles/1010") for r in server.requests)  # 직접 체크한 뒤에 시간 확인
 
     # 엑셀 '복구' 경고가 나지 않게: 틀 고정(3행) 아래에서 화면이 시작해야 한다
     import re

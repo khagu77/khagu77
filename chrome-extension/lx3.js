@@ -914,54 +914,18 @@ async function search(resume = null) {
 
   if (skippedDeleted) log(`· 결과 표에서 지웠던 글 ${skippedDeleted}개는 다시 넣지 않았습니다 ('내용 비우기'를 누르면 기록이 지워져 다시 보입니다)`);
 
-  // 목록에 날짜만 보이는 글(예: 어제 글)·'3시간 전'처럼 대략인 네이버 뉴스 기사는 글을 열어 작성 시간을 확인하고, 기간 밖이면 뺀다 (관련 글 먼저)
-  const toCheck = items
-    .filter((x) => x.ambiguous || (x.approx && x.naverUrl))
-    .sort((a, b) => Number(b.related) - Number(a.related));
-  if (toCheck.length) log(`· 날짜만 보이는 글 ${toCheck.length}개의 작성 시간을 확인합니다`);
+  // 목록에 날짜만 보이는 글(예: 어제 글)·'3시간 전'처럼 대략인 네이버 뉴스 기사는 글을 열어 작성 시간을 확인하고, 기간 밖이면 뺀다.
+  // 시간을 아끼려고 체크된(관련) 글만 연다. 체크 안 된 글은 '시간 미확인'으로 두고, 나중에 직접 체크하면 그 글만 확인
+  const needsTime = (x) => x.ambiguous || (x.approx && x.naverUrl);
+  for (const x of items) if (needsTime(x) && !x.checked && x.ambiguous) x.note = TIME_LATER_NOTE;
+  const toCheck = items.filter((x) => needsTime(x) && x.checked);
+  const later = items.filter((x) => needsTime(x) && !x.checked).length;
+  if (toCheck.length || later) log(`· 날짜만 보이는 글 중 체크된 ${toCheck.length}개의 작성 시간을 확인합니다${later ? ` (체크 안 된 ${later}개는 건너뜀 — 체크하면 그 글만 확인)` : ""}`);
   for (let i = 0; i < toCheck.length && !stopRequested; i++) {
     const item = toCheck[i];
     setSummary(`작성 시간 확인 중… (${i + 1}/${toCheck.length})`);
     showBusy(`작성 시간 확인 중 ${i + 1}/${toCheck.length} — 끝날 때까지 이 탭을 닫지 마세요`, i, toCheck.length, "작성 시간 확인 중");
-    let parsed = null;
-    let login = false;
-    if (isCafeItem(item)) {
-      await sleep(randomBetween(CAFE_ARTICLE_DELAY));
-      const res = await readArticleTime(`https://cafe.naver.com/f-e/cafes/${item.cafeId}/articles/${item.articleId}`);
-      if (res.found) parsed = parseCafeDate(res.dateText);
-      login = !!res.login;
-      const slug = pickSlug(res.hints || []);
-      if (slug && !cafeSlugs[item.cafeId]) {
-        await saveCafeSlug(item.cafeId, slug);
-        cafeSlugs[item.cafeId] = slug;
-      }
-    } else if (item.naverUrl) {
-      await sleep(randomBetween(NEWS_DELAY));
-      const res = await readNewsArticle(item.naverUrl).catch(() => null);
-      parsed = res?.parsed?.hasTime ? res.parsed : null;
-      if (res?.press && (!item.media || item.media === hostName(item.extUrl))) item.media = res.press;
-    } else if (item.channel === "자동차 커뮤니티") {
-      await sleep(randomBetween(NEWS_DELAY));
-      parsed = await readCommunityTime(item.url).catch(() => null);
-    } else {
-      // 언론사 자체 사이트 기사: 열어 보지 않고 둔다 (목록의 날짜로 판단)
-      if (item.ambiguous) item.note = "시간 미확인 (언론사 사이트에서 확인)";
-      continue;
-    }
-    if (parsed) {
-      const place = placeInRange(parsed, win);
-      if (place === "older" || place === "newer") {
-        items = items.filter((x) => x !== item);
-        log(`· 기간 밖이라 뺌: ${item.title} (${formatDateTime(parsed.date)} 작성)`);
-      } else {
-        item.date = parsed.date;
-        item.hasTime = true;
-        item.ambiguous = false;
-        item.approx = false;
-      }
-    } else if (item.ambiguous) {
-      item.note = login ? "로그인 필요 - 시간 확인 못 함" : "시간 확인 못 함";
-    }
+    await checkItemTime(item, win);
     renderResults();
     if (!stopRequested) await checkpoint();
   }
@@ -1008,7 +972,7 @@ async function search(resume = null) {
   if (!stopRequested) playChime();
   // 못 읽은 곳(동호회·언론 검색어·커뮤니티 게시판) · 시간 확인 못 한 글 → 다시 찾기 버튼
   lastFailed = stopRequested ? { ids: [], queries: [], boards: [] } : failed;
-  const unchecked = items.filter((x) => x.ambiguous && !(x.channel === "언론" && !x.naverUrl)).length;
+  const unchecked = items.filter((x) => x.ambiguous && x.checked && !(x.channel === "언론" && !x.naverUrl)).length;
   const failCount = lastFailed.ids.length + lastFailed.queries.length + lastFailed.boards.length;
   $("#retryCafes").hidden = !failCount && !unchecked;
   $("#retryCafes").textContent = failCount
@@ -1078,6 +1042,7 @@ function renderResults() {
       tr.className = item.checked ? "" : "off";
       updateCounts();
       saveLast(); // 체크만 바꿔도 바로 저장 (다시 열어도 그대로)
+      if (item.checked) checkTimeOnTick(item); // 시간 미확인 글을 체크하면 그 글만 작성 시간 확인
     });
     tr.children[1].textContent = item.date ? formatDateTime(item.date, item.hasTime) + (item.approx ? " 무렵" : "") : "날짜 모름";
     tr.children[2].textContent = isCafeItem(item) ? cafeNames[item.cafeId] || item.cafeId : `${item.channel} · ${item.media || hostName(item.url)}`;
@@ -2237,4 +2202,71 @@ async function fixOldDaily() {
   running = false;
   markRunning(false);
   hideBusy();
+}
+
+const TIME_LATER_NOTE = "시간 미확인 (체크하면 작성 시간 확인)";
+
+// 글 하나를 열어 작성 시간 확인 → 기간 밖이면 결과 표에서 뺌. → "out" | "ok" | "fail" | "skip"
+async function checkItemTime(item, win, { delay = true } = {}) {
+  let parsed = null;
+  let login = false;
+  if (isCafeItem(item)) {
+    if (delay) await sleep(randomBetween(CAFE_ARTICLE_DELAY));
+    const res = await readArticleTime(`https://cafe.naver.com/f-e/cafes/${item.cafeId}/articles/${item.articleId}`);
+    if (res.found) parsed = parseCafeDate(res.dateText);
+    login = !!res.login;
+    const slug = pickSlug(res.hints || []);
+    if (slug && !cafeSlugs[item.cafeId]) {
+      await saveCafeSlug(item.cafeId, slug);
+      cafeSlugs[item.cafeId] = slug;
+    }
+  } else if (item.naverUrl) {
+    if (delay) await sleep(randomBetween(NEWS_DELAY));
+    const res = await readNewsArticle(item.naverUrl).catch(() => null);
+    parsed = res?.parsed?.hasTime ? res.parsed : null;
+    if (res?.press && (!item.media || item.media === hostName(item.extUrl))) item.media = res.press;
+  } else if (item.channel === "자동차 커뮤니티") {
+    if (delay) await sleep(randomBetween(NEWS_DELAY));
+    parsed = await readCommunityTime(item.url).catch(() => null);
+  } else {
+    // 언론사 자체 사이트 기사: 열어 보지 않고 둔다 (목록의 날짜로 판단)
+    if (item.ambiguous) item.note = "시간 미확인 (언론사 사이트에서 확인)";
+    return "skip";
+  }
+  if (item.note === TIME_LATER_NOTE) item.note = "";
+  if (parsed) {
+    const place = placeInRange(parsed, win);
+    if (place === "older" || place === "newer") {
+      items = items.filter((x) => x !== item);
+      log(`· 기간 밖이라 뺌: ${item.title} (${formatDateTime(parsed.date)} 작성)`);
+      return "out";
+    }
+    item.date = parsed.date;
+    item.hasTime = true;
+    item.ambiguous = false;
+    item.approx = false;
+    return "ok";
+  }
+  if (item.ambiguous) item.note = login ? "로그인 필요 - 시간 확인 못 함" : "시간 확인 못 함";
+  return "fail";
+}
+
+// 결과 표에서 '시간 미확인' 글을 직접 체크하면 그 글만 열어 작성 시간 확인
+async function checkTimeOnTick(item) {
+  if (running || !(item.ambiguous || (item.approx && item.naverUrl))) return;
+  let win;
+  try {
+    win = lastRange?.from && lastRange?.to ? { from: new Date(lastRange.from), to: new Date(lastRange.to) } : range();
+    if (isNaN(win.from) || isNaN(win.to)) win = range();
+  } catch {
+    return;
+  }
+  setSummary(`작성 시간 확인 중… (${item.title})`);
+  const r = await checkItemTime(item, win, { delay: false }).catch(() => "fail");
+  setSummary(
+    r === "out" ? `기간 밖 글이라 결과 표에서 뺐습니다: ${item.title}` : r === "ok" ? `✔ 작성 시간 확인: ${item.title} (${formatDateTime(item.date)})` : `작성 시간을 확인하지 못했습니다: ${item.title}`,
+    r === "fail" ? "err" : "ok",
+  );
+  renderResults();
+  await saveLast();
 }
