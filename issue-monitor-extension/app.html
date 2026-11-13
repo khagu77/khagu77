@@ -188,6 +188,14 @@
       </table>
       <p id="dtEmpty" class="hint">아직 만든 일일동향 엑셀이 없습니다.</p>
 
+      <h2>월간 실적 보고 <span class="hint">⑤ 월간 실적 보고에서 만든 보고서와 넣은 지난 보고서 (모두 영구 보관, 보고 월 최근 순). 시스템 전에 만든 지난 보고서도 여기서 올릴 수 있습니다.</span></h2>
+      <div class="buttons"><label class="filebtn">지난 월간 실적 보고 PPT 올리기 (여러 개 가능)<input type="file" id="moDbUpload" accept=".pptx" multiple hidden></label></div>
+      <table id="moTable">
+        <thead><tr><th>보고 월</th><th>보고일</th><th>파일 이름</th><th>만든·넣은 일시</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p id="moEmpty" class="hint">아직 보관된 월간 실적 보고가 없습니다.</p>
+
       <h2>안전 우려 게시글 모음 (연보라색) <span class="hint">지금까지 수집한 기록에서 결과 표에 연보라색으로 표시된 안전사고 우려 글만 모읍니다. [누적 엑셀 받기]는 모든 날짜를 날짜 순으로 한 파일에 쌓아 일일 보고 엑셀과 같은 양식으로 받습니다 (결과 표에서 고친 내용 그대로).</span></h2>
       <div id="safetyTotal" class="big-total" hidden></div>
       <div class="buttons">
@@ -227,7 +235,7 @@
     </section>
 
     <section id="tab-monthly" hidden>
-      <h2>월간 실적 보고 <span class="hint">준비 중입니다. 담당자 지시를 받아 만들 예정입니다.</span></h2>
+      <iframe id="monthlyFrame" title="월간 실적 보고"></iframe>
     </section>
 
     <!-- ===================== 명령 프롬프트 ===================== -->
@@ -390,6 +398,7 @@
   <script src="ppt/raw.js"></script>
   <script src="ppt/pptread.js"></script>
   <script src="ppt/dailyppt.js"></script>
+  <script src="ppt/monthlypptx.js"></script>
   <script src="celebrate.js"></script>
   <script src="app.js"></script>
 </body>

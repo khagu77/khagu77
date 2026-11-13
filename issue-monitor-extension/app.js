@@ -107,6 +107,7 @@ function showTab(name) {
   for (const b of document.querySelectorAll("nav .tab")) b.classList.toggle("active", b.dataset.tab === name);
   for (const t of ["collect", "ppt", "dtrend", "weekly", "monthly", "db", "prompt", "settings"]) $(`#tab-${t}`).hidden = t !== name;
   if (name === "dtrend" && !$("#dtrendFrame").getAttribute("src")) $("#dtrendFrame").setAttribute("src", "ppt/dtrend.html"); // 처음 열 때 불러옴
+  if (name === "monthly" && !$("#monthlyFrame").getAttribute("src")) $("#monthlyFrame").setAttribute("src", "ppt/monthly.html");
   if (name === "ppt") sendPptSource();
   if (name === "weekly" && !$("#weeklyFrame").getAttribute("src")) $("#weeklyFrame").setAttribute("src", "ppt/weekly.html"); // 처음 열 때 불러옴
   if (name === "db") renderDb();
@@ -951,6 +952,11 @@ async function registerRawRecent(date, bytes) {
   return rows.length;
 }
 
+$("#moDbUpload").addEventListener("change", (ev) => {
+  const files = [...ev.target.files];
+  ev.target.value = "";
+  if (files.length) uploadMonthlyReports(files);
+});
 $("#rawUpload").addEventListener("change", async (ev) => {
   const files = [...ev.target.files].sort((a, b) => (a.name < b.name ? -1 : 1));
   ev.target.value = "";
@@ -1403,7 +1409,79 @@ async function renderDtHistory() {
   }
 }
 
+// 월간 실적 보고 보관함 (담당자 요청 2026-11-13): ⑤ 탭에서 만든 보고서 + 시스템 전에 만든 지난 보고서
+const PPTX_MIME_MO = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+async function moHistory() {
+  return ((await pptKv("readonly", (st) => st.get("moHistory"))) || []).sort((a, b) => (b.ym || "").localeCompare(a.ym || "") || b.at - a.at);
+}
+async function renderMoHistory() {
+  const hist = await moHistory();
+  const tbody = $("#moTable tbody");
+  tbody.textContent = "";
+  $("#moEmpty").hidden = hist.length > 0;
+  $("#moTable").hidden = !hist.length;
+  const pg = pageOf("monthly", hist);
+  renderPager($("#moTable"), "monthly", hist.length, pg.p, pg.pages, renderMoHistory);
+  for (const h of pg.items) {
+    const [y, m] = String(h.ym || "-").split("-");
+    tbody.append(
+      el("tr", {},
+        el("td", {}, el("b", { text: h.ym ? `${y}년 ${+m}월` : "-" })),
+        el("td", { text: h.date || "-" }),
+        el("td", {}, h.uploaded ? el("span", { class: "badge-edit", text: "넣은 지난 보고서" }) : null, ` ${h.name}`),
+        el("td", { text: fmtDateTime(new Date(h.at)) }),
+        el("td", { class: "actions" },
+          el("button", { class: "btn-get", text: "받기", onclick: async (ev) => {
+            const btn = ev.currentTarget;
+            const bytes = await pptKv("readonly", (st) => st.get(`moFile:${h.id}`));
+            if (!bytes) return alert("파일 내용을 찾지 못했습니다");
+            const where = await saveBytesFile(h.name, bytes, PPTX_MIME_MO, true);
+            Celebrate.done(btn);
+            await Celebrate.after();
+            alert(`✅ 월간 실적 보고 저장 완료\n\n저장 위치: ${where}`);
+          } }),
+          el("button", { class: "danger", text: "삭제", onclick: async () => {
+            if (!confirm(`월간 실적 보고 기록을 지울까요?\n${h.name}\n(저장 폴더의 파일은 그대로입니다)`)) return;
+            const all = (await pptKv("readonly", (st) => st.get("moHistory"))) || [];
+            await pptKv("readwrite", (st) => st.delete(`moFile:${h.id}`));
+            await pptKv("readwrite", (st) => st.put(all.filter((x) => x.id !== h.id), "moHistory"));
+            renderMoHistory();
+          } })
+        )
+      )
+    );
+  }
+}
+// 지난 보고서 올리기: 보고 월은 PPT 제목의 ‘YY.M월, 보고일은 파일 이름 앞 날짜 (없으면 제목 기간 끝 날짜)
+async function uploadMonthlyReports(files) {
+  const ok = [];
+  const bad = [];
+  for (const f of files) {
+    try {
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      const info = await MonthlyPptx.read(bytes);
+      if (!info.year || !info.month) throw new Error("제목에서 ‘YY.M월 을 찾지 못했습니다");
+      const pm = String(info.period || "").match(/(\d{2})\.(\d{1,2})\/(\d{1,2})\s*$/);
+      const date = DailyPpt.dateFromName(f.name) || (pm ? `20${pm[1]}-${pm[2].padStart(2, "0")}-${pm[3].padStart(2, "0")}` : "");
+      const ym = `${info.year}-${String(info.month).padStart(2, "0")}`;
+      const meta = { id: `mo-${Date.now()}-${ok.length}`, at: Date.now(), ym, date, name: f.name, uploaded: true, overview1: info.overview1, overview2: info.overview2 };
+      const list = await moHistory();
+      for (const x of list.filter((x) => x.ym === ym)) await pptKv("readwrite", (st) => st.delete(`moFile:${x.id}`));
+      await pptKv("readwrite", (st) => st.put(bytes, `moFile:${meta.id}`));
+      await pptKv("readwrite", (st) => st.put([meta, ...list.filter((x) => x.ym !== ym)], "moHistory"));
+      ok.push(`${info.year}년 ${info.month}월`);
+    } catch (e) {
+      bad.push(`${f.name}: ${e.message || e}`);
+    }
+  }
+  renderMoHistory();
+  const f = $("#monthlyFrame");
+  if (f.getAttribute("src")) f.contentWindow.location.reload(); // 월간 탭도 새 목록으로
+  alert(`${ok.length ? `✅ 지난 월간 실적 보고 ${ok.length}개를 넣었습니다 (${ok.join(", ")})` : ""}${bad.length ? `\n⚠ ${bad.join("\n⚠ ")}` : ""}`.trim());
+}
+
 async function renderDb() {
+  renderMoHistory();
   renderDtHistory();
   renderRawHistory();
   renderDailyPpts();

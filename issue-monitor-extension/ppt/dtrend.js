@@ -86,12 +86,19 @@ async function saveFile(dir, fileName, bytes) {
       setSummary(`고른 폴더에 저장하지 못해 다운로드 폴더로 받습니다 (${e.message || e})`, "err");
     }
   }
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([bytes], { type: XLSX_MIME }));
-  a.download = fileName;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  // 다운로드 폴더: 크롬 다운로드로 받아 한글 파일 이름이 그대로 붙게 (같은 이름이면 덮어씀)
+  const url = URL.createObjectURL(new Blob([bytes], { type: XLSX_MIME }));
+  try {
+    await chrome.downloads.download({ url, filename: fileName, conflictAction: "overwrite", saveAs: false });
+  } catch {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
   return `다운로드 폴더/${fileName}`;
 }
 

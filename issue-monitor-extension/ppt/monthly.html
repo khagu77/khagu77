@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>월간 실적 보고</title>
+  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="weekly.css">
+  <style>
+    #summary { white-space: pre-line; }
+    .mo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px 14px; }
+    .mo-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; font-weight: 600; }
+    .mo-grid input { font-weight: 400; }
+    .mo-grid .prev { font-weight: 400; color: var(--muted); font-size: 12px; }
+    textarea.mo-text { width: 100%; box-sizing: border-box; font: inherit; font-size: 13.5px; line-height: 1.55; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); }
+    .mo-len { font-size: 12px; color: var(--muted); }
+    .mo-len.over { color: #d93025; font-weight: 700; }
+    #extraList .ex { display: grid; grid-template-columns: 1fr 120px auto auto auto; gap: 6px; margin: 4px 0; align-items: center; }
+    #extraList input { width: 100%; box-sizing: border-box; }
+    .mo-tables { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 12px; }
+    .mo-tables table td:nth-child(n+2), .mo-tables table th:nth-child(n+2) { text-align: right; }
+    .mo-tables tr.top5 td { background: #e8f0fb; }
+    .mo-tables tr.sum td { font-weight: 700; border-top: 2px solid var(--border); }
+    .pct { color: #d93025; }
+    @media (prefers-color-scheme: dark) { .mo-tables tr.top5 td { background: #1c2b40; } }
+    @media (max-width: 900px) { .mo-tables { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="wk-box">
+      <h3>① 지난 월간 실적 보고 PPT (틀) <span class="hint">이 PPT 를 그대로 틀로 써서 글자만 바꿉니다 (서체·크기·색·배경·테두리·점선 박스 모두 원본 그대로). 시스템 전에 만든 지난 보고서들도 여러 개 한꺼번에 넣어 두면 데일리 DB 에 쌓이고, 개요 문체도 그 보고서들을 본받아 씁니다.</span></h3>
+      <div class="buttons">
+        <label class="filebtn">지난 월간 실적 보고 PPT 넣기 (여러 개 가능)<input type="file" id="moUpload" accept=".pptx" multiple hidden></label>
+        <span id="moTplInfo" class="hint"></span>
+      </div>
+    </section>
+
+    <section class="wk-box">
+      <h3>② 보고 월과 자료 <span class="hint">매월 25일 보고, 25일이 주말·휴일이면 바로 전 근무일 (휴일 목록은 모니터링 설정 기준). 기간은 지난 보고일 다음 날부터 이번 보고일까지 (게시일 기준).</span></h3>
+      <div class="buttons">
+        <label>보고 월 <input type="month" id="moMonth"></label>
+        <span id="moDateInfo" class="hint"></span>
+      </div>
+      <div class="buttons">
+        <span id="moXlInfo" class="hint"></span>
+        <label class="filebtn">다른 일일동향 엑셀로 집계<input type="file" id="moXl" accept=".xlsx" hidden></label>
+        <button id="moLoad" type="button">이 기간 자료 불러오기</button>
+      </div>
+      <div id="moStats" hidden>
+        <div class="mo-tables">
+          <div><b>차종 별 비율</b> <span class="hint">이번 달 순위순 · 위 5개 = 파란 점선 TOP5 · 전월은 지난 보고서 기준</span><table id="moCars"><thead><tr><th>차종</th><th>이번 달</th><th>비율</th><th>전월</th></tr></thead><tbody></tbody></table></div>
+          <div><b>카테고리 비율</b><table id="moCats"><thead><tr><th>이슈 항목</th><th>이번 달</th><th>비율</th><th>전월</th></tr></thead><tbody></tbody></table></div>
+          <div><b>채널 별 비율</b><table id="moChans"><thead><tr><th>채널</th><th>이번 달</th><th>비율</th><th>전월</th></tr></thead><tbody></tbody></table></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="wk-box">
+      <h3>③ 1페이지 숫자 · 번외 추가 요청 보고 <span class="hint">지난달 값은 PPT 오른쪽 '전월' 칸으로 그대로 옮겨집니다. 아래는 이번 달 칸에 들어갈 값입니다.</span></h3>
+      <div class="mo-grid">
+        <label>온라인 상시 모니터링 (건) <input type="number" id="moOnline" min="0"><span class="prev" id="pvOnline"></span></label>
+        <label>차량 화재 / 급발진 (건) <input type="number" id="moFire" min="0"><span class="prev" id="pvFire"></span></label>
+        <label>모니터링 시스템 수집 (건) <input type="number" id="moCollect" min="0"><span class="prev" id="pvCollect"></span></label>
+        <label>모니터링 동호회 (개) <input type="number" id="moCafes" min="0"><span class="prev" id="pvCafes"></span></label>
+        <label>유튜브 채널 (건) <input type="number" id="moYoutube" min="0"><span class="prev" id="pvYoutube"></span></label>
+        <label>번외 추가 요청 보고 (회) <input type="number" id="moExtraCount" min="0"><span class="prev" id="pvExtraCount"></span></label>
+      </div>
+      <p><b>번외 추가 요청 보고 내용</b> <span class="hint">제목과 날짜를 넣으면 PPT 오른쪽 '내용' 칸에 "● 제목 (날짜)" 로 들어갑니다. 날짜는 "11/20" 또는 계속하는 업무면 "9/10~" 처럼. 날짜 없이 제목만 써도 됩니다. ↑↓ 로 순서 바꾸기.</span></p>
+      <div id="extraList"></div>
+      <div class="buttons"><button id="exAdd" type="button">＋ 번외 보고 추가</button></div>
+    </section>
+
+    <section class="wk-box">
+      <h3>④ 개요 · 주요 이슈 (AI 작성 후 직접 고치기) <span class="hint">이 기간 데일리 DB 의 일일 PPT 전체(차종·증상·불만 단계·건수)를 근거로, 신차·주요 차종 위주로 씁니다. 1·2페이지 개요는 서로 겹치지 않게 씁니다.</span></h3>
+      <div class="buttons">
+        <button id="aiWrite" class="primary" type="button">✍ AI 로 개요·주요 이슈 쓰기</button>
+        <input id="aiRequest" type="text" placeholder="(선택) 다시 쓸 때 요청: 예) 1페이지 첫 줄은 NX5 출고 초기 품질 위주로" style="flex:1;min-width:260px">
+        <span id="aiInfo" class="hint"></span>
+      </div>
+      <p><b>1페이지 개요</b> <span class="hint">○ 2줄 — 한 줄에 한 항목, 한 줄 안에 들어가게 (약 60자)</span></p>
+      <textarea id="ov1" class="mo-text" rows="2"></textarea>
+      <div id="ov1Len" class="mo-len"></div>
+      <p><b>2페이지 개요</b> <span class="hint">○ 1항목 2줄 분량 (약 120자) — 1페이지와 겹치지 않게</span></p>
+      <textarea id="ov2" class="mo-text" rows="3"></textarea>
+      <div id="ov2Len" class="mo-len"></div>
+      <p><b>1페이지 온라인 상시 모니터링 '내용' (주요 이슈)</b> <span class="hint">한 줄에 하나, "차종코드 증상" 형식 (예: LX3 전자 제어 서스펜션 점검 메시지 점등)</span></p>
+      <textarea id="issues" class="mo-text" rows="8"></textarea>
+    </section>
+
+    <section class="wk-box">
+      <h3>⑤ 월간 실적 보고 PPT 만들기</h3>
+      <div class="buttons">
+        <span>저장 위치: <b id="moWhere">다운로드 폴더</b></span>
+        <button id="moPickFolder" type="button">저장 폴더 선택</button>
+        <button id="moClearFolder" type="button">기본 위치로</button>
+      </div>
+      <div class="buttons">
+        <button id="moBuild" class="primary" type="button">월간 실적 보고 PPT 만들기</button>
+        <span id="moNameInfo" class="hint"></span>
+      </div>
+      <div id="summary" class="summary"></div>
+    </section>
+
+    <section class="wk-box">
+      <h3>월간 실적 보고 보관함 <span class="hint">만든 보고서와 넣은 지난 보고서를 모두 영구 보관합니다 (데일리 DB 탭에도 같은 목록).</span></h3>
+      <table id="moHist" hidden>
+        <thead><tr><th>보고 월</th><th>보고일</th><th>파일 이름</th><th>만든·넣은 일시</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p id="moHistEmpty" class="hint">아직 보관된 월간 실적 보고가 없습니다.</p>
+    </section>
+  </main>
+
+  <script src="lib/anthropic-sdk.min.js"></script>
+  <script src="../defaults.js"></script>
+  <script src="zip.js"></script>
+  <script src="pptread.js"></script>
+  <script src="dailyppt.js"></script>
+  <script src="dtrendxlsx.js"></script>
+  <script src="monthlypptx.js"></script>
+  <script src="../celebrate.js"></script>
+  <script src="monthly.js"></script>
+</body>
+</html>

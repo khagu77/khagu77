@@ -61,6 +61,36 @@
     return { rows: Math.max(0, rows.length - 1), lastSerial };
   }
 
+  // 월간 실적 보고용: 모든 행의 차종(A)·불만구분(C)·매체(D)·게시일(F, 엑셀 날짜 번호)·게시글 위치(G)·내용(H)
+  async function readRows(bytes) {
+    const files = await Zip.read(bytes);
+    const sh = firstSheet(files);
+    const xml = Zip.text(files.get(sh.path));
+    const sst = files.has("xl/sharedStrings.xml") ? Zip.text(files.get("xl/sharedStrings.xml")) : "";
+    const texts = (frag) => [...String(frag).matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((m) => unesc(m[1])).join("");
+    const si = [...sst.matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => texts(m[1]));
+    const out = [];
+    for (const rm of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+      const r = {};
+      for (const cm of rm[1].matchAll(/<c r="([A-Z]+)\d+"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+        const col = cm[1];
+        const attrs = cm[2];
+        const body = cm[3] || "";
+        const t = (attrs.match(/\bt="([^"]*)"/) || [])[1];
+        const v = (body.match(/<v>([\s\S]*?)<\/v>/) || [])[1];
+        let val;
+        if (t === "s") val = si[+v] ?? "";
+        else if (t === "inlineStr") val = texts(body);
+        else if (t === "str") val = unesc(v || "");
+        else val = v != null ? +v : "";
+        r[col] = val;
+      }
+      if (typeof r.F !== "number" || !r.A) continue; // 머리글·빈 줄 제외
+      out.push({ code: String(r.A).trim(), kind: String(r.C || "").replace(/\(.*$/, "").trim(), media: String(r.D || "").trim(), serial: Math.floor(r.F), url: String(r.G || ""), content: String(r.H || "") });
+    }
+    return out;
+  }
+
   // rows: [{ code, spec, kind, level, media, cafe, serial, url, content, duplicate, region }]
   async function append(bytes, rows) {
     const files = await Zip.read(bytes);
@@ -167,5 +197,5 @@
     return { bytes: await Zip.write(files), added: todo.length, skipped, lastRow: r };
   }
 
-  global.DailyTrend = { append, inspect, urlKey };
+  global.DailyTrend = { append, inspect, readRows, urlKey };
 })(typeof window !== "undefined" ? window : self);
