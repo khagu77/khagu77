@@ -422,12 +422,21 @@ function renderPreview() {
   if (pvFocus) for (const el of box.querySelectorAll(`[data-k="${pvFocus}"]`)) el.classList.add("hl");
 }
 function bindPreviewFocus() {
-  document.addEventListener("focusin", (e) => {
-    const id = e.target.id || (e.target.closest("#extraList") ? "extraList" : "");
-    pvFocus = PV_FOR[id] || "";
+  const keyOf = (el) => {
+    if (!el || el === document.body) return "";
+    const id = el.id || (el.closest && el.closest("#extraList") ? "extraList" : "");
+    return PV_FOR[id] || "";
+  };
+  const apply = (k) => {
+    if (k === pvFocus) return;
+    pvFocus = k;
     renderPreview();
     renderPreview2();
-  });
+  };
+  document.addEventListener("focusin", (e) => apply(keyOf(e.target)));
+  // 칸 밖을 누르면(포커스가 빠지면) 노란 강조를 지운다 (담당자 지적 2026-11-13)
+  document.addEventListener("focusout", () => setTimeout(() => apply(keyOf(document.activeElement)), 0));
+  window.addEventListener("blur", () => apply(""));
 }
 
 async function saveDraft() {
