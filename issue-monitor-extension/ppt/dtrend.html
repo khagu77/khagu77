@@ -6,7 +6,15 @@
   <title>일일동향 엑셀 리스트</title>
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="weekly.css">
-  <style>#summary { white-space: pre-line; }</style>
+  <style>
+    #summary { white-space: pre-line; }
+    /* 미리보기 표: 짧은 칸은 한 줄로(줄바꿈 없이) 꼭 맞게, 남는 폭은 '내용' 칸에 (담당자 요청 2026-11-13) */
+    table.dt-prev { table-layout: auto; width: 100%; font-size: 12.5px; letter-spacing: -0.03em; }
+    table.dt-prev th, table.dt-prev td { padding: 6px 6px; vertical-align: top; }
+    table.dt-prev th:not(:nth-child(8)), table.dt-prev td:not(:nth-child(8)) { white-space: nowrap; width: 1%; }
+    table.dt-prev td:nth-child(8) { line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; }
+    table.dt-prev td:nth-child(1), table.dt-prev td:nth-child(9) { text-align: center; }
+  </style>
   <link rel="stylesheet" href="../design.css">
 </head>
 <body>
@@ -29,7 +37,7 @@
         <label class="filebtn">이 날짜 전체 PPT 첨부<input type="file" id="dtFullPpt" accept=".pptx" hidden></label>
         <span id="dtPptInfo" class="hint"></span>
       </div>
-      <table id="dtPreview" hidden>
+      <table id="dtPreview" class="dt-prev" hidden>
         <thead><tr><th>No</th><th>차종</th><th>제원</th><th>불만구분</th><th>매체</th><th>동호회명</th><th>게시일</th><th>내용</th><th>중복</th><th>지역</th></tr></thead>
         <tbody></tbody>
       </table>

@@ -203,14 +203,30 @@ async function showBase() {
 // 게시일: 데일리 DB 수집 기록 → 날짜별 전체 엑셀 → 날짜별 RAW 에서 같은 글 주소로 찾고, 없으면 보고 날짜 하루 전
 async function postDates() {
   const map = new Map();
-  const put = (url, serial) => {
+  // 게시일 → 엑셀 날짜 번호. 숫자·숫자 글자("46338")는 그대로, 날짜 글자·시각은 날짜로 바꾼다.
+  // 2010~2040년 범위 밖이면 버린다 (담당자 지적 2026-11-13: "46338" 글자를 연도로 읽어 46338-01-01 이 됨)
+  const toSerial = (v) => {
+    if (v == null || v === "") return 0;
+    let n = 0;
+    if (typeof v === "number" || /^\s*\d+(\.\d+)?\s*$/.test(String(v))) {
+      n = Number(v);
+      if (n > 1e11) n = serialOf(new Date(n)); // ms 시각
+      else n = Math.floor(n);
+    } else {
+      const d = new Date(String(v).replace(/\./g, "-").trim());
+      n = isNaN(d) ? 0 : serialOf(d);
+    }
+    return n >= 40179 && n <= 51136 ? n : 0;
+  };
+  const put = (url, v) => {
     const k = DailyTrend.urlKey(url);
+    const serial = toSerial(v);
     if (k && serial && !map.has(k)) map.set(k, serial);
   };
   const { dailyDb = [] } = await chrome.storage.local.get("dailyDb");
-  for (const e of dailyDb) for (const r of e.rows || []) if (r.date) put(r.url, serialOf(new Date(r.date)));
+  for (const e of dailyDb) for (const r of e.rows || []) if (r.date) put(r.url, r.date);
   const full = (await kvGet("fullDaily")) || {};
-  for (const d of Object.values(full)) for (const r of d.rows || []) put(r.url, typeof r.date === "number" && r.date > 20000 ? Math.floor(r.date) : r.date ? serialOf(new Date(r.date)) : 0);
+  for (const d of Object.values(full)) for (const r of d.rows || []) put(r.url, r.date);
   const recent = (await kvGet("rawRecent")) || {};
   for (const rows of Object.values(recent)) for (const r of rows || []) put(r.url, r.serial);
   return map;

@@ -227,3 +227,26 @@ dialog.settings .set-group h3:first-child { font-size: 13.5px; padding: 5px 14px
 .buttons.sticky { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 -4px 18px rgba(16, 24, 40, 0.08); padding: 10px 14px; margin-top: 10px; }
 .recoverbox { border-radius: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 @media (prefers-color-scheme: dark) { .recoverbox { background: var(--soft); border-color: #5c3a3a; color: var(--text); } }
+
+/* ---------- PPT 미리보기 카드: 작성·수정하는 칸은 밝은 하늘색으로 눈에 띄게 (담당자 요청 2026-11-13) ---------- */
+.item { background: var(--card); border-color: var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.fields input, .fields select, .fields textarea {
+  background: #eef6ff;
+  border: 1px solid #b9d6f5;
+  color: #10233f;
+  font-weight: 500;
+}
+.fields input:hover, .fields select:hover, .fields textarea:hover { background: #e3f0ff; border-color: #8fbbe9; }
+.fields input:focus, .fields select:focus, .fields textarea:focus { background: #fffbe6; border-color: #f0b400; box-shadow: 0 0 0 3px rgba(240, 180, 0, 0.18); }
+.fields label { color: var(--muted); }
+@media (prefers-color-scheme: dark) {
+  .fields input, .fields select, .fields textarea { background: #182a42; border-color: #2d4d75; color: #e6eefb; }
+  .fields input:hover, .fields select:hover, .fields textarea:hover { background: #1d3352; }
+  .fields input:focus, .fields select:focus, .fields textarea:focus { background: #2e2a14; border-color: #c99a00; }
+}
+/* 월간 보고 입력칸·일일동향 날짜 등 다른 작성 칸도 같은 색 */
+.mo-grid input, textarea.mo-text, #extraList input { background: #eef6ff; border-color: #b9d6f5; }
+.mo-grid input:focus, textarea.mo-text:focus, #extraList input:focus { background: #fffbe6; border-color: #f0b400; box-shadow: 0 0 0 3px rgba(240, 180, 0, 0.18); }
+@media (prefers-color-scheme: dark) {
+  .mo-grid input, textarea.mo-text, #extraList input { background: #182a42; border-color: #2d4d75; }
+}
