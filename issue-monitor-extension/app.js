@@ -3468,8 +3468,10 @@ async function markMonthlyDue() {
   const now = new Date();
   const today = ymdKey(now);
   // 월간: 매월 25일(주말·휴일이면 바로 전 근무일)
-  const due = monthlyReportDay(now.getFullYear(), now.getMonth() + 1, state.settings);
   const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  // 일찍 보고로 보고일을 바꿔 두었으면 그 날 (월간 탭 ①의 보고일)
+  const ov = await pptKv("readonly", (st) => st.get(`moDateOverride:${ym}`)).catch(() => null);
+  const due = ov && /^\d{4}-\d{2}-\d{2}$/.test(ov) ? new Date(`${ov}T00:00`) : monthlyReportDay(now.getFullYear(), now.getMonth() + 1, state.settings);
   const hist = (await pptKv("readonly", (st) => st.get("moHistory")).catch(() => null)) || [];
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const moDone = hist.some((h) => h.ym === ym && (!h.uploaded || h.at >= startOfDay));

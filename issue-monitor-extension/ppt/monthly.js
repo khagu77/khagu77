@@ -253,7 +253,12 @@ async function refresh() {
   const ym = selYm();
   if (!ym) return;
   const [y, m] = ym;
-  const date = reportDate(y, m);
+  // 보고일: 기본은 25일 규칙. 일찍 보고를 요청받으면 담당자가 바꾼 날(보고 월마다 저장 "moDateOverride:<YYYY-MM>")
+  const autoDate = reportDate(y, m);
+  const ovKey = await kvGet(`moDateOverride:${ymKey(y, m)}`);
+  const date = ovKey && /^\d{4}-\d{2}-\d{2}$/.test(ovKey) ? new Date(`${ovKey}T00:00`) : autoDate;
+  $("#moDate").value = dkey(date);
+  $("#moDateReset").hidden = !ovKey;
   const tpl = await templateFor(y, m);
   const [py, pm] = prevYm(y, m);
   const tplEnd = tpl && tpl.entry.ym === ymKey(py, pm) ? periodEndOf(tpl.info) : null;
@@ -263,7 +268,8 @@ async function refresh() {
   })();
   const xl = await excelFor(date);
   ctx = { y, m, date, start, end: date, tpl, xl };
-  $("#moDateInfo").textContent = `보고일 ${fmt(date)}${date.getDate() !== 25 ? " (25일이 주말·휴일이라 전 근무일)" : ""} · 기간 ${dkey(start)} ~ ${dkey(date)}`;
+  $("#moDateInfo").textContent = `${ovKey ? `✎ 직접 지정한 보고일 ${fmt(date)} (원래 ${fmt(autoDate)})` : `보고일 ${fmt(date)}${date.getDate() !== 25 ? " (25일이 주말·휴일이라 전 근무일)" : ""}`} · 기간 ${dkey(start)} ~ ${dkey(date)}`;
+  $("#moDateInfo").className = ovKey ? "hint err" : "hint";
   $("#moTplInfo").textContent = tpl ? `틀: ${tpl.entry.name} (${tpl.info.year}년 ${tpl.info.month}월 보고서)${tpl.entry.ym !== ymKey(py, pm) ? ` · ⚠ ${pm}월 보고서가 없어 더 앞선 보고서를 씁니다` : ""}` : `${y}년 ${m}월 보다 앞선 월간 실적 보고가 없습니다. 지난달 보고서 PPT 를 넣어 주세요.`;
   $("#moTplInfo").className = tpl ? "hint ok" : "hint err";
   $("#moXlInfo").textContent = xl ? `일일동향 엑셀: ${xl.name}${xlOverride ? " (직접 고름)" : ""}${xl.date && xl.date < dkey(date) ? ` · ⚠ 보고일(${dkey(date)}) 파일이 아직 없어 ${xl.date} 파일로 집계 (보고일에 다시 불러오세요)` : ""}` : "일일동향 엑셀이 없습니다. 3번 탭에서 만들거나 넣어 주세요.";
@@ -702,6 +708,25 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#moMonth").addEventListener("change", () => {
     xlOverride = null;
     refresh();
+  });
+  // 일찍 보고: 보고일을 바꾸면 기간 끝·파일 이름·쓸 일일동향 엑셀이 그 날로 바뀐다 (다음 달 기간은 이 날 다음 날부터)
+  $("#moDate").addEventListener("change", async () => {
+    const ym = selYm();
+    const v = $("#moDate").value;
+    if (!ym || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+    const auto = dkey(reportDate(ym[0], ym[1]));
+    await kvSet(`moDateOverride:${ymKey(ym[0], ym[1])}`, v === auto ? null : v);
+    chrome.storage.local.set({ moUpdatedAt: Date.now() }).catch(() => {}); // 메뉴 보고일 알림도 이 날로
+    await refresh();
+    if (ctx && ctx.tpl && ctx.xl) loadStats().catch(() => {});
+  });
+  $("#moDateReset").addEventListener("click", async () => {
+    const ym = selYm();
+    if (!ym) return;
+    await kvSet(`moDateOverride:${ymKey(ym[0], ym[1])}`, null);
+    chrome.storage.local.set({ moUpdatedAt: Date.now() }).catch(() => {});
+    await refresh();
+    if (ctx && ctx.tpl && ctx.xl) loadStats().catch(() => {});
   });
   $("#moUpload").addEventListener("change", (e) => {
     const files = [...e.target.files];
