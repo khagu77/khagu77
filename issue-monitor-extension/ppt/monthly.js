@@ -343,7 +343,7 @@ async function loadDraft() {
     $(`#${id}`).value = d && d[k] != null ? d[k] : k === "cafes" && prev.cafes ? String(prev.cafes) : "";
     $(`#${pv}`).textContent = prev[k] != null ? `지난달 ${Number(prev[k]).toLocaleString()}` : "";
   }
-  extras = d && d.extras ? d.extras : (prev.extras || []).map((x) => ({ ...x }));
+  extras = d && d.extras ? d.extras : (prev.extras || []).map((x) => ({ title: x.title, date: x.date, count: "" })); // 지난달 목록은 건수 비우고
   $("#ov1").value = d ? d.ov1 || "" : "";
   $("#ov2").value = d ? d.ov2 || "" : "";
   $("#issues").value = d ? d.issues || "" : "";
@@ -356,14 +356,40 @@ async function saveDraft() {
   for (const [id, k] of NUMS) d[k] = $(`#${id}`).value;
   await kvSet(draftKey(), d);
 }
+// 번외 보고 건수 합계 → '번외 추가 요청 보고 (회)' 자동 입력 (담당자 요청 2026-11-13)
+// 건수를 하나라도 넣었으면 합계로 채우고(초록 칸), 하나도 없으면 직접 입력한 값 그대로
+function syncExtraSum() {
+  const filled = extras.filter((x) => String(x.count ?? "").trim() !== "");
+  const sum = filled.reduce((s, x) => s + (Number(x.count) || 0), 0);
+  const inp = $("#moExtraCount");
+  const note = $("#exSumNote");
+  if (filled.length) {
+    inp.value = String(sum);
+    inp.classList.add("auto");
+    note.textContent = `✓ 자동 합계 ${sum}회 (건수 넣은 ${filled.length}줄의 합)`;
+    note.classList.add("on");
+  } else {
+    inp.classList.remove("auto");
+    note.textContent = "↓ 아래 번외 보고 내용에 건수를 넣으면 자동 합계가 입력됩니다";
+    note.classList.remove("on");
+  }
+}
 function renderExtras() {
   const box = $("#extraList");
   box.innerHTML = "";
+  if (extras.length) {
+    const head = document.createElement("div");
+    head.className = "ex ex-head";
+    head.innerHTML = "<span>제목</span><span>날짜</span><span>건수</span><span></span><span></span><span></span>";
+    box.append(head);
+  }
   extras.forEach((x, i) => {
     const row = document.createElement("div");
     row.className = "ex";
-    row.innerHTML = `<input type="text" placeholder="제목 (예: ‘NX5 시승기’ 관련 유튜버 콘텐츠 모니터링)"><input type="text" placeholder="날짜 (예: 11/20)"><button type="button" title="위로">↑</button><button type="button" title="아래로">↓</button><button type="button" class="danger">삭제</button>`;
-    const [t, d] = row.querySelectorAll("input");
+    row.innerHTML = `<input type="text" placeholder="제목 (예: ‘NX5 시승기’ 관련 유튜버 콘텐츠 모니터링)"><input type="text" placeholder="날짜 (예: 11/20)"><input type="number" class="cnt" min="0" placeholder="건수"><button type="button" title="위로">↑</button><button type="button" title="아래로">↓</button><button type="button" class="danger">삭제</button>`;
+    const [t, d, c] = row.querySelectorAll("input");
+    c.value = x.count ?? "";
+    c.addEventListener("input", () => { x.count = c.value; syncExtraSum(); saveDraft(); });
     const [up, down, del] = row.querySelectorAll("button");
     t.value = x.title || "";
     d.value = x.date || "";
@@ -376,6 +402,7 @@ function renderExtras() {
     del.addEventListener("click", () => { extras.splice(i, 1); renderExtras(); saveDraft(); });
     box.append(row);
   });
+  syncExtraSum();
 }
 const lines = (s) => String(s || "").split("\n").map((x) => x.replace(/^\s*[○●•\-]\s*/, "").trim()).filter(Boolean);
 function updateLens() {

@@ -15,7 +15,16 @@
     textarea.mo-text { width: 100%; box-sizing: border-box; font: inherit; font-size: 13.5px; line-height: 1.55; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--card); color: var(--text); }
     .mo-len { font-size: 12px; color: var(--muted); }
     .mo-len.over { color: #d93025; font-weight: 700; }
-    #extraList .ex { display: grid; grid-template-columns: 1fr 120px auto auto auto; gap: 6px; margin: 4px 0; align-items: center; }
+    #extraList .ex { display: grid; grid-template-columns: 1fr 130px 96px 40px 40px 64px; gap: 6px; margin: 4px 0; align-items: center; }
+    #extraList .ex-head { font-size: 12px; font-weight: 700; color: var(--muted); margin: 8px 0 2px; }
+    #extraList .ex-head span:nth-child(3) { color: var(--blue); }
+    #extraList input.cnt { text-align: right; font-weight: 700; }
+    .auto-note { font-weight: 600; font-size: 12px; color: #0b57d0; }
+    .auto-note.on { color: #11753d; }
+    .auto-tip { display: block; margin: 10px 0 4px; padding: 8px 12px; border-radius: 10px; background: #e8f3ff; color: #0b3d75; font-size: 12.5px; font-weight: 600; }
+    .auto-tip b { color: #002c5f; }
+    #moExtraCount.auto { background: #e7f6ec !important; border-color: #8fd3a8 !important; font-weight: 800; }
+    @media (prefers-color-scheme: dark) { .auto-tip { background: #1c2b40; color: #b9d3ff; } .auto-tip b { color: #fff; } #moExtraCount.auto { background: #163323 !important; border-color: #23573a !important; } .auto-note { color: #8ab4f8; } .auto-note.on { color: #7ee2a8; } }
     #extraList input { width: 100%; box-sizing: border-box; }
     .mo-tables { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 12px; }
     .mo-tables table td:nth-child(n+2), .mo-tables table th:nth-child(n+2) { text-align: right; }
@@ -65,9 +74,11 @@
         <label>모니터링 시스템 수집 (건) <input type="number" id="moCollect" min="0"><span class="prev" id="pvCollect"></span></label>
         <label>모니터링 동호회 (개) <input type="number" id="moCafes" min="0"><span class="prev" id="pvCafes"></span></label>
         <label>유튜브 채널 (건) <input type="number" id="moYoutube" min="0"><span class="prev" id="pvYoutube"></span></label>
-        <label>번외 추가 요청 보고 (회) <input type="number" id="moExtraCount" min="0"><span class="prev" id="pvExtraCount"></span></label>
+        <label>번외 추가 요청 보고 (회) <input type="number" id="moExtraCount" min="0"><span class="prev" id="pvExtraCount"></span><span class="auto-note" id="exSumNote">↓ 아래 번외 보고 내용에 건수를 넣으면 자동 합계가 입력됩니다</span></label>
       </div>
-      <p><b>번외 추가 요청 보고 내용</b> <span class="hint">제목과 날짜를 넣으면 PPT 오른쪽 '내용' 칸에 "● 제목 (날짜)" 로 들어갑니다. 날짜는 "11/20" 또는 계속하는 업무면 "9/10~" 처럼. 날짜 없이 제목만 써도 됩니다. ↑↓ 로 순서 바꾸기.</span></p>
+      <p class="sub-title">번외 추가 요청 보고 내용</p>
+      <div class="auto-tip">💡 각 줄에 <b>건수</b>를 넣으면 모두 더한 값이 위 <b>'번외 추가 요청 보고 (회)'</b> 칸에 자동으로 입력됩니다.</div>
+      <p class="hint">제목과 날짜는 PPT 오른쪽 '내용' 칸에 "● 제목 (날짜)" 로 들어갑니다 (건수는 합계에만 쓰고 PPT 내용 칸에는 넣지 않음). 날짜는 "11/20" 또는 계속하는 업무면 "9/10~" 처럼, 날짜 없이 제목만 써도 됩니다. ↑↓ 로 순서 바꾸기.</p>
       <div id="extraList"></div>
       <div class="buttons"><button id="exAdd" type="button">＋ 번외 보고 추가</button></div>
     </section>
