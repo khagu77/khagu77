@@ -261,3 +261,6 @@ dialog.settings .set-group h3:first-child { font-size: 13.5px; padding: 5px 14px
 html.frame-tab, html.frame-tab body { overflow: hidden; height: 100%; }
 html.frame-tab main { padding-bottom: 0 !important; margin-bottom: 0 !important; }
 html.frame-tab main > section > iframe { display: block; }
+
+/* 표 안 작은 뱃지 (넣은 지난 보고서·담당자 수정본 등): 모든 화면에서 흰 글자 (담당자 지적 2026-11-13: 글씨가 안 보임) */
+.badge-edit { display: inline-block; padding: 1px 8px; border-radius: 999px; background: var(--blue-2); color: #fff !important; font-size: 11px; font-weight: 700; line-height: 1.6; white-space: nowrap; vertical-align: 1px; }
