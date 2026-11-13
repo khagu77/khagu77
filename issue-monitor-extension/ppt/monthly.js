@@ -344,7 +344,7 @@ function renderPreview2() {
   };
   box.innerHTML = `
     <div class="pv-title">■ ‘${yy}.${ctx.m}월 온라인 여론 동향 정리 <small>(‘${String(ctx.start.getFullYear()).slice(2)}.${md(ctx.start)} ~ ‘${yy}.${md(ctx.end)})</small></div>
-    <div class="pv-row"><div class="pv-lab">개요</div><div class="pv-ov" data-k="ov2">${ov ? `○ ${esc(ov)}` : '<span class="pv-empty">⑤ 에서 2페이지 개요를 써 주세요</span>'}</div></div>
+    <div class="pv-row"><div class="pv-lab">개요</div><div class="pv-ov" data-k="ov2">${ov ? `○ ${esc(ov)}` : '<span class="pv-empty">④ 에서 2페이지 개요를 써 주세요</span>'}</div></div>
     <div class="pv2-body">
       <div>${tbl("이슈 보고 內 차종 별 비율", "차종", stats.cars, 2, true)}</div>
       <div>${tbl("이슈 보고 內 카테고리 비율", "이슈 항목", stats.cats, 2, false)}<div style="height:6px"></div>${tbl("이슈 보고 內 채널 별 비율", "채널", stats.chans, 0, false)}</div>
@@ -408,11 +408,11 @@ function renderPreview() {
   const k = (name) => `data-k="${name}"`;
   box.innerHTML = `
     <div class="pv-title" ${k("title")}>■ ‘${yy}.${ctx.m}월 온라인 여론 동향 정리 <small>(‘${String(ctx.start.getFullYear()).slice(2)}.${md(ctx.start)} ~ ‘${yy}.${md(ctx.end)})</small></div>
-    <div class="pv-row"><div class="pv-lab">개요</div><div class="pv-ov" ${k("ov1")}>${ov.length ? ov.map((t) => `<div>○ ${esc(t)}</div>`).join("") : '<span class="pv-empty">⑤ 에서 개요를 써 주세요</span>'}</div></div>
+    <div class="pv-row"><div class="pv-lab">개요</div><div class="pv-ov" ${k("ov1")}>${ov.length ? ov.map((t) => `<div>○ ${esc(t)}</div>`).join("") : '<span class="pv-empty">④ 에서 개요를 써 주세요</span>'}</div></div>
     <table class="pv-t">
       <colgroup><col style="width:24%"><col style="width:15%"><col style="width:15%"><col></colgroup>
       <tr><th>항 목</th><th>${ctx.y}년 ${ctx.m}월</th><th>${pm}월</th><th>내 용</th></tr>
-      <tr><td>온라인 상시 모니터링 (오전)</td><td class="cur" ${k("online")}>${num("moOnline", "건")}</td><td class="prv">${pnum("online", "건")}</td><td class="txt" ${k("issues")}>${issues.length ? list(issues) : '<div class="plain pv-empty">⑤ 주요 이슈</div>'}</td></tr>
+      <tr><td>온라인 상시 모니터링 (오전)</td><td class="cur" ${k("online")}>${num("moOnline", "건")}</td><td class="prv">${pnum("online", "건")}</td><td class="txt" ${k("issues")}>${issues.length ? list(issues) : '<div class="plain pv-empty">④ 주요 이슈</div>'}</td></tr>
       <tr><td>차량 화재 / 급발진</td><td class="cur" ${k("fire")}>${num("moFire", "건")}</td><td class="prv">${pnum("fire", "건")}</td><td class="txt">${list(notes.fire || [], true)}</td></tr>
       <tr><td>모니터링 시스템 수집</td><td class="cur" ${k("collect")}>${num("moCollect", "건")}</td><td class="prv">${pnum("collect", "건")}</td><td class="txt">${list(notes.collect || [], true)}</td></tr>
       <tr><td>모니터링 동호회</td><td class="cur" ${k("cafes")}>${num("moCafes", "개")}</td><td class="prv">${pnum("cafes", "개")}</td><td class="txt" ${k("cafes")}>${cafesNote ? list([cafesNote]) : list([])}</td></tr>

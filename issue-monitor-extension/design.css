@@ -256,3 +256,8 @@ dialog.settings .set-group h3:first-child { font-size: 13.5px; padding: 5px 14px
 
 /* 숨김은 항상 숨김 (빈 목록 안내 상자 등 display 를 바꾼 요소도) */
 [hidden] { display: none !important; }
+
+/* 작업 화면(iframe) 탭: 바깥 페이지는 스크롤하지 않고 안쪽 화면만 스크롤 (스크롤 1개) */
+html.frame-tab, html.frame-tab body { overflow: hidden; height: 100%; }
+html.frame-tab main { padding-bottom: 0 !important; margin-bottom: 0 !important; }
+html.frame-tab main > section > iframe { display: block; }

@@ -81,16 +81,8 @@
 </head>
 <body>
   <main>
-    <section class="wk-box">
-      <h3>① 지난 월간 실적 보고 PPT (틀) <span class="hint">이 PPT 를 그대로 틀로 써서 글자만 바꿉니다 (서체·크기·색·배경·테두리·점선 박스 모두 원본 그대로). 시스템 전에 만든 지난 보고서들도 여러 개 한꺼번에 넣어 두면 데일리 DB 에 쌓이고, 개요 문체도 그 보고서들을 본받아 씁니다.</span></h3>
-      <div class="buttons">
-        <label class="filebtn">지난 월간 실적 보고 PPT 넣기 (여러 개 가능)<input type="file" id="moUpload" accept=".pptx" multiple hidden></label>
-        <span id="moTplInfo" class="hint"></span>
-      </div>
-    </section>
-
-    <section class="wk-box">
-      <h3>② 보고 월과 자료 <span class="hint">매월 25일 보고, 25일이 주말·휴일이면 바로 전 근무일 (휴일 목록은 모니터링 설정 기준). 기간은 지난 보고일 다음 날부터 이번 보고일까지 (게시일 기준).</span></h3>
+        <section class="wk-box">
+      <h3>① 보고 월과 자료 <span class="hint">매월 25일 보고, 25일이 주말·휴일이면 바로 전 근무일 (휴일 목록은 모니터링 설정 기준). 기간은 지난 보고일 다음 날부터 이번 보고일까지 (게시일 기준).</span></h3>
       <div class="buttons">
         <label>보고 월 <input type="month" id="moMonth"></label>
         <span id="moDateInfo" class="hint"></span>
@@ -103,7 +95,7 @@
     </section>
 
     <section class="wk-box">
-      <h3>③ 1페이지 숫자 · 번외 추가 요청 보고 <span class="hint">지난달 값은 PPT 오른쪽 '전월' 칸으로 그대로 옮겨집니다. 아래는 이번 달 칸에 들어갈 값입니다.</span></h3>
+      <h3>② 1페이지 숫자 · 번외 추가 요청 보고 <span class="hint">지난달 값은 PPT 오른쪽 '전월' 칸으로 그대로 옮겨집니다. 아래는 이번 달 칸에 들어갈 값입니다.</span></h3>
       <div class="mo-split">
       <aside class="pv-wrap">
         <div class="pv-cap">📄 1페이지 미리보기 <span>입력한 값이 들어가는 자리 · 칸을 누르면 노랗게 표시</span></div>
@@ -128,8 +120,8 @@
     </section>
 
         <section class="wk-box">
-      <h3>④ 2페이지 표 · 차종 / 카테고리 / 채널 <span class="hint">②의 일일동향 엑셀에서 기간 안 게시글을 세어 채웁니다. 차종은 이번 달 순위순, 위 5개 = 파란 점선 TOP5, 전월은 지난 보고서 기준, 두 달 모두 0건인 차종은 뺍니다.</span></h3>
-      <p id="moStatsEmpty" class="empty">② 에서 [이 기간 자료 불러오기]를 누르면 표와 2페이지 미리보기가 나옵니다.</p>
+      <h3>③ 2페이지 표 · 차종 / 카테고리 / 채널 <span class="hint">①의 일일동향 엑셀에서 기간 안 게시글을 세어 채웁니다. 차종은 이번 달 순위순, 위 5개 = 파란 점선 TOP5, 전월은 지난 보고서 기준, 두 달 모두 0건인 차종은 뺍니다.</span></h3>
+      <p id="moStatsEmpty" class="empty">① 에서 [이 기간 자료 불러오기]를 누르면 표와 2페이지 미리보기가 나옵니다.</p>
       <div id="moStats" hidden>
         <div class="mo-tables">
           <div><p class="sub-title">차종 별 비율</p><table id="moCars"><thead><tr><th>차종</th><th>이번 달</th><th>비율</th><th>전월</th></tr></thead><tbody></tbody></table></div>
@@ -138,7 +130,7 @@
             <p class="sub-title">채널 별 비율</p><table id="moChans"><thead><tr><th>채널</th><th>이번 달</th><th>비율</th><th>전월</th></tr></thead><tbody></tbody></table>
           </div>
           <aside class="pv-wrap">
-            <div class="pv-cap">📄 2페이지 미리보기 <span>집계 결과와 ⑤의 2페이지 개요가 들어가는 자리</span></div>
+            <div class="pv-cap">📄 2페이지 미리보기 <span>집계 결과와 ④의 2페이지 개요가 들어가는 자리</span></div>
             <div id="pv2" class="pv-slide"></div>
           </aside>
         </div>
@@ -146,7 +138,7 @@
     </section>
 
     <section class="wk-box">
-      <h3>⑤ 개요 · 주요 이슈 (AI 작성 후 직접 고치기) <span class="hint">이 기간 데일리 DB 의 일일 PPT 전체(차종·증상·불만 단계·건수)를 근거로, 신차·주요 차종 위주로 씁니다. 1·2페이지 개요는 서로 겹치지 않게 씁니다.</span></h3>
+      <h3>④ 개요 · 주요 이슈 (AI 작성 후 직접 고치기) <span class="hint">이 기간 데일리 DB 의 일일 PPT 전체(차종·증상·불만 단계·건수)를 근거로, 신차·주요 차종 위주로 씁니다. 1·2페이지 개요는 서로 겹치지 않게 씁니다.</span></h3>
       <div class="buttons">
         <button id="aiWrite" class="primary" type="button">✍ AI 로 개요·주요 이슈 쓰기</button>
         <input id="aiRequest" type="text" placeholder="(선택) 다시 쓸 때 요청: 예) 1페이지 첫 줄은 NX5 출고 초기 품질 위주로" style="flex:1;min-width:260px">
@@ -163,7 +155,7 @@
     </section>
 
     <section class="wk-box">
-      <h3>⑥ 월간 실적 보고 PPT 만들기</h3>
+      <h3>⑤ 월간 실적 보고 PPT 만들기</h3>
       <div class="buttons">
         <span>저장 위치: <b id="moWhere">다운로드 폴더</b></span>
         <button id="moPickFolder" type="button">저장 폴더 선택</button>
@@ -174,6 +166,14 @@
         <span id="moNameInfo" class="hint"></span>
       </div>
       <div id="summary" class="summary"></div>
+    </section>
+
+    <section class="wk-box">
+      <h3>📎 지난 월간 실적 보고 PPT (틀) <span class="hint">이 PPT 를 그대로 틀로 써서 글자만 바꿉니다 (서체·크기·색·배경·테두리·점선 박스 모두 원본 그대로). 시스템 전에 만든 지난 보고서들도 여러 개 한꺼번에 넣어 두면 데일리 DB 에 쌓이고, 개요 문체도 그 보고서들을 본받아 씁니다.</span></h3>
+      <div class="buttons">
+        <label class="filebtn">지난 월간 실적 보고 PPT 넣기 (여러 개 가능)<input type="file" id="moUpload" accept=".pptx" multiple hidden></label>
+        <span id="moTplInfo" class="hint"></span>
+      </div>
     </section>
 
     <section class="wk-box">

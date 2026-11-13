@@ -122,6 +122,29 @@
     });
   }
 
+  // 작업 화면(iframe: PPT·RAW, 일일동향, 주간, 월간) 높이를 창 아래 끝에 딱 맞춰 바깥 스크롤이 따로 생기지 않게 (담당자 지적 2026-11-13: 스크롤 2개)
+  function fitFrames() {
+    if (window.top !== window) return;
+    const frames = document.querySelectorAll("main iframe");
+    let any = false;
+    for (const f of frames) {
+      const sec = f.closest("section");
+      if (!sec || sec.hidden) continue;
+      any = true;
+      const top = f.getBoundingClientRect().top + window.scrollY;
+      f.style.height = `${Math.max(320, window.innerHeight - top)}px`;
+    }
+    document.documentElement.classList.toggle("frame-tab", any);
+  }
+  window.addEventListener("resize", fitFrames);
+  document.addEventListener("click", (e) => {
+    if (e.target.closest && e.target.closest("nav .tab")) setTimeout(fitFrames, 0);
+  });
+  if (window.top === window) {
+    new MutationObserver(() => fitFrames()).observe(document.documentElement, { subtree: true, attributes: true, attributeFilter: ["hidden"] });
+    setTimeout(fitFrames, 0);
+  }
+
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run);
   else run();
 })();
