@@ -1746,23 +1746,47 @@ def test_lx3_daily_yellow(tmp_path: Path):
             { from: new Date(2026, 10, 9, 11, 30), to: new Date(2026, 10, 10, 11, 30) });
           return rows.map((r) => r.url); }""", rb64)
         assert sorted(got) == ["https://cafe.naver.com/gv80owners/9", "https://cafe.naver.com/palisadepeople/2"], got
+        # 담당자 엑셀 양식(머리글 이름이 달라도 · 차종별 시트라 차종 열이 없어도 · 링크가 하이퍼링크로만 걸려도)
+        dwb = _Wb()
+        d1 = dwb.active
+        d1.title = "LX3"
+        d1.append(["No", "카페명", "작성일", "제목", "링크", "주요내용", "보고"])
+        d1.append([1, "팰리세이드 피플", "11월 10일", "2열 시트 리콜 받았는데", "바로가기", "시트 리콜 불만", "+"])
+        d1.cell(2, 5).hyperlink = "https://cafe.naver.com/palisadepeople/77"
+        d1.cell(2, 6).fill = _Fill(fill_type="solid", fgColor="FFFFFF00")
+        d1.append([2, "팰리세이드 피플", "11월 10일", "엔진 소음", "https://cafe.naver.com/palisadepeople/78", "엔진 소음", ""])
+        d2 = dwb.create_sheet("기타 차종")
+        d2.append(["No", "커뮤니티", "차종", "게시일", "URL", "주요 내용"])
+        d2.append([1, "그랜저 동호회", "GN7", "11월 10일", "https://cafe.naver.com/grandeur/1", "시트 리콜"])
+        d2.cell(2, 6).fill = _Fill(fill_type="solid", fgColor="FFFFFF00")
+        dpath = tmp_path / "261110차종별 온라인 동향.xlsx"
+        dwb.save(dpath)
+        db64 = base64.b64encode(dpath.read_bytes()).decode()
+        got = page.evaluate("""async (b64) => {
+          const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+          const rows = await dailyRowsFromFiles([new File([bytes], '261110차종별 온라인 동향.xlsx')],
+            { from: new Date(2026, 10, 9, 11, 30), to: new Date(2026, 10, 10, 11, 30) });
+          return rows.map((r) => [r.url, r.car, r.title]); }""", db64)
+        assert got == [["https://cafe.naver.com/palisadepeople/77", "LX3", "2열 시트 리콜 받았는데"]], got  # 그랜저(GN7)는 대상 차종 아님
         # 찾기 처음: 폴더에서 찾는 기간(11-09~11-10)의 일일동향 엑셀만 읽음 (다른 날짜·다른 파일은 무시, 같은 날짜는 최근 파일)
         b64 = base64.b64encode(daily.read_bytes()).decode()
         page.evaluate("document.querySelector('#log').innerHTML = ''")
         res = page.evaluate("""async (b64) => {
           const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
           const file = (name, t) => ({ kind: 'file', getFile: async () => new File([bytes], name, { lastModified: t }) });
-          const sub = { kind: 'directory', async *entries() { yield ['261110_차종별 온라인 동향_통합 (1).xlsx', file('261110_차종별 온라인 동향_통합 (1).xlsx', 3)]; } };
+          const sub = { kind: 'directory', async *entries() { yield ['261110차종별 온라인 동향 (1).xlsx', file('261110차종별 온라인 동향 (1).xlsx', 3)]; } };
           const dir = { name: '일일동향', async *entries() {
-            yield ['261105_차종별 온라인 동향_통합.xlsx', file('261105_차종별 온라인 동향_통합.xlsx', 1)];
-            yield ['261110_차종별 온라인 동향_통합.xlsx', file('261110_차종별 온라인 동향_통합.xlsx', 2)];
+            yield ['261105차종별 온라인 동향.xlsx', file('261105차종별 온라인 동향.xlsx', 1)];
+            yield ['261110차종별 온라인 동향.xlsx', file('261110차종별 온라인 동향.xlsx', 2)];
             yield ['보고서', sub];
+            yield ['학_261110_차종별 온라인 동향_통합.xlsx', file('학_261110_차종별 온라인 동향_통합.xlsx', 8)];
             yield ['261110_차종별 온라인 동향 raw data.xlsx', file('261110_차종별 온라인 동향 raw data.xlsx', 9)];
             yield ['메모.xlsx', file('메모.xlsx', 4)];
           } };
           const rows = await dailyRowsFromDir(dir, { from: new Date(2026, 10, 9, 11, 30), to: new Date(2026, 10, 10, 11, 30) });
           return { n: rows.length, log: document.querySelector('#log').innerText };
         }""", b64)
-        assert res["n"] == 3 and "(1).xlsx" in res["log"] and "261105" not in res["log"] and "raw data.xlsx:" not in res["log"], res
+        # 노란색은 '261110차종별 온라인 동향.xlsx'(일일 부정 이슈 수집 엑셀)에서만 · 통합·raw data 파일은 읽지 않음
+        assert res["n"] == 3 and "(1).xlsx" in res["log"] and "261105" not in res["log"] and "raw data.xlsx:" not in res["log"] and "통합" not in res["log"], res
         assert not errors, errors
         ctx.close()

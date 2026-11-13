@@ -1800,7 +1800,9 @@ $("#autoTime").addEventListener("change", saveAutoSettings);
 // 노란색(집중 관리) 칸이 있는 행 중 차종이 LX3·ME1·MX5·JX(JX PE 포함)인 글은 LX3 게시물 수집에 반드시 넣는다.
 // (담당자 요청 2026-11-09: 오전에 수집된 2·3열 시트 리콜 노란색 글이 LX3 수집에서 빠지는 경우가 있음)
 // ---------------------------------------------------------------------------
-const DAILY_NAME_RE = /(?:^|_)(\d{6})_[^/]*?(?:온라인\s*동향|HMG_community_issues)[^/]*\.xlsx$/i;
+const DAILY_NAME_RE = /(?:^|[_\s])(\d{6})_?\s*[^/]*?(?:온라인\s*동향|HMG_community_issues)[^/]*\.xlsx$/i;
+// 노란색은 담당자가 정리하는 '261113차종별 온라인 동향.xlsx'(일일 부정 이슈 수집 엑셀)에서만 읽음 (통합·raw data 파일은 아님)
+const DAILY_OTHER_RE = /통합|raw\s*data|HMG_community_issues/i;
 // 노란색(전동 시트 집중 관리) 차종: LX3·ME1·MX5·JX(JX PE 포함)
 const DAILY_CAR_RE = /LX3|팰리세이드|펠리세이드|ME1|아이오닉\s*9|MX5|싼타페|JX/i;
 const DAILY_NOTE = "오전 일일동향 노란색 글";
@@ -1847,13 +1849,13 @@ async function dailyRowsFromDir(dir, win) {
       if (!m || m[1] < lo || m[1] > hi) continue;
       const f = await h.getFile();
       const old = picked.get(m[1]);
-      const rank = (x) => (/통합/.test(x.name) ? 2 : /raw/i.test(x.name) ? 0 : 1); // 통합 → 그 밖 → raw data 순
-      if (!old || rank(f) > rank(old) || (rank(f) === rank(old) && f.lastModified > old.lastModified)) picked.set(m[1], f);
+      if (DAILY_OTHER_RE.test(name)) continue;
+      if (!old || f.lastModified > old.lastModified) picked.set(m[1], f);
     }
   };
   await scan(dir, 0);
   if (!picked.size) {
-    log(`✖ '${dir.name}' 폴더에 ${lo}~${hi} 오전 일일동향 엑셀(…_차종별 온라인 동향_통합.xlsx)이 없음 (노란색 글 확인 못 함)`);
+    log(`✖ '${dir.name}' 폴더에 ${lo}~${hi} 일일동향 엑셀(예: ${hi}차종별 온라인 동향.xlsx)이 없음 (노란색 글 확인 못 함)`);
     return [];
   }
   return dailyRowsFromFiles([...picked.values()], win);
@@ -1953,22 +1955,32 @@ async function readDailyRows(bytes, fileName = "") {
     const linkOfRow = {};
     for (const [ref, u] of Object.entries(links)) linkOfRow[+ref.replace(/[A-Z]+/, "")] ??= u;
     const rows = await wb.readRows(sheet.name);
+    // 머리글: 일일동향 프로그램과 같은 기준 (이 말이 들어 있는 칸을 그 열로) · 위 10행 안에서 찾음, 없으면 내용으로 판단
+    const HEAD = {
+      url: [/url/i, /링크/, /주소/, /게시글\s*위치/, /link/i], community: [/커뮤니티/, /카페/, /매체/, /동호회/, /채널/],
+      car: [/차종/, /모델/], date: [/게시일/, /작성일/, /날짜/, /일자/], title: [/제목/], summary: [/주요\s*내용/, /내용/, /요약/],
+    };
     let col = null;
-    for (const r of rows) {
-      const cols = Object.keys(r.cells);
-      const find = (name) => cols.find((c) => String(r.cells[c]).replace(/\s+/g, "") === name.replace(/\s+/g, ""))
-        || cols.find((c) => typeof r.cells[c] === "string" && r.cells[c].length < 12 && r.cells[c].replace(/\s+/g, "").includes(name.replace(/\s+/g, "")));
-      if (!col) {
-        if (find("커뮤니티") && find("주요 내용")) {
-          const cat = find("구분");
-          const next = (c) => String.fromCharCode(c.charCodeAt(0) + 1);
-          col = { community: find("커뮤니티"), car: find("차종"), date: find("게시일"), url: find("게시글 위치") || find("URL") || (cat ? next(cat) : null), summary: find("주요 내용") };
-        }
-        continue;
+    let headRow = 0;
+    for (const r of rows.slice(0, 10)) {
+      const cols = Object.keys(r.cells).filter((c) => typeof r.cells[c] === "string" && r.cells[c].trim().length <= 15);
+      const pick = (res) => { for (const re of res) { const c = cols.find((k) => re.test(r.cells[k])); if (c) return c; } return null; };
+      const c = Object.fromEntries(Object.entries(HEAD).map(([k, res]) => [k, pick(res)]));
+      if ((c.url || c.community) && (c.summary || c.title || c.date)) {
+        col = c;
+        headRow = r.r;
+        break;
       }
+    }
+    col = col || {};
+    const sheetCar = DAILY_CAR_RE.test(sheet.name) ? sheet.name : "";
+    for (const r of rows) {
+      if (r.r <= headRow) continue;
       const get = (c) => (c && r.cells[c] !== undefined ? r.cells[c] : "");
       let url = String(get(col.url)).trim();
-      if (!/^https?:\/\//i.test(url)) url = links[`${col.url}${r.r}`] || linkOfRow[r.r] || url;
+      if (!/^https?:\/\//i.test(url)) url = (col.url && links[`${col.url}${r.r}`]) || linkOfRow[r.r] || url;
+      // URL 열을 못 찾았으면 그 행에서 주소가 든 칸
+      if (!/^https?:\/\//i.test(url)) url = Object.values(r.cells).map(String).find((v) => /^https?:\/\//i.test(v.trim()))?.trim() || url;
       if (!/^https?:\/\//i.test(url)) continue;
       const isYellow = yellowRow.has(r.r);
       // 게시일: 엑셀 날짜 숫자 · '10월 06일' · '2026.10.06'
@@ -1983,7 +1995,16 @@ async function readDailyRows(bytes, fileName = "") {
           date = new Date(y, +m[1] - 1, +m[2]);
         }
       }
-      out.push({ community: String(get(col.community)).trim(), car: String(get(col.car)).trim(), date, url, summary: String(get(col.summary)).trim(), yellow: isYellow });
+      const texts = Object.values(r.cells).filter((v) => typeof v === "string" && !/^https?:/i.test(v));
+      out.push({
+        community: String(get(col.community)).trim(),
+        // 차종 열이 없거나 비면 시트 이름(차종별 시트) → 그 행의 글자 중 차종
+        car: String(get(col.car)).trim() || sheetCar || texts.find((v) => DAILY_CAR_RE.test(v) && v.length < 20) || "",
+        date, url,
+        title: String(get(col.title)).trim(),
+        summary: String(get(col.summary)).trim() || String(get(col.title)).trim(),
+        yellow: isYellow,
+      });
     }
   }
   return out;
@@ -2075,7 +2096,7 @@ async function addDailyRows(rows, win) {
       item = { key: channelKey(r.url), channel: "자동차 커뮤니티", media: r.community || host, url: r.url, title: "" };
     }
     Object.assign(item, {
-      title: item.title || r.summary || r.url, text: r.summary, date: when ? when.date : null, hasTime: !!parsed?.hasTime, ambiguous: false,
+      title: item.title || r.title || r.summary || r.url, text: r.summary, date: when ? when.date : null, hasTime: !!parsed?.hasTime, ambiguous: false,
       related: true, checked: true, dup: false, daily: true,
       note: item.title ? DAILY_NOTE : `${DAILY_NOTE} (제목을 못 읽어 일일동향 주요 내용)`,
     });
