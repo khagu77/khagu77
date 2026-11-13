@@ -88,6 +88,7 @@ async function histAdd(meta, bytes) {
   for (const x of list.filter((x) => x.ym && x.ym === meta.ym)) await kvSet(`moFile:${x.id}`, null); // 같은 달은 새 파일로
   await kvSet(`moFile:${meta.id}`, bytes);
   await kvSet("moHistory", [meta, ...list.filter((x) => !(x.ym && x.ym === meta.ym))]);
+  chrome.storage.local.set({ moUpdatedAt: Date.now() }).catch(() => {}); // 메뉴의 보고일 표시 갱신
 }
 // 이 보고 월의 틀: 그 전 달 보고서 (없으면 그보다 앞선 가장 최근 보고서)
 async function templateFor(y, m) {

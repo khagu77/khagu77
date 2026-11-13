@@ -1415,6 +1415,7 @@ async function moHistory() {
   return ((await pptKv("readonly", (st) => st.get("moHistory"))) || []).sort((a, b) => (b.ym || "").localeCompare(a.ym || "") || b.at - a.at);
 }
 async function renderMoHistory() {
+  markMonthlyDue();
   const hist = await moHistory();
   const tbody = $("#moTable tbody");
   tbody.textContent = "";
@@ -3411,9 +3412,82 @@ async function cleanStrayWorker() {
   await chrome.storage.local.remove("workerWinId");
 }
 
+// 월간 실적 보고일 알림 (담당자 요청 2026-11-13): 매월 25일(주말·휴일이면 바로 전 근무일) 당일에
+// ⑤ 월간 실적 보고 메뉴를 금색으로 반짝이며 "오늘 보고일" 표시, 그 달 보고서를 만들면 "✓ 작성 완료"
+function monthlyReportDay(y, m, s) {
+  const d = new Date(y, m - 1, 25);
+  for (let i = 0; i < 15 && dayOffReason(d, s); i++) d.setDate(d.getDate() - 1);
+  return d;
+}
+// 그 주 마지막 근무일 (주간 보고서 탭과 같은 기준: 보통 금요일, 금요일이 휴일이면 목요일)
+function weeklyReportDay(d, s) {
+  const mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+  let end = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 4);
+  for (let i = 6; i >= 0; i--) {
+    const x = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i);
+    if (isWorkday(x, s)) { end = x; break; }
+  }
+  return end;
+}
+// 보고일 메뉴 표시 공통: 보고일이면 금색 반짝임 + "오늘 보고일", 메뉴를 눌러 확인하면 반짝임 끔(그날만), 만들었으면 "✓ 작성 완료"
+function setDueTab(name, { isDue, done, dayKey, label }) {
+  const tab = document.querySelector(`nav .tab.work[data-tab="${name}"]`);
+  if (!tab) return;
+  const seenKey = `dueSeen:${name}`;
+  chrome.storage.local.get(seenKey).catch(() => ({})).then((r) => {
+    const seen = r[seenKey] === dayKey;
+    if (isDue && !tab.dataset.dueBound) {
+      tab.dataset.dueBound = "1";
+      tab.addEventListener("click", () => {
+        if (!tab.classList.contains("due")) return;
+        chrome.storage.local.set({ [seenKey]: ymdKey(new Date()) }).catch(() => {});
+        tab.classList.remove("due");
+        tab.classList.add("due-seen");
+      });
+    }
+    tab.classList.toggle("due", isDue && !done && !seen);
+    tab.classList.toggle("due-seen", isDue && !done && seen);
+    tab.classList.toggle("due-done", isDue && done);
+    let badge = tab.querySelector(".due-badge");
+    if (isDue) {
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "due-badge";
+        tab.append(badge);
+      }
+      badge.textContent = done ? "✓ 작성 완료" : "오늘 보고일";
+      tab.title = done ? `오늘(${dayKey})은 ${label} 보고일 — 보고서를 만들었습니다` : `오늘(${dayKey})은 ${label} 보고일입니다`;
+    } else {
+      if (badge) badge.remove();
+      tab.removeAttribute("title");
+    }
+  });
+}
+async function markMonthlyDue() {
+  if (!state.settings) return;
+  const now = new Date();
+  const today = ymdKey(now);
+  // 월간: 매월 25일(주말·휴일이면 바로 전 근무일)
+  const due = monthlyReportDay(now.getFullYear(), now.getMonth() + 1, state.settings);
+  const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const hist = (await pptKv("readonly", (st) => st.get("moHistory")).catch(() => null)) || [];
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const moDone = hist.some((h) => h.ym === ym && (!h.uploaded || h.at >= startOfDay));
+  setDueTab("monthly", { isDue: today === ymdKey(due), done: moDone, dayKey: today, label: "월간 실적" });
+  // 주간: 그 주 마지막 근무일, 그 주 보고서를 만들었으면 완료
+  const wEnd = ymdKey(weeklyReportDay(now, state.settings));
+  const { weeklyLastBuilt } = await chrome.storage.local.get("weeklyLastBuilt").catch(() => ({}));
+  setDueTab("weekly", { isDue: today === wEnd, done: weeklyLastBuilt === wEnd, dayKey: today, label: "주간" });
+}
+chrome.storage.onChanged.addListener((ch, area) => {
+  if (area === "local" && (ch.moUpdatedAt || ch.weeklyLastBuilt)) markMonthlyDue();
+});
+setInterval(() => markMonthlyDue(), 10 * 60 * 1000); // 날짜가 바뀌어도 맞게
+
 (async function init() {
   $("#version").textContent = `v${chrome.runtime.getManifest().version}`;
   state.settings = await loadSettings();
+  markMonthlyDue();
   setIssueKeywords(state.settings.keywords);
   await loadLearned();
   draft = structuredClone(state.settings);
