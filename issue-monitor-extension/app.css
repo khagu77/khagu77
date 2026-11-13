@@ -257,7 +257,7 @@ button.btn-sys { background: transparent; color: var(--muted); border: 1px dashe
 #results td.url .counts.hot { border-color: var(--red); color: var(--red); font-weight: 700; }
 
 /* PPT·RAW 작성 탭 (PPT 보고서 작성기 화면을 그대로 넣음) */
-#pptFrame, #weeklyFrame { width: 100%; height: calc(100vh - 110px); border: 0; display: block; }
+#pptFrame, #weeklyFrame, #dtrendFrame { width: 100%; height: calc(100vh - 110px); border: 0; display: block; }
 h1 .logo { width: 22px; height: 22px; vertical-align: -4px; margin-right: 6px; border-radius: 5px; }
 
 /* 자동 학습 메모 · 검색 경유 링크 표시 */

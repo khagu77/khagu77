@@ -25,7 +25,9 @@
       <nav class="nav-work" aria-label="업무">
         <button class="tab work active" data-tab="collect"><span class="step">1</span>🔍 수집</button>
         <button class="tab work" data-tab="ppt"><span class="step">2</span>📊 PPT·RAW 작성</button>
-        <button class="tab work" data-tab="weekly"><span class="step">3</span>🗓 주간 보고서</button>
+        <button class="tab work" data-tab="dtrend"><span class="step">3</span>📋 일일동향 엑셀 리스트</button>
+        <button class="tab work" data-tab="weekly"><span class="step">4</span>🗓 주간 보고서</button>
+        <button class="tab work" data-tab="monthly"><span class="step">5</span>📈 월간 실적 보고</button>
       </nav>
     </div>
   </header>
@@ -179,6 +181,13 @@
       </table>
       <p id="rawEmpty" class="hint">아직 만든 RAW data 파일이 없습니다.</p>
 
+      <h2>일일동향 엑셀 리스트 <span class="hint">③ 일일동향 엑셀 리스트에서 만든 파일과 넣은 기준 파일 (모두 영구 보관, 보고 날짜 최근 순)</span></h2>
+      <table id="dtTable">
+        <thead><tr><th>보고 날짜</th><th>파일 이름</th><th>더한 글</th><th>만든·넣은 일시</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p id="dtEmpty" class="hint">아직 만든 일일동향 엑셀이 없습니다.</p>
+
       <h2>안전 우려 게시글 모음 (연보라색) <span class="hint">지금까지 수집한 기록에서 결과 표에 연보라색으로 표시된 안전사고 우려 글만 모읍니다. [누적 엑셀 받기]는 모든 날짜를 날짜 순으로 한 파일에 쌓아 일일 보고 엑셀과 같은 양식으로 받습니다 (결과 표에서 고친 내용 그대로).</span></h2>
       <div id="safetyTotal" class="big-total" hidden></div>
       <div class="buttons">
@@ -209,8 +218,16 @@
       <iframe id="pptFrame" src="ppt/app.html" title="PPT·RAW 작성"></iframe>
     </section>
 
+    <section id="tab-dtrend" hidden>
+      <iframe id="dtrendFrame" title="일일동향 엑셀 리스트"></iframe>
+    </section>
+
     <section id="tab-weekly" hidden>
       <iframe id="weeklyFrame" title="주간 보고서 작성"></iframe>
+    </section>
+
+    <section id="tab-monthly" hidden>
+      <h2>월간 실적 보고 <span class="hint">준비 중입니다. 담당자 지시를 받아 만들 예정입니다.</span></h2>
     </section>
 
     <!-- ===================== 명령 프롬프트 ===================== -->

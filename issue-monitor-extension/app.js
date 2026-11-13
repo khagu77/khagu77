@@ -105,7 +105,8 @@ function setSummary(text) {
 
 function showTab(name) {
   for (const b of document.querySelectorAll("nav .tab")) b.classList.toggle("active", b.dataset.tab === name);
-  for (const t of ["collect", "ppt", "weekly", "db", "prompt", "settings"]) $(`#tab-${t}`).hidden = t !== name;
+  for (const t of ["collect", "ppt", "dtrend", "weekly", "monthly", "db", "prompt", "settings"]) $(`#tab-${t}`).hidden = t !== name;
+  if (name === "dtrend" && !$("#dtrendFrame").getAttribute("src")) $("#dtrendFrame").setAttribute("src", "ppt/dtrend.html"); // 처음 열 때 불러옴
   if (name === "ppt") sendPptSource();
   if (name === "weekly" && !$("#weeklyFrame").getAttribute("src")) $("#weeklyFrame").setAttribute("src", "ppt/weekly.html"); // 처음 열 때 불러옴
   if (name === "db") renderDb();
@@ -1363,7 +1364,47 @@ $("#safetyAll").addEventListener("click", async (ev) => {
   alert(`✅ 안전 우려 이슈 관련 누적 엑셀 저장 완료\n${days[0].dayKey} ~ ${last.dayKey} · ${days.length}일 · ${rows.length}건 (날짜 순)\n\n저장 위치: ${where}`);
 });
 
+// 일일동향 엑셀 리스트 (③ 탭에서 만든 파일, 영구 보관) — 데일리 DB 에서도 보고 받기
+async function renderDtHistory() {
+  const hist = ((await pptKv("readonly", (st) => st.get("dtHistory"))) || []).sort((a, b) => (b.date || "").localeCompare(a.date || "") || b.at - a.at);
+  const tbody = $("#dtTable tbody");
+  tbody.textContent = "";
+  $("#dtEmpty").hidden = hist.length > 0;
+  $("#dtTable").hidden = !hist.length;
+  const pg = pageOf("dtrend", hist);
+  renderPager($("#dtTable"), "dtrend", hist.length, pg.p, pg.pages, renderDtHistory);
+  for (const h of pg.items) {
+    tbody.append(
+      el("tr", {},
+        el("td", {}, el("b", { text: h.date || "-" })),
+        el("td", {}, h.uploaded ? el("span", { class: "badge-edit", text: "넣은 기준 파일" }) : null, ` ${h.name}`),
+        el("td", {}, h.uploaded ? "-" : el("b", { class: "count-red", text: `${h.added || 0}건` })),
+        el("td", { text: fmtDateTime(new Date(h.at)) }),
+        el("td", { class: "actions" },
+          el("button", { class: "btn-get", text: "받기", onclick: async (ev) => {
+            const btn = ev.currentTarget;
+            const bytes = await pptKv("readonly", (st) => st.get(`dtFile:${h.id}`));
+            if (!bytes) return alert("파일 내용을 찾지 못했습니다");
+            const where = await saveBytesFile(h.name, bytes, XLSX_MIME, true);
+            Celebrate.done(btn);
+            await Celebrate.after();
+            alert(`✅ 일일동향 엑셀 저장 완료\n\n저장 위치: ${where}`);
+          } }),
+          el("button", { class: "danger", text: "삭제", onclick: async () => {
+            if (!confirm(`일일동향 엑셀 기록을 지울까요?\n${h.name}\n(저장 폴더의 파일은 그대로입니다)`)) return;
+            const all = (await pptKv("readonly", (st) => st.get("dtHistory"))) || [];
+            await pptKv("readwrite", (st) => st.delete(`dtFile:${h.id}`));
+            await pptKv("readwrite", (st) => st.put(all.filter((x) => x.id !== h.id), "dtHistory"));
+            renderDtHistory();
+          } })
+        )
+      )
+    );
+  }
+}
+
 async function renderDb() {
+  renderDtHistory();
   renderRawHistory();
   renderDailyPpts();
   renderSafety();
