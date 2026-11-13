@@ -3222,7 +3222,20 @@ function cafeDragRow(tr, i) {
   return handle;
 }
 
+// 설정 제목 옆 총 개수 (담당자 요청 2026-11-13): "총 52곳 · 사용 49곳"
+function showSourceTotals() {
+  const put = (id, list) => {
+    const n = list.length;
+    const on = list.filter((x) => x.on !== false).length;
+    const box = $(id);
+    if (box) box.textContent = `총 ${n}곳${on !== n ? ` · 사용 ${on}곳` : ""}`;
+  };
+  put("#cafeTotal", draft.cafes || []);
+  put("#commTotal", draft.communities || []);
+}
+
 function renderCafeTable() {
+  showSourceTotals();
   const tbody = $("#cafeTable tbody");
   tbody.textContent = "";
   draft.cafes.forEach((c, i) => {
@@ -3230,7 +3243,7 @@ function renderCafeTable() {
     tbody.append(tr);
     tr.append(
         cafeDragRow(tr, i),
-        el("td", {}, el("input", { type: "checkbox", checked: c.on !== false, onchange: (e) => (c.on = e.target.checked) })),
+        el("td", {}, el("input", { type: "checkbox", checked: c.on !== false, onchange: (e) => { c.on = e.target.checked; showSourceTotals(); } })),
         el("td", {}, textInput(c, "name", "예: 팰리세이드 피플")),
         el("td", {}, textInput(c, "id", "예: allumpc")),
         el("td", {}, textInput(c, "car", "예: LX3 (여러 차종이면 비움)")),
@@ -3242,6 +3255,7 @@ function renderCafeTable() {
 }
 
 function renderCommunityTable() {
+  showSourceTotals();
   const tbody = $("#communityTable tbody");
   tbody.textContent = "";
   draft.communities.forEach((c, i) => {
@@ -3249,7 +3263,7 @@ function renderCommunityTable() {
       el(
         "tr",
         {},
-        el("td", {}, el("input", { type: "checkbox", checked: c.on !== false, onchange: (e) => (c.on = e.target.checked) })),
+        el("td", {}, el("input", { type: "checkbox", checked: c.on !== false, onchange: (e) => { c.on = e.target.checked; showSourceTotals(); } })),
         el("td", {}, textInput(c, "name", "예: 보배드림")),
         el("td", {}, textInput(c, "url", "https://…")),
         el("td", {}, delButton(draft.communities, i, renderCommunityTable))
