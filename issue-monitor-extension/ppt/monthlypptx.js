@@ -151,6 +151,8 @@
           youtube: numOf(val(/유튜브/)),
           extraCount: numOf(val(/번외/)),
           issues: contentLines(/온라인\s*상시/),
+          // 미리보기용: 그대로 남는 '내용' 칸 글자
+          notes: { fire: contentLines(/화재|급발진/), collect: contentLines(/시스템\s*수집/), cafes: contentLines(/모니터링\s*동호회/), youtube: contentLines(/유튜브/) },
           extras: contentLines(/번외/).map((s) => {
             // 끝 괄호가 날짜일 때만 날짜로 (예: "(10/12)", "(9/10~)") — "(온라인 부분)" 같은 건 제목의 일부
             const m = s.match(/^(.*?)\s*\((\s*\d{1,2}\s*\/\s*\d{1,2}[^()]*)\)\s*$/);

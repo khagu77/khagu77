@@ -349,8 +349,59 @@ async function loadDraft() {
   $("#issues").value = d ? d.issues || "" : "";
   renderExtras();
   updateLens();
+  renderPreview();
 }
+// ---------------------------------------------------------------------------
+// 1페이지 미리보기 (담당자 요청 2026-11-13): PPT 1페이지 모양을 줄여 그리고, 입력값을 그 자리에 바로 채운다
+// 입력칸을 누르면 그 값이 들어가는 자리가 노랗게 강조된다 (data-k 로 연결)
+// ---------------------------------------------------------------------------
+const PV_FOR = { moOnline: "online", moFire: "fire", moCollect: "collect", moCafes: "cafes", moYoutube: "youtube", moExtraCount: "extraCount", ov1: "ov1", issues: "issues", extraList: "extras" };
+let pvFocus = "";
+function renderPreview() {
+  const box = $("#pv1");
+  if (!box || !ctx) return;
+  const prev = (ctx.tpl && ctx.tpl.info.s1) || {};
+  const notes = prev.notes || {};
+  const [py, pm] = prevYm(ctx.y, ctx.m);
+  const v = (id) => $(`#${id}`).value;
+  const num = (id, unit) => (v(id) === "" ? `<span class="pv-empty">?</span> ${unit}` : `${Number(v(id)).toLocaleString()} ${unit}`);
+  const pnum = (k, unit) => (prev[k] != null ? `${Number(prev[k]).toLocaleString()} ${unit}` : "-");
+  const yy = String(ctx.y).slice(2);
+  const md = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+  const list = (arr, plain) => (arr.length ? arr.map((t) => `<div class="${plain ? "plain" : ""}">${esc(t)}</div>`).join("") : `<div class="plain">-</div>`);
+  const ov = lines($("#ov1").value);
+  const issues = lines($("#issues").value);
+  const ex = extras.filter((x) => (x.title || "").trim()).map((x) => `${x.title.trim()}${(x.date || "").trim() ? ` (${x.date.trim()})` : ""}`);
+  const cafesNote = (notes.cafes && notes.cafes[0] ? notes.cafes[0] : "")
+    .replace(/\d{2}(?=\s*년)/, yy)
+    .replace(/\d{1,2}(?=\s*월)/, String(ctx.m))
+    .replace(/\d+(?=\s*개)/, v("moCafes") || "$&");
+  const k = (name) => `data-k="${name}"`;
+  box.innerHTML = `
+    <div class="pv-title" ${k("title")}>■ ‘${yy}.${ctx.m}월 온라인 여론 동향 정리 <small>(‘${String(ctx.start.getFullYear()).slice(2)}.${md(ctx.start)} ~ ‘${yy}.${md(ctx.end)})</small></div>
+    <div class="pv-row"><div class="pv-lab">개요</div><div class="pv-ov" ${k("ov1")}>${ov.length ? ov.map((t) => `<div>○ ${esc(t)}</div>`).join("") : '<span class="pv-empty">④ 에서 개요를 써 주세요</span>'}</div></div>
+    <table class="pv-t">
+      <colgroup><col style="width:24%"><col style="width:15%"><col style="width:15%"><col></colgroup>
+      <tr><th>항 목</th><th>${ctx.y}년 ${ctx.m}월</th><th>${pm}월</th><th>내 용</th></tr>
+      <tr><td>온라인 상시 모니터링 (오전)</td><td class="cur" ${k("online")}>${num("moOnline", "건")}</td><td class="prv">${pnum("online", "건")}</td><td class="txt" ${k("issues")}>${issues.length ? list(issues) : '<div class="plain pv-empty">④ 주요 이슈</div>'}</td></tr>
+      <tr><td>차량 화재 / 급발진</td><td class="cur" ${k("fire")}>${num("moFire", "건")}</td><td class="prv">${pnum("fire", "건")}</td><td class="txt">${list(notes.fire || [], true)}</td></tr>
+      <tr><td>모니터링 시스템 수집</td><td class="cur" ${k("collect")}>${num("moCollect", "건")}</td><td class="prv">${pnum("collect", "건")}</td><td class="txt">${list(notes.collect || [], true)}</td></tr>
+      <tr><td>모니터링 동호회</td><td class="cur" ${k("cafes")}>${num("moCafes", "개")}</td><td class="prv">${pnum("cafes", "개")}</td><td class="txt" ${k("cafes")}>${cafesNote ? list([cafesNote]) : list([])}</td></tr>
+      <tr><td>유튜브 채널</td><td class="cur" ${k("youtube")}>${num("moYoutube", "건")}</td><td class="prv">${pnum("youtube", "건")}</td><td class="txt">${list(notes.youtube || [])}</td></tr>
+      <tr><td>번외 추가 요청 보고</td><td class="cur" ${k("extraCount")}>${num("moExtraCount", "회")}</td><td class="prv">${pnum("extraCount", "회")}</td><td class="txt" ${k("extras")}>${list(ex)}</td></tr>
+    </table>`;
+  if (pvFocus) for (const el of box.querySelectorAll(`[data-k="${pvFocus}"]`)) el.classList.add("hl");
+}
+function bindPreviewFocus() {
+  document.addEventListener("focusin", (e) => {
+    const id = e.target.id || (e.target.closest("#extraList") ? "extraList" : "");
+    pvFocus = PV_FOR[id] || "";
+    renderPreview();
+  });
+}
+
 async function saveDraft() {
+  renderPreview();
   if (!draftKey()) return;
   const d = { extras, ov1: $("#ov1").value, ov2: $("#ov2").value, issues: $("#issues").value };
   for (const [id, k] of NUMS) d[k] = $(`#${id}`).value;
@@ -373,6 +424,7 @@ function syncExtraSum() {
     note.textContent = "↓ 아래 번외 보고 내용에 건수를 넣으면 자동 합계가 입력됩니다";
     note.classList.remove("on");
   }
+  renderPreview();
 }
 function renderExtras() {
   const box = $("#extraList");
@@ -632,6 +684,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   for (const id of ["ov1", "ov2", "issues"]) $(`#${id}`).addEventListener("input", () => { updateLens(); saveDraft(); });
   for (const [id] of NUMS) $(`#${id}`).addEventListener("input", saveDraft);
   $("#aiWrite").addEventListener("click", aiWrite);
+  bindPreviewFocus();
   $("#moBuild").addEventListener("click", build);
   $("#moPickFolder").addEventListener("click", async () => {
     try {
