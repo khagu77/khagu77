@@ -3,7 +3,7 @@
 //   system : 시스템이 만든 PPT (PPT 받기 때 자동 저장)
 //   edited : 담당자가 고쳐서 올린 PPT
 //   full   : 1인용(나눠 쓰기)일 때 따로 올린 전체 PPT, 또는 지난 PPT 올리기
-// 그날의 최종본 = 전체(full) > 담당자 수정본 > 시스템 작성본 (나눠 쓴 일부 PPT 는 전체가 아니면 뒤로)
+// 그날의 최종본 = 전체가 다 든 PPT 중 담당자가 올린 것(전체 PPT·수정본) 가운데 가장 나중에 올린 것 > 시스템 작성본 (나눠 쓴 일부 PPT 는 뒤로)
 (function (global) {
   const KEY = "dailyPpts";
   const KIND_LABEL = { full: "전체 PPT(첨부)", edited: "담당자 수정본", system: "시스템 작성본" };
@@ -65,7 +65,13 @@
     return "";
   }
 
-  const rank = (e) => (e.kind === "full" ? 3 : 0) + (e.partial ? 0 : 2) + (e.kind === "edited" ? 1 : 0);
+  // 최종본 순서 (담당자 지적 2026-11-13: 전체 PPT 를 올린 뒤 고쳐서 수정본을 올리면 수정본이 최종본이어야 함)
+  //  1) 전체가 다 들어 있는 PPT 가 나눠 쓴 일부 PPT 보다 먼저
+  //  2) 담당자가 올린 PPT(전체 PPT·수정본)가 시스템 작성본보다 먼저
+  //  3) 그 안에서는 가장 나중에 올린 것 (byDate 에서 at 최신순)
+  const rank = (e) => (e.partial ? 0 : 4) + (e.kind === "system" ? 0 : 2);
+  // 다른 화면(주간 보고서·일일동향·월간)이 바로 다시 읽도록 알림
+  const touch = () => chrome.storage.local.set({ dailyPptUpdatedAt: Date.now() }).catch(() => {});
 
   // 같은 날짜·같은 종류는 새것으로 바꾼다 (기간 제한 없이 영구 보관)
   async function add(entry) {
@@ -76,12 +82,14 @@
     const old = list.filter((x) => x.date === e.date && x.kind === e.kind);
     for (const x of old) await kvReq("readwrite", (st) => st.delete(bytesKey(x.id)));
     await put([e, ...list.filter((x) => !(x.date === e.date && x.kind === e.kind))]);
+    touch();
     return e;
   }
 
   async function remove(id) {
     await kvReq("readwrite", (st) => st.delete(bytesKey(id)));
     await put((await get()).filter((x) => x.id !== id));
+    touch();
   }
 
   // 날짜별 묶음: [{ date, entries(최종본 순), final }] (파일 내용은 bytesOf(id) 로)

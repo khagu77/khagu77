@@ -641,6 +641,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   await showWhere();
   await renderHistory();
   await loadWeek().catch(() => {});
+  // 데일리 DB 에 일일 PPT 를 새로 올리거나(전체 PPT·수정본) 지우면 바로 다시 불러온다 (담당자 지적 2026-11-13)
+  chrome.storage.onChanged.addListener((ch, area) => {
+    if (area === "local" && ch.dailyPptUpdatedAt) loadWeek().catch(() => {});
+  });
 
   // 자동 작성: 수집 화면이 ?weekly=1 로 열렸으면 (마지막 근무일 정해진 시각) 추천 10건으로 바로 만든다
   let auto = false;

@@ -410,4 +410,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await renderHist();
   await loadDay().catch(() => {});
   showUseBase().catch(() => {});
+  chrome.storage.onChanged.addListener((ch, area) => {
+    if (area === "local" && ch.dailyPptUpdatedAt) loadDay().catch(() => {});
+  });
 });
