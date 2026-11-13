@@ -672,8 +672,10 @@ async function search(resume = null) {
   await loadDeleted();
   // 0) 오전 일일동향 노란색 글을 먼저 넣음 (글을 열어 실제 주소·제목·작성 시간 확인, 기간 밖은 뺌) → 아래 검색에서 같은 글은 건너뜀
   if (!resume) {
-    const dRows = await dailyRowsFromDir(dailyDir, win).catch((e) => (log(`✖ 오전 일일동향 엑셀을 읽지 못함: ${e.message}`), []));
-    if (dRows.length) await addDailyRows(dRows, win);
+    // 고른(주말·휴일에 미리 찾아 둔) 수집 기록에 이어 찾으면, 일일동향 글은 그 기록 시작부터 (월요일 파일의 주말 글도)
+    const dWin = cont && base?.from && base.from < win.from.getTime() ? { from: new Date(base.from), to: win.to } : win;
+    const dRows = await dailyRowsFromDir(dailyDir, dWin).catch((e) => (log(`✖ 오전 일일동향 엑셀을 읽지 못함: ${e.message}`), []));
+    if (dRows.length) await addDailyRows(dRows, dWin);
     for (const x of items) if (x.key) seen.add(x.key);
     renderResults();
   }
@@ -1772,8 +1774,12 @@ async function updateAutoInfo() {
   const { lx3Auto, lx3LastRangeEnd = 0 } = await chrome.storage.local.get(["lx3Auto", "lx3LastRangeEnd"]).catch(() => ({}));
   const on = lx3Auto?.on ?? true;
   const time = lx3Auto?.time || "11:30";
+  const days = Array.isArray(lx3Auto?.days) ? lx3Auto.days : [1, 2, 3, 4, 5];
+  const holidays = !!lx3Auto?.holidays;
   $("#autoOn").checked = on;
   $("#autoTime").value = time;
+  for (const cb of document.querySelectorAll("#autoDays input[data-day]")) cb.checked = days.includes(+cb.dataset.day);
+  $("#autoHolidays").checked = holidays;
   if (!on) {
     box.textContent = "⏰ 자동 수집: 꺼짐 (설정에서 켤 수 있음)";
     return;
@@ -1781,17 +1787,27 @@ async function updateAutoInfo() {
   const now = new Date();
   const r = autoRange(now, lx3LastRangeEnd);
   box.textContent =
-    `⏰ 자동 수집: 평일 ${timeLabel(time)} (주말·공휴일·추가 휴일엔 쉬고 다음 근무일에 이어서) · 오늘은 ${isOffDay(now) ? "휴일" : "근무일"}` +
+    `⏰ 자동 수집: ${dayText(days)} ${timeLabel(time)}${holidays ? " (공휴일·추가 휴일에도)" : " (공휴일·추가 휴일엔 쉼)"} · 오늘은 ${isOffDay(now) ? "휴일" : "근무일"}` +
     ` · 다음 수집 기간: ${md(r.from)} ${timeLabel(toLocalInput(r.from).slice(11))}부터` +
     (lx3LastRangeEnd && r.from.getTime() === lx3LastRangeEnd ? " (지난번 저장 이후 이어서)" : "");
 }
 
 async function saveAutoSettings() {
   const time = /^\d{2}:\d{2}$/.test($("#autoTime").value) ? $("#autoTime").value : "11:30";
-  await chrome.storage.local.set({ lx3Auto: { on: $("#autoOn").checked, time } }).catch(() => {});
+  const days = [...document.querySelectorAll("#autoDays input[data-day]")].filter((cb) => cb.checked).map((cb) => +cb.dataset.day);
+  await chrome.storage.local.set({ lx3Auto: { on: $("#autoOn").checked, time, days, holidays: $("#autoHolidays").checked } }).catch(() => {});
   updateAutoInfo();
 }
+// 수집 요일 글자: [1..5] → "평일(월~금)", 매일, 그 밖은 "월·수·토"
+function dayText(days) {
+  const set = new Set(days);
+  if (set.size === 7) return "매일";
+  if (set.size === 5 && [1, 2, 3, 4, 5].every((d) => set.has(d))) return "평일(월~금)";
+  if (!set.size) return "요일 없음(쉼)";
+  return [1, 2, 3, 4, 5, 6, 0].filter((d) => set.has(d)).map((d) => WEEKDAY[d]).join("·");
+}
 $("#autoOn").addEventListener("change", saveAutoSettings);
+for (const cb of document.querySelectorAll("#autoDays input")) cb.addEventListener("change", saveAutoSettings);
 $("#autoTime").addEventListener("change", saveAutoSettings);
 
 

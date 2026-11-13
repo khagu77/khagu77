@@ -69,6 +69,8 @@ async function autoSettings() {
   return {
     on: lx3Auto?.on ?? true,
     time: lx3Auto?.time || "11:30",
+    days: Array.isArray(lx3Auto?.days) ? lx3Auto.days : [1, 2, 3, 4, 5], // 수집 요일 (0 일 ~ 6 토)
+    holidays: !!lx3Auto?.holidays, // 공휴일·추가 휴일에도 수집
     endTime: lx3BaseTimes?.to || "11:30",
     extra: parseExtraHolidays(lx3Holidays || ""),
   };
@@ -83,11 +85,18 @@ function todayKey(d = new Date()) {
   return ymd(d);
 }
 
-// 다음 자동 수집 시각 (쉬는 날은 건너뜀)
+// 그날 자동 수집하는 날인지: 고른 요일이고, 공휴일·추가 휴일이면 '휴일에도 수집'을 켰을 때만
+function autoDay(d, s) {
+  const days = Array.isArray(s.days) ? s.days : [1, 2, 3, 4, 5];
+  const off = KR_HOLIDAYS.has(ymd(d)) || (s.extra || new Set()).has(ymd(d));
+  return days.includes(d.getDay()) && (!off || !!s.holidays);
+}
+
+// 다음 자동 수집 시각 (수집하지 않는 날은 건너뜀)
 function nextAutoRun(s, now = new Date()) {
   let t = atTime(now, s.time);
   if (t <= now) t = atTime(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1), s.time);
-  for (let i = 0; i < 31 && isHoliday(t, s.extra); i++) t = atTime(new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1), s.time);
+  for (let i = 0; i < 31 && !autoDay(t, s); i++) t = atTime(new Date(t.getFullYear(), t.getMonth(), t.getDate() + 1), s.time);
   return t;
 }
 
@@ -124,7 +133,7 @@ async function autoDoneToday(s, now = new Date()) {
 async function startAuto() {
   const s = await autoSettings();
   const now = new Date();
-  if (!s.on || isHoliday(now, s.extra) || (await autoDoneToday(s, now))) return;
+  if (!s.on || !autoDay(now, s) || (await autoDoneToday(s, now))) return;
   if (await lx3Busy()) {
     if (now.getHours() < AUTO_LATEST_HOUR) chrome.alarms.create(AUTO_RETRY, { delayInMinutes: 10 });
     return;

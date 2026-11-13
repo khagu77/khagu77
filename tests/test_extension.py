@@ -1410,6 +1410,26 @@ def test_lx3_auto(tmp_path: Path):
         assert "Oct 12 2026 11:30" in nxt("2026-10-08T15:00:00")
         assert "Oct 29 2026 11:30" in nxt("2026-10-29T08:00:00")
         assert "Oct 22 2026 11:30" in sw.evaluate("nextAutoRun({ time: '11:30', extra: parseExtraHolidays('2026-10-21') }, new Date('2026-10-20T12:00:00')).toString()")
+        # 주말도 고르면 토요일에도 · 공휴일은 '휴일에도 수집'을 켰을 때만 (10-09 한글날 금요일)
+        wk = lambda opt, when: sw.evaluate(f"nextAutoRun({{ time: '11:30', extra: new Set(), {opt} }}, new Date('{when}')).toString()")
+        assert "Oct 31 2026 11:30" in wk("days: [0, 1, 2, 3, 4, 5, 6]", "2026-10-30T12:00:00")
+        assert "Oct 10 2026 11:30" in wk("days: [0, 1, 2, 3, 4, 5, 6]", "2026-10-08T15:00:00")
+        assert "Oct 09 2026 11:30" in wk("days: [0, 1, 2, 3, 4, 5, 6], holidays: true", "2026-10-08T15:00:00")
+        assert "Nov 02 2026 11:30" in wk("days: [1, 3]", "2026-10-29T12:00:00")
+        # 화면 설정 → 저장 (수집 요일·휴일)
+        page0 = ctx.new_page()
+        page0.goto(f"{ext}/lx3.html")
+        page0.evaluate("lx3Init")
+        assert [page0.is_checked(f"#autoDays input[data-day='{d}']") for d in range(7)] == [False, True, True, True, True, True, False]
+        page0.locator("#settings summary").click()
+        page0.check("#autoDays input[data-day='6']")
+        page0.check("#autoHolidays")
+        page0.wait_for_function("chrome.storage.local.get('lx3Auto').then((s) => s.lx3Auto && s.lx3Auto.holidays)")
+        saved = page0.evaluate("chrome.storage.local.get('lx3Auto').then((s) => s.lx3Auto)")
+        assert sorted(saved["days"]) == [1, 2, 3, 4, 5, 6] and saved["holidays"], saved
+        assert "월·화·수·목·금·토" in page0.inner_text("#autoInfo") and "공휴일·추가 휴일에도" in page0.inner_text("#autoInfo")
+        page0.evaluate("chrome.storage.local.remove('lx3Auto')")
+        page0.close()
         assert sw.evaluate("chrome.alarms.get('lx3-auto').then((a) => !!a)")
         # 오늘 이미 했으면(게시물 리스트를 오늘 기준 시각까지 저장) 다시 하지 않음 · 수집 중이면 미룸
         assert not sw.evaluate("autoDoneToday({ endTime: '11:30' }, new Date())")
@@ -1435,7 +1455,7 @@ def test_lx3_auto(tmp_path: Path):
         assert rng("2026-10-21T11:30:00+09:00", "2026-10-19T11:30:00+09:00") == ["2026-10-19T11:30", "2026-10-21T11:30"]  # 화요일 못 돌림 → 월부터
         assert rng("2026-10-21T11:30:00+09:00", "2026-10-01T11:30:00+09:00") == ["2026-10-20T11:30", "2026-10-21T11:30"]  # 7일 넘게 → 기본
         assert rng("2026-10-21T11:30:00+09:00", None) == ["2026-10-20T11:30", "2026-10-21T11:30"]
-        assert "자동 수집: 평일 오전 11:30" in page.inner_text("#autoInfo")
+        assert "자동 수집: 평일(월~금) 오전 11:30" in page.inner_text("#autoInfo")
 
         # 커뮤니티(클리앙 자동차당)만 자동 수집 → 게시물 찾기까지만 하고 알림 (고르기·엑셀·댓글은 담당자가 직접)
         page.evaluate("""chrome.storage.local.set({ lx3Channels: { cafe: false, news: false, community: true },
