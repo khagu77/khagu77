@@ -49,13 +49,27 @@
     .pv-t td.txt div.plain::before { content: ""; }
     .pv-empty { color: #c5221f; font-weight: 700; }
     .pv-slide .hl { background: #fff3b0 !important; box-shadow: inset 0 0 0 2px #f0b400; transition: background .2s; }
-    .mo-tables { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 12px; }
+    .mo-tables { display: grid; grid-template-columns: minmax(250px, 1fr) minmax(250px, 1fr) minmax(360px, 1.35fr); gap: 16px; align-items: start; }
+    .mo-tables .sub-title:first-child { margin-top: 0; }
     .mo-tables table td:nth-child(n+2), .mo-tables table th:nth-child(n+2) { text-align: right; }
     .mo-tables tr.top5 td { background: #e8f0fb; }
     .mo-tables tr.sum td { font-weight: 700; border-top: 2px solid var(--border); }
     .pct { color: #d93025; }
     @media (prefers-color-scheme: dark) { .mo-tables tr.top5 td { background: #1c2b40; } }
-    @media (max-width: 900px) { .mo-tables { grid-template-columns: 1fr; } }
+    @media (max-width: 1100px) { .mo-tables { grid-template-columns: 1fr 1fr; } .mo-tables .pv-wrap { grid-column: 1 / -1; position: static; } }
+    @media (max-width: 700px) { .mo-tables { grid-template-columns: 1fr; } }
+    /* 2페이지 미리보기 */
+    .pv2-body { display: grid; grid-template-columns: 1.15fr 1fr; gap: 6px; }
+    .pv2-cap { background: #dbe8f7; text-align: center; font-weight: 700; font-size: 8.5px; padding: 2px; margin-bottom: 2px; }
+    .pv-t.s td, .pv-t.s th { font-size: 7.5px; padding: 1px 3px; }
+    .pv-t.s td.r { color: #d00; }
+    .pv-t.s tr.sum td { background: #bfbfbf; font-weight: 700; }
+    .pv-top5 { position: relative; }
+    .pv-t.s tr.t5 td { box-shadow: inset 0 0 0 0 transparent; }
+    .pv-t.s tr.t5-first td { border-top: 1.5px dashed #2f5bd3; }
+    .pv-t.s tr.t5-last td { border-bottom: 1.5px dashed #2f5bd3; }
+    .pv-t.s tr.t5 td:first-child { border-left: 1.5px dashed #2f5bd3; }
+    .pv-t.s tr.t5 td:last-child { border-right: 1.5px dashed #2f5bd3; }
   </style>
   <link rel="stylesheet" href="../design.css">
 </head>
@@ -79,13 +93,6 @@
         <span id="moXlInfo" class="hint"></span>
         <label class="filebtn">다른 일일동향 엑셀로 집계<input type="file" id="moXl" accept=".xlsx" hidden></label>
         <button id="moLoad" type="button">이 기간 자료 불러오기</button>
-      </div>
-      <div id="moStats" hidden>
-        <div class="mo-tables">
-          <div><b>차종 별 비율</b> <span class="hint">이번 달 순위순 · 위 5개 = 파란 점선 TOP5 · 전월은 지난 보고서 기준</span><table id="moCars"><thead><tr><th>차종</th><th>이번 달</th><th>비율</th><th>전월</th></tr></thead><tbody></tbody></table></div>
-          <div><b>카테고리 비율</b><table id="moCats"><thead><tr><th>이슈 항목</th><th>이번 달</th><th>비율</th><th>전월</th></tr></thead><tbody></tbody></table></div>
-          <div><b>채널 별 비율</b><table id="moChans"><thead><tr><th>채널</th><th>이번 달</th><th>비율</th><th>전월</th></tr></thead><tbody></tbody></table></div>
-        </div>
       </div>
     </section>
 
@@ -114,8 +121,26 @@
       </div>
     </section>
 
+        <section class="wk-box">
+      <h3>④ 2페이지 표 · 차종 / 카테고리 / 채널 <span class="hint">②의 일일동향 엑셀에서 기간 안 게시글을 세어 채웁니다. 차종은 이번 달 순위순, 위 5개 = 파란 점선 TOP5, 전월은 지난 보고서 기준, 두 달 모두 0건인 차종은 뺍니다.</span></h3>
+      <p id="moStatsEmpty" class="empty">② 에서 [이 기간 자료 불러오기]를 누르면 표와 2페이지 미리보기가 나옵니다.</p>
+      <div id="moStats" hidden>
+        <div class="mo-tables">
+          <div><p class="sub-title">차종 별 비율</p><table id="moCars"><thead><tr><th>차종</th><th>이번 달</th><th>비율</th><th>전월</th></tr></thead><tbody></tbody></table></div>
+          <div>
+            <p class="sub-title">카테고리 비율</p><table id="moCats"><thead><tr><th>이슈 항목</th><th>이번 달</th><th>비율</th><th>전월</th></tr></thead><tbody></tbody></table>
+            <p class="sub-title">채널 별 비율</p><table id="moChans"><thead><tr><th>채널</th><th>이번 달</th><th>비율</th><th>전월</th></tr></thead><tbody></tbody></table>
+          </div>
+          <aside class="pv-wrap">
+            <div class="pv-cap">📄 2페이지 미리보기 <span>집계 결과와 ⑤의 2페이지 개요가 들어가는 자리</span></div>
+            <div id="pv2" class="pv-slide"></div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
     <section class="wk-box">
-      <h3>④ 개요 · 주요 이슈 (AI 작성 후 직접 고치기) <span class="hint">이 기간 데일리 DB 의 일일 PPT 전체(차종·증상·불만 단계·건수)를 근거로, 신차·주요 차종 위주로 씁니다. 1·2페이지 개요는 서로 겹치지 않게 씁니다.</span></h3>
+      <h3>⑤ 개요 · 주요 이슈 (AI 작성 후 직접 고치기) <span class="hint">이 기간 데일리 DB 의 일일 PPT 전체(차종·증상·불만 단계·건수)를 근거로, 신차·주요 차종 위주로 씁니다. 1·2페이지 개요는 서로 겹치지 않게 씁니다.</span></h3>
       <div class="buttons">
         <button id="aiWrite" class="primary" type="button">✍ AI 로 개요·주요 이슈 쓰기</button>
         <input id="aiRequest" type="text" placeholder="(선택) 다시 쓸 때 요청: 예) 1페이지 첫 줄은 NX5 출고 초기 품질 위주로" style="flex:1;min-width:260px">
@@ -132,7 +157,7 @@
     </section>
 
     <section class="wk-box">
-      <h3>⑤ 월간 실적 보고 PPT 만들기</h3>
+      <h3>⑥ 월간 실적 보고 PPT 만들기</h3>
       <div class="buttons">
         <span>저장 위치: <b id="moWhere">다운로드 폴더</b></span>
         <button id="moPickFolder" type="button">저장 폴더 선택</button>

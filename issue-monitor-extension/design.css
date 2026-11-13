@@ -253,3 +253,6 @@ dialog.settings .set-group h3:first-child { font-size: 13.5px; padding: 5px 14px
 
 /* 제목 뱃지 안 총 개수: 흰 바탕 굵은 숫자 */
 .h-count:not(:empty) { display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 999px; background: #fff; color: var(--title-bg); font-size: 13px; font-weight: 900; }
+
+/* 숨김은 항상 숨김 (빈 목록 안내 상자 등 display 를 바꾼 요소도) */
+[hidden] { display: none !important; }

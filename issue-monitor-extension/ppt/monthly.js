@@ -248,6 +248,7 @@ let ctx = null; // 지금 보고 월의 {y, m, date, start, end, tpl, xl}
 async function refresh() {
   stats = null;
   $("#moStats").hidden = true;
+  $("#moStatsEmpty").hidden = false;
   const ym = selYm();
   if (!ym) return;
   const [y, m] = ym;
@@ -310,17 +311,45 @@ async function loadStats() {
 
 function renderStats() {
   if (!stats) return;
-  const pct = (n, t) => (t ? `${((n / t) * 100).toFixed(2)}%` : "0.00%");
-  const table = (sel, list, total, top) => {
+  const pct = (n, t, dg = 2) => `${(t ? (n / t) * 100 : 0).toFixed(dg)}%`;
+  const table = (sel, list, total, top, dg = 2) => {
     const prevTotal = list.reduce((s, c) => s + c.prev, 0);
     $(`${sel} tbody`).innerHTML =
-      list.map((c, i) => `<tr class="${top && i < 5 ? "top5" : ""}"><td>${esc(c.code || c.name)}</td><td>${c.cur}</td><td class="pct">${pct(c.cur, total)}</td><td>${c.prev}</td></tr>`).join("") +
-      `<tr class="sum"><td>이슈 보고 건수 합계</td><td>${total}</td><td>100.00%</td><td>${prevTotal}</td></tr>`;
+      list.map((c, i) => `<tr class="${top && i < 5 ? "top5" : ""}"><td>${esc(c.code || c.name)}</td><td>${c.cur}</td><td class="pct">${pct(c.cur, total, dg)}</td><td>${c.prev}</td></tr>`).join("") +
+      `<tr class="sum"><td>이슈 보고 건수 합계</td><td>${total}</td><td>${pct(total, total, dg)}</td><td>${prevTotal}</td></tr>`;
   };
   table("#moCars", stats.cars, stats.total, true);
   table("#moCats", stats.cats, stats.total, false);
-  table("#moChans", stats.chans, stats.total, false);
+  table("#moChans", stats.chans, stats.total, false, 0); // 채널 비율은 PPT 처럼 소수점 없이
   $("#moStats").hidden = false;
+  $("#moStatsEmpty").hidden = true;
+  renderPreview2();
+}
+
+// 2페이지 미리보기 (담당자 요청 2026-11-13): 제목·개요(2페이지)·차종 표(TOP5 점선)·카테고리·채널 표
+function renderPreview2() {
+  const box = $("#pv2");
+  if (!box || !ctx || !stats) return;
+  const [, pm] = prevYm(ctx.y, ctx.m);
+  const yy = String(ctx.y).slice(2);
+  const md = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+  const pct = (n, t, dg = 2) => `${(t ? (n / t) * 100 : 0).toFixed(dg)}%`;
+  const ov = lines($("#ov2").value).join(" ");
+  const tbl = (cap, head, list, dg, top) => {
+    const prevT = list.reduce((s, c) => s + c.prev, 0);
+    const n5 = Math.min(5, list.length);
+    return `<div class="pv2-cap">${cap}</div><table class="pv-t s"><tr><th>${head}</th><th>${ctx.m}월</th><th>비율</th><th>${pm}월</th></tr>${list
+      .map((c, i) => `<tr class="${top && i < n5 ? `t5${i === 0 ? " t5-first" : ""}${i === n5 - 1 ? " t5-last" : ""}` : ""}"><td>${esc(c.code || c.name)}</td><td>${c.cur}</td><td class="r">${pct(c.cur, stats.total, dg)}</td><td>${c.prev}</td></tr>`)
+      .join("")}<tr class="sum"><td>합계</td><td>${stats.total}</td><td>${pct(stats.total, stats.total, dg)}</td><td>${prevT}</td></tr></table>`;
+  };
+  box.innerHTML = `
+    <div class="pv-title">■ ‘${yy}.${ctx.m}월 온라인 여론 동향 정리 <small>(‘${String(ctx.start.getFullYear()).slice(2)}.${md(ctx.start)} ~ ‘${yy}.${md(ctx.end)})</small></div>
+    <div class="pv-row"><div class="pv-lab">개요</div><div class="pv-ov" data-k="ov2">${ov ? `○ ${esc(ov)}` : '<span class="pv-empty">⑤ 에서 2페이지 개요를 써 주세요</span>'}</div></div>
+    <div class="pv2-body">
+      <div>${tbl("이슈 보고 內 차종 별 비율", "차종", stats.cars, 2, true)}</div>
+      <div>${tbl("이슈 보고 內 카테고리 비율", "이슈 항목", stats.cats, 2, false)}<div style="height:6px"></div>${tbl("이슈 보고 內 채널 별 비율", "채널", stats.chans, 0, false)}</div>
+    </div>`;
+  if (pvFocus === "ov2") for (const el of box.querySelectorAll('[data-k="ov2"]')) el.classList.add("hl");
 }
 
 // ---------------------------------------------------------------------------
@@ -355,7 +384,7 @@ async function loadDraft() {
 // 1페이지 미리보기 (담당자 요청 2026-11-13): PPT 1페이지 모양을 줄여 그리고, 입력값을 그 자리에 바로 채운다
 // 입력칸을 누르면 그 값이 들어가는 자리가 노랗게 강조된다 (data-k 로 연결)
 // ---------------------------------------------------------------------------
-const PV_FOR = { moOnline: "online", moFire: "fire", moCollect: "collect", moCafes: "cafes", moYoutube: "youtube", moExtraCount: "extraCount", ov1: "ov1", issues: "issues", extraList: "extras" };
+const PV_FOR = { ov2: "ov2", moOnline: "online", moFire: "fire", moCollect: "collect", moCafes: "cafes", moYoutube: "youtube", moExtraCount: "extraCount", ov1: "ov1", issues: "issues", extraList: "extras" };
 let pvFocus = "";
 function renderPreview() {
   const box = $("#pv1");
@@ -379,11 +408,11 @@ function renderPreview() {
   const k = (name) => `data-k="${name}"`;
   box.innerHTML = `
     <div class="pv-title" ${k("title")}>■ ‘${yy}.${ctx.m}월 온라인 여론 동향 정리 <small>(‘${String(ctx.start.getFullYear()).slice(2)}.${md(ctx.start)} ~ ‘${yy}.${md(ctx.end)})</small></div>
-    <div class="pv-row"><div class="pv-lab">개요</div><div class="pv-ov" ${k("ov1")}>${ov.length ? ov.map((t) => `<div>○ ${esc(t)}</div>`).join("") : '<span class="pv-empty">④ 에서 개요를 써 주세요</span>'}</div></div>
+    <div class="pv-row"><div class="pv-lab">개요</div><div class="pv-ov" ${k("ov1")}>${ov.length ? ov.map((t) => `<div>○ ${esc(t)}</div>`).join("") : '<span class="pv-empty">⑤ 에서 개요를 써 주세요</span>'}</div></div>
     <table class="pv-t">
       <colgroup><col style="width:24%"><col style="width:15%"><col style="width:15%"><col></colgroup>
       <tr><th>항 목</th><th>${ctx.y}년 ${ctx.m}월</th><th>${pm}월</th><th>내 용</th></tr>
-      <tr><td>온라인 상시 모니터링 (오전)</td><td class="cur" ${k("online")}>${num("moOnline", "건")}</td><td class="prv">${pnum("online", "건")}</td><td class="txt" ${k("issues")}>${issues.length ? list(issues) : '<div class="plain pv-empty">④ 주요 이슈</div>'}</td></tr>
+      <tr><td>온라인 상시 모니터링 (오전)</td><td class="cur" ${k("online")}>${num("moOnline", "건")}</td><td class="prv">${pnum("online", "건")}</td><td class="txt" ${k("issues")}>${issues.length ? list(issues) : '<div class="plain pv-empty">⑤ 주요 이슈</div>'}</td></tr>
       <tr><td>차량 화재 / 급발진</td><td class="cur" ${k("fire")}>${num("moFire", "건")}</td><td class="prv">${pnum("fire", "건")}</td><td class="txt">${list(notes.fire || [], true)}</td></tr>
       <tr><td>모니터링 시스템 수집</td><td class="cur" ${k("collect")}>${num("moCollect", "건")}</td><td class="prv">${pnum("collect", "건")}</td><td class="txt">${list(notes.collect || [], true)}</td></tr>
       <tr><td>모니터링 동호회</td><td class="cur" ${k("cafes")}>${num("moCafes", "개")}</td><td class="prv">${pnum("cafes", "개")}</td><td class="txt" ${k("cafes")}>${cafesNote ? list([cafesNote]) : list([])}</td></tr>
@@ -397,11 +426,13 @@ function bindPreviewFocus() {
     const id = e.target.id || (e.target.closest("#extraList") ? "extraList" : "");
     pvFocus = PV_FOR[id] || "";
     renderPreview();
+    renderPreview2();
   });
 }
 
 async function saveDraft() {
   renderPreview();
+  renderPreview2();
   if (!draftKey()) return;
   const d = { extras, ov1: $("#ov1").value, ov2: $("#ov2").value, issues: $("#issues").value };
   for (const [id, k] of NUMS) d[k] = $(`#${id}`).value;
