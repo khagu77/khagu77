@@ -1377,8 +1377,8 @@ async function renderDtHistory() {
     tbody.append(
       el("tr", {},
         el("td", {}, el("b", { text: h.date || "-" })),
-        el("td", {}, h.uploaded ? el("span", { class: "badge-edit", text: "넣은 기준 파일" }) : null, ` ${h.name}`),
-        el("td", {}, h.uploaded ? "-" : el("b", { class: "count-red", text: `${h.added || 0}건` })),
+        el("td", {}, h.attached ? el("span", { class: "badge-edit", text: "첨부(작성된 파일)" }) : h.uploaded ? el("span", { class: "badge-edit", text: "넣은 기준 파일" }) : null, ` ${h.name}`),
+        el("td", {}, h.attached ? (h.rows ? `누적 ${h.rows.toLocaleString()}건` : "-") : h.uploaded ? "-" : el("b", { class: "count-red", text: `${h.added || 0}건` })),
         el("td", { text: fmtDateTime(new Date(h.at)) }),
         el("td", { class: "actions" },
           el("button", { class: "btn-get", text: "받기", onclick: async (ev) => {

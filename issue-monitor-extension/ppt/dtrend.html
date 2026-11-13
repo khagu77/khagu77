@@ -6,6 +6,7 @@
   <title>일일동향 엑셀 리스트</title>
   <link rel="stylesheet" href="app.css">
   <link rel="stylesheet" href="weekly.css">
+  <style>#summary { white-space: pre-line; }</style>
 </head>
 <body>
   <main>
@@ -13,15 +14,18 @@
       <h3>① 누적 일일동향 엑셀 (기준 파일) <span class="hint">지금까지 쓰던 일일동향 엑셀을 한 번 넣어 두면, 그 끝에 날마다 이어 씁니다. 만들 때마다 새 파일이 다음 기준이 됩니다.</span></h3>
       <div class="buttons">
         <label class="filebtn">기준 엑셀 넣기<input type="file" id="dtBase" accept=".xlsx" hidden></label>
+        <label class="filebtn">작성된 일일동향 엑셀 첨부 (1인용·여러 개)<input type="file" id="dtAttach" accept=".xlsx" multiple hidden></label>
         <span id="dtBaseInfo" class="hint"></span>
       </div>
+      <p class="hint">1인용(다른 담당자가 작성)인 날은 그분이 만든 일일동향 엑셀을 '작성된 일일동향 엑셀 첨부'로 넣어 일일 데이터로 쌓아 두세요. 파일 이름 앞 날짜(YYMMDD)가 보고 날짜가 되고, 가장 최근 파일이 다음 기준이 됩니다.</p>
     </section>
 
     <section class="wk-box">
-      <h3>② 보고 날짜의 최종 PPT 로 이어 쓰기 <span class="hint">PPT·RAW 작성에서 만든(또는 데일리 DB 에 올린) 그날의 최종 PPT 게시글을 엑셀 끝에 덧붙입니다. 주말에는 보고가 없고, 월요일 PPT 에 주말 글까지 들어갑니다.</span></h3>
+      <h3>② 보고 날짜의 최종 PPT 로 이어 쓰기 <span class="hint">PPT·RAW 작성에서 만든(또는 데일리 DB 에 올린) 그날의 최종 PPT 게시글을 엑셀 끝에 덧붙입니다. 1인용인 날 직접 만들어야 하면 '이 날짜 전체 PPT 첨부'로 그날 전체 PPT 를 넣고 만드세요. 주말에는 보고가 없고, 월요일 PPT 에 주말 글까지 들어갑니다.</span></h3>
       <div class="buttons">
         <label>보고 날짜 <input type="date" id="dtDate"></label>
         <button id="dtLoad" type="button">이 날짜 PPT 불러오기</button>
+        <label class="filebtn">이 날짜 전체 PPT 첨부<input type="file" id="dtFullPpt" accept=".pptx" hidden></label>
         <span id="dtPptInfo" class="hint"></span>
       </div>
       <table id="dtPreview" hidden>
@@ -37,6 +41,7 @@
         <button id="dtBuild" class="primary" type="button" disabled>일일동향 엑셀 만들기</button>
         <span class="hint">파일 이름은 기준 파일 이름 앞의 날짜(YYMMDD)만 보고 날짜로 바뀝니다.</span>
       </div>
+      <p id="dtUseBase" class="hint"></p>
       <div id="summary" class="summary"></div>
     </section>
 

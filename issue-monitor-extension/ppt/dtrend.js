@@ -2,7 +2,11 @@
 // 누적 일일동향 엑셀(기준 파일) 끝에 보고 날짜의 최종 PPT 게시글을 덧붙여 날마다 새 파일을 만든다.
 // 파일 이름은 기준 파일 이름 앞의 날짜(YYMMDD)만 보고 날짜로 바꾼다. 만든 파일은 다음 날의 기준 파일이 된다.
 // 보관 (IndexedDB report-extension / kv, 영구): 기준 "dtBase" {name, bytes, at},
-//   목록 "dtHistory" [{id, at, date, name, added, skipped, uploaded}], 파일 내용 "dtFile:<id>"
+//   목록 "dtHistory" [{id, at, date, name, added, skipped, uploaded, attached, rows}], 파일 내용 "dtFile:<id>"
+// 1인용(다른 담당자 작성)인 날 (담당자 요청 2026-11-13):
+//   - 그분이 만든 일일동향 엑셀을 '작성된 일일동향 엑셀 첨부'로 넣어 일일 데이터로 쌓는다 (attached, 날짜는 파일 이름 앞 YYMMDD)
+//   - 직접 만들어야 하면 '이 날짜 전체 PPT 첨부'로 그날 전체 PPT 를 데일리 DB(full)에 올리고 그걸로 만든다
+//   - 만들 때 기준은 '보고 날짜 바로 전 날짜의 보관 파일'(없으면 지금 기준 파일). 다음 기준은 더 최근 날짜일 때만 바꾼다
 const $ = (sel, root = document) => root.querySelector(sel);
 const pad = (n) => String(n).padStart(2, "0");
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -138,7 +142,7 @@ async function renderHist() {
   for (const h of hist.slice((histPage - 1) * 10, histPage * 10)) {
     const tr = document.createElement("tr");
     const isBase = base && base.name === h.name;
-    tr.innerHTML = `<td><b>${esc(h.date || "-")}</b></td><td>${h.uploaded ? '<span class="badge-edit">넣은 기준 파일</span> ' : ""}${esc(h.name)}${isBase ? " ← 다음 기준" : ""}</td><td class="count-red">${h.uploaded ? "-" : `${h.added || 0}건`}${h.skipped ? `<span class="hint"> (이미 있던 글 ${h.skipped}건 뺌)</span>` : ""}</td><td>${new Date(h.at).toLocaleString("ko-KR")}</td><td class="actions"><div class="acts"><button data-a="get" class="btn-get" type="button">⬇ 받기</button>${isBase ? "" : '<button data-a="base" type="button">기준으로</button>'}<button data-a="del" class="danger" type="button">삭제</button></div></td>`;
+    tr.innerHTML = `<td><b>${esc(h.date || "-")}</b></td><td>${h.attached ? '<span class="badge-edit">첨부(작성된 파일)</span> ' : h.uploaded ? '<span class="badge-edit">넣은 기준 파일</span> ' : ""}${esc(h.name)}${isBase ? " ← 다음 기준" : ""}</td><td class="count-red">${h.attached ? (h.rows ? `누적 ${h.rows.toLocaleString()}건` : "-") : h.uploaded ? "-" : `${h.added || 0}건`}${h.skipped ? `<span class="hint"> (이미 있던 글 ${h.skipped}건 뺌)</span>` : ""}</td><td>${new Date(h.at).toLocaleString("ko-KR")}</td><td class="actions"><div class="acts"><button data-a="get" class="btn-get" type="button">⬇ 받기</button>${isBase ? "" : '<button data-a="base" type="button">기준으로</button>'}<button data-a="del" class="danger" type="button">삭제</button></div></td>`;
     tr.querySelector('[data-a="get"]').addEventListener("click", async (ev) => {
       const btn = ev.currentTarget;
       const bytes = await kvGet(`dtFile:${h.id}`);
@@ -211,6 +215,7 @@ async function loadDay() {
   $("#dtPreview").hidden = true;
   const date = $("#dtDate").value;
   if (!date) return;
+  showUseBase().catch(() => {});
   const fin = await DailyPpt.finalOf(date);
   const dow = "일월화수목금토"[new Date(`${date}T00:00`).getDay()];
   if (!fin) {
@@ -247,12 +252,36 @@ async function loadDay() {
     .join("");
   $("#dtPreview").hidden = !rowsToAdd.length;
   $("#dtBuild").disabled = !rowsToAdd.length;
+  showUseBase().catch(() => {});
+}
+
+// 이 보고 날짜에 이어 쓸 바탕: 보고 날짜보다 앞선 가장 최근 보관 파일 → 없으면 지금 기준 파일
+const nameDate = (n) => DailyPpt.dateFromName(n) || "";
+async function baseFor(date) {
+  const base = await kvGet("dtBase");
+  const prev = (await histList()).filter((h) => h.date && h.date < date).sort((a, b) => b.date.localeCompare(a.date) || b.at - a.at);
+  for (const h of prev) {
+    if (base && nameDate(base.name) && nameDate(base.name) < date && nameDate(base.name) > h.date) break; // 기준 파일이 더 최근이면 그것
+    const bytes = await kvGet(`dtFile:${h.id}`);
+    if (bytes) return { name: h.name, bytes };
+  }
+  return base || null;
+}
+async function showUseBase() {
+  const date = $("#dtDate").value;
+  const b = date ? await baseFor(date) : null;
+  const same = date ? (await histList()).find((h) => h.date === date) : null;
+  $("#dtUseBase").textContent = b
+    ? `이어 쓸 파일: ${b.name} → 만들 파일: ${(/^\d{6}/.test(b.name) ? b.name.replace(/^\d{6}/, ymdOf(date)) : `${ymdOf(date)}_${b.name}`)}${same ? ` · ⚠ 이 날짜 파일(${same.name}${same.attached ? ", 첨부" : ""})이 이미 보관돼 있어 새로 만들면 바뀝니다` : ""}`
+    : "";
 }
 
 async function build() {
-  const base = await kvGet("dtBase");
-  if (!base) return setSummary("먼저 ① 기준 엑셀을 넣어 주세요", "err");
   const date = $("#dtDate").value;
+  const base = await baseFor(date);
+  if (!base) return setSummary("먼저 ① 기준 엑셀을 넣어 주세요", "err");
+  const same = (await histList()).find((h) => h.date === date && h.attached);
+  if (same && !confirm(`${date} 은 이미 작성된 파일(${same.name})을 첨부해 두었습니다.\n그날 PPT 로 새로 만들어 바꿀까요?`)) return;
   if (!rowsToAdd.length) return setSummary("더할 게시글이 없습니다", "err");
   const btn = $("#dtBuild");
   btn.disabled = true;
@@ -265,7 +294,8 @@ async function build() {
     const where = await saveFile(dir, name, res.bytes);
     const id = `dt-${Date.now()}`;
     await histAdd({ id, at: Date.now(), date, name, added: res.added, skipped: res.skipped }, res.bytes);
-    await kvSet("dtBase", { name, bytes: res.bytes, at: Date.now() }); // 다음 날은 이 파일에 이어서
+    const cur = await kvGet("dtBase");
+    if (!cur || !nameDate(cur.name) || nameDate(cur.name) <= date) await kvSet("dtBase", { name, bytes: res.bytes, at: Date.now() }); // 다음 날은 이 파일에 이어서 (지난 날짜를 다시 만들 땐 그대로)
     await showBase();
     await renderHist();
     const msg = `✅ 일일동향 엑셀 저장 완료: ${where} · ${res.added}건 더함${res.skipped ? ` (이미 있던 글 ${res.skipped}건은 뺌)` : ""}`;
@@ -302,6 +332,56 @@ document.addEventListener("DOMContentLoaded", async () => {
     showBase();
     renderHist();
   });
+  $("#dtAttach").addEventListener("change", async (e) => {
+    const files = [...e.target.files];
+    e.target.value = "";
+    if (!files.length) return;
+    const ok = [];
+    const bad = [];
+    for (const f of files) {
+      const date = nameDate(f.name);
+      if (!date) {
+        bad.push(`${f.name}: 파일 이름 앞에 날짜(YYMMDD)가 없습니다`);
+        continue;
+      }
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      try {
+        const info = await DailyTrend.inspect(bytes);
+        await histAdd({ id: `dt-${Date.now()}-${ok.length}`, at: Date.now(), date, name: f.name, attached: true, rows: info.rows }, bytes);
+        ok.push({ date, name: f.name, bytes, rows: info.rows });
+      } catch (err) {
+        bad.push(`${f.name}: 일일동향 엑셀로 읽지 못했습니다 (${err.message || err})`);
+      }
+    }
+    // 가장 최근 날짜 파일이 지금 기준보다 최근이면 다음 기준으로
+    ok.sort((a, b) => b.date.localeCompare(a.date));
+    const cur = await kvGet("dtBase");
+    if (ok[0] && (!cur || !nameDate(cur.name) || nameDate(cur.name) <= ok[0].date)) await kvSet("dtBase", { name: ok[0].name, bytes: ok[0].bytes, at: Date.now() });
+    setSummary(`${ok.length ? `✅ 작성된 일일동향 엑셀 ${ok.length}개를 쌓았습니다 (${ok.map((x) => x.date).sort().join(", ")})` : ""}${bad.length ? `${ok.length ? "\n" : ""}⚠ ${bad.join("\n⚠ ")}` : ""}`, bad.length ? "err" : "ok");
+    if (ok.length) Celebrate.ding();
+    await showBase();
+    await renderHist();
+    showUseBase().catch(() => {});
+  });
+  $("#dtFullPpt").addEventListener("change", async (e) => {
+    const f = e.target.files[0];
+    e.target.value = "";
+    const date = $("#dtDate").value;
+    if (!f || !date) return;
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    try {
+      const details = await PptRead.read(bytes);
+      const n = details.filter((d) => d.title).length;
+      if (!n) throw new Error("상세 슬라이드(■ 제목 + 표)를 찾지 못했습니다");
+      const fromName = nameDate(f.name);
+      if (fromName && fromName !== date && !confirm(`파일 이름의 날짜(${fromName})와 고른 보고 날짜(${date})가 다릅니다. ${date} 의 전체 PPT 로 넣을까요?`)) return;
+      await DailyPpt.add({ date, kind: "full", name: f.name, bytes, count: n, partial: !!details.partial });
+      setSummary(`✅ ${date} 전체 PPT 를 데일리 DB 에 넣었습니다: ${f.name} (게시글 ${n}건)`, "ok");
+      await loadDay();
+    } catch (err) {
+      setSummary(`전체 PPT 를 읽지 못했습니다: ${err.message || err}`, "err");
+    }
+  });
   $("#dtLoad").addEventListener("click", () => loadDay().catch((e) => setSummary(`불러오지 못했습니다: ${e.message || e}`, "err")));
   $("#dtDate").addEventListener("change", () => loadDay().catch(() => {}));
   $("#dtBuild").addEventListener("click", build);
@@ -322,4 +402,5 @@ document.addEventListener("DOMContentLoaded", async () => {
   await showWhere();
   await renderHist();
   await loadDay().catch(() => {});
+  showUseBase().catch(() => {});
 });
