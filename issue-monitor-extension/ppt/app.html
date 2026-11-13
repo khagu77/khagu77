@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>온라인 오전동향 PPT 보고서 작성기</title>
   <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="../design.css">
 </head>
 <body>
   <main>
@@ -68,6 +69,8 @@
       </section>
     </dialog>
 
+    <div class="card">
+    <h2 class="badge-title">📊 PPT·RAW 작성</h2>
     <div class="sourcebox">
       <b>PPT·RAW 자료</b> <span id="sourceMode" class="badge all">전체</span>
       <span id="sourceHint" class="hint"></span>
@@ -106,6 +109,7 @@
     </div>
     <div id="summary" class="summary"></div>
     <div id="stats" class="stats" hidden></div>
+    </div>
 
     <dialog id="doneDialog" class="done">
       <form method="dialog">
@@ -139,5 +143,6 @@
   <script src="capture.js"></script>
   <script src="../celebrate.js"></script>
   <script src="app.js"></script>
+  <script src="../polish.js"></script>
 </body>
 </html>
