@@ -257,7 +257,7 @@ async function refresh() {
   const autoDate = reportDate(y, m);
   const ovKey = await kvGet(`moDateOverride:${ymKey(y, m)}`);
   const date = ovKey && /^\d{4}-\d{2}-\d{2}$/.test(ovKey) ? new Date(`${ovKey}T00:00`) : autoDate;
-  $("#moDate").value = dkey(date);
+  $("#moDate").value = ovKey ? dkey(date) : ""; // 평소엔 비워 둠 (특정일 기준 요청일 때만 날짜)
   $("#moDateReset").hidden = !ovKey;
   const tpl = await templateFor(y, m);
   const [py, pm] = prevYm(y, m);
@@ -268,7 +268,7 @@ async function refresh() {
   })();
   const xl = await excelFor(date);
   ctx = { y, m, date, start, end: date, tpl, xl };
-  $("#moDateInfo").textContent = `${ovKey ? `✎ 직접 지정한 보고일 ${fmt(date)} (원래 ${fmt(autoDate)})` : `보고일 ${fmt(date)}${date.getDate() !== 25 ? " (25일이 주말·휴일이라 전 근무일)" : ""}`} · 기간 ${dkey(start)} ~ ${dkey(date)}`;
+  $("#moDateInfo").textContent = `${ovKey ? `✎ 특정일 기준 요청: 보고일 ${fmt(date)} (원래 25일 기준 ${fmt(autoDate)})` : `보고일 ${fmt(date)}${date.getDate() !== 25 ? " (25일이 주말·휴일이라 전 근무일)" : ""}`} · 기간 ${dkey(start)} ~ ${dkey(date)}`;
   $("#moDateInfo").className = ovKey ? "hint err" : "hint";
   $("#moTplInfo").textContent = tpl ? `틀: ${tpl.entry.name} (${tpl.info.year}년 ${tpl.info.month}월 보고서)${tpl.entry.ym !== ymKey(py, pm) ? ` · ⚠ ${pm}월 보고서가 없어 더 앞선 보고서를 씁니다` : ""}` : `${y}년 ${m}월 보다 앞선 월간 실적 보고가 없습니다. 지난달 보고서 PPT 를 넣어 주세요.`;
   $("#moTplInfo").className = tpl ? "hint ok" : "hint err";
@@ -713,7 +713,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("#moDate").addEventListener("change", async () => {
     const ym = selYm();
     const v = $("#moDate").value;
-    if (!ym || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+    if (!ym) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+      // 비우면 25일 기준으로
+      await kvSet(`moDateOverride:${ymKey(ym[0], ym[1])}`, null);
+      chrome.storage.local.set({ moUpdatedAt: Date.now() }).catch(() => {});
+      await refresh();
+      if (ctx && ctx.tpl && ctx.xl) loadStats().catch(() => {});
+      return;
+    }
     const auto = dkey(reportDate(ym[0], ym[1]));
     await kvSet(`moDateOverride:${ymKey(ym[0], ym[1])}`, v === auto ? null : v);
     chrome.storage.local.set({ moUpdatedAt: Date.now() }).catch(() => {}); // 메뉴 보고일 알림도 이 날로

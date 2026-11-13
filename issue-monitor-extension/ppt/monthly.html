@@ -26,6 +26,8 @@
     #moExtraCount.auto { background: #e7f6ec !important; border-color: #8fd3a8 !important; font-weight: 800; }
     @media (prefers-color-scheme: dark) { .auto-tip { background: #1c2b40; color: #b9d3ff; } .auto-tip b { color: #fff; } #moExtraCount.auto { background: #163323 !important; border-color: #23573a !important; } .auto-note { color: #8ab4f8; } .auto-note.on { color: #7ee2a8; } }
     #extraList input { width: 100%; box-sizing: border-box; }
+    label.mo-early { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 0 10px; padding-left: 14px; border-left: 1px solid var(--line); font-weight: 600; }
+    label.mo-early input:not(:invalid)[value=""], label.mo-early input:placeholder-shown { color: var(--muted); }
     /* 1페이지 미리보기 (담당자 요청 2026-11-13): 왼쪽에 PPT 1페이지 축소 모양, 입력값이 바로 채워짐 */
     .mo-split { display: grid; grid-template-columns: minmax(380px, 460px) 1fr; gap: 18px; align-items: start; }
     @media (max-width: 1050px) { .mo-split { grid-template-columns: 1fr; } }
@@ -85,8 +87,8 @@
       <h3>① 보고 월과 자료 <span class="hint">매월 25일 보고, 25일이 주말·휴일이면 바로 전 근무일 (휴일 목록은 모니터링 설정 기준). 기간은 지난 보고일 다음 날부터 이번 보고일까지 (게시일 기준).</span></h3>
       <div class="buttons">
         <label>보고 월 <input type="month" id="moMonth"></label>
-        <label>보고일 <input type="date" id="moDate" title="일찍 보고를 요청받으면 실제 보고하는 날로 바꾸세요 (기간 끝 = 이 날)"></label>
-        <button id="moDateReset" type="button" hidden>25일 기준으로 되돌리기</button>
+        <label class="mo-early">특정일 기준으로 요청 시 : <input type="date" id="moDate" title="25일보다 일찍(특정일 기준으로) 보고를 요청받으면 그 날을 고르세요. 비워 두면 25일 기준"></label>
+        <button id="moDateReset" type="button" hidden>✕ 25일 기준으로</button>
         <span id="moDateInfo" class="hint"></span>
       </div>
       <div class="buttons">
