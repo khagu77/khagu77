@@ -127,7 +127,7 @@
     setCell(cell(0, 3), item.spec || "-");
     const lv = (name) => [name, item.level === name ? LEVEL_COLORS[name] : null];
     setCell(cell(0, 5), [[item.kind || "품질", null], ["(", null], lv("주의"), ["/", null], lv("경고"), ["/", null], lv("심각"), [")", null]]);
-    setCell(cell(0, 7), item.progress || "초기");
+    setCell(cell(0, 7), item.progress === "타결" ? "완결" : item.progress || "초기"); // 예전 표기 타결 → 완결 (2026-11-14)
     setCell(cell(1, 1), "동호회", orTodo(item.cafe));
     setCell(cell(1, 3), item.url);
     for (const h of all(cell(1, 3), A, "hlinkClick")) h.setAttributeNS(R, "r:id", linkRid);

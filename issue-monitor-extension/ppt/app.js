@@ -523,7 +523,7 @@ function fieldsFrom(row, info, ai) {
     kind: row.kind || "품질",
     // ICCU 이슈는 너무 많아 '주의' (화재·사고·인명 피해처럼 아주 심각할 때만 예외, 담당자 지정 2026-11-10)
     level: /ICCU/i.test(`${ai.issue || ""} ${ai.short || ""} ${ai.body || ""}`) && ai.level && ai.level !== "주의" && !/화재|불이\s?나|불났|연기|사고|추돌|전소|부상|사망/.test(`${ai.issue || ""} ${ai.body || ""}`) ? "주의" : ai.level || "주의",
-    progress: progressFor(ai.level, ai.progress),
+    progress: progressFor(ai.level, ai.progress, row.kind),
     cafe: row.cafe,
     url: info?.canonicalUrl || row.url, // naver.me 등은 https://cafe.naver.com/카페주소/글번호 로 통일
     views: info?.views || "",
@@ -754,10 +754,15 @@ async function start() {
 // ---------------------------------------------------------------------------
 // 미리보기 카드
 // ---------------------------------------------------------------------------
-// 경과: 주의·경고는 '초기', 심각은 AI 가 내용을 보고 정한 값(초기/진행/타결) (담당자 지정 2026-10-26: 무조건 진행 아님)
-function progressFor(level, aiProgress) {
-  if (level !== "심각") return "초기";
-  return ["초기", "진행", "타결"].includes(aiProgress) ? aiProgress : "초기";
+// 경과 (담당자 지정 2026-11-14, 불만 구분과 관계없이 내용으로):
+//  - 결품·응대는 기본 '진행' (마무리됐다고 분명하면 '완결')
+//  - 품질: 문의·발생만 있고 점검 전 = '초기', 점검 이후 후속 조치 중 = '진행', 상황 종료·마무리 = '완결'
+//  - AI 가 정한 값을 쓰고, 예전 표기 '타결'은 '완결'로
+function progressFor(level, aiProgress, kind) {
+  let p = aiProgress === "타결" ? "완결" : aiProgress;
+  if (!["초기", "진행", "완결"].includes(p)) p = "초기";
+  if (/결품|응대/.test(kind || "") && p === "초기") p = "진행";
+  return p;
 }
 const FIELD_DEFS = [
   ["title", "페이지 제목", "text", "■ 뒤에 들어갈 '차명(모델명) 증상'"],
@@ -765,7 +770,7 @@ const FIELD_DEFS = [
   ["code", "차종", "text"],
   ["spec", "제원", "text"],
   ["level", "불만 구분", "select", ["주의", "경고", "심각"]],
-  ["progress", "경과", "select", ["초기", "진행", "타결"]],
+  ["progress", "경과", "select", ["초기", "진행", "완결"]],
   ["views", "조회수", "text"],
   ["commentCount", "댓글수", "text"],
   ["body", "본문 요약", "textarea", `첫 줄을 꽉 채우게 (${BODY_MIN}~${BODY_MAX}자)`, BODY_MAX],
