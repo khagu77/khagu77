@@ -2239,9 +2239,25 @@ function seatHighlight(r) {
 // 차종을 모르거나("-") PE 여부 등이 애매한 카페 글: 작성자 닉네임 → '게시글 보기'(작성자의 다른 글)를 열어 차종 코드를 다시 정한다.
 // 작성자의 다른 글로 타사 차(예: 기아 EV6)로 확인되면 보고서에서 뺀다.
 // (네이버 화면을 더 열게 되므로 한 번 수집에 최대 AUTHOR_LOOKUP_MAX 명까지)
-const AUTHOR_LOOKUP_MAX = 60;
-const AUTHOR_POST_READS = 5; // 제목에 차명이 없을 때 작성자의 다른 글 본문·댓글을 열어 보는 최대 수 (한 사람당)
-const AUTHOR_POST_READS_MAX = 120; // 한 번 수집에 전체 상한 (네이버 화면 수 보호)
+// 차종은 반드시 채워야 하므로 넉넉하게 (담당자 재지적 2026-11-14: 작성자 이전 글로 확인되는데 '-' 2건)
+const AUTHOR_LOOKUP_MAX = 200;
+const AUTHOR_POST_READS = 8; // 작성자의 다른 글 본문·댓글을 열어 보는 최대 수 (한 사람당)
+const AUTHOR_POST_READS_MAX = 500; // 한 번 수집에 전체 상한 (네이버 화면 수 보호)
+// 차종 근거가 강한 작성자 글 (PPT 제원 확인과 같은 방식: 계약·출고·인수 인증 글을 먼저 연다)
+const CAR_CERT_RE = /계약|출고|인수|인증|구매|탁송|차키|오너|입양/;
+const CAR_HINT_TITLE_RE = /시승|후기|정비|충전|연비|옵션|수리|센터|블루핸즈|하이테크|타이어|엔진오일|블랙박스|썬팅|틴팅|PPF|코팅|세차|용품|튜닝|연식|년식|\d{2}년/;
+// 같은 차(차명)끼리 묶기: GN7 PE·GN7·IG PE·IG·HG·TG → 그랜저, LX3·LX2 PE·LX2 → 팰리세이드 (코드표 첫 차명 기준)
+// (담당자 재지적 2026-11-14: 예전엔 세대마다 다른 차로 세어 "팰리세이드" 한 단어에도 '차가 2종류'라며 차종 "-" 로 남겼다)
+let carFamCache = null;
+function carFamilyOf(code) {
+  const key = state.settings.carCodes;
+  if (!carFamCache || carFamCache.key !== key) carFamCache = { key, map: cafeFamilyMap(key) };
+  const c = String(code || "").trim();
+  return carFamCache.map.get(c) || carFamCache.map.get(c.split(" ")[0]) || c.split(" ")[0];
+}
+function carFamiliesIn(text, codes) {
+  return [...new Set(titleCarCodes(text || "", codes).map(carFamilyOf))];
+}
 // 차종을 끝내 못 정한 글: 제목·본문의 세대 표시([디올뉴]·디 올 뉴 = 새 세대)가 있으면 카페 기본 차종 중 가장 최근 세대로
 // (담당자 수정 2026-10-21: 넥쏘 카페 「[디올뉴] …」 글을 "-" 로 둠 → NH2)
 function applyGenTags(src, items, judged) {
@@ -2316,24 +2332,44 @@ async function refineUncertainCars(src, items, judged, ctx) {
   });
   if (!targets.length) return;
   const asks = [];
+  const codesAll = state.carCodeList || parseCarCodes(state.settings.carCodes);
+  const carsIn = (text) => carFamiliesIn(text, codesAll); // 같은 차(차명) 기준으로 센다
   for (const it of targets) {
-    if (ctx.authorLookups >= AUTHOR_LOOKUP_MAX || state.stopRequested) break;
+    if (state.stopRequested) break;
+    if (ctx.authorLookups >= AUTHOR_LOOKUP_MAX) {
+      if (!ctx.authorCapLogged) log(`⚠ 이번 수집에서 작성자 글 확인이 ${AUTHOR_LOOKUP_MAX}명을 넘어 나머지 글은 작성자 글을 보지 못했습니다 (차종 '-' 이면 직접 확인해 주세요)`, "err");
+      ctx.authorCapLogged = true;
+      break;
+    }
     ctx.authorLookups++;
     try {
       const posts = await ctx.naver.authorPosts(it, src.cafe, it.writer);
       const titles = posts.map((p) => p.title);
-      // 제목에 차명이 안 보이면 다른 글을 직접 열어 본문·댓글에서 찾는다 (차명이 나오면 그만)
+      // 작성자의 다른 글을 직접 열어 본문·댓글에서 차를 찾는다 (PPT 제원 확인과 같은 방식, 담당자 지정 2026-11-14 [필수])
+      //  - 글 제목들에 나온 차가 딱 한 종류면 그걸로 충분 (열지 않음)
+      //  - 아니면(차가 안 보이거나 여러 차가 섞이면) 계약·출고·인수 인증 글 → 차 관련 제목(시승·정비·충전 등) → 나머지 순으로 열어 본다
+      //  - 인증 글에서 차가 한 종류로 나오거나, 열어 본 글 전체에서 한 종류로 모이면 그만
       const texts = [];
-      const codes = state.carCodeList || parseCarCodes(state.settings.carCodes);
-      if (!mentionsAnyCar(titles.join("\n"), codes)) {
-        for (const p of posts) {
-          if (texts.length >= AUTHOR_POST_READS || (ctx.authorPostReads || 0) >= AUTHOR_POST_READS_MAX || state.stopRequested) break;
+      if (carsIn(titles.join("\n")).length !== 1) {
+        const cert = posts.filter((p) => CAR_CERT_RE.test(p.title));
+        const hinty = posts.filter((p) => !CAR_CERT_RE.test(p.title) && (CAR_HINT_TITLE_RE.test(p.title) || carsIn(p.title).length));
+        const rest = posts.filter((p) => !cert.includes(p) && !hinty.includes(p));
+        for (const p of [...cert, ...hinty, ...rest]) {
+          if (texts.length >= AUTHOR_POST_READS || state.stopRequested) break;
+          if ((ctx.authorPostReads || 0) >= AUTHOR_POST_READS_MAX) {
+            if (!ctx.readCapLogged) log(`⚠ 이번 수집에서 작성자 글 열람이 ${AUTHOR_POST_READS_MAX}개를 넘어 더 열지 않습니다`, "err");
+            ctx.readCapLogged = true;
+            break;
+          }
           ctx.authorPostReads = (ctx.authorPostReads || 0) + 1;
           try {
             const t = await ctx.naver.authorPostText(src.cafe, p);
             if (!t) continue;
+            t.cert = CAR_CERT_RE.test(p.title);
             texts.push(t);
-            if (mentionsAnyCar(`${t.title}\n${t.body}\n${t.comments}`, codes)) break;
+            const certCars = carsIn(texts.filter((x) => x.cert).map((x) => `${x.title}\n${x.body}`).join("\n"));
+            if (certCars.length === 1) break;
+            if (carsIn(texts.map((x) => `${x.title}\n${x.body}\n${x.comments}`).join("\n")).length === 1 && texts.length >= 2) break;
           } catch (e) {
             if (e instanceof StopError || e instanceof BlockedError) throw e;
           }
@@ -2348,7 +2384,15 @@ async function refineUncertainCars(src, items, judged, ctx) {
   }
   if (!asks.length) return;
   try {
-    const fixed = await ctx.ai.refineCars(asks);
+    // AI 를 끈 수집이거나 AI 가 실패해도 아래 '작성자 글에 나온 차로 정하기'는 반드시 한다 (담당자 재지적 2026-11-14)
+    let fixed = new Map();
+    if (ctx.ai) {
+      try {
+        fixed = await ctx.ai.refineCars(asks);
+      } catch (e) {
+        log(`${src.name} AI 차종 재판정 실패 (작성자 글로 직접 정합니다): ${e.message}`, "err");
+      }
+    }
     let changed = 0;
     let dropped = 0;
     // AI 결과가 없는 글(AI 실패·빈 답)도 아래 '작성자 글에 나온 차' 확인을 하도록 모든 글을 돈다
@@ -2375,32 +2419,54 @@ async function refineUncertainCars(src, items, judged, ctx) {
         const a = asks.find((x) => x.key === key);
         const codes = state.carCodeList || parseCarCodes(state.settings.carCodes);
         const text = a ? [a.nick, ...(a.authorTitles || []), ...(a.authorTexts || []).map((t) => `${t.title}\n${t.body}\n${t.comments || ""}`)].join("\n") : "";
-        let found = [...new Set(titleCarCodes(text, codes).map((c) => c.split(" ")[0]))];
+        let found = carFamiliesIn(text, codes); // 같은 차(차명) 기준
         if (found.length > 1 && a) {
-          // 여러 차가 나오면 작성자의 다른 글 제목에 가장 많이 나온 차가 절반을 넘을 때 그 차로
+          // 1) 계약·출고·인수 인증 글(제목·본문)에 나온 차가 한 종류면 그 차 (가장 확실한 근거)
+          const certCars = carFamiliesIn((a.authorTitles || []).filter((t) => CAR_CERT_RE.test(t)).join("\n") + "\n" + (a.authorTexts || []).filter((t) => t.cert).map((t) => `${t.title}\n${t.body}`).join("\n"), codes);
+          if (certCars.length === 1) found = certCars;
+        }
+        if (found.length > 1 && a) {
+          // 2) 이 카페의 기본 차종에 해당하는 차가 하나만 나오면 그 차
+          const hintFams = new Set(String(a.carHint || "").split("/").map((x) => x.trim()).filter(Boolean).map(carFamilyOf));
+          const inHint = found.filter((f) => hintFams.has(f));
+          if (inHint.length === 1) found = inHint;
+        }
+        if (found.length > 1 && a) {
+          // 3) 작성자의 다른 글(제목·본문, 인증 글은 3배)에 가장 많이 나온 차가 절반을 넘으면 그 차
           const cnt = new Map();
-          for (const t of a.authorTitles || []) for (const b of new Set(titleCarCodes(t, codes).map((c) => c.split(" ")[0]))) cnt.set(b, (cnt.get(b) || 0) + 1);
+          const add = (t, w) => {
+            for (const f of carFamiliesIn(t, codes)) cnt.set(f, (cnt.get(f) || 0) + w);
+          };
+          for (const t of a.authorTitles || []) add(t, CAR_CERT_RE.test(t) ? 3 : 1);
+          for (const t of a.authorTexts || []) add(`${t.title}\n${t.body}`, t.cert ? 3 : 1);
           const total = [...cnt.values()].reduce((x, y) => x + y, 0);
           const top = [...cnt.entries()].sort((x, y) => y[1] - x[1])[0];
           if (top && top[1] * 2 > total) found = [top[0]];
         }
         if (found.length === 1 && !(a && a.needCar && !text)) {
-          // 카페 기본 차종 중 같은 차가 있으면 그 표기(세대·PE)를 우선, 연식이 보이면 코드표 적용 시기로 (예: 24년식 아이오닉6 → CE)
+          // 세대 고르기: 카페 기본 차종 중 같은 차 → 연식이 보이면 코드표 적용 시기로 (예: 24년식 아이오닉6 → CE) → 글에 나온 그 차의 가장 최신 세대
+          const fam = found[0];
           const hints = String((a && a.carHint) || "").split("/").map((x) => x.trim()).filter(Boolean);
-          const same = hints.filter((h) => h.split(" ")[0] === found[0]);
+          const same = hints.filter((h) => carFamilyOf(h) === fam);
+          const famCodes = codes.map((c) => c.code).filter((c) => carFamilyOf(c) === fam && !/\//.test(c));
           const yr = findModelYear(text);
           const y = yr ? 2000 + +yr.slice(0, 2) : 0;
-          const byYear = y && same.length > 1 && state.codeYears ? same.filter((h) => (state.codeYears[h] || 0) <= y).sort((p, q) => (state.codeYears[q] || 0) - (state.codeYears[p] || 0))[0] : null;
-          const pick = byYear || same[0] || titleCarCodes(text, codes).find((c) => c.split(" ")[0] === found[0]);
+          const byYearIn = (list) => (y && list.length > 1 && state.codeYears ? list.filter((h) => (state.codeYears[h] || 0) <= y).sort((p, q) => (state.codeYears[q] || 0) - (state.codeYears[p] || 0))[0] : null);
+          const pick = byYearIn(same) || same[0] || byYearIn(famCodes) || titleCarCodes(text, codes).find((c) => carFamilyOf(c) === fam) || famCodes[0];
           if (pick) {
             j.car_code = pick;
             changed++;
-            log(`${src.name}: 「${a.title}」 작성자의 다른 글에 나온 차(${found[0]})로 차종을 ${pick} 로 정함`);
+            log(`${src.name}: 「${a.title}」 작성자의 다른 글에 나온 차(${fam})로 차종을 ${pick} 로 정함`);
           }
         }
       }
     }
     log(`${src.name}: 차종을 모르거나 애매한 글 ${asks.length}건 작성자 글 확인 → ${changed}건 차종 코드 수정${dropped ? `, ${dropped}건 타사 차로 제외` : ""}`);
+    // 그래도 못 정한 글은 기록에 남긴다 (담당자가 바로 확인할 수 있게)
+    for (const a of asks) {
+      const j = judged.get(a.key);
+      if (j && j.relevant && (!j.car_code || j.car_code.trim() === "-")) log(`⚠ ${src.name}: 「${a.title}」 작성자 글 제목 ${(a.authorTitles || []).length}개·본문 ${(a.authorTexts || []).length}개를 봐도 차종을 정하지 못함 — 직접 확인 필요`, "err");
+    }
   } catch (e) {
     log(`${src.name} 작성자 기반 차종 재판정 실패: ${e.message}`, "err");
   }
@@ -2472,6 +2538,8 @@ async function processSource(src, posts, readBody, ctx) {
     } catch (e) {
       log(`${src.name} AI 판정 실패(${e.message}) → 키워드로 대신 판정`, "err");
     }
+    // 게시판 이름(예: '아이오닉5 정비')으로 먼저 정하고, 그래도 모르면 작성자의 다른 글로 추적 (담당자 지정 2026-11-14)
+    applyBoardCars(src, items, judged);
     if (src.kind === "cafe") await refineUncertainCars(src, items, judged, ctx);
     applyGenTags(src, items, judged);
     applyBoardCars(src, items, judged);

@@ -355,7 +355,10 @@ function mentionsAnyCar(text, carCodes) {
 function normalizeCarSlang(text) {
   return String(text || "")
     .replace(/(?<![가-힣])아(?:이)?오(?:닉)?\s?([569])(?!\d)/g, "아이오닉$1")
-    .replace(/ioniq\s?([569])(?!\d)/gi, "아이오닉$1");
+    .replace(/ioniq\s?([569])(?!\d)/gi, "아이오닉$1")
+    // 자주 쓰는 줄임말 (담당자 재지적 2026-11-14: 작성자 글의 줄임말도 차명으로)
+    .replace(/팰리(?!세이드)/g, "팰리세이드")
+    .replace(/싼페|산타페/g, "싼타페");
 }
 
 function titleCarCodes(title, carCodes) {
@@ -363,6 +366,11 @@ function titleCarCodes(title, carCodes) {
   const t = raw.replace(/\s+/g, "");
   const found = new Map(); // 기본 코드 → 가장 긴 이름의 코드
   for (const { code, names } of carCodes) {
+    // 고성능 N 코드(NE N, CN7 N 등)는 글에 "아이오닉5 N"·"아반떼N"처럼 차명 바로 뒤에 N 이 있을 때만 (담당자 재지적 2026-11-14: "아이오닉5" 글이 NE N 으로 잡힘)
+    if (/ N$/.test(code) && !names.some((n) => {
+      const nn = n.replace(/\s+/g, "").toUpperCase();
+      return t.toUpperCase().includes(/N$/.test(nn) ? nn : `${nn}N`);
+    })) continue;
     for (const n of [code, ...names]) {
       const nn = n.replace(/\s+/g, "");
       if (nn.length < 3 && !/^[A-Z]{2,3}\d/.test(nn)) {
