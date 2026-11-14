@@ -383,9 +383,52 @@ async function loadDraft() {
   $("#ov1").value = d ? d.ov1 || "" : "";
   $("#ov2").value = d ? d.ov2 || "" : "";
   $("#issues").value = d ? d.issues || "" : "";
+  applyAutoCounts();
   renderExtras();
   updateLens();
   renderPreview();
+}
+
+// 번외 보고 기본 건수 자동 입력 (담당자 요청 2026-11-14): 월간 실적 기간 안의 근무일 수·주 수로
+//  주간 품질 모니터링(온라인 부분) = 근무일 수 / 현대자동차 전차종 raw data 일일 보고 = 근무일 수
+//  ‘블루핸즈 정비 예약’ 관련 주간 모니터링 = 주 수 (주간 보고) / LX3 북미 시트 사고 관련 일일 동향 모니터링 = 근무일 수 × 2 (댓글 보고서 포함)
+//  일일동향 엑셀화 일일 전달 = 근무일 수
+// 근무일은 설정의 근무 요일·휴일 목록 기준, 주 수는 기간 안에 근무일이 하루라도 있는 주.
+// 담당자가 직접 고친 건수는 그대로 두고, 비었거나 자동으로 넣은 건수만 다시 계산한다 (기간이 바뀌면 함께 바뀜).
+const AUTO_COUNT_RULES = [
+  { re: /주간\s*품질\s*모니터링/, label: "근무일 수", f: (w) => w.days },
+  { re: /raw\s*data.*일일\s*보고|전차종.*raw/i, label: "근무일 수", f: (w) => w.days },
+  { re: /블루\s*핸즈.*주간\s*모니터링|정비\s*예약.*주간/, label: "주 수", f: (w) => w.weeks },
+  { re: /LX3.*시트.*(사고|일일\s*동향)|북미\s*시트/, label: "근무일 수 × 2", f: (w) => w.days * 2 },
+  { re: /일일동향\s*엑셀화|엑셀화.*일일\s*전달/, label: "근무일 수", f: (w) => w.days },
+];
+function periodWork() {
+  if (!ctx) return { days: 0, weeks: 0 };
+  let days = 0;
+  const weeks = new Set();
+  for (let d = new Date(ctx.start); d <= ctx.end; d.setDate(d.getDate() + 1)) {
+    if (!isWorkday(d, settings)) continue;
+    days++;
+    const mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+    weeks.add(dkey(mon));
+  }
+  return { days, weeks: weeks.size };
+}
+function autoRuleOf(title) {
+  return AUTO_COUNT_RULES.find((r) => r.re.test(String(title || "")));
+}
+function applyAutoCounts() {
+  const w = periodWork();
+  for (const x of extras) {
+    const r = autoRuleOf(x.title);
+    if (!r) continue;
+    if (String(x.count ?? "").trim() === "" || x.countAuto) {
+      x.count = String(r.f(w));
+      x.countAuto = true;
+    }
+  }
+  const info = $("#autoCountInfo");
+  if (info) info.textContent = ctx ? `기간 ${dkey(ctx.start)} ~ ${dkey(ctx.end)} · 근무일 ${w.days}일 · ${w.weeks}주 기준으로 기본 건수를 넣었습니다 (직접 고치면 그 값 유지)` : "";
 }
 // ---------------------------------------------------------------------------
 // 1페이지 미리보기 (담당자 요청 2026-11-13): PPT 1페이지 모양을 줄여 그리고, 입력값을 그 자리에 바로 채운다
@@ -488,7 +531,20 @@ function renderExtras() {
     row.innerHTML = `<input type="text" placeholder="제목 (예: ‘NX5 시승기’ 관련 유튜버 콘텐츠 모니터링)"><input type="text" placeholder="날짜 (예: 11/20)"><input type="number" class="cnt" min="0" placeholder="건수"><button type="button" title="위로">↑</button><button type="button" title="아래로">↓</button><button type="button" class="danger">삭제</button>`;
     const [t, d, c] = row.querySelectorAll("input");
     c.value = x.count ?? "";
-    c.addEventListener("input", () => { x.count = c.value; syncExtraSum(); saveDraft(); });
+    c.addEventListener("input", () => { x.count = c.value; x.countAuto = false; c.classList.remove("auto-cnt"); syncExtraSum(); saveDraft(); });
+    const rule = autoRuleOf(x.title);
+    if (rule && x.countAuto) {
+      c.classList.add("auto-cnt");
+      c.title = `자동: ${rule.label} (직접 고치면 그 값 유지)`;
+    }
+    // 제목을 바꿔 자동 항목이 되면 건수도 채움
+    t.addEventListener("change", () => {
+      if (autoRuleOf(x.title) && String(x.count ?? "").trim() === "") {
+        applyAutoCounts();
+        renderExtras();
+        saveDraft();
+      }
+    });
     const [up, down, del] = row.querySelectorAll("button");
     t.value = x.title || "";
     d.value = x.date || "";
