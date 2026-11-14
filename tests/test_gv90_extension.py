@@ -409,6 +409,18 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     assert not errors, errors
     assert not any("cafe.naver.com" in u for u in requests)  # 카페를 끄면 카페 화면을 열지 않음
 
+    # 직접 넣은 주소만 수집: 전체를 다시 돌지 않고 그 글만 지금 결과에 더함
+    page.goto(f"chrome-extension://{ext_id}/gv90.html")
+    page.evaluate("gv90Init")
+    wait_js(page, "items.length > 0")
+    n0 = page.evaluate("items.length")
+    before = len(requests)
+    page.fill("#directUrls", "https://www.youtube.com/watch?v=gv90direct1")
+    page.click("#start")
+    page.locator("#summary", has_text="직접 넣은 주소").wait_for()
+    assert page.evaluate("items.length") == n0 + 1 and page.evaluate("items.some((x) => x.key === 'yt:gv90direct1' && x.checked)")
+    assert not [u for u in requests[before:] if "search.naver.com" in u]  # 언론 검색을 다시 하지 않음
+
 
 def test_gv90_comments(ext, tmp_path: Path):
     """댓글 수집: 언론(네이버 뉴스) · 유튜브 · 클리앙 · 뽐뿌(댓글 목록 전체읽기 2쪽, 답글 포함, 차단·지운 댓글 제외) → 무료 성향 분석 → DB · 댓글 엑셀 · 대시보드 반응."""

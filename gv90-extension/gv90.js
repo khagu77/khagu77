@@ -421,24 +421,152 @@ function toItem(p, extra = {}) {
 }
 
 // 유튜브 검색 (최신 업로드순): 모니터링 채널 밖 영상
+// 유튜브 검색 (업로드 날짜순): 첫 쪽만 보면 하루에 GV90 영상이 20개 넘게 올라올 때 앞 것만 잡힘
+//  → '더 보기'(continuation)로 기간 시작보다 오래된 영상만 나올 때까지 이어서 (최대 15쪽)
 async function youtubeSearch(q, range) {
   const html = await fetchText(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}&sp=CAI%253D&hl=ko&gl=KR`);
   const data = extractJsonAfter(html, "ytInitialData");
   const out = [];
-  walk(data, (k, v) => {
-    if (k !== "videoRenderer" || !v || !v.videoId) return; // 쇼츠 칸(reelItemRenderer 등)은 읽지 않음
-    if (/^\/shorts\//.test(v.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url || "")) return false; // 쇼츠
-    const parsed = parseKoreanDate(ytText(v.publishedTimeText).replace(/^스트리밍 시간:\s*/, ""));
-    const place = placeInRange(parsed, { from: range.start, to: range.end });
-    if (place === "older" || place === "newer") return false;
-    out.push({ videoId: v.videoId, title: ytText(v.title), author: ytText(v.ownerText), snippet: ytText(v.detailedMetadataSnippets?.[0]?.snippetText || v.descriptionSnippet) });
-    return false;
-  });
+  const seen = new Set();
+  const scan = (d) => {
+    let inRange = 0;
+    let older = 0;
+    let token = null;
+    walk(d, (k, v) => {
+      if (k === "continuationCommand" && v?.token) token = v.token;
+      if (k !== "videoRenderer" || !v || !v.videoId) return; // 쇼츠 칸(reelItemRenderer 등)은 읽지 않음
+      if (/^\/shorts\//.test(v.navigationEndpoint?.commandMetadata?.webCommandMetadata?.url || "")) return false; // 쇼츠
+      const parsed = parseKoreanDate(ytText(v.publishedTimeText).replace(/^스트리밍 시간:\s*/, ""));
+      const place = placeInRange(parsed, { from: range.start, to: range.end });
+      if (place === "older") older++;
+      if (place === "older" || place === "newer") return false;
+      inRange++;
+      if (seen.has(v.videoId)) return false;
+      seen.add(v.videoId);
+      out.push({ videoId: v.videoId, title: ytText(v.title), author: ytText(v.ownerText), snippet: ytText(v.detailedMetadataSnippets?.[0]?.snippetText || v.descriptionSnippet) });
+      return false;
+    });
+    return { inRange, older, token };
+  };
+  let page = scan(data);
+  const apiKey = html.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/)?.[1];
+  const clientVersion = html.match(/"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"]+)"/)?.[1] || "2.20241001.00.00";
+  const visitorData = html.match(/"VISITOR_DATA"\s*:\s*"([^"]+)"/)?.[1];
+  const context = { client: { clientName: "WEB", clientVersion, hl: "ko", gl: "KR" } };
+  if (visitorData) context.client.visitorData = visitorData;
+  for (let n = 1; n < 15 && page.token && !(page.older && !page.inRange) && !stopRequested; n++) {
+    await sleep(randomBetween([700, 1300]));
+    const resp = await fetch(`https://www.youtube.com/youtubei/v1/search?prettyPrint=false${apiKey ? `&key=${apiKey}` : ""}`, {
+      method: "POST",
+      credentials: "omit",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context, continuation: page.token }),
+    }).catch(() => null);
+    if (!resp || !resp.ok) break;
+    const next = scan(await resp.json());
+    if (next.token === page.token) break;
+    page = next;
+  }
   return out;
 }
 
 function directUrlList() {
   return String($("#directUrls").value || "").split(/\s+/).map((u) => u.trim()).filter((u) => /^https?:\/\//.test(u));
+}
+
+// 직접 넣은 주소만 수집해 지금 결과 표(와 이번 수집 회차)에 더함 — 빠뜨린 글을 나중에 하나씩 넣을 때
+async function collectDirectOnly(urls) {
+  const s = settings;
+  running = true;
+  stopRequested = false;
+  markRunning(true);
+  $("#start").disabled = true;
+  $("#stop").disabled = false;
+  const delays = DELAYS[s.speed] || DELAYS.normal;
+  const isStopped = () => stopRequested;
+  const kw = parseKeywords(s.keywords);
+  setExtraLexicon(s.lexicon);
+  dbKeys = new Set((await allPosts()).map((p) => p.key));
+  const have = new Set(items.map((x) => x.key));
+  const added = [];
+  const failed = [];
+  log(`직접 넣은 주소 ${urls.length}개만 수집합니다 (지금 결과에 더함)`);
+  for (let i = 0; i < urls.length && !stopRequested; i++) {
+    const u = urls[i];
+    showWork(`직접 넣은 주소 ${i + 1}/${urls.length}`, i, urls.length);
+    try {
+      let it = null;
+      const ids = newsIds(u);
+      const vid = !ids && parseYoutubeId(u);
+      if (ids) {
+        const nc = new NewsCollector({ delays, log, isStopped, replies: false });
+        const c = { key: `news:${ids.oid}/${ids.aid}`, channel: "news", ...ids, url: newsUrl(ids), title: "", direct: true };
+        const a = await nc.readArticle(c);
+        const n = await nc.commentCount(c).catch(() => null);
+        it = toItem({ ...c, title: a.title, source: a.press || "네이버 뉴스", date: a.date, exact: a.exact, body: a.body, ccount: n }, { direct: true });
+      } else if (vid) {
+        const yc = new YoutubeCollector({ log, isStopped });
+        const pg = await yc.videoPage(vid);
+        if (pg.ccount == null) pg.ccount = await yc.commentCount(pg).catch(() => null);
+        it = toItem({ key: `yt:${vid}`, channel: "youtube", source: pg.author, url: `https://www.youtube.com/watch?v=${vid}`, title: pg.title, date: pg.date, exact: false, body: pg.description, views: pg.views, ccount: pg.ccount }, { direct: true });
+      } else if (/cafe\.naver\.com/.test(u)) {
+        await checkLogin();
+        const cc = new CafeCollector({ delays, log, isStopped });
+        const fe = u.match(/cafes\/(\d+)\/articles\/(\d+)/);
+        const sm = u.match(/cafe\.naver\.com\/([A-Za-z0-9_-]+)\/(\d+)/);
+        const slug = sm && !/^(f-e|ca-fe)$/.test(sm[1]) ? sm[1] : "";
+        const articleId = fe ? fe[2] : sm ? sm[2] : "";
+        if (!articleId) throw new Error("카페 글 번호를 찾지 못함");
+        const cafe = s.cafes.find((c) => c.slug === slug) || { name: slug || "네이버 카페", slug };
+        const post = { key: `cafe:${slug || fe?.[1]}/${articleId}`, channel: "cafe", source: cafe.name, cafeSlug: slug, clubId: fe ? fe[1] : "", articleId, url: u, title: "", date: null, exact: false, snippet: "", direct: true };
+        const a = await cc.readArticle(post, cafe);
+        it = toItem({ ...post, title: a.title, source: a.source || cafe.fullName || cafe.name, date: a.date, exact: a.exact, body: a.body, views: a.views, ccount: a.ccount }, { direct: true });
+      } else {
+        const ad = communityAdapter(u);
+        if (!ad) throw new Error("지원하지 않는 주소");
+        const site = s.communities.find((c) => { try { return new URL(c.url).hostname.replace(/^m\./, "www.") === new URL(u).hostname.replace(/^m\./, "www."); } catch { return false; } });
+        const p = { key: `${ad.domain}:${ad.articleId(u) || u}`, channel: "community", source: site?.name || ad.site, domain: ad.domain, siteUrl: site?.url || u, url: u, title: "", date: null, exact: false, snippet: "", direct: true };
+        const info = await readCommunityInfo(p);
+        it = toItem({ ...p, body: info?.body || "", date: info?.date || null, exact: !!info?.date, views: info?.views ?? null, ccount: info?.ccount ?? null }, { direct: true, title: info?.title || "" });
+      }
+      if (have.has(it.key)) {
+        log(`  · 이미 결과 표에 있는 글: ${u}`);
+        continue;
+      }
+      it.related = true;
+      it.checked = true;
+      if (dbKeys.has(it.key)) {
+        it.dup = true;
+        it.checked = false;
+      }
+      Object.assign(it, ruleAnalyze(it));
+      it.harsh = it.harsh || it.sentiment === "단순비난";
+      items.push(it);
+      have.add(it.key);
+      added.push(it);
+      log(`  · 더함: ${it.channel} ${it.media} — ${it.title || u}`);
+    } catch (e) {
+      if (e instanceof StopError) break;
+      failed.push(u);
+      log(`  · 못 읽음 ${u}: ${e.message}`, "err");
+    }
+  }
+  // 이번 수집 회차에도 더해 둠 (휴일 합본 · 다시 열기)
+  if (curRunId && added.length) {
+    const run = (await listRuns()).find((r) => r.id === curRunId);
+    if (run) await saveRun({ ...run, items: [...(run.items || []), ...added.map(serialize)] });
+  }
+  hideWork();
+  running = false;
+  markRunning(false);
+  $("#start").disabled = false;
+  $("#stop").disabled = true;
+  sortItems();
+  renderResults();
+  await saveLast();
+  setSummary(`직접 넣은 주소 ${urls.length}개 중 ${added.length}건을 결과 표에 더했습니다${failed.length ? ` · 못 읽은 주소 ${failed.length}개 (수집 기록 참고)` : ""}. 확인 후 '엑셀 만들기'를 누르세요.`, failed.length ? "err" : "ok");
+  if (added.length) celebrate(null);
+  return { off: "", errors: failed };
 }
 
 async function collect() {
@@ -452,6 +580,9 @@ async function collect() {
     return setSummary(e.message, "err");
   }
   const on = s.channels;
+  // 직접 넣은 주소가 있고 이미 결과가 있으면: 그 주소만 수집해 지금 결과에 더할지 (전체를 다시 수집하지 않게)
+  const onlyUrls = directUrlList();
+  if (!AUTO && onlyUrls.length && items.length && confirm(`직접 넣은 주소 ${onlyUrls.length}개만 수집해서 지금 결과 표에 더할까요?\n\n[확인] 그 주소만 수집 (몇 초)\n[취소] 전체 채널을 처음부터 다시 수집`)) return collectDirectOnly(onlyUrls);
   if (!on.news && !on.cafe && !on.youtube && !on.community) return setSummary("수집할 채널을 하나 이상 고르세요.", "err");
   // 지난번 중지된 수집이 있으면 이어서 할지 (자동 수집은 같은 기간이면 묻지 않고 이어서)
   let cp = await loadResume();
