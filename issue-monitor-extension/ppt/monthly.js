@@ -418,6 +418,9 @@ function periodWork(since) {
   }
   return { days, weeks: weeks.size };
 }
+// 매달 하는 고정 업무 (raw data 일일 보고·일일동향 엑셀화·주간 품질 모니터링·LX3 북미 시트·블루핸즈 주간 모니터링)
+// → 개요·주요 이슈 AI 작성 때는 참고하지 않는다 (담당자 지정 2026-11-14). 그 달 따로 요청받은 업무(GV90 등)만 참고.
+const isFixedWork = (title) => AUTO_COUNT_RULES.some((r) => !r.since && r.re.test(String(title || "")));
 function autoRuleOf(title) {
   return AUTO_COUNT_RULES.find((r) => r.re.test(String(title || "")));
 }
@@ -636,7 +639,7 @@ async function aiWrite() {
       totals: { thisMonth: stats.total, lastMonth: stats.cars.reduce((s, c) => s + c.prev, 0) },
       carRanking: stats.cars.slice(0, 15).map((c) => ({ code: c.code, thisMonth: c.cur, lastMonth: c.prev })),
       categories: stats.cats.filter((c) => c.cur || c.prev),
-      extraReports: extras.filter((x) => x.title).map((x) => `${x.title}${x.date ? ` (${x.date})` : ""}`),
+      extraReports: extras.filter((x) => x.title && !isFixedWork(x.title)).map((x) => `${x.title}${x.date ? ` (${x.date})` : ""}`), // 고정 업무 제외
       lastMonthReport: { page1: tplInfo.overview1, page2: tplInfo.overview2, issues: tplInfo.s1.issues || [] },
       pastExamples: examples,
       dailyPosts: posts.slice(0, 400),
@@ -653,10 +656,10 @@ async function aiWrite() {
   (일일 PPT 가 없으면 excelRowsIfNoPpt: 일일동향 엑셀 행)
 - carRanking / categories / totals: 이번 달·지난달 건수 (차종 순위, 증감)
 - priorityCars: 회사가 중점 관리하는 신차·주요 차종 코드
-- extraReports: 이번 달 번외 추가 요청 보고(담당자가 수행한 별도 업무) 목록
+- extraReports: 이번 달 번외 추가 요청 보고 중 그 달 따로 요청받은 업무 목록 (매달 하는 고정 업무는 이미 뺐음)
   필요하면 개요(1·2페이지)와 주요 이슈(issues)를 쓸 때 이 제목들을 참고해도 됩니다 (담당자 지정 2026-11-14).
   예) 'NX5 가격 공개 후 CN8 관련 이슈 보고', ''GV90' 관련 전 채널 일일 모니터링' 처럼 이번 달 특별히 요청받은 차종·이슈는 그 달의 중점 사항이므로 개요에 녹여 쓸 수 있습니다.
-  단 이 달 일일 동향의 핵심 품질 이슈를 가리지 않게 하고, 제목을 그대로 나열하기보다 개요 문장에 자연스럽게 담습니다. 주간 품질 모니터링·raw data 일일 보고처럼 매달 하는 정기 업무는 1페이지 개요 2번 줄 외에는 넣지 않습니다.
+  단 이 달 일일 동향의 핵심 품질 이슈를 가리지 않게 하고, 제목을 그대로 나열하기보다 개요 문장에 자연스럽게 담습니다. raw data 일일 보고, 일일동향 엑셀화 일일 전달, 주간 품질 모니터링(온라인 부분), LX3 북미 시트 사고 관련 일일 동향 모니터링, '블루핸즈 정비 예약' 관련 주간 모니터링 같은 매달 하는 고정 업무는 개요·주요 이슈 어디에도 쓰지 않습니다 (담당자 지정 2026-11-14).
 - lastMonthReport, pastExamples: 지난 보고서들의 개요 — 문체·길이·구성을 그대로 본받습니다 (내용은 이번 달 것으로)
 - current / request: 담당자가 고쳐 둔 문구와 다시 쓰기 요청. request 가 있으면 그 요청을 최우선으로 반영하고, 요청과 관계없는 부분은 current 를 존중합니다
 
@@ -671,8 +674,8 @@ async function aiWrite() {
 - 각 항목은 PPT 한 줄(14pt)에 들어가도록 ${OV1_MAX}자 이내, 가능하면 45~${OV1_MAX}자로 꽉 차게.
 - 1번: 이번 달 가장 중요한 이슈 — 차종 코드 + 구체 증상 + 현황/대응 ("~로 집중 모니터링 중", "~ 지속 발생" 등).
   예) "ME1 2,3열 시트 업데이트 리콜 시행과 함께 LX3 동호회에서 시트 관련 각종 불만 사항 지속 발생으로 집중 모니터링 중"
-- 2번: 지난 보고서 2번 줄처럼 이번 달 수행한 주요 모니터링 업무를 extraReports 에서 골라 요약하거나(예: "일일동향 엑셀 DB전달, 주간 품질 모니터링(온라인 부분), NX5 가격 공개 후 CN8 관련 여론 동향 관련 모니터링 外"),
-  지난 보고서들이 두 번째 핵심 이슈를 썼다면 그 방식을 따릅니다. 1번과 내용이 겹치지 않게.
+- 2번: 이번 달 두 번째로 중요한 이슈를 씁니다. 그 달 따로 요청받은 업무(extraReports, 예: "NX5 가격 공개 후 CN8 관련 여론 동향", "'GV90' 관련 전 채널 일일 모니터링")가 중요하면 그것을 녹여 써도 됩니다.
+  고정 업무(일일동향 엑셀 DB 전달, 주간 품질 모니터링, raw data 일일 보고 등)는 쓰지 않습니다. 지난 보고서에 고정 업무가 적혀 있어도 따라 하지 않습니다. 1번과 내용이 겹치지 않게.
 [overview2 — 2페이지 개요: 1개 항목, 2줄 분량]
 - ${OV2_MAX - 25}~${OV2_MAX}자. 2페이지는 차종·카테고리 통계 페이지이므로, 품질 불만의 차종별 경향(어떤 차종들에서 어떤 증상들이 나타났는지)과 공통·계절성 VOC 를 묶어 씁니다.
   예) "CN8 및 GN7 PE 신차 출고 직후 발생되는 방전, 각종 도장 불량, 시트 작동 오류, 계기반 디스플레이 미작동 등 다양한 품질 관련 불만 이슈에 현재 집중 모니터링 중이며, 기온이 낮아짐에 따라 발생되는 습기, 공기압 이슈 등 다양한 VOC도 함께 확인 중"
