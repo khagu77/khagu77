@@ -401,12 +401,16 @@ const AUTO_COUNT_RULES = [
   { re: /블루\s*핸즈.*주간\s*모니터링|정비\s*예약.*주간/, label: "주 수", f: (w) => w.weeks },
   { re: /LX3.*시트.*(사고|일일\s*동향)|북미\s*시트/, label: "근무일 수", f: (w) => w.days }, // 담당자 정정 2026-11-14: × 2 하지 않음
   { re: /일일동향\s*엑셀화|엑셀화.*일일\s*전달/, label: "근무일 수", f: (w) => w.days },
+  // 2026-11-10 에 시작한 업무: 시작일부터 근무일 수 (다음 달부터는 기간 전체 근무일 수와 같아짐) (담당자 지정 2026-11-14)
+  { re: /GV90.*전\s*채널.*(일일\s*)?모니터링/i, label: "근무일 수 (11/10 시작)", since: "2026-11-10", f: (w) => w.days, addTitle: "‘GV90’ 관련 전 채널 일일 모니터링", addDate: "11/10~" },
 ];
-function periodWork() {
+function periodWork(since) {
   if (!ctx) return { days: 0, weeks: 0 };
   let days = 0;
   const weeks = new Set();
-  for (let d = new Date(ctx.start); d <= ctx.end; d.setDate(d.getDate() + 1)) {
+  // since(YYYY-MM-DD): 그 날 시작한 업무는 그 날부터만 센다
+  const from = since && since > dkey(ctx.start) ? new Date(`${since}T00:00`) : new Date(ctx.start);
+  for (let d = from; d <= ctx.end; d.setDate(d.getDate() + 1)) {
     if (!isWorkday(d, settings)) continue;
     days++;
     const mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
@@ -419,11 +423,17 @@ function autoRuleOf(title) {
 }
 function applyAutoCounts() {
   const w = periodWork();
+  // 시작일이 정해진 정기 업무가 이 기간에 이미 시작했는데 목록에 없으면 넣는다 (예: 11/10 시작 GV90 전 채널 일일 모니터링)
+  if (ctx) {
+    for (const r of AUTO_COUNT_RULES.filter((r) => r.addTitle && r.since && r.since <= dkey(ctx.end))) {
+      if (!extras.some((x) => r.re.test(String(x.title || "")))) extras.push({ title: r.addTitle, date: r.addDate || "", count: "", countAuto: true });
+    }
+  }
   for (const x of extras) {
     const r = autoRuleOf(x.title);
     if (!r) continue;
     if (String(x.count ?? "").trim() === "" || x.countAuto) {
-      x.count = String(r.f(w));
+      x.count = String(r.f(r.since ? periodWork(r.since) : w));
       x.countAuto = true;
     }
   }
