@@ -420,6 +420,14 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     page.locator("#summary", has_text="직접 넣은 주소").wait_for()
     assert page.evaluate("items.length") == n0 + 1 and page.evaluate("items.some((x) => x.key === 'yt:gv90direct1' && x.checked)")
     assert not [u for u in requests[before:] if "search.naver.com" in u]  # 언론 검색을 다시 하지 않음
+    # 직전 결과 불러오기: 전체를 다시 수집하기 전 결과(AI 분석 포함)로 되돌림
+    page.evaluate("items.forEach((x) => { x.by = 'ai'; x.summary = 'AI 요약 ' + x.key; }); saveLast()")
+    n1 = page.evaluate("items.length")
+    page.fill("#directUrls", "")
+    page.click("#start")
+    wait_js(page, "!running", 120000)
+    page.click("#loadPrev")
+    wait_js(page, "items.length === %d && items.every((x) => x.by === 'ai')" % n1)
 
 
 def test_gv90_comments(ext, tmp_path: Path):

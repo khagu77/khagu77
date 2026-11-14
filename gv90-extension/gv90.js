@@ -615,6 +615,8 @@ async function collect() {
   const found = new Map();
   // 찾는 대로 아래 결과 표에 바로 보여 줌 (일일동향처럼) · 성향은 무료 분석으로 바로 채우고, 끝나면 한 번 더 정리
   dbKeys = new Set((await allPosts()).map((p) => p.key));
+  // 새로 수집하기 전에 지금 결과(AI 분석 포함)를 따로 보관 → '↩ 직전 결과 불러오기'로 되돌릴 수 있게
+  if (!cp && items.length) await chrome.storage.local.set({ gvPrevResult: { items: items.map(serialize), curRange, curRunId, mergedRunIds, at: Date.now() } }).catch(() => {});
   items = [];
   mergedRunIds = [];
   curRange = { start: range.start.getTime(), end: range.end.getTime() };
@@ -1425,8 +1427,29 @@ $("#analyzeAi").addEventListener("click", async () => {
     running = false;
     $("#analyzeAi").disabled = false;
     saveLast();
+    await updateRunItems();
     celebrate(null);
   }
+});
+
+// 결과 표의 지금 값(AI 분석 · 직접 고친 값)을 이번 수집 회차에도 저장 (휴일 합본 · 다시 불러오기 때 그대로)
+async function updateRunItems() {
+  if (!curRunId) return;
+  const run = (await listRuns()).find((r) => r.id === curRunId);
+  if (run) await saveRun({ ...run, items: items.map(serialize) });
+}
+
+$("#loadPrev").addEventListener("click", async () => {
+  if (running) return;
+  const { gvPrevResult: p } = await chrome.storage.local.get("gvPrevResult").catch(() => ({}));
+  if (!p || !p.items?.length) return setSummary("되돌릴 직전 결과가 없습니다.", "err");
+  if (!confirm(`직전 결과(${fmtDateTime(p.at).slice(5, 16)} 이전 · 게시글 ${p.items.length}건, AI 분석 ${p.items.filter((x) => String(x.by || "").startsWith("ai")).length}건)를 다시 불러올까요?\n지금 결과 표(${items.length}건)는 이 결과로 바뀝니다.`)) return;
+  ({ items, curRange, curRunId, mergedRunIds } = { mergedRunIds: [], ...p, items: p.items.map(deserialize) });
+  dbKeys = new Set((await allPosts()).map((x) => x.key));
+  sortItems();
+  renderResults();
+  await saveLast();
+  setSummary(`직전 결과 ${items.length}건을 다시 불러왔습니다. 빠진 글은 위 '직접 넣은 주소'에 넣고 '수집 시작' → [확인]으로 더하세요.`, "ok");
 });
 $("#saveList").addEventListener("click", () => prepareSaveDir().then(() => makeExcel()).catch((e) => {
   $("#saveInfo").textContent = `엑셀을 만들지 못했습니다: ${e.message}`;
