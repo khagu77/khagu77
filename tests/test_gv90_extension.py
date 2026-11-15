@@ -420,11 +420,19 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     page.locator("#summary", has_text="직접 넣은 주소").wait_for()
     assert page.evaluate("items.length") == n0 + 1 and page.evaluate("items.some((x) => x.key === 'yt:gv90direct1' && x.checked)")
     assert not [u for u in requests[before:] if "search.naver.com" in u]  # 언론 검색을 다시 하지 않음
+    # 휴일 수집분 미리 합쳐 보기: 아직 엑셀에 담지 않은 수집 회차를 결과 표에 합침
+    page.evaluate("""(async () => { await saveRun({ id: 'run-sat', startedAt: Date.now() - 5e3, finishedAt: Date.now() + 1e3, range: { start: Date.now() - 864e5, end: Date.now() - 4e3 }, holiday: '토요일',
+      items: [{ key: 'clien.net:9999', channel: '자동차 커뮤니티', media: '클리앙', url: 'https://www.clien.net/service/board/cm_car/9999', title: 'GV90 토요일 글', summary: 'GV90 토요일 글', date: Date.now() - 5e7, checked: true, related: true, car: 'GV90', category: '일반', sentiment: '중립', by: 'rule' }] }); })()""")
+    n2 = page.evaluate("items.length")
+    page.click("#mergeHoliday")
+    wait_js(page, "items.some((x) => x.key === 'clien.net:9999' && /토요일/.test(x.fromRun || ''))")
+    assert page.evaluate("items.length") == n2 + 1
     # 직전 결과 불러오기: 전체를 다시 수집하기 전 결과(AI 분석 포함)로 되돌림
     page.evaluate("items.forEach((x) => { x.by = 'ai'; x.summary = 'AI 요약 ' + x.key; }); saveLast()")
     n1 = page.evaluate("items.length")
     page.fill("#directUrls", "")
     page.click("#start")
+    wait_js(page, "running", 30000)
     wait_js(page, "!running", 120000)
     page.click("#loadPrev")
     wait_js(page, "items.length === %d && items.every((x) => x.by === 'ai')" % n1)

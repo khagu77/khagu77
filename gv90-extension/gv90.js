@@ -949,7 +949,8 @@ async function collect() {
   await saveRun({ id: curRunId, startedAt, finishedAt: Date.now(), range: curRange, auto: AUTO, holiday: off, stopped: stopRequested, items: items.map(serialize), errors });
 
   // 근무일이면 아직 엑셀에 담지 않은 휴일 수집분을 합친다
-  if (!off && s.workdayReport && !stopRequested) await mergePending();
+  //  휴일에도 앞 휴일 수집분(예: 일요일에 토요일분)을 결과 표에 함께 보여 줌 (이번 회차 기록은 이번 수집분만 · 합쳐 둔 회차는 엑셀을 만들 때 함께 처리)
+  if (s.workdayReport && !stopRequested) await mergePending();
 
   hideWork();
   running = false;
@@ -1438,6 +1439,30 @@ async function updateRunItems() {
   const run = (await listRuns()).find((r) => r.id === curRunId);
   if (run) await saveRun({ ...run, items: items.map(serialize) });
 }
+
+// 휴일 수집분 미리 합쳐 보기: 아직 엑셀에 담지 않은 지난 수집 회차(토·일 등)를 지금 결과 표에 합침
+$("#mergeHoliday").addEventListener("click", async () => {
+  if (running) return;
+  const n0 = items.length;
+  if (!curRange) {
+    const r = readRange();
+    curRange = { start: r.start.getTime(), end: r.end.getTime() };
+  }
+  dbKeys = new Set((await allPosts()).map((x) => x.key));
+  const before = new Set(mergedRunIds);
+  await mergePending();
+  mergedRunIds = [...new Set([...before, ...mergedRunIds])];
+  const added = items.length - n0;
+  sortItems();
+  renderResults();
+  await saveLast();
+  setSummary(
+    added
+      ? `휴일 수집분 ${added}건을 결과 표에 합쳤습니다 (비고 칸에 '○/○ 토요일 수집' 표시). 확인 후 '엑셀 만들기'를 누르면 함께 데일리 DB · 엑셀에 들어갑니다.`
+      : "합칠 휴일 수집분이 없습니다 (이미 결과 표에 있거나 엑셀에 담긴 수집분뿐).",
+    added ? "ok" : "",
+  );
+});
 
 $("#loadPrev").addEventListener("click", async () => {
   if (running) return;
