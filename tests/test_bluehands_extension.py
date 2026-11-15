@@ -237,7 +237,20 @@ def test_bluehands(tmp_path: Path):
         assert "네이버 카페 글 주소가 아님" in rows.nth(0).inner_text()
 
         pages_before = len(ctx.pages)
+        # [필수] 네이버 로그인이 풀려 있으면 시작하지 않는다: 빨간 경고·사이렌, 로그인되면 몇 초 안에 시작
+        page.evaluate("""() => { window.__sirens = 0; const orig = sirenOnce; sirenOnce = () => { window.__sirens++; orig(); }; }""")
         page.click("#start")
+        page.locator("#loginAlarm", has_text="네이버 로그인이 풀려 있습니다!").wait_for()
+        assert page.locator("#loginAlarm", has_text="로그인하기 전에는 수집을 시작하지 않습니다").count() == 1
+        assert page.evaluate("window.__sirens") >= 1
+        page.wait_for_timeout(1500)
+        assert page.locator("#busy").is_hidden() and not [h for h in server.hits if h[0] == "cafe.naver.com"]
+        page.click("#loginAlarm .la-check")
+        page.locator("#loginAlarm .la-status", has_text="아직 로그인되지 않았습니다").wait_for()
+        ctx.add_cookies([{"name": "NID_AUT", "value": "test", "domain": ".naver.com", "path": "/"}])
+        page.locator("#loginAlarm .la-status", has_text="네이버 로그인 확인! 수집을 시작합니다").wait_for(timeout=10000)
+        page.locator("#loginAlarm").wait_for(state="detached")
+        assert "✔ 네이버에 로그인되어 있습니다" in page.inner_text("#login")
         # 작업 중 표시: 맨 위 로딩 바 · 탭 제목
         page.locator("#busy").wait_for(state="visible")
         assert "작성자 확인 중" in page.inner_text("#busy")
