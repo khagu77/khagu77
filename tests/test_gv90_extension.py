@@ -686,3 +686,41 @@ def test_gv90_resume(ext, tmp_path: Path):
     assert cat == "모두 포함(디자인+가격)", cat
     assert page.evaluate(f"items.find((x) => x.key === '{first_key}').edited.includes('category')")
     assert not errors, errors
+
+
+def test_gv90_naver_login_gate(ext, tmp_path: Path):
+    """[필수] 카페를 수집하는데 네이버 로그인이 풀려 있으면 시작하지 않고 경고 · 로그인되면 이어서 시작."""
+    ctx, sw, ext_id, requests = ext
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    page.on("dialog", lambda d: d.accept())
+    page.goto(f"chrome-extension://{ext_id}/gv90.html")
+    page.evaluate("gv90Init")
+    page.evaluate(
+        """async () => {
+        const s = await loadSettings();
+        s.channels = { news: false, cafe: true, youtube: false, community: false };
+        s.cafes = s.cafes.slice(0, 1).map((c) => ({ ...c, on: true }));
+        await saveSettings(s);
+      }"""
+    )
+    page.reload()
+    page.evaluate("gv90Init")
+    page.click("#start")
+    page.locator("#loginAlarm .la-card", has_text="네이버 로그인이 풀려 있습니다").wait_for()
+    assert page.evaluate("running") is False  # 로그인 전에는 수집을 시작하지 않음
+    # 로그인(쿠키 생김) → 몇 초 안에 초록색으로 바뀌고 수집 시작
+    ctx.add_cookies([{"name": "NID_AUT", "value": "x", "domain": ".naver.com", "path": "/", "secure": True}])
+    page.locator("#loginAlarm.ok").wait_for(timeout=10000)
+    wait_js(page, "running", 15000)
+    page.evaluate("stopRequested = true")
+    wait_js(page, "!running", 120000)
+    # 로그인이 필요 없는 채널만이면 막지 않음
+    page.context.clear_cookies()
+    page.evaluate("""async () => { const s = await loadSettings(); s.channels = { news: true, cafe: false, youtube: false, community: false }; s.newsMaxPages = 1; await saveSettings(s); settings = s; fillSettingsForm(s); }""")
+    page.evaluate("document.querySelector('#summary').textContent = ''")
+    page.click("#start")
+    wait_js(page, "!running && /GV90 관련 게시물|중지됨/.test(document.querySelector('#summary').textContent)", 120000)
+    assert page.locator("#loginAlarm").count() == 0
+    assert not errors, errors

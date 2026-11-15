@@ -209,7 +209,10 @@ async function collect() {
   setExtraLexicon(settings.lexicon);
   const targets = posts.filter((p) => p.checked && canCollect(p));
   if (!targets.length) return;
-  if (targets.some((p) => p.channel === "동호회")) await checkLogin();
+  // [필수] 카페 댓글을 모으는데 네이버 로그인이 풀려 있으면 시작하지 않고 경고 · 로그인되면 이어서 시작
+  if (targets.some((p) => p.channel === "동호회") && !(await naverLoggedIn())) {
+    if (!(await naverLoginGate({}))) return setSummary("네이버 로그인이 안 돼 댓글 수집을 시작하지 않았습니다. 로그인한 뒤 다시 눌러 주세요.", "err");
+  }
   const cafeN = targets.filter((p) => p.channel === "동호회").length;
   if (cafeN > 30 && !confirm(`카페 글 ${cafeN}개의 댓글을 읽습니다 (글 하나에 10~20초 · 약 ${Math.ceil((cafeN * 15) / 60)}분).\n네이버 계정 보호를 위해 가능하면 나눠서 수집하세요. 계속할까요?`)) return;
   running = true;
@@ -231,6 +234,7 @@ async function collect() {
   const day = todayKey();
   let total = 0;
   let failed = 0;
+  let loginLost = false;
   const planSec = estimateCommentsSec(targets);
   startWorkClock(planSec);
   for (const p of targets) {
@@ -287,6 +291,7 @@ async function collect() {
       refreshRow(p);
       log(`✖ ${p.channel} ${p.media} ${p.url}: ${korMsg(e.message)}`, "err");
       if (/로그인|보호조치/.test(e.message)) {
+        if (/로그인/.test(e.message)) loginLost = true;
         log("네이버 로그인·보호조치 문제로 카페 댓글 수집을 멈춥니다. 다른 채널은 계속합니다.", "err");
         for (const q of targets.slice(i + 1)) if (q.channel === "동호회") {
           q.checked = false;
@@ -306,6 +311,14 @@ async function collect() {
   await loadPosts();
   setSummary(`${stopRequested ? "중지됨 — " : ""}댓글 ${total.toLocaleString()}개를 모아 데일리 DB 에 저장했습니다${failed ? ` · 못 읽은 글 ${failed}건 ('수집 전·0개·실패 글만 선택' → 다시 수집)` : ""}. 성향은 무료 분석으로 채웠습니다.`, failed ? "err" : "ok");
   if (!stopRequested) celebrate(null);
+  // 수집 도중 로그인이 풀려 카페 댓글을 멈췄으면 같은 경고 → 로그인되면 못 읽은 카페 글만 다시
+  if (loginLost && !stopRequested && !(await naverLoggedIn())) {
+    if (await naverLoginGate({ reason: "댓글 수집 도중 네이버 로그인이 풀려 카페 댓글 수집을 멈췄습니다." })) {
+      posts.forEach((p) => (p.checked = p.channel === "동호회" && canCollect(p) && (!p.commentStatus || !p.commentStatus.ok)));
+      renderPosts();
+      setTimeout(() => collect(), 300);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------

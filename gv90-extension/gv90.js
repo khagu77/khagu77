@@ -510,7 +510,7 @@ async function collectDirectOnly(urls) {
         if (pg.ccount == null) pg.ccount = await yc.commentCount(pg).catch(() => null);
         it = toItem({ key: `yt:${vid}`, channel: "youtube", source: pg.author, url: `https://www.youtube.com/watch?v=${vid}`, title: pg.title, date: pg.date, exact: false, body: pg.description, views: pg.views, ccount: pg.ccount }, { direct: true });
       } else if (/cafe\.naver\.com/.test(u)) {
-        await checkLogin();
+        if (!(await naverLoggedIn()) && !(await naverLoginGate({ reason: "직접 넣은 카페 글을 읽으려면 로그인이 필요합니다." }))) throw new Error("네이버 로그인이 필요합니다");
         const cc = new CafeCollector({ delays, log, isStopped });
         const fe = u.match(/cafes\/(\d+)\/articles\/(\d+)/);
         const sm = u.match(/cafe\.naver\.com\/([A-Za-z0-9_-]+)\/(\d+)/);
@@ -596,6 +596,10 @@ async function collect() {
       range = { start: new Date(cp.range.start), end: new Date(cp.range.end) };
       setRange(range.start, range.end);
     }
+  }
+  // [필수] 카페를 수집하는데 네이버 로그인이 풀려 있으면 시작하지 않고 경고 · 로그인되면 이어서 시작
+  if (on.cafe && !(await naverLoggedIn())) {
+    if (!(await naverLoginGate({ auto: AUTO }))) return setSummary("네이버 로그인이 안 돼 수집을 시작하지 않았습니다. 로그인한 뒤 '수집 시작'을 눌러 주세요.", "err");
   }
   running = true;
   stopRequested = false;
@@ -971,6 +975,10 @@ async function collect() {
     errors.length ? "err" : "ok",
   );
   if (!stopRequested) celebrate(null);
+  // 수집 도중 로그인이 풀려 카페 수집을 멈췄으면 같은 경고 → 로그인되면 멈춘 곳부터 이어서
+  if (on.cafe && !stopRequested && errors.some((x) => /로그인|보호조치/.test(x)) && !(await naverLoggedIn())) {
+    if (await naverLoginGate({ auto: AUTO, reason: "수집 도중 네이버 로그인이 풀려 카페 수집을 멈췄습니다." })) setTimeout(() => collect(), 300);
+  }
   return { off, errors };
 }
 
