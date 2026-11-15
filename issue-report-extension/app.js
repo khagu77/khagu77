@@ -333,6 +333,140 @@ async function checkLogin() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// [필수] 네이버 로그인이 풀려 있으면 카페 수집을 시작하지 않는다 → 빨간 전체 화면 경고 + 사이렌, 로그인되면 자동으로 이어서
+// (담당자 요청 2026-11-15, 네이버 로그인이 필요한 모든 프로그램 공통)
+// ---------------------------------------------------------------------------
+
+let sirenTimer = null;
+let sirenCtx = null;
+function sirenOnce() {
+  try {
+    sirenCtx = sirenCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (sirenCtx.state === "suspended") sirenCtx.resume().catch(() => {});
+    const t0 = sirenCtx.currentTime;
+    const osc = sirenCtx.createOscillator();
+    const gain = sirenCtx.createGain();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(650, t0);
+    osc.frequency.linearRampToValueAtTime(1350, t0 + 0.45);
+    osc.frequency.linearRampToValueAtTime(650, t0 + 0.9);
+    osc.frequency.linearRampToValueAtTime(1350, t0 + 1.35);
+    osc.frequency.linearRampToValueAtTime(650, t0 + 1.8);
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(0.35, t0 + 0.05);
+    gain.gain.setValueAtTime(0.35, t0 + 1.7);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.85);
+    osc.connect(gain).connect(sirenCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 1.9);
+  } catch {
+    /* 소리를 못 내는 환경 */
+  }
+}
+// 처음 1분은 3초마다, 그 뒤로는 20초마다 ('소리 끄기' 전까지)
+function sirenStart() {
+  sirenStop();
+  sirenOnce();
+  let n = 0;
+  const tick = () => {
+    sirenOnce();
+    n++;
+    sirenTimer = setTimeout(tick, n < 20 ? 3000 : 20000);
+  };
+  sirenTimer = setTimeout(tick, 3000);
+}
+function sirenStop() {
+  clearTimeout(sirenTimer);
+  sirenTimer = null;
+}
+
+async function naverLoggedIn() {
+  try {
+    return !!(await chrome.cookies.get({ url: "https://www.naver.com", name: "NID_AUT" }));
+  } catch {
+    return false;
+  }
+}
+
+// 로그인돼 있으면 바로 true. 아니면 경고를 띄우고 로그인될 때까지 기다린다 (3초마다 확인, '수집 취소'면 false)
+function naverLoginGate({ reason = "" } = {}) {
+  return new Promise(async (resolve) => {
+    if (await naverLoggedIn()) return resolve(true);
+    checkLogin();
+    document.getElementById("loginAlarm")?.remove();
+    const box = el(
+      "div",
+      { id: "loginAlarm", class: "login-alarm" },
+      el(
+        "div",
+        { class: "la-card", role: "alertdialog", "aria-live": "assertive" },
+        el("div", { class: "la-icon", text: "🚨" }),
+        el("h2", { text: "네이버 로그인이 풀려 있습니다!" }),
+        el(
+          "p",
+          { class: "la-main" },
+          ...(reason ? [reason, el("br")] : []),
+          "네이버 카페는 로그인해야 수집됩니다. ",
+          el("b", { text: "먼저 네이버에 로그인해 주세요." }),
+          el("br"),
+          "로그인하기 전에는 수집을 시작하지 않습니다.",
+        ),
+        el("p", { class: "la-sub", text: "로그인하면 몇 초 안에 자동으로 확인하고 수집을 이어서 시작합니다." }),
+        el(
+          "div",
+          { class: "la-btns" },
+          el("button", { type: "button", class: "la-login", text: "🔑 네이버 로그인 열기" }),
+          el("button", { type: "button", class: "la-check", text: "로그인했어요 · 다시 확인" }),
+          el("button", { type: "button", class: "la-mute", text: "🔇 소리 끄기" }),
+          el("button", { type: "button", class: "la-cancel", text: "수집 취소" }),
+        ),
+        el("p", { class: "la-status", "aria-live": "polite" }),
+      ),
+    );
+    document.body.append(box);
+    const status = box.querySelector(".la-status");
+    sirenStart();
+    let poll = null;
+    const finish = (ok) => {
+      clearInterval(poll);
+      sirenStop();
+      if (ok) {
+        status.textContent = "✅ 네이버 로그인 확인! 수집을 시작합니다.";
+        box.classList.add("ok");
+        setTimeout(() => box.remove(), 1200);
+      } else box.remove();
+      checkLogin();
+      resolve(ok);
+    };
+    const check = async (byUser) => {
+      if (await naverLoggedIn()) return finish(true);
+      if (byUser) status.textContent = `아직 로그인되지 않았습니다 (${new Date().toLocaleTimeString("ko-KR")} 확인). 로그인 창에서 로그인한 뒤 다시 눌러 주세요.`;
+    };
+    poll = setInterval(() => check(false), 3000);
+    box.querySelector(".la-login").addEventListener("click", () => chrome.tabs.create({ url: "https://nid.naver.com/nidlogin.login?url=https%3A%2F%2Fcafe.naver.com" }));
+    box.querySelector(".la-check").addEventListener("click", () => check(true));
+    box.querySelector(".la-mute").addEventListener("click", (e) => {
+      sirenStop();
+      e.currentTarget.disabled = true;
+      e.currentTarget.textContent = "소리 꺼짐";
+    });
+    box.querySelector(".la-cancel").addEventListener("click", () => {
+      if (!confirm("수집을 시작하지 않고 닫을까요?")) return;
+      finish(false);
+    });
+  });
+}
+
+// 화면을 열어 둔 동안 로그인 상태가 바뀌면 바로 표시
+try {
+  chrome.cookies.onChanged.addListener((ch) => {
+    if (ch.cookie && ch.cookie.name === "NID_AUT" && /naver\.com$/.test(ch.cookie.domain)) checkLogin();
+  });
+} catch {
+  /* 쿠키 권한이 없는 환경 */
+}
+
 // 보고서 작성 목적 → AI 가 수집 키워드 추천
 async function suggestKeywords() {
   if (running) return;
@@ -396,6 +530,9 @@ async function collectPosts() {
       : `${names}만 다시 수집합니다. (${names}의 기존 게시글 ${had}건과 그 댓글·성향 분석은 새로 모은 것으로 바뀌고, 다른 채널은 그대로 둡니다)`;
     if (!confirm(msg)) return;
   }
+  // 네이버 카페를 수집할 때만: 로그인이 풀려 있으면 시작하지 않고 경고 (로그인되면 이어서 시작)
+  const needNaver = run.includes("cafe") && (job.cafes.length || directUrls(job.urls.cafe).length);
+  if (needNaver && !(await naverLoginGate())) return setMsg("#postsMsg", "네이버 로그인을 하지 않아 수집을 시작하지 않았습니다.", "err");
   running = true;
   stopRequested = false;
   $("#collectPosts").disabled = true;
@@ -495,9 +632,18 @@ async function collectPosts() {
           log(`동호회 ${cafe.name}: 기간 안 글 ${list.length}건`);
         } catch (e) {
           if (e instanceof StopError) throw e;
+          if (/로그인/.test(e.message)) {
+            // 수집 도중 로그인이 풀림 → 같은 경고. 로그인되면 이 카페부터 이어서
+            log(`동호회 ${cafe.name}: 네이버 로그인이 풀려 멈췄습니다 — 로그인하면 이어서 수집합니다`, "err");
+            if (await naverLoginGate({ reason: "수집 도중 네이버 로그인이 풀렸습니다." })) {
+              i--;
+              continue;
+            }
+            errors.push(`${cafe.name}: ${korMsg(e.message)}`);
+            break;
+          }
           errors.push(`${cafe.name}: ${korMsg(e.message)}`);
           log(`동호회 ${cafe.name}: ${korMsg(e.message)}`, "err");
-          if (/로그인/.test(e.message)) break;
         }
         if (i + 1 < cafes.length) await cc.wait(delays.cafeGap);
       }
@@ -850,6 +996,7 @@ async function collectComments(mode = "new") {
     return setMsg("#commentsMsg", "댓글이 있는 글이 없습니다.", "ok");
   }
   const cafeCount = todo.filter((p) => p.channel === "cafe").length;
+  if (cafeCount && !(await naverLoginGate())) return setMsg("#commentsMsg", "네이버 로그인을 하지 않아 댓글 수집을 시작하지 않았습니다.", "err");
   if (cafeCount > 40 && !confirm(`네이버 카페 글 ${cafeCount}건의 댓글을 읽습니다. 글마다 10~20초씩 천천히 읽어 시간이 걸립니다. 계속할까요?`)) return;
   running = true;
   stopRequested = false;
@@ -935,6 +1082,15 @@ async function collectComments(mode = "new") {
       if (e instanceof StopError) break;
       job.commentStatus[p.key] = { ok: false, error: korMsg(e.message) };
       log(`  · ${chName(p)} ${p.title.slice(0, 40)}: ${korMsg(e.message)}`, "err");
+      if (/로그인/.test(e.message) && p.channel === "cafe" && !(await naverLoggedIn())) {
+        // 수집 도중 로그인이 풀림 → 같은 경고. 로그인되면 이 글부터 이어서
+        log("네이버 로그인이 풀려 멈췄습니다 — 로그인하면 이 글부터 이어서 수집합니다", "err");
+        if (await naverLoginGate({ reason: "수집 도중 네이버 로그인이 풀렸습니다." })) {
+          i--;
+          continue;
+        }
+        break;
+      }
       if (/로그인|보호조치/.test(e.message) && p.channel === "cafe") {
         log("네이버 로그인이 풀렸거나 보호조치 화면이 보여 수집을 멈춥니다. 확인 후 '못 읽은 글만 다시'를 누르세요.", "err");
         break;

@@ -743,7 +743,28 @@ def test_cafe_via_search(tmp_path: Path):
         assert page.locator("#cafeList input:checked").count() == 1
         assert page.is_checked('#cafeList input[value="avantemd"]')
         page.click("#goCollect")
+        # [필수] 네이버 로그인이 풀려 있으면 카페 수집을 시작하지 않고 빨간 경고 (취소하면 시작 안 함)
+        assert "로그인되어 있지 않습니다" in page.inner_text("#loginState")
         page.click("#collectPosts")
+        alarm = page.locator("#loginAlarm")
+        alarm.wait_for()
+        assert "네이버 로그인이 풀려 있습니다!" in alarm.inner_text() and "로그인하기 전에는 수집을 시작하지 않습니다" in alarm.inner_text()
+        page.click("#loginAlarm .la-cancel")
+        alarm.wait_for(state="detached")
+        assert "수집을 시작하지 않았습니다" in page.inner_text("#postsMsg")
+        assert not any("/menus/0" in r for r in server.requests)
+        # 다시 누르면 경고 → '다시 확인' 은 아직 안 됨 → 로그인(쿠키 생김)하면 몇 초 안에 닫히고 수집 시작
+        page.click("#collectPosts")
+        alarm.wait_for()
+        page.click("#loginAlarm .la-mute")
+        assert page.inner_text("#loginAlarm .la-mute") == "소리 꺼짐"
+        page.click("#loginAlarm .la-check")
+        page.locator("#loginAlarm .la-status", has_text="아직 로그인되지 않았습니다").wait_for()
+        assert not any("/menus/0" in r for r in server.requests)
+        ctx.add_cookies([{"name": "NID_AUT", "value": "test", "domain": ".naver.com", "path": "/", "secure": True}])
+        page.locator("#loginAlarm.ok", has_text="네이버 로그인 확인").wait_for(timeout=10000)
+        alarm.wait_for(state="detached")
+        assert "네이버 로그인됨" in page.inner_text("#loginState")
         page.locator("#postsSummary", has_text="관련 게시글 1건").wait_for(timeout=180000)
         posts_log = page.text_content("#postsLog")
         page.click("#goComments")
@@ -751,6 +772,7 @@ def test_cafe_via_search(tmp_path: Path):
         page.locator("#commentsSummary", has_text="댓글을 모은 글 1/1").wait_for(timeout=180000)
         assert "댓글 2개" in page.inner_text("#commentsSummary")
         log = page.text_content("#commentsLog")
+        assert page.locator("#loginAlarm").count() == 0  # 로그인돼 있으면 경고 없이 바로
         ctx.close()
     server.shutdown()
     assert errors == [], errors
