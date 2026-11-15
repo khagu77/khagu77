@@ -33,7 +33,10 @@ def youtube_route(down):
     return handler
 
 
-def open_ext(p, tmp_path, cafe_port, sites_port=None):
+NID_COOKIE = {"name": "NID_AUT", "value": "test", "domain": ".naver.com", "path": "/", "secure": True}
+
+
+def open_ext(p, tmp_path, cafe_port, sites_port=None, logged_in=True):
     rules = [f"MAP cafe.naver.com 127.0.0.1:{cafe_port}"]
     if sites_port:
         rules += [f"MAP {h} 127.0.0.1:{sites_port}" for h in SITE_HOSTS]
@@ -42,6 +45,8 @@ def open_ext(p, tmp_path, cafe_port, sites_port=None):
         args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}",
               "--host-resolver-rules=" + ", ".join(rules), "--no-proxy-server", "--ignore-certificate-errors"],
         accept_downloads=True)
+    if logged_in:  # 네이버 로그인된 것처럼 (로그인이 풀려 있으면 카페 수집을 시작하지 않음)
+        ctx.add_cookies([NID_COOKIE])
     sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
     return ctx, f"chrome-extension://{sw.url.split('/')[2]}"
 
@@ -286,3 +291,61 @@ def test_ppomppu_comment_list(tmp_path: Path):
         ctx.close()
     cafe.shutdown()
     sites.shutdown()
+
+
+def test_naver_login_alarm(tmp_path: Path):
+    """[필수] 네이버 로그인이 풀려 있으면: 카페 글이 있을 때 수집을 시작하지 않고 빨간 경고·사이렌 →
+    로그인(쿠키 생김)하면 몇 초 안에 경고가 닫히고 수집 시작. 유튜브만이면 막지 않음. [수집 취소]면 시작 안 함."""
+    server = start_fake_cafe(tmp_path)
+    with sync_playwright() as p:
+        ctx, ext = open_ext(p, tmp_path, server.server_address[1], logged_in=False)
+        ctx.route("https://www.youtube.com/**", youtube_route({"on": False}))
+        page = ctx.new_page()
+        page.on("dialog", lambda d: d.accept())
+        page.goto(f"{ext}/app.html")
+        page.check("#separate")
+
+        # 1) 유튜브만: 로그인 없어도 바로 수집
+        page.fill("#urls", "https://youtu.be/abcdefghijk")
+        with page.expect_download(timeout=60000):
+            page.click("#start")
+        assert page.locator("#loginAlarm").count() == 0
+
+        # 2) 카페 글 포함 + 로그인 풀림 → 경고·사이렌, 카페 글을 열지 않음
+        page.fill("#urls", "https://cafe.naver.com/mycafe/789\nhttps://youtu.be/abcdefghijk")
+        before = len(server.requests)
+        page.click("#start")
+        alarm = page.locator("#loginAlarm")
+        alarm.wait_for()
+        assert "네이버 로그인이 풀려 있습니다!" in alarm.inner_text()
+        assert "로그인하기 전에는 수집을 시작하지 않습니다" in alarm.inner_text()
+        page.wait_for_timeout(3500)
+        assert page.evaluate("window.__sirenCount || 0") >= 2  # 처음 + 3초 뒤
+        assert len(server.requests) == before
+        page.click("#loginAlarm .la-check")
+        page.locator("#loginAlarm .la-status", has_text="아직 로그인되지 않았습니다").wait_for()
+
+        # 3) 로그인하면 → 초록 확인 후 경고 닫히고 수집 시작
+        ctx.add_cookies([NID_COOKIE])
+        page.locator("#loginAlarm.ok", has_text="네이버 로그인 확인").wait_for(timeout=10000)
+        with page.expect_download(timeout=120000) as dl:
+            pass
+        out = tmp_path / "after_login.xlsx"
+        dl.value.save_as(out)
+        assert page.locator("#loginAlarm").count() == 0
+        assert [r[3] for r in list(load_workbook(out)["동호회"].values)[1:]] == ["첫 댓글", "답글", "둘째 페이지"]
+        page.locator("#login.ok").wait_for()
+
+        # 4) 로그인 풀림 + [수집 취소] → 시작하지 않음
+        ctx.clear_cookies()
+        page.locator("#login.bad").wait_for(timeout=10000)  # 위쪽 로그인 표시가 바로 바뀜
+        before = len(server.requests)
+        page.click("#start")
+        alarm.wait_for()
+        page.click("#loginAlarm .la-cancel")
+        alarm.wait_for(state="detached")
+        assert "수집을 시작하지 않았습니다" in page.inner_text("#summary")
+        page.wait_for_timeout(2000)
+        assert len(server.requests) == before
+        ctx.close()
+    server.shutdown()

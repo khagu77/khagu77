@@ -839,6 +839,14 @@ async function start(resume = null) {
       return;
     }
   }
+  // [필수] 네이버 카페가 들어 있는데 로그인이 풀려 있으면 시작하지 않고 경고 (로그인되면 이어서 시작)
+  if (cafeCount && !(await naverLoggedIn())) {
+    const ok = await naverLoginGate();
+    if (!ok) {
+      $("#summary").textContent = "네이버 로그인이 풀려 있어 수집을 시작하지 않았습니다. 로그인한 뒤 다시 [수집 시작]을 눌러 주세요.";
+      return;
+    }
+  }
   if (cafeCount) await checkLogin();
   // 직접 고른 파일에 이어 쓰는 경우, 중단됐다가 이어 할 때를 위해 그 파일도 보관
   if (baseChoice === "file" && template && !separateFile()) {
@@ -851,6 +859,7 @@ async function start(resume = null) {
 async function run(state) {
   const { urls } = state;
   stopRequested = false;
+  let loginStopped = false; // 네이버 로그인 경고에서 [수집 취소] → 남은 글은 '이어 하기'로 남김
   markRunning(true);
   $("#start").disabled = true;
   $("#stop").disabled = false;
@@ -867,8 +876,26 @@ async function run(state) {
   for (let i = state.done; i < urls.length && !stopRequested; i++) {
     $("#summary").textContent = `수집 중… (${i + 1}/${urls.length})`;
     showBusy(`댓글 수집 중 ${i + 1}/${urls.length} — 끝날 때까지 이 탭을 닫지 마세요`, i, urls.length, "댓글 수집 중");
+    // [필수] 수집 도중 네이버 로그인이 풀리면 같은 경고 → 로그인되면 이어서, [수집 취소]면 여기서 멈춤 (이어 하기로 남음)
+    if (platformOf(urls[i]) === "cafe" && !(await naverLoggedIn())) {
+      if (!(await naverLoginGate({ reason: "수집하는 도중에 네이버 로그인이 풀렸습니다." }))) {
+        stopRequested = true;
+        loginStopped = true;
+        break;
+      }
+    }
     const row = addProgressRow(i + 1, urls[i]);
-    const result = await collectOne(urls[i], row);
+    let result = await collectOne(urls[i], row);
+    // 글을 열었더니 네이버 로그인 화면으로 넘어간 경우: 로그인하게 한 뒤 이 글을 한 번 더
+    if (result.platform === "cafe" && /로그인이 필요/.test(result.error) && !(await naverLoggedIn())) {
+      if (await naverLoginGate({ reason: "글을 여는데 네이버 로그인 화면으로 넘어갔습니다." })) {
+        row.status("로그인 확인 — 다시 읽는 중…");
+        result = await collectOne(urls[i], row);
+      } else {
+        stopRequested = true;
+        loginStopped = true;
+      }
+    }
     results.push(result);
     await saveResume("comments", { urls, done: i + 1, results, separate: state.separate, attached: state.attached });
     const next = i + 1 < urls.length ? platformOf(urls[i + 1]) : "";
@@ -930,7 +957,9 @@ async function run(state) {
     $("#summary").textContent =
       `${stopRequested ? "중지됨 - " : ""}${parts.join(", ")}` +
       `${failed ? ` (실패 ${failed}건)` : ""} · ${name} 파일이 다운로드 폴더에 저장되었습니다${dbNote}.`;
-    await clearResume("comments");
+    if (loginStopped) {
+      $("#summary").textContent += " 네이버 로그인이 풀려 남은 글은 수집하지 않았습니다. 로그인한 뒤 이 화면을 다시 열면 남은 글부터 이어서 수집합니다.";
+    } else await clearResume("comments");
   } catch (e) {
     $("#summary").textContent = `엑셀 저장 실패: ${e.message}`;
   }
