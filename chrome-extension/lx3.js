@@ -52,6 +52,7 @@ const MAX_RUNS = 30;
 let runs = [];
 let runId = null;
 let tableCleared = false; // 결과 표를 비웠음 (이때는 결과 표를 수집 기록에 옮겨 적지 않음) // '이어서 작성'에서 고른 수집 기록 (없으면 새로)
+let loginCancelled = false; // 네이버 로그인 경고에서 '수집 취소' (자동 수집이 결과를 알릴 때 씀)
 const curRun = () => runs.find((r) => r.id === runId) || null;
 let baseChoice = ""; // '이어서 작성' 선택: "" = 최종 DB 가장 최근 · "db:<key>" = 그 날짜 · "file" = 직접 고른 엑셀
 
@@ -629,6 +630,14 @@ async function search(resume = null) {
   if (ids.length && !q) return setSummary("동호회 검색어를 넣어 주세요.", "err");
   const dailyDir = await dailyDirReady(!AUTO_MODE); // 오전 일일동향 엑셀 폴더 (찾기 끝에 노란색 시트 글을 넣음)
   await saveSettings();
+  // 동호회(네이버 카페)를 찾는데 로그인이 풀려 있으면 시작하지 않음 → 경고·사이렌, 로그인되면 이어서 시작
+  loginCancelled = false;
+  if (ids.length && !(await naverLoggedIn())) {
+    if (!(await naverLoginGate({ auto: AUTO_MODE }))) {
+      loginCancelled = true;
+      return setSummary("네이버 로그인이 안 돼 게시물 찾기를 시작하지 않았습니다. 로그인한 뒤 다시 눌러 주세요.", "err");
+    }
+  }
   if (ids.length) await checkLogin();
   running = true;
   markRunning(true);
@@ -850,6 +859,11 @@ async function search(resume = null) {
       setSummary(`찾는 중… 동호회 ${ci + 1}/${ids.length} (${cafeNames[cafeId] || cafeId}) · ${page}페이지`);
       showBusy(`게시물 찾는 중 · 동호회 ${ci + 1}/${ids.length} (${cafeNames[cafeId] || cafeId}) — 끝날 때까지 이 탭을 닫지 마세요`, doneSteps(), total, "게시물 찾는 중");
       const res = await scanSearchPage(searchUrl(cafeId, q, page));
+      // 찾는 도중 로그인이 풀림 → 같은 경고, 로그인되면 이 쪽부터 다시
+      if (res.login && !(await naverLoggedIn()) && (await naverLoginGate({ auto: AUTO_MODE, reason: "찾는 도중 네이버 로그인이 풀려 멈췄습니다." }))) {
+        page--;
+        continue;
+      }
       if (res.login) {
         loginNeeded = true;
         failed.ids.push(cafeId);
@@ -1758,6 +1772,7 @@ async function runAuto(resume) {
   } catch (e) {
     return fail(`게시물 찾기 중 오류가 났습니다 (${e.message})`);
   }
+  if (loginCancelled) return fail("네이버 로그인이 안 돼 게시물 찾기를 시작하지 못했습니다. 로그인한 뒤 '찾기'를 눌러 주세요.");
   if (stopRequested) return fail("게시물 찾기를 중지했습니다. 결과를 확인해 주세요.");
   // 자동 수집은 게시물 찾기까지만: 결과를 사람이 확인해 고른 뒤 '엑셀 받기' → '체크한 글 댓글 수집하기' (찾은 결과는 수집 기록으로 남음)
   const found = items.filter((x) => !x.saved).length;

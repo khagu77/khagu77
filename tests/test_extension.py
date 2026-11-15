@@ -21,6 +21,7 @@ from playwright.sync_api import sync_playwright
 
 EXT_DIR = Path(__file__).resolve().parent.parent / "chrome-extension"
 CHROMIUM = os.environ.get("CHROMIUM_PATH")
+NAVER_LOGIN = [{"name": "NID_AUT", "value": "test", "domain": ".naver.com", "path": "/", "secure": True}]
 pytestmark = pytest.mark.skipif(not CHROMIUM, reason="CHROMIUM_PATH 미설정")
 
 # 카페 게시글 화면 흉내: 댓글 2페이지, 2페이지 버튼을 누르면 목록이 바뀐다.
@@ -236,6 +237,7 @@ def run_extension(tmp_path: Path, urls, template=None, fail_video=None):
         ctx.route("https://apis.naver.com/**", naver_api)
         ctx.route("https://www.youtube.com/**", youtube)
 
+        ctx.add_cookies(NAVER_LOGIN)  # 네이버 로그인된 상태 (로그인이 풀려 있으면 수집을 시작하지 않음)
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext_id = sw.url.split("/")[2]
         page = ctx.new_page()
@@ -463,6 +465,7 @@ def test_lx3(tmp_path: Path):
           window.requestAnimationFrame = () => 0;
           window.IntersectionObserver = class { observe() {} disconnect() {} unobserve() {} };
         }""")
+        ctx.add_cookies(NAVER_LOGIN)  # 네이버 로그인된 상태 (로그인이 풀려 있으면 수집을 시작하지 않음)
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext = f"chrome-extension://{sw.url.split('/')[2]}"
         page = ctx.new_page()
@@ -711,6 +714,7 @@ def test_final_db(tmp_path: Path):
             status=200, content_type="application/json" if "/youtubei/" in route.request.url else "text/html",
             body=json.dumps(YT_PAGES.get(json.loads(route.request.post_data or "{}").get("continuation"), {}))
             if "/youtubei/" in route.request.url else YT_HTML))
+        ctx.add_cookies(NAVER_LOGIN)  # 네이버 로그인된 상태 (로그인이 풀려 있으면 수집을 시작하지 않음)
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext = f"chrome-extension://{sw.url.split('/')[2]}"
         page = ctx.new_page()
@@ -910,6 +914,7 @@ def test_resume(tmp_path: Path):
             status=200, content_type="application/json" if "/youtubei/" in route.request.url else "text/html",
             body=json.dumps(YT_PAGES.get(json.loads(route.request.post_data or "{}").get("continuation"), {}))
             if "/youtubei/" in route.request.url else YT_HTML))
+        ctx.add_cookies(NAVER_LOGIN)  # 네이버 로그인된 상태 (로그인이 풀려 있으면 수집을 시작하지 않음)
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext = f"chrome-extension://{sw.url.split('/')[2]}"
         page = ctx.new_page()
@@ -1205,6 +1210,7 @@ def test_lx3_news_community(tmp_path: Path):
             status=200, content_type="application/json" if "/youtubei/" in route.request.url else "text/html",
             body=json.dumps(YT_PAGES.get(json.loads(route.request.post_data or "{}").get("continuation"), {}))
             if "/youtubei/" in route.request.url else YT_INFO_HTML))
+        ctx.add_cookies(NAVER_LOGIN)  # 네이버 로그인된 상태 (로그인이 풀려 있으면 수집을 시작하지 않음)
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext = f"chrome-extension://{sw.url.split('/')[2]}"
         page = ctx.new_page()
@@ -1400,6 +1406,7 @@ def test_lx3_auto(tmp_path: Path):
             status=200, content_type="application/json" if "/youtubei/" in route.request.url else "text/html",
             body=json.dumps(YT_PAGES.get(json.loads(route.request.post_data or "{}").get("continuation"), {}))
             if "/youtubei/" in route.request.url else YT_INFO_HTML))
+        ctx.add_cookies(NAVER_LOGIN)  # 네이버 로그인된 상태 (로그인이 풀려 있으면 수집을 시작하지 않음)
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext = f"chrome-extension://{sw.url.split('/')[2]}"
 
@@ -1523,6 +1530,7 @@ def test_lx3_accumulate(tmp_path: Path):
             args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}", "--no-proxy-server"], accept_downloads=True)
         ctx.route("https://www.clien.net/**", lambda route: route.fulfill(
             status=200, content_type="text/html; charset=utf-8", body=clien_list if "po=0" in route.request.url else "<html></html>"))
+        ctx.add_cookies(NAVER_LOGIN)  # 네이버 로그인된 상태 (로그인이 풀려 있으면 수집을 시작하지 않음)
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext = f"chrome-extension://{sw.url.split('/')[2]}"
         page = ctx.new_page()
@@ -1623,6 +1631,7 @@ def test_retry_keeps_other_comments(tmp_path: Path):
             status=200, content_type="application/json" if "/youtubei/" in route.request.url else "text/html",
             body=json.dumps(YT_PAGES.get(json.loads(route.request.post_data or "{}").get("continuation"), {}))
             if "/youtubei/" in route.request.url else YT_HTML))
+        ctx.add_cookies(NAVER_LOGIN)  # 네이버 로그인된 상태 (로그인이 풀려 있으면 수집을 시작하지 않음)
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext = f"chrome-extension://{sw.url.split('/')[2]}"
         page = ctx.new_page()
@@ -1665,6 +1674,7 @@ def test_lx3_daily_yellow(tmp_path: Path):
         ctx = p.chromium.launch_persistent_context(
             str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True, timezone_id="Asia/Seoul",
             args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}"])
+        ctx.add_cookies(NAVER_LOGIN)  # 네이버 로그인된 상태 (로그인이 풀려 있으면 수집을 시작하지 않음)
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext = f"chrome-extension://{sw.url.split('/')[2]}"
         page = ctx.new_page()
@@ -1676,7 +1686,7 @@ def test_lx3_daily_yellow(tmp_path: Path):
         page.evaluate("""() => {
           CAFE_ARTICLE_DELAY[0] = CAFE_ARTICLE_DELAY[1] = 0; NEWS_DELAY[0] = NEWS_DELAY[1] = 0;
           const realFetch = window.fetch;  // naver.me 짧은 주소 풀기 흉내 (주소 이동)
-          window.fetch = async (u, o) => /naver\.me\//.test(String(u))
+          window.fetch = async (u, o) => /naver[.]me[/]/.test(String(u))
             ? Object.defineProperty(new Response('ok'), 'url', { value: 'https://cafe.naver.com/tobloomer/228519' }) : realFetch(u, o);
           window.opened = [];
           readArticleTime = async (url) => {
@@ -1809,4 +1819,55 @@ def test_lx3_daily_yellow(tmp_path: Path):
         # 노란색은 '261110차종별 온라인 동향.xlsx'(일일 부정 이슈 수집 엑셀)에서만 · 통합·raw data 파일은 읽지 않음
         assert res["n"] == 3 and "(1).xlsx" in res["log"] and "261105" not in res["log"] and "raw data.xlsx:" not in res["log"] and "통합" not in res["log"], res
         assert not errors, errors
+        ctx.close()
+
+
+def test_naver_login_gate(tmp_path: Path):
+    """네이버 로그인이 풀려 있으면 카페 수집을 시작하지 않고 빨간 경고(사이렌)를 띄우고, 로그인되면 몇 초 안에 이어서 시작.
+    '수집 취소'면 시작하지 않음. 유튜브만 수집할 때는 막지 않음."""
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True, timezone_id="Asia/Seoul",
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}"])
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        ext = f"chrome-extension://{sw.url.split('/')[2]}"
+        page = ctx.new_page()
+        page.on("dialog", lambda d: d.accept())
+        page.goto(f"{ext}/lx3.html")
+        page.evaluate("lx3Init")
+        page.evaluate("window.__sirens = 0; sirenOnce = () => { window.__sirens++; }")
+        # 실제 네이버에 접속하지 않게: 동호회만 · 카페 검색 화면은 빈 결과로 흉내
+        page.evaluate("""() => { document.querySelector('#chNews').checked = false; document.querySelector('#chCommunity').checked = false;
+          document.querySelector('#query').value = '시트'; scanSearchPage = async () => ({ items: [], noResult: true, login: false, title: '', hints: [] }); }""")
+        assert "로그인이 필요" in page.inner_text("#login")
+        # 로그인 안 됨 → 찾기를 눌러도 시작하지 않고 경고
+        page.evaluate("() => { search(); }")
+        page.locator("#loginAlarm").wait_for()
+        assert "네이버 로그인이 풀려 있습니다" in page.inner_text("#loginAlarm")
+        assert page.evaluate("running") is False and page.evaluate("window.__sirens") >= 1
+        # 로그인하면 몇 초 안에 경고가 닫히고 찾기 시작
+        ctx.add_cookies(NAVER_LOGIN)
+        page.locator("#loginAlarm.ok").wait_for(timeout=10000)
+        assert "로그인 확인" in page.inner_text("#loginAlarm")
+        page.wait_for_function("() => running === true", timeout=10000)  # 찾기가 이어서 시작됨
+        assert "네이버 로그인됨" in page.inner_text("#login")
+        page.evaluate("stopRequested = true")
+        page.wait_for_function("() => running === false", timeout=120000)
+        # 다시 로그아웃 → '수집 취소'면 시작하지 않음
+        ctx.clear_cookies()
+        page.evaluate("() => { search(); }")
+        page.locator("#loginAlarm").wait_for()
+        page.click("#loginAlarm .la-mute")
+        page.click("#loginAlarm .la-cancel")
+        page.locator("#loginAlarm").wait_for(state="detached")
+        assert page.evaluate("running") is False and "시작하지 않았습니다" in page.inner_text("#summary")
+        # 댓글 수집: 카페 글이 있으면 같은 경고, 유튜브만이면 막지 않음
+        page.goto(f"{ext}/app.html")
+        page.evaluate("sirenOnce = () => {}")
+        page.fill("#urls", "https://cafe.naver.com/aacafe/1")
+        page.click("#start")
+        page.locator("#loginAlarm").wait_for()
+        page.click("#loginAlarm .la-cancel")
+        page.locator("#summary", has_text="시작하지 않았습니다").wait_for()
+        assert page.evaluate("typeof naverLoginGate") == "function"
         ctx.close()

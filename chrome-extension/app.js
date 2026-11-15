@@ -949,6 +949,12 @@ async function start(resume = null) {
       return;
     }
   }
+  // 네이버 카페 글이 있는데 로그인이 풀려 있으면 시작하지 않음 → 경고·사이렌, 로그인되면 이어서 시작 (유튜브·언론·커뮤니티만이면 막지 않음)
+  if (cafeCount && !(await naverLoggedIn()) && !(await naverLoginGate({ auto: AUTO_MODE }))) {
+    $("#summary").textContent = "네이버 로그인이 안 돼 댓글 수집을 시작하지 않았습니다. 로그인한 뒤 다시 눌러 주세요.";
+    if (AUTO_MODE) autoDone(false, "네이버 로그인이 안 돼 댓글 수집을 시작하지 못했습니다.");
+    return;
+  }
   if (cafeCount) await checkLogin();
   // 직접 고른 파일에 이어 쓰는 경우, 중단됐다가 이어 할 때를 위해 그 파일도 보관
   if (baseChoice === "file" && template && !separateFile()) {
@@ -979,7 +985,12 @@ async function run(state) {
     $("#summary").textContent = `수집 중… (${i + 1}/${urls.length})`;
     showBusy(`댓글 수집 중 ${i + 1}/${urls.length} — 끝날 때까지 이 탭을 닫지 마세요`, i, urls.length, "댓글 수집 중");
     const row = addProgressRow(i + 1, urls[i]);
-    const result = await collectOne(urls[i], row);
+    let result = await collectOne(urls[i], row);
+    // 수집 도중 로그인이 풀림 → 같은 경고, 로그인되면 이 글부터 다시 · 취소하면 여기까지 저장
+    if (result.error && /로그인/.test(result.error) && !(await naverLoggedIn())) {
+      if (await naverLoginGate({ auto: AUTO_MODE, reason: "댓글 수집 도중 네이버 로그인이 풀려 멈췄습니다." })) result = await collectOne(urls[i], row);
+      else stopRequested = true;
+    }
     results.push(result);
     await saveResume("comments", { urls, done: i + 1, results, separate: state.separate, attached: state.attached });
     const next = i + 1 < urls.length ? platformOf(urls[i + 1]) : "";
