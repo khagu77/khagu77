@@ -21,10 +21,11 @@ let dbKeys = new Map(); // 데일리 DB 에 이미 있는 글 (key → 보고일
 const isPrevDb = (x, start = curRange?.start) => {
   const r = dbKeys.get(x.key);
   if (!r || (r.day && r.day >= todayKey())) return false;
-  if (x.date && start && x.date >= start) return false;
+  const d = r.date || x.date; // DB 에 적힌 작성일 우선
+  if (d && start && d >= start) return false;
   return true;
 };
-const loadDbKeys = async () => (dbKeys = new Map((await allPosts()).map((p) => [p.key, { day: p.day || "", savedAt: p.savedAt || 0, via: p.via || "" }])));
+const loadDbKeys = async () => (dbKeys = new Map((await allPosts()).map((p) => [p.key, { day: p.day || "", date: p.date || 0, savedAt: p.savedAt || 0, via: p.via || "" }])));
 let heartbeatTimer = null;
 
 isWorking = () => running; // common.js: 작업 중 뒤로 가기·닫기 막기
