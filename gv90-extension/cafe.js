@@ -507,7 +507,14 @@ class CafeCollector {
     for (let i = 0; i < 8; i++) {
       const answers = await runInFrames(where, readArticleInFrame, [[2000, 4000]]);
       const hit = answers.find((r) => r.found && (r.body || r.comments.length)) || answers.find((r) => r.found && r.title);
-      if (hit && (hit.body || hit.comments.length)) return { ...hit, visible: true };
+      if (hit && (hit.body || hit.comments.length)) {
+        // 본문이 먼저 뜨고 댓글은 늦게 뜸 → 댓글 수(예: 댓글 13)보다 적게 읽혔으면 조금 더 기다렸다 다시 읽음
+        if ((hit.ccount || 0) > hit.comments.length && (hit.comments.length === 0 ? i < 7 : i < 2)) {
+          await sleep(1500);
+          continue;
+        }
+        return { ...hit, visible: true };
+      }
       if (answers.some((r) => /nid\.naver\.com/.test(r.href || ""))) return { found: false, login: true };
       if (answers.some((r) => r.blocked)) throw new Error("네이버 보호조치·자동입력 방지 화면이 보여 카페 수집을 멈췄습니다");
       if (hit && i >= 3) return { ...hit, visible: false }; // 제목만 보이고 본문은 안 보임 (권한 제한 등)
@@ -564,7 +571,12 @@ class CafeCollector {
         return null;
       });
       if (via?.visible) res = { ...via, via: "검색" };
-      else {
+      else if (cafe.viaSearch) {
+        // 검색 경유 카페라도 바로 열면 보이는 글이 있음 → 카페에서 바로 열어 봄
+        res = await readPage(url, (where) => this.readOpened(where), (r) => r && (r.visible || r.login));
+        if (res?.login) throw new Error("네이버 로그인이 필요합니다");
+      }
+      if (!res?.visible) {
         const why = !post.title ? "제목을 몰라 검색 경유 불가" : "네이버 검색으로도 확인 불가";
         throw new Error(`본문·댓글이 안 보임 → ${why} (패스 — 카페 가입이 필요하거나, 삭제됐거나, 댓글을 막은 글일 수 있음)`);
       }

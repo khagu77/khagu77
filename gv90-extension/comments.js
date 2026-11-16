@@ -268,6 +268,8 @@ async function collect() {
           sentiment: ruleSentiment(c.text),
           by: "rule",
         }));
+      // 화면에 댓글 수가 있는데 하나도 못 읽었으면 '댓글 없음'이 아니라 실패 (기존 댓글도 지우지 않음)
+      if (!list.length && (r.ccount || 0) > 0) throw new Error(`댓글 ${r.ccount}개가 있는데 읽지 못함 — 다시 수집해 주세요`);
       const res = await replacePostComments(p.key, list, day);
       const st = { at: Date.now(), ok: true, n: res.total, how: r.how || "" };
       // 댓글 수: 이번에 글 화면에서 다시 읽은 수가 있으면 그것으로 (예전에 잘못 읽은 수를 남기지 않게), 없으면 모은 개수와 저장된 수 중 큰 쪽
