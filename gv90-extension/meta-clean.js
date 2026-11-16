@@ -69,6 +69,11 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
       .catch((e) => reply({ ok: false, error: String(e?.message || e), id: chrome.runtime.id }));
     return true;
   }
+  // 저장 폴더 출처 모두 지우기: 파일 하나씩 바로 지우고 결과를 돌려줌
+  if (msg?.type === "gvCleanMetaNow" && msg.path) {
+    cleanMetaOf(msg.path).then(reply, (e) => reply({ ok: false, reason: "error", detail: String(e?.message || e) }));
+    return true;
+  }
   if (msg?.type !== "gvCleanMeta" || !msg.path) return;
   const name = msg.path.split("/").pop();
   const run = async () => {

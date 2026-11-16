@@ -174,6 +174,43 @@ async function prepareSaveDir() {
   }
 }
 
+// 저장 폴더 출처 모두 지우기 (엑셀에서 고쳐 저장하면 '출처'가 다시 붙을 수 있음)
+// info: 결과를 적을 글자 칸 · 버튼 클릭 직후 불러야 폴더 쓰기 허락 창을 띄울 수 있음
+async function cleanSaveFolder(info) {
+  const say = (t, cls = "") => {
+    info.textContent = t;
+    info.className = `hint ${cls}`;
+  };
+  if (!IS_MAC) return say("맥에서만 필요한 기능입니다 (윈도우는 '출처' 정보가 없음).");
+  const dir = await getSaveDir();
+  if (!dir) return say("⚠ ⚙ 설정에서 저장 폴더를 먼저 골라 주세요.", "err");
+  const s = await loadSettings();
+  let base = String(s.macFolderPath || "").trim().replace(/\/+$/, "");
+  if (!base) return say("⚠ ⚙ 설정에 고른 저장 폴더의 '전체 경로'를 한 번 넣어 주세요.", "err");
+  if (base.split("/").pop() !== dir.name) base = `${base.replace(/\/[^/]*$/, "")}/${dir.name}`;
+  try {
+    if ((await dir.queryPermission({ mode: "read" })) !== "granted" && (await dir.requestPermission({ mode: "read" })) !== "granted") return say("⚠ 저장 폴더를 읽을 허락을 받지 못했습니다.", "err");
+  } catch (e) {
+    return say(`⚠ 저장 폴더를 열지 못했습니다: ${e.message}`, "err");
+  }
+  const names = [];
+  for await (const [name, h] of dir.entries()) if (h.kind === "file" && /\.(xlsx|txt|json)$/i.test(name) && !name.startsWith("~$")) names.push(name);
+  if (!names.length) return say(`'${dir.name}' 폴더에 엑셀 파일이 없습니다.`);
+  let ok = 0;
+  const bad = [];
+  for (let i = 0; i < names.length; i++) {
+    say(`⏳ '${dir.name}' 폴더 출처 지우는 중… ${i + 1}/${names.length}`);
+    const r = await chrome.runtime.sendMessage({ type: "gvCleanMetaNow", path: `${base}/${names[i]}` }).catch((e) => ({ ok: false, reason: "error", detail: e.message }));
+    if (r?.ok) ok++;
+    else {
+      bad.push({ name: names[i], reason: r?.reason || "error" });
+      if (r?.reason === "none" || r?.reason === "old") break; // 도우미 문제면 나머지도 안 됨
+    }
+  }
+  if (!bad.length) return say(`✔ '${dir.name}' 폴더 파일 ${ok}개의 '출처' 정보를 모두 지웠습니다. (Finder 정보 창은 닫았다 다시 열면 바뀝니다)`, "ok");
+  say(`${ok ? `✔ ${ok}개 지움 · ` : ""}⚠ ${bad.length}개 못 지움: ${CLEAN_NOTICE[bad[0].reason] || bad[0].reason} (${bad.slice(0, 3).map((b) => b.name).join(", ")}${bad.length > 3 ? " …" : ""})`, "err");
+}
+
 // 맥 '출처' 정보 지우기: 받기 전에 파일 이름을 적어 두면 백그라운드(meta-clean.js)가 받기가 끝난 뒤 도우미로 지움
 async function registerClean(name) {
   if (!IS_MAC) return;

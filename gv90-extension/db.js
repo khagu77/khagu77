@@ -517,3 +517,6 @@ const dbInit = mergeUploadDuplicates()
   .catch(() => {})
   .then(render)
   .then(renderFinal);
+
+// 저장 폴더 출처 모두 지우기
+document.getElementById("cleanFolder")?.addEventListener("click", () => cleanSaveFolder(document.getElementById("cleanFolderInfo")));

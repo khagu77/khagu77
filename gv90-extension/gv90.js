@@ -1625,3 +1625,6 @@ $("#aiTest").addEventListener("click", async () => {
 });
 
 const gv90Init = init(); // 테스트가 기다림
+
+// 저장 폴더 출처 모두 지우기
+document.getElementById("cleanFolder")?.addEventListener("click", () => cleanSaveFolder(document.getElementById("cleanFolderInfo")));
