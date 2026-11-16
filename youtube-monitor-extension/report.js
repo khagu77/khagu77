@@ -203,7 +203,7 @@ function dashHtml(st, { fluid = false, banner = BANNER_URL, logo = LOGO_URL, cha
   const period = `'${String(st.start.getFullYear()).slice(2)}. ${st.start.getMonth() + 1}. ${st.start.getDate()}. ~ ${st.end.getMonth() + 1}. ${st.end.getDate()}.`;
   const kpi = (label, value, sub) =>
     `<td width="20%" style="width:20%;padding:0 4px;vertical-align:top;">${box(
-      `<div style="font-size:11px;color:#6b7280;white-space:nowrap;">${label}</div><div style="font-size:${kpiSize(value)}px;font-weight:900;color:#1b1d21;line-height:29px;height:29px;margin-top:2px;white-space:nowrap;letter-spacing:-0.5px;">${value}</div><div style="font-size:10.5px;color:#6b7280;margin-top:2px;white-space:nowrap;letter-spacing:-0.3px;overflow:hidden;">${sub}</div>`,
+      `<div style="font-size:11px;color:#6b7280;white-space:nowrap;">${label}</div><div style="font-size:${kpiSize(value)}px;font-weight:900;color:#1b1d21;line-height:29px;height:29px;margin-top:2px;white-space:nowrap;letter-spacing:-0.5px;">${value}</div><div style="font-size:10.5px;color:#6b7280;margin-top:2px;white-space:nowrap;letter-spacing:-0.3px;overflow:hidden;line-height:15px;height:30px;">${sub}</div>`,
       "padding:10px 12px;",
     )}</td>`;
   // 큰 숫자가 칸을 넘지 않게: 글자 수가 많으면 글씨를 줄임 (예: 407,717,149회)
@@ -231,6 +231,9 @@ function dashHtml(st, { fluid = false, banner = BANNER_URL, logo = LOGO_URL, cha
   ${banner ? `<td width="340" bgcolor="#002c5f" style="width:340px;background:#002c5f;background-color:#002c5f;padding:0;vertical-align:middle;"><img src="${banner}" width="340" height="155" alt="" style="display:block;width:340px;height:155px;border:0;"></td>` : ""}
   </tr></table>`;
 
+  // 구분별 채널 수 (콘텐츠가 나온 채널)
+  const chG = { managed: 0, econ: 0, other: 0 };
+  for (const c of st.channels) chG[c.group || "other"]++;
   const d7 = st.last7 - st.prev7;
   const avg = st.days.length ? st.total / st.days.length : 0;
   const kpis = `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:12px 0 0;"><tr>
@@ -238,7 +241,11 @@ function dashHtml(st, { fluid = false, banner = BANNER_URL, logo = LOGO_URL, cha
   ${kpi("최근 7일 발행", `${num(st.last7)}<span style="font-size:13px;font-weight:700;">건</span>`, `직전 7일 ${num(st.prev7)}건 ${diffPill(d7)}`)}
   ${kpi(`${md(st.end)}(${WD[st.end.getDay()]}) 발행`, `${num(st.lastDay)}<span style="font-size:13px;font-weight:700;">건</span>`, `전일 ${num(st.prevDay)}건 ${diffPill(st.lastDay - st.prevDay)}`)}
   ${kpi("누적 조회수", `${num(st.views)}<span style="font-size:13px;font-weight:700;">회</span>`, `댓글 ${num(st.comments)}개 · 좋아요 ${num(st.likes)}개`)}
-  ${kpi("관련 채널", `${num(st.channels.length)}<span style="font-size:13px;font-weight:700;">곳</span>`, `콘텐츠 관리 ${st.groups.managed} · 경제 ${st.groups.econ} · 기타 ${st.groups.other}`)}
+  ${kpi(
+    "관련 채널",
+    `${num(st.channels.length)}<span style="font-size:13px;font-weight:700;">곳</span>`,
+    `채널 관리 ${num(chG.managed)} · 경제 ${num(chG.econ)} · 기타 ${num(chG.other)}곳<br>콘텐츠 관리 ${num(st.groups.managed)} · 경제 ${num(st.groups.econ)} · 기타 ${num(st.groups.other)}건`,
+  )}
   </tr></table>`;
 
   const pk = st.peak && st.peak.count ? `&nbsp;&nbsp;&nbsp;<span style="display:inline-block;background:#d93025;color:#ffffff;font-size:10px;font-weight:700;border-radius:999px;padding:0 6px;line-height:14px;vertical-align:middle;">${st.peak.count}건</span> <span style="font-size:11px;color:#1b1d21;">최고 (${md(st.peak.date)})</span>` : "";
