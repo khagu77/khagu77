@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>'현대차 위기론' 유튜브 콘텐츠 모니터링</title>
+  <link rel="icon" href="icons/icon32.png">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-in">
+      <div class="hero-text">
+        <div class="eyebrow"><img src="icons/logo.png" alt="" class="yt-logo"> YOUTUBE MONITORING <span id="ver" class="ver"></span></div>
+        <h1>'현대차 위기론' 관련 부정적 프레임의<br>유튜브 콘텐츠 모니터링</h1>
+        <div class="hero-sub" id="heroSub"></div>
+      </div>
+      <div class="hero-img" aria-hidden="true"></div>
+    </div>
+    <nav class="menu">
+      <a href="#dash" data-tab="dash">📊 대시보드</a>
+      <a href="#collect" data-tab="collect">🔎 수집</a>
+      <a href="#db" data-tab="db">🗄 DB <span class="count" id="dbCount"></span></a>
+      <a href="#settings" data-tab="settings">⚙ 설정</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- 대시보드 -->
+    <section id="tab-dash" class="tab">
+      <div class="toolbar">
+        <label>기간 <input type="date" id="dStart"> ~ <input type="date" id="dEnd"></label>
+        <label>구분
+          <select id="dGroup">
+            <option value="all">전체</option>
+            <option value="managed">관리 채널</option>
+            <option value="econ">경제 채널</option>
+            <option value="other">기타 채널</option>
+          </select>
+        </label>
+        <span class="grow"></span>
+        <button id="copyMail" class="primary">📋 메일에 붙여넣기용 복사</button>
+        <button id="copyLite">이미지 없이 복사</button>
+        <button id="copyCode">HTML 코드 복사</button>
+        <button id="xlsxDash" class="primary">📥 엑셀 받기</button>
+      </div>
+      <div id="dashInfo" class="hint"></div>
+      <div id="dashBody"></div>
+      <div id="tip" class="tip" hidden></div>
+    </section>
+
+    <!-- 수집 -->
+    <section id="tab-collect" class="tab">
+      <div class="card">
+        <h2>콘텐츠 수집</h2>
+        <p class="hint">
+          ① <b>관리 채널·주요 경제 채널</b> 안에서 '현대차' 관련 영상을 찾고(채널 안 검색 + 최신 영상),
+          ② <b>유튜브 전체 검색</b>(업로드 날짜순)으로 그 밖의 모든 채널을 찾은 뒤,
+          ③ 영상마다 정확한 발행 시각·조회수·좋아요·댓글 수·설명을 읽어
+          ④ 단어와 Claude AI 로 <b>부정 프레임 여부·한 줄 요약</b>을 정합니다. 처음엔 10~20분 정도 걸립니다.
+        </p>
+        <div class="row">
+          <label class="chk"><input type="checkbox" id="optChannels" checked> 관리·경제 채널 훑기</label>
+          <label class="chk"><input type="checkbox" id="optSearch" checked> 유튜브 전체 검색 (그 외 채널)</label>
+          <label class="chk"><input type="checkbox" id="optRefresh" checked> DB 영상 조회수·댓글 수 새로 고침</label>
+          <label class="chk"><input type="checkbox" id="optAi" checked> AI 요약·판단 <span class="hint" id="aiState"></span></label>
+        </div>
+        <div class="row">
+          <span class="hint" id="periodInfo"></span>
+        </div>
+        <div class="row">
+          <button id="run" class="primary big">▶ 수집 시작</button>
+          <button id="stop" disabled>■ 중지</button>
+          <button id="aiOnly">🤖 AI 요약·판단만 다시</button>
+          <span class="grow"></span>
+          <span class="hint" id="lastRun"></span>
+        </div>
+        <div class="progress"><div id="bar"></div></div>
+        <div id="stage" class="stage"></div>
+        <pre id="log" class="log"></pre>
+      </div>
+      <div class="card">
+        <h2>영상 직접 추가</h2>
+        <p class="hint">수집에서 빠진 영상 주소를 한 줄에 하나씩 넣으면 정보를 읽어 DB 에 '포함'으로 넣습니다.</p>
+        <textarea id="addUrls" rows="3" spellcheck="false" placeholder="https://www.youtube.com/watch?v=…"></textarea>
+        <div class="row"><button id="addBtn">＋ DB 에 추가</button><span class="hint" id="addInfo"></span></div>
+      </div>
+    </section>
+
+    <!-- DB -->
+    <section id="tab-db" class="tab">
+      <div class="toolbar">
+        <input type="search" id="q" placeholder="제목·채널·요약 검색">
+        <select id="fInc">
+          <option value="inc">포함(부정 프레임)만</option>
+          <option value="exc">제외한 것만</option>
+          <option value="all">전체</option>
+        </select>
+        <select id="fGroup">
+          <option value="all">모든 구분</option>
+          <option value="managed">관리 채널</option>
+          <option value="econ">경제 채널</option>
+          <option value="other">기타 채널</option>
+        </select>
+        <label class="chk"><input type="checkbox" id="fPeriod" checked> 모니터링 기간만</label>
+        <span class="grow"></span>
+        <button id="xlsxDb" class="primary">📥 보이는 목록 엑셀 받기</button>
+        <button id="backup">백업 내보내기</button>
+        <label class="btn">백업 가져오기<input type="file" id="restore" accept=".json" hidden></label>
+      </div>
+      <div class="hint" id="dbInfo"></div>
+      <div class="table-wrap">
+        <table class="db">
+          <thead>
+            <tr>
+              <th data-k="include">포함</th>
+              <th data-k="published">발행일</th>
+              <th>썸네일</th>
+              <th data-k="channelName">채널</th>
+              <th data-k="title">제목 · 내용 요약</th>
+              <th data-k="views" class="r">조회수</th>
+              <th data-k="likes" class="r">좋아요</th>
+              <th data-k="comments" class="r">댓글</th>
+              <th data-k="tone">논조</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 설정 -->
+    <section id="tab-settings" class="tab">
+      <div class="card">
+        <h2>모니터링 기간</h2>
+        <div class="row">
+          <label>시작 <input type="date" id="sStart"></label>
+          <label>끝 <input type="date" id="sEnd"> <span class="hint">(비우면 오늘)</span></label>
+        </div>
+      </div>
+      <div class="card">
+        <h2>대상 채널</h2>
+        <div class="grid2">
+          <div>
+            <label for="sManaged">기존 관리 채널 <span class="hint">(한 줄에 하나 · 채널 주소 또는 그 채널의 영상 주소 · 앞에 '이름 |' 붙여도 됨)</span></label>
+            <textarea id="sManaged" rows="10" spellcheck="false"></textarea>
+          </div>
+          <div>
+            <label for="sEcon">주요 경제 채널 <span class="hint">(이름 | 채널 주소)</span></label>
+            <textarea id="sEcon" rows="10" spellcheck="false"></textarea>
+          </div>
+        </div>
+        <label for="sChQ">채널 안에서 찾을 검색어 <span class="hint">(쉼표로 구분)</span></label>
+        <input id="sChQ" type="text">
+        <div id="chanList" class="hint"></div>
+      </div>
+      <div class="card">
+        <h2>유튜브 전체 검색 (그 외 모든 채널)</h2>
+        <label for="sQueries">검색어 <span class="hint">(한 줄에 하나 · 업로드 날짜순으로 기간 시작일까지)</span></label>
+        <textarea id="sQueries" rows="8" spellcheck="false"></textarea>
+        <label>검색어마다 볼 쪽 수 <input type="number" id="sPages" min="1" max="30" style="width:70px"> <span class="hint">(1쪽 ≈ 20개, 기간 밖이 나오면 그 전에 멈춤)</span></label>
+      </div>
+      <div class="card">
+        <h2>판단 단어</h2>
+        <label for="sTopic">현대차 관련 단어 <span class="hint">(제목·설명에 하나라도 있어야 모음)</span></label>
+        <input id="sTopic" type="text">
+        <label for="sNeg">부정 프레임 단어 <span class="hint">(제목에 있으면 2점, 설명 앞부분 1점 · 2점 이상이면 '부정')</span></label>
+        <textarea id="sNeg" rows="4" spellcheck="false"></textarea>
+        <label for="sPos">반대로 읽히는 말 <span class="hint">(있으면 1점 뺌)</span></label>
+        <input id="sPos" type="text">
+      </div>
+      <div class="card">
+        <h2>Claude AI (한 줄 요약 · 부정 프레임 판단)</h2>
+        <p class="hint">API 키를 넣으면 영상마다 제목·설명을 읽고 보고서용 한 줄 요약, 위기론 관련 여부, 논조(부정·중립·긍정), 프레임 유형을 정합니다.
+          키가 없으면 영상 설명에서 내용 문장을 골라 요약하고 단어로 판단합니다. 키는 이 PC 크롬에만 저장됩니다.</p>
+        <div class="row">
+          <input type="password" id="aiKey" placeholder="sk-ant-…" style="flex:1;min-width:260px" autocomplete="off">
+          <select id="aiModel"></select>
+          <label class="chk"><input type="checkbox" id="aiOn"> AI 사용</label>
+        </div>
+      </div>
+      <div class="row">
+        <button id="save" class="primary big">저장</button>
+        <button id="reset">기본값으로 되돌리기</button>
+        <span class="hint" id="saveInfo"></span>
+      </div>
+    </section>
+  </main>
+
+  <script src="config.js"></script>
+  <script src="store.js"></script>
+  <script src="yt.js"></script>
+  <script src="classify.js"></script>
+  <script src="xlsx-pro.js"></script>
+  <script src="report.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
