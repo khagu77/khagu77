@@ -14,7 +14,10 @@ let curRange = null; // { start, end } (ms) 이번 결과의 수집 기간
 let curRunId = null; // 이번 수집 회차
 let mergedRunIds = []; // 결과 표에 합친 휴일 수집 회차
 let pendingXlsx = null; // { bytes, name } 만든 엑셀 (저장 버튼으로 다시 저장할 때)
-let dbKeys = new Set(); // 데일리 DB 에 이미 있는 글
+let dbKeys = new Map(); // 데일리 DB 에 이미 있는 글 (key → 보고일)
+// 지난 보고에 들어간 글인지 — 오늘 저장한 글(오늘 보고)은 '이미 DB' 가 아님
+const isPrevDb = (key) => dbKeys.has(key) && dbKeys.get(key).day !== todayKey();
+const loadDbKeys = async () => (dbKeys = new Map((await allPosts()).map((p) => [p.key, { day: p.day || "", savedAt: p.savedAt || 0, via: p.via || "" }])));
 let heartbeatTimer = null;
 
 isWorking = () => running; // common.js: 작업 중 뒤로 가기·닫기 막기
@@ -486,7 +489,7 @@ async function collectDirectOnly(urls) {
   const isStopped = () => stopRequested;
   const kw = parseKeywords(s.keywords);
   setExtraLexicon(s.lexicon);
-  dbKeys = new Set((await allPosts()).map((p) => p.key));
+  await loadDbKeys();
   const have = new Set(items.map((x) => x.key));
   const added = [];
   const failed = [];
@@ -535,7 +538,7 @@ async function collectDirectOnly(urls) {
       }
       it.related = true;
       it.checked = true;
-      if (dbKeys.has(it.key)) {
+      if (isPrevDb(it.key)) {
         it.dup = true;
         it.checked = false;
       }
@@ -618,7 +621,7 @@ async function collect() {
   const range2 = { from: range.start, to: range.end };
   const found = new Map();
   // 찾는 대로 아래 결과 표에 바로 보여 줌 (일일동향처럼) · 성향은 무료 분석으로 바로 채우고, 끝나면 한 번 더 정리
-  dbKeys = new Set((await allPosts()).map((p) => p.key));
+  await loadDbKeys();
   // 새로 수집하기 전에 지금 결과(AI 분석 포함)를 따로 보관 → '↩ 직전 결과 불러오기'로 되돌릴 수 있게
   if (!cp && items.length) await chrome.storage.local.set({ gvPrevResult: { items: items.map(serialize), curRange, curRunId, mergedRunIds, at: Date.now() } }).catch(() => {});
   items = [];
@@ -665,7 +668,7 @@ async function collect() {
     }
     it.related = it.direct || mentionsCar(itemText(it)) || matchesKeywords(itemText(it), kw);
     it.checked = it.related;
-    if (dbKeys.has(it.key)) {
+    if (isPrevDb(it.key)) {
       it.dup = true;
       it.checked = false;
     }
@@ -933,8 +936,8 @@ async function collect() {
     if (!x.touched) x.checked = x.related; // 수집 중에 표에서 직접 바꾼 체크는 그대로
   }
   // 데일리 DB 에 이미 있는 글은 체크 해제 (지난 보고에 들어감)
-  dbKeys = new Set((await allPosts()).map((p) => p.key));
-  for (const x of fresh) if (dbKeys.has(x.key)) {
+  await loadDbKeys();
+  for (const x of fresh) if (isPrevDb(x.key)) {
     x.dup = true;
     if (!x.touched) x.checked = false;
   }
@@ -1099,7 +1102,7 @@ async function mergePending() {
       if (have.has(x.key)) continue;
       have.add(x.key);
       x.fromRun = `${fmtDay(r.range.end)}${r.holiday ? ` ${r.holiday}` : ""} 수집`;
-      if (dbKeys.has(x.key)) {
+      if (isPrevDb(x.key)) {
         x.dup = true;
         x.checked = false;
       }
@@ -1154,12 +1157,17 @@ function renderResults() {
     sen.value = x.sentiment || "중립";
     const notes = [];
     if (String(x.by || "").startsWith("ai")) notes.push(el("span", { class: "badge ai", text: "AI" }));
-    if (x.dup) notes.push(el("span", { class: "badge dup", text: "이미 DB" }));
+    const dbRec = dbKeys.get(x.key);
+    const dbDay = dbRec?.day || "";
+    const dbWhy = dbRec ? ` — ${dbRec.savedAt ? fmtDateTime(dbRec.savedAt).slice(5, 16) + " " : ""}${dbRec.via || "엑셀 만들기·자동 수집·엑셀 등록 중 하나"}로 DB 에 들어감` : "";
+    const shortDay = dbDay ? dbDay.slice(5).replace("-", "/") : "";
+    if (x.dup) notes.push(el("span", { class: "badge dup", text: shortDay ? `이미 DB ${shortDay}` : "이미 DB" }));
+    else if (dbDay && dbDay === todayKey()) notes.push(el("span", { class: "badge saved", text: "오늘 저장됨" }));
     else notes.push(el("span", { class: "badge new", text: "새 글" }));
     if (x.fromRun) notes.push(el("span", { class: "hint", text: ` ${x.fromRun.replace(/ 수집$/, "")}` }));
     if (x.note) notes.push(el("span", { class: "hint err", text: ` ${x.note}` }));
     if (!x.related && !x.direct) notes.push(el("span", { class: "hint", text: " 키워드 없음" }));
-    const noteTitle = [x.dup ? "이미 데일리 DB 에 있는 글 (지난 보고에 들어감)" : "새 글", String(x.by || "").startsWith("ai") ? "AI 판독" : "", x.fromRun || "", x.note || "", !x.related && !x.direct ? "제목·본문에 GV90 키워드 없음" : ""].filter(Boolean).join(" · ");
+    const noteTitle = [x.dup ? `이미 데일리 DB 에 있는 글 (${dbDay || "지난"} 보고${dbWhy})` : dbDay && dbDay === todayKey() ? `오늘 보고에 저장된 글${dbWhy}` : "새 글", String(x.by || "").startsWith("ai") ? "AI 판독" : "", x.fromRun || "", x.note || "", !x.related && !x.direct ? "제목·본문에 GV90 키워드 없음" : ""].filter(Boolean).join(" · ");
     tr.append(
       el("td", {}, cb),
       el("td", {}, chChip(x.channel)),
@@ -1204,12 +1212,22 @@ function fixDirtySummaries() {
   return n;
 }
 
+// '이미 DB' 다시 판단 — 예전 버전은 오늘 저장한 글도 '이미 DB' 로 표시했음
+function recheckDup() {
+  for (const x of items) {
+    const prev = isPrevDb(x.key);
+    if (x.dup && !prev && !x.touched) x.checked = x.related || !!x.direct;
+    x.dup = prev;
+  }
+}
+
 async function restoreLast() {
   const { gvLastResult } = await chrome.storage.local.get("gvLastResult").catch(() => ({}));
   if (!gvLastResult || !gvLastResult.items?.length || Date.now() - gvLastResult.at > 3 * 86400000) return;
   ({ items, curRange, curRunId, mergedRunIds } = { mergedRunIds: [], ...gvLastResult });
   fixDirtySummaries();
-  dbKeys = new Set((await allPosts()).map((p) => p.key));
+  await loadDbKeys();
+  recheckDup();
   renderResults();
   setSummary(`지난 결과 ${items.length}건을 불러왔습니다 (${fmtDateTime(gvLastResult.at)} 수집).`);
 }
@@ -1226,11 +1244,11 @@ async function makeExcel({ interactive = true } = {}) {
   $("#saveList").disabled = true;
   const day = todayKey();
   // 데일리 DB 저장 (이미 있는 글은 연번·보고일 그대로, 분석값만 갱신)
-  const toSave = chosen.map((x) => ({ ...x, body: (x.body || "").slice(0, 2000), day }));
+  const toSave = chosen.map((x) => ({ ...x, body: (x.body || "").slice(0, 2000), day, via: interactive ? "엑셀 만들기" : "자동 수집(평일 엑셀 자동 저장)" }));
   const res = await savePosts(toSave, day);
   const fileName = reportFileName(s, curRange ? new Date(curRange.end) : new Date());
   await refreshDay(day, { from: curRange?.start ?? null, to: curRange?.end ?? null, fileName, keepEmpty: true });
-  dbKeys = new Set((await allPosts()).map((p) => p.key));
+  await loadDbKeys();
   // 엑셀
   const posts = s.xlsxScope === "today" ? await postsOfDay(day) : await allPosts();
   const daily = (await listDays()).slice().reverse();
@@ -1238,7 +1256,7 @@ async function makeExcel({ interactive = true } = {}) {
   await saveDayFile(day, fileName, bytes);
   await markRunsReported([curRunId, ...mergedRunIds].filter(Boolean));
   await chrome.storage.local.set({ gvLastReportAt: Date.now() });
-  for (const x of chosen) x.dup = true;
+  for (const x of chosen) x.savedToday = true;
   pendingXlsx = { bytes, name: fileName };
   let where = "";
   try {
@@ -1456,7 +1474,8 @@ $("#mergeHoliday").addEventListener("click", async () => {
     const r = readRange();
     curRange = { start: r.start.getTime(), end: r.end.getTime() };
   }
-  dbKeys = new Set((await allPosts()).map((x) => x.key));
+  await loadDbKeys();
+  recheckDup();
   const before = new Set(mergedRunIds);
   await mergePending();
   mergedRunIds = [...new Set([...before, ...mergedRunIds])];
@@ -1478,7 +1497,8 @@ $("#loadPrev").addEventListener("click", async () => {
   if (!p || !p.items?.length) return setSummary("되돌릴 직전 결과가 없습니다.", "err");
   if (!confirm(`직전 결과(${fmtDateTime(p.at).slice(5, 16)} 이전 · 게시글 ${p.items.length}건, AI 분석 ${p.items.filter((x) => String(x.by || "").startsWith("ai")).length}건)를 다시 불러올까요?\n지금 결과 표(${items.length}건)는 이 결과로 바뀝니다.`)) return;
   ({ items, curRange, curRunId, mergedRunIds } = { mergedRunIds: [], ...p, items: p.items.map(deserialize) });
-  dbKeys = new Set((await allPosts()).map((x) => x.key));
+  await loadDbKeys();
+  recheckDup();
   sortItems();
   renderResults();
   await saveLast();

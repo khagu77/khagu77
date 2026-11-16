@@ -246,6 +246,7 @@ button.getbtn.ready::after {
 .badge.ai { background: linear-gradient(90deg, #b88a4a, #e8cfa3); color: #2a1b05; }
 .badge.new { background: #e11d48; color: #fff; }
 .badge.dup { background: var(--neu-bg); color: var(--text-2); }
+.badge.saved { background: #dcfce7; color: #15803d; }
 
 /* 저장 위치 상자 */
 .savebox { margin: 8px 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }

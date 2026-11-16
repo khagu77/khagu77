@@ -235,6 +235,7 @@ async function showDay(day) {
 function rowToPost(r, day) {
   return {
     key: keyOfUrl(r.url),
+    via: "DB 화면 엑셀 등록·수정본 올리기",
     url: r.url,
     channel: channelOfUrl(r.url),
     media: r.community,
