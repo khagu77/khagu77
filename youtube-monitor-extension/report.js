@@ -123,7 +123,7 @@ const C_MA = "#eb6834"; // 7일 평균
 const DASH_FONT = "'Malgun Gothic','Apple SD Gothic Neo',Arial,sans-serif";
 
 function dailyChartSvg(days, W = 912, H = 230, interactive = false) {
-  const L = 34, R = 14, T = 18, B = 26;
+  const L = 34, R = 14, T = 20, B = 26;
   const n = days.length;
   if (!n) return "";
   const max = Math.max(4, ...days.map((d) => d.count));
@@ -153,16 +153,18 @@ function dailyChartSvg(days, W = 912, H = 230, interactive = false) {
   days.forEach((d, i) => {
     if (d.count) s += `<circle cx="${x(i).toFixed(1)}" cy="${y(d.count).toFixed(1)}" r="2.6" fill="${C_LINE}" stroke="#ffffff" stroke-width="1"/>`;
   });
-  // 직접 표시: 최고점 · 마지막 날
+  // 날짜마다 건수: 점 위에 작은 둥근 상자 + 흰 글씨 (가장 많은 날은 빨강, 0건은 연한 회색)
   const peakI = days.reduce((m, d, i) => (d.count > days[m].count ? i : m), 0);
-  const label = (i, txt, bold) => {
-    // 글자 폭(대략: 한글 11px · 숫자·기호 6.5px)만큼 그래프 안쪽으로 → 양 끝에서 잘리지 않게
-    const tw = [...txt].reduce((a, ch) => a + (/[가-힣]/.test(ch) ? 11 : 6.5), 0);
-    const tx = Math.min(Math.max(x(i), L + tw / 2 + 2), W - tw / 2 - 2);
-    s += `<text x="${tx.toFixed(1)}" y="${(y(days[i].count) - 8).toFixed(1)}" font-size="11" font-weight="${bold ? 800 : 700}" text-anchor="middle" fill="#1b1d21">${txt}</text>`;
-  };
-  if (days[peakI].count) label(peakI, `최고 ${days[peakI].count}건 (${md(days[peakI].date)})`, true);
-  if (n - 1 !== peakI) label(n - 1, `${days[n - 1].count}건`, false);
+  days.forEach((d, i) => {
+    const t = String(d.count);
+    const bw = t.length * 4.3 + 4;
+    const bh = 9;
+    const cx = Math.min(Math.max(x(i), L + bw / 2), W - R + 10 - bw / 2);
+    const by = y(d.count) - 4 - bh;
+    const fill = d.count && i === peakI ? "#d93025" : d.count ? C_LINE : "#c3c9d2";
+    s += `<rect x="${(cx - bw / 2).toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh}" rx="4.5" fill="${fill}"/>`;
+    s += `<text x="${cx.toFixed(1)}" y="${(by + 7).toFixed(1)}" font-size="7" font-weight="700" letter-spacing="-0.4" text-anchor="middle" fill="#ffffff">${t}</text>`;
+  });
   if (interactive) {
     // 화면에서만: 날짜마다 마우스 올리면 수치 (메일에는 넣지 않음)
     const cw = (W - L - R) / Math.max(1, n - 1);
@@ -227,7 +229,8 @@ function dashHtml(st, { fluid = false, banner = BANNER_URL, logo = LOGO_URL, cha
   ${kpi("관련 채널", `${num(st.channels.length)}<span style="font-size:13px;font-weight:700;">곳</span>`, `콘텐츠 관리 ${st.groups.managed} · 경제 ${st.groups.econ} · 기타 ${st.groups.other}`)}
   </tr></table>`;
 
-  const legend = `<span style="display:inline-block;width:14px;height:0;border-top:2px solid ${C_LINE};vertical-align:middle;"></span> <span style="font-size:11px;color:#1b1d21;">일자별 발행 수</span>&nbsp;&nbsp;&nbsp;<span style="display:inline-block;width:14px;height:0;border-top:2px dashed ${C_MA};vertical-align:middle;"></span> <span style="font-size:11px;color:#1b1d21;">7일 평균</span>`;
+  const pk = st.peak && st.peak.count ? `&nbsp;&nbsp;&nbsp;<span style="display:inline-block;background:#d93025;color:#ffffff;font-size:10px;font-weight:700;border-radius:999px;padding:0 6px;line-height:14px;vertical-align:middle;">${st.peak.count}</span> <span style="font-size:11px;color:#1b1d21;">최고 (${md(st.peak.date)})</span>` : "";
+  const legend = `<span style="display:inline-block;width:14px;height:0;border-top:2px solid ${C_LINE};vertical-align:middle;"></span> <span style="font-size:11px;color:#1b1d21;">일자별 발행 수</span>&nbsp;&nbsp;&nbsp;<span style="display:inline-block;width:14px;height:0;border-top:2px dashed ${C_MA};vertical-align:middle;"></span> <span style="font-size:11px;color:#1b1d21;">7일 평균</span>${pk}`;
   const chart = `<div style="margin:12px 4px 0;">${box(
     `<table width="100%" cellpadding="0" cellspacing="0"><tr><td>${h3("일자별 발행 추이", `${period} · 단위: 건`)}</td><td align="right" style="text-align:right;">${legend}</td></tr></table>` +
       `<div class="chart-wrap" style="position:relative;">${dailyChartSvg(st.days, fluid ? 1100 : 912, 230, chartInteractive)}</div>`,
