@@ -244,7 +244,7 @@ function dashHtml(st, { fluid = false, banner = BANNER_URL, logo = LOGO_URL, cha
   ${kpi(
     "관련 채널",
     `${num(st.channels.length)}<span style="font-size:13px;font-weight:700;">곳</span>`,
-    `채널 관리 ${num(chG.managed)} · 경제 ${num(chG.econ)} · 기타 ${num(chG.other)}곳<br>콘텐츠 관리 ${num(st.groups.managed)} · 경제 ${num(st.groups.econ)} · 기타 ${num(st.groups.other)}건`,
+    `채널 수 · 관리 ${num(chG.managed)} · 경제 ${num(chG.econ)} · 기타 ${num(chG.other)}곳<br>콘텐츠 수 · 관리 ${num(st.groups.managed)} · 경제 ${num(st.groups.econ)} · 기타 ${num(st.groups.other)}건`,
   )}
   </tr></table>`;
 
