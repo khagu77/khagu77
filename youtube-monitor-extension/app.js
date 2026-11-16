@@ -52,7 +52,7 @@ async function renderDash() {
   const f = dashFilter();
   dashStats = computeStats(videos, f);
   const cc = await channelCount();
-  $("#dashBody").innerHTML = dashHtml(dashStats, { fluid: true, banner: chrome.runtime.getURL("icons/banner.jpg"), chartInteractive: true, channelCount: cc });
+  $("#dashBody").innerHTML = dashHtml(dashStats, { fluid: true, banner: chrome.runtime.getURL("icons/banner-blend.jpg"), logo: chrome.runtime.getURL("icons/logo.png"), chartInteractive: true, channelCount: cc });
   if (!videos.length) $("#dashInfo").innerHTML = "아직 DB 가 비어 있습니다. <b>🔎 수집</b> 탭에서 <b>수집 시작</b>을 누르세요.";
   else if ($("#dashInfo").dataset.keep !== "1") $("#dashInfo").textContent = "";
   hookChartTip();
@@ -115,7 +115,7 @@ function copyHtml(html, text, okMsg) {
 
 async function mailHtml(withImages) {
   const cc = await channelCount();
-  let body = dashHtml(dashStats, { fluid: false, banner: withImages ? BANNER_URL : "", channelCount: cc });
+  let body = dashHtml(dashStats, { fluid: false, banner: withImages ? BANNER_URL : "", logo: withImages ? LOGO_URL : "", channelCount: cc });
   if (!withImages) body = body.replace(/<td style="padding:4px 8px 4px 0;width:80px;vertical-align:top;"><a [^>]*><img [^>]*><\/a><\/td>/g, "");
   return body;
 }

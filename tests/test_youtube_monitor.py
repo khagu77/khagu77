@@ -287,15 +287,17 @@ def test_collect_dashboard_excel(tmp_path):
     wb = load_workbook(path)
     assert wb.sheetnames == ["모니터링 리스트", "일자별 발행 추이", "주간 추이", "채널별 현황"]
     ws = wb["모니터링 리스트"]
-    assert [c.value for c in ws[3]][:8] == ["No.", "발행일", "썸네일", "채널명", "구분", "제목", "내용 요약", "URL"]
+    assert [c.value for c in ws[3]][:11] == ["No.", "발행일", "썸네일", "채널명", "구분", "제목", "URL", "조회수", "좋아요", "댓글 수", "내용 요약"]
     rows = [[c.value for c in r] for r in ws.iter_rows(min_row=4, max_row=8)]
     assert [r[0] for r in rows] == [1, 2, 3, 4, 5]
     assert all(isinstance(r[1], datetime) for r in rows)
     assert rows == sorted(rows, key=lambda r: r[1])  # 발행일 순
-    assert {r[7] for r in rows} == {f"https://www.youtube.com/watch?v={v}" for v in ["mgdNeg00001", "econNeg0001", "srchNeg0001", "shortNeg001", "page2Neg001"]}
-    econ = next(r for r in rows if r[7].endswith("econNeg0001"))
-    assert econ[3] == "경제채널B" and econ[4] == "경제" and econ[8] == 880000 and econ[9] == 15000 and econ[10] == 2301 and econ[11] == "부정"
-    assert econ[6].startswith("AI요약")
+    assert {r[6] for r in rows} == {f"https://www.youtube.com/watch?v={v}" for v in ["mgdNeg00001", "econNeg0001", "srchNeg0001", "shortNeg001", "page2Neg001"]}
+    econ = next(r for r in rows if r[6].endswith("econNeg0001"))
+    assert econ[3] == "경제채널B" and econ[4] == "경제" and econ[7] == 880000 and econ[8] == 15000 and econ[9] == 2301 and econ[11] == "부정"
+    assert econ[10].startswith("AI요약")
+    assert ws.cell(row=4, column=7).hyperlink.target.startswith("https://www.youtube.com/watch?v=")  # URL 칸은 링크
+    assert ws.cell(row=4, column=6).hyperlink is None  # 제목은 링크 없이 글자만
     assert ws.row_dimensions[4].height == 46
     days = wb["일자별 발행 추이"]
     assert isinstance(days["A7"].value, datetime) and days["B7"].value in "월화수목금토일" and days["C6"].value == "발행 수"

@@ -11,8 +11,10 @@ function parseYmd(s) {
 }
 function shortNum(n) {
   if (n == null) return "-";
-  if (n >= 1e8) return `${(n / 1e8).toFixed(n >= 1e9 ? 0 : 1)}억`;
-  if (n >= 1e4) return `${(n / 1e4).toFixed(n >= 1e5 ? 0 : 1)}만`;
+  // 천 단위 콤마: 2,016만 · 1.2억 · 12,345만
+  const f = (x, d) => x.toLocaleString("ko-KR", { minimumFractionDigits: d, maximumFractionDigits: d });
+  if (n >= 1e8) return `${f(n / 1e8, n >= 1e9 ? 0 : 1)}억`;
+  if (n >= 1e4) return `${f(n / 1e4, n >= 1e5 ? 0 : 1)}만`;
   return num(n);
 }
 const escH = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -173,7 +175,9 @@ function dailyChartSvg(days, W = 912, H = 230, interactive = false) {
 // ---------------------------------------------------------------------------
 // 대시보드 HTML — 메일 본문에 그대로 붙일 수 있게 표 + 인라인 서식 (fluid=true 면 화면용으로 꽉 차게)
 // ---------------------------------------------------------------------------
-const BANNER_URL = "https://raw.githubusercontent.com/khagu77/khagu77/c12e53781afc278422ed10e8490113aab9db8ae5/youtube-monitor-extension/icons/banner.jpg";
+// 메일에 붙여 넣는 그림은 인터넷 주소로 (커밋 번호로 고정 — 파일이 나중에 바뀌어도 보낸 메일의 그림은 그대로)
+const BANNER_URL = "https://raw.githubusercontent.com/khagu77/khagu77/a7d91020bcceb8593d835ba34fc06bf6e9261323/youtube-monitor-extension/icons/banner-blend.jpg";
+const LOGO_URL = "https://raw.githubusercontent.com/khagu77/khagu77/c12e53781afc278422ed10e8490113aab9db8ae5/youtube-monitor-extension/icons/logo.png";
 
 function diffPill(d, unit = "") {
   if (d == null) return "";
@@ -181,7 +185,7 @@ function diffPill(d, unit = "") {
   return `<span style="display:inline-block;color:${c};font-size:11px;font-weight:800;white-space:nowrap;">${t}</span>`;
 }
 
-function dashHtml(st, { fluid = false, banner = BANNER_URL, chartInteractive = false, stamp = new Date(), channelCount = 0 } = {}) {
+function dashHtml(st, { fluid = false, banner = BANNER_URL, logo = LOGO_URL, chartInteractive = false, stamp = new Date(), channelCount = 0 } = {}) {
   const W = 960;
   const box = (inner, extra = "") => `<div style="border:1px solid #d9dde3;border-radius:10px;background:#ffffff;padding:12px 14px;${extra}">${inner}</div>`;
   const h3 = (t, sub = "") => `<div style="font-size:14px;font-weight:800;color:#1b1d21;margin:0 0 8px;">${t}${sub ? ` <span style="font-size:11px;font-weight:400;color:#6b7280;">${sub}</span>` : ""}</div>`;
@@ -202,10 +206,13 @@ function dashHtml(st, { fluid = false, banner = BANNER_URL, chartInteractive = f
   const head = `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr>
   <td bgcolor="#002c5f" style="background:#002c5f;background-color:#002c5f;color:#ffffff;padding:16px 18px;vertical-align:middle;">
     <div style="font-size:11px;color:#c3cfdd;letter-spacing:0.3px;">YOUTUBE MONITORING · ${period}</div>
-    <div style="font-size:21px;font-weight:900;line-height:1.3;margin-top:4px;">'현대차 위기론' 관련<br>부정적 프레임 유튜브 콘텐츠 모니터링</div>
+    <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:6px;"><tr>
+      ${logo ? `<td style="padding:0 12px 0 0;vertical-align:middle;"><img src="${logo}" width="70" height="54" alt="" style="display:block;width:70px;height:54px;border:0;"></td>` : ""}
+      <td style="vertical-align:middle;color:#ffffff;font-size:21px;font-weight:900;line-height:1.3;">'현대차 위기론' 관련<br>부정적 프레임 유튜브 콘텐츠 모니터링</td>
+    </tr></table>
     <div style="font-size:11px;color:#c3cfdd;margin-top:6px;">기준 ${fmtDT(stamp)} · 대상: 관리 채널 + 주요 경제 채널 + 유튜브 전체 검색${channelCount ? ` (지정 채널 ${channelCount}곳)` : ""}</div>
   </td>
-  ${banner ? `<td width="300" bgcolor="#c4c8cb" style="width:300px;background:#c4c8cb;padding:0;vertical-align:middle;"><img src="${banner}" width="300" height="137" alt="" style="display:block;width:300px;height:137px;border:0;"></td>` : ""}
+  ${banner ? `<td width="340" bgcolor="#002c5f" style="width:340px;background:#002c5f;background-color:#002c5f;padding:0;vertical-align:middle;"><img src="${banner}" width="340" height="155" alt="" style="display:block;width:340px;height:155px;border:0;"></td>` : ""}
   </tr></table>`;
 
   const d7 = st.last7 - st.prev7;
@@ -214,7 +221,7 @@ function dashHtml(st, { fluid = false, banner = BANNER_URL, chartInteractive = f
   ${kpi("부정 프레임 콘텐츠", `${num(st.total)}<span style="font-size:13px;font-weight:700;">건</span>`, `일 평균 ${avg.toFixed(1)}건`)}
   ${kpi("최근 7일 발행", `${num(st.last7)}<span style="font-size:13px;font-weight:700;">건</span>`, `직전 7일 ${num(st.prev7)}건 ${diffPill(d7)}`)}
   ${kpi(`${md(st.end)}(${WD[st.end.getDay()]}) 발행`, `${num(st.lastDay)}<span style="font-size:13px;font-weight:700;">건</span>`, `전일 ${num(st.prevDay)}건 ${diffPill(st.lastDay - st.prevDay)}`)}
-  ${kpi("누적 조회수", shortNum(st.views), `댓글 ${num(st.comments)}개`)}
+  ${kpi("누적 조회수", `${num(st.views)}<span style="font-size:13px;font-weight:700;">회</span>`, `댓글 ${num(st.comments)}개 · 좋아요 ${num(st.likes)}개`)}
   ${kpi("관련 채널", `${num(st.channels.length)}<span style="font-size:13px;font-weight:700;">곳</span>`, `콘텐츠 관리 ${st.groups.managed} · 경제 ${st.groups.econ} · 기타 ${st.groups.other}`)}
   </tr></table>`;
 
@@ -367,8 +374,9 @@ async function buildExcel(st, { stamp = new Date(), onProgress } = {}) {
   const list = st.list;
   const period = `${ymd(st.start)} ~ ${ymd(st.end)}`;
   // 1) 모니터링 리스트
-  const cols1 = [5.5, 15.5, 15, 17, 8.5, 46, 46, 31, 11, 9, 9, 7.5, 15, 20];
-  const head1 = ["No.", "발행일", "썸네일", "채널명", "구분", "제목", "내용 요약", "URL", "조회수", "좋아요", "댓글 수", "논조", "프레임 유형", "부정 표현"];
+  // 요청서 순서: 발행일 / 썸네일 / 제목 / URL / 조회수 / 댓글 수 … + 내용 요약
+  const cols1 = [5.5, 15.5, 15, 17, 8.5, 46, 44, 12, 9, 9, 46, 7.5, 15, 20];
+  const head1 = ["No.", "발행일", "썸네일", "채널명", "구분", "제목", "URL", "조회수", "좋아요", "댓글 수", "내용 요약", "논조", "프레임 유형", "부정 표현"];
   const rows1 = [
     { h: 28, cells: [{ v: "'현대차 위기론' 관련 부정적 프레임의 유튜브 콘텐츠 모니터링", s: "title" }] },
     { h: 18, cells: [{ v: `기간 ${period} · 총 ${list.length}건 · 조회수·댓글 수 기준 ${fmtDT(stamp)} · 대상: 관리 채널 + 주요 경제 채널 + 유튜브 전체 검색`, s: "sub" }] },
@@ -389,18 +397,17 @@ async function buildExcel(st, { stamp = new Date(), onProgress } = {}) {
         { v: v.channelName, s: "wrap" },
         { v: (GROUPS[v.group] || "기타").replace(" 채널", ""), s: "textC" },
         { v: v.title, s: "wrap" },
-        { v: v.summary || "", s: "small" },
         { v: `https://www.youtube.com/watch?v=${v.id}`, s: "link" },
         { v: v.views ?? "", s: "num" },
         { v: v.likes ?? "", s: "num" },
         { v: v.comments ?? "", s: "num" },
+        { v: v.summary || "", s: "small" },
         { v: tone, s: tone === "부정" ? "neg" : "gray" },
         { v: v.ai?.frame || "", s: "small" },
         { v: (v.negHits || []).join(", "), s: "small" },
       ],
     });
-    links.push({ r, c: 7, url: `https://www.youtube.com/watch?v=${v.id}` });
-    links.push({ r, c: 5, url: `https://www.youtube.com/watch?v=${v.id}` });
+    links.push({ r, c: 6, url: `https://www.youtube.com/watch?v=${v.id}` });
     const bytes = await thumbBytes(v.id);
     if (bytes) images.push({ r, c: 2, bytes, type: "jpeg", w: THUMB_W, h: THUMB_H, dx: 7, dy: 4, descr: v.title });
     onProgress?.(i + 1, list.length);
@@ -410,8 +417,8 @@ async function buildExcel(st, { stamp = new Date(), onProgress } = {}) {
       h: 22,
       cells: [
         { v: "합계", s: "totalL" }, { v: `${list.length}건`, s: "totalL" }, { v: "", s: "totalL" }, { v: `${st.channels.length}개 채널`, s: "totalL" },
-        { v: "", s: "totalL" }, { v: "", s: "totalL" }, { v: "", s: "totalL" }, { v: "", s: "totalL" },
-        { v: st.views, s: "totalN" }, { v: st.likes, s: "totalN" }, { v: st.comments, s: "totalN" }, { v: "", s: "totalL" }, { v: "", s: "totalL" }, { v: "", s: "totalL" },
+        { v: "", s: "totalL" }, { v: "", s: "totalL" }, { v: "", s: "totalL" },
+        { v: st.views, s: "totalN" }, { v: st.likes, s: "totalN" }, { v: st.comments, s: "totalN" }, { v: "", s: "totalL" }, { v: "", s: "totalL" }, { v: "", s: "totalL" }, { v: "", s: "totalL" },
       ],
     });
 

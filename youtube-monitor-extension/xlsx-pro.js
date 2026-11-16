@@ -144,7 +144,7 @@
     date: [166, 0, 0, 1, "center", "center", false],
     datetime: [165, 0, 0, 1, "center", "center", false],
     day: [167, 0, 0, 1, "center", "center", false],
-    link: [0, 4, 0, 1, "left", "center", true],
+    link: [0, 4, 0, 1, "left", "center", false],
     thumb: [0, 0, 0, 1, "center", "center", false],
     neg: [0, 6, 4, 1, "center", "center", false],
     gray: [0, 5, 0, 1, "center", "center", false],
