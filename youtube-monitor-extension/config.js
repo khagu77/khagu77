@@ -93,7 +93,8 @@ const DEFAULTS = {
   ].join("\n"),
   searchWindow: 7, // 전체 검색: 기간을 며칠씩 잘라 검색할지 (구간마다 검색 화면 1쪽 · 꽉 차면 더 잘게)
   // 현대차 관련인지 (제목·설명)
-  topicWords: "현대차, 현대자동차, 현대 자동차, 현대기아, 현대·기아, 현대-기아, 현기차, 정의선, 현대모비스, 현차, HMG, Hyundai",
+  topicWords: "현대차, 현대자동차, 현대 자동차, 현대기아, 현대·기아, 현대-기아, 현기차, 정의선, 현대모비스, 현차",
+  excludeForeign: true, // 외국 콘텐츠(제목에 한글 없음·러시아어 등) 수집 안 함
   // 부정 프레임 단어 (제목에 있으면 2점, 설명 앞부분에 있으면 1점 · 2점 이상이면 '부정')
   negWords: [
     "위기", "비상", "추락", "몰락", "위험", "경고", "충격", "쇼크", "끝났", "끝장", "망한", "망했", "망할", "망하", "망조", "붕괴", "무너",
@@ -124,6 +125,9 @@ const OLD_MANAGED_DEFAULT = [
 ]
   .map((id) => `https://www.youtube.com/watch?v=${id}`)
   .join("\n");
+
+// 1.0.10 까지의 현대차 관련 단어 기본값 (영어 'Hyundai'·'HMG' 때문에 외국 영상이 잡혀 뺌)
+const OLD_TOPIC_DEFAULT = "현대차, 현대자동차, 현대 자동차, 현대기아, 현대·기아, 현대-기아, 현기차, 정의선, 현대모비스, 현차, HMG, Hyundai";
 
 const GROUPS = { managed: "관리 채널", econ: "경제 채널", other: "기타 채널" };
 const GROUP_COLOR = { managed: "#2a78d6", econ: "#eb6834", other: "#1baf7a" };

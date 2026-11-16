@@ -87,6 +87,7 @@ VIDEOS = {
     "srchNeg0001": ("\"이 돈이면 테슬라 사지\"…역대급 위기라는 현대차 상황", "UCother00000000000000000", "크랩 KLAB", 1, 2753610, 41000, 6200,
                     "아반떼·투싼 등 신차 가격이 오르며 현대차에 대한 소비자 불만이 커지고 있습니다."),
     "newNeg00001": ("현대차 위기 3부, 끝없는 추락", "UCother00000000000000000", "크랩 KLAB", 4, 99000, 800, 77, "현대차가 흔들리고 있습니다."),
+    "foreign0001": ("AK Auto Repair Автоэлектрик Диагност Hyundai 현대차", "UCforeign000000000000000", "AK Auto Repair", 2, 500, 3, 1, "Hyundai repair"),
     "srchMid0001": ("현대차 신형 투싼 시승기", "UCother11111111111111111", "카리뷰", 5, 30000, 900, 120, "신형 투싼을 타 봤습니다. 승차감이 좋아졌습니다."),
     "shortNeg001": ("현대차 망했다? #shorts", "UCother22222222222222222", "쇼츠채널", 20, 141000, 2000, 88, "현대차 위기 쇼츠"),
     "page2Neg001": ("현대차 주가 폭락 이유", "UCother33333333333333333", "주식채널", 30, 45000, 700, 210, "현대차 주가가 급락했습니다."),
@@ -139,7 +140,7 @@ def yt_route(route, calls):
         m = re.search(r"after:(\S+) before:(\S+)", q)
         lo, hi = (datetime.fromisoformat(m.group(1)).date(), datetime.fromisoformat(m.group(2)).date()) if m else (None, None)
         items = []
-        for v in ["srchNeg0001", "srchMid0001", "econNeg0001", "shortNeg001", "page2Neg001", "page2Old001", "page2Old002", "xxOffTopic1"]:
+        for v in ["foreign0001", "srchNeg0001", "srchMid0001", "econNeg0001", "shortNeg001", "page2Neg001", "page2Old001", "page2Old002", "xxOffTopic1"]:
             title, ch_id, ch_name, days = VIDEOS[v][:4] if v in VIDEOS else ("오늘의 날씨", "UCwx0000000000000000000", "날씨", 1)
             d = (NOW - timedelta(days=days)).date()
             if m and not (lo < d < hi):
@@ -222,7 +223,10 @@ def test_collect_dashboard_excel(tmp_path):
                econ: '경제채널B | https://www.youtube.com/@econch', channelQueries: '현대차', queries: '현대차 위기', searchWindow: 30, sound: false } })""",
             [start],
         )
+        # 예전 버전에서 들어온 외국 콘텐츠 → 화면을 열면 DB 에서 빠짐
+        pg.evaluate("DB.put({ id: 'oldForeign1', title: 'Hyundai Palisade 2027 обзор', channelName: 'Авто', published: new Date().toISOString(), include: true })")
         pg.reload()
+        assert pg.evaluate("DB.get('oldForeign1')") is None
         pg.goto(f"chrome-extension://{ext_id}/app.html#collect")
         pg.click("#run")
         # 봇 확인으로 막히면 안내가 뜨고, '지금 다시 시도'로 이어서 읽음
@@ -251,6 +255,7 @@ def test_collect_dashboard_excel(tmp_path):
         assert len(windows) == 3, windows  # 75일을 30일씩 → 3구간 (+ 기간 지정 없는 최신순 1번)
         watched = {parse_qs(urlparse(c).query)["v"][0] for c in calls if "/watch?" in c}
         assert "econOld0001" not in watched and "xxOffTopic1" not in watched and "econOff0001" not in watched  # 기간 밖·주제 밖은 열지 않음
+        assert "foreign0001" not in watched  # 외국 콘텐츠(러시아어 등)는 열지 않음
         assert ai_calls and ai_calls[0]["model"] == "claude-sonnet-5-5" and ai_calls[0]["output_config"]["format"]["type"] == "json_schema"
 
         vids = {v["id"]: v for v in pg.evaluate("DB.all()")}

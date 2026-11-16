@@ -21,6 +21,15 @@ function showTab() {
 }
 window.addEventListener("hashchange", showTab);
 
+// 이미 DB 에 들어온 외국 콘텐츠 정리 (직접 추가한 영상은 그대로)
+async function purgeForeign() {
+  if (!settings?.excludeForeign) return 0;
+  const all = await DB.all();
+  const bad = all.filter((v) => !v.byHand && isForeign(v));
+  for (const v of bad) await DB.del(v.id);
+  return bad.length;
+}
+
 async function reloadVideos() {
   videos = await DB.all();
   const p = periodOf();
@@ -316,6 +325,7 @@ async function runCollect(override = null) {
   if (override) log("빠진 것만 채우기: 아직 안 훑은 채널만 훑고, 새로 찾은 영상만 읽습니다 (전체 검색·DB 새로 고침 없음)");
   const cands = new Map(); // id → 목록에서 본 정보
   const addCand = (it, src) => {
+    if (settings.excludeForeign && isForeign(it)) return; // 외국 콘텐츠는 후보에서 뺌
     const c = cands.get(it.id);
     if (c) {
       if (!c.sources.includes(src)) c.sources.push(src);
@@ -486,6 +496,10 @@ async function runCollect(override = null) {
           rec.group = groupById.get(rec.channelId) || "other";
           Object.assign(rec, classify(rec, settings));
           if (!rec.topic && !prev && !rec.manual) continue; // 설명까지 봐도 현대차와 무관
+          if (settings.excludeForeign && !rec.byHand && isForeign(rec)) {
+            if (prev) await DB.del(id); // 예전에 들어온 외국 콘텐츠는 DB 에서도 뺌
+            continue;
+          }
           if (!rec.summary || rec.summarySrc === "rule") {
             rec.summary = ruleSummary(rec);
             rec.summarySrc = "rule";
@@ -677,6 +691,7 @@ $("#addBtn").addEventListener("click", async () => {
         sources: [...new Set([...(prev?.sources || []), "직접 추가"])],
         updated: new Date().toISOString(),
         manual: true,
+        byHand: true,
       };
       rec.group = groupById.get(rec.channelId) || "other";
       Object.assign(rec, classify(rec, settings));
@@ -844,6 +859,7 @@ async function fillSettings() {
   $("#sQueries").value = settings.queries;
   $("#sPages").value = settings.searchWindow;
   $("#sTopic").value = settings.topicWords;
+  $("#sForeign").checked = settings.excludeForeign !== false;
   $("#sNeg").value = settings.negWords;
   $("#sPos").value = settings.posWords;
   $("#aiModel").innerHTML = AI_MODELS.map(([id, name]) => `<option value="${id}">${name}</option>`).join("");
@@ -869,6 +885,7 @@ $("#save").addEventListener("click", async () => {
     queries: $("#sQueries").value,
     searchWindow: Math.max(1, Math.min(31, +$("#sPages").value || 7)),
     topicWords: $("#sTopic").value,
+    excludeForeign: $("#sForeign").checked,
     negWords: $("#sNeg").value,
     posWords: $("#sPos").value,
     ai: { on: $("#aiOn").checked, model: $("#aiModel").value },
@@ -882,8 +899,10 @@ $("#save").addEventListener("click", async () => {
     v.include = decideInclude(v);
   }
   await DB.putMany(all);
+  const purged = await purgeForeign();
   await reloadVideos();
   heroSub();
+  if (purged) $("#dbInfo").textContent = `외국 콘텐츠 ${purged}개를 DB 에서 뺐습니다.`;
   await fillSettings();
   $("#saveInfo").textContent = "✔ 저장했습니다.";
   $("#saveInfo").className = "hint ok";
@@ -900,7 +919,12 @@ $("#reset").addEventListener("click", async () => {
 (async function init() {
   $("#ver").textContent = `v${chrome.runtime.getManifest().version}`;
   settings = await loadSettings();
+  const purged = await purgeForeign();
   await reloadVideos();
+  if (purged) {
+    $("#dbInfo").textContent = `외국 콘텐츠 ${purged}개를 DB 에서 뺐습니다.`;
+    $("#lastRun").textContent = `외국 콘텐츠 ${purged}개를 DB 에서 뺐습니다.`;
+  }
   heroSub();
   const p = periodOf();
   $("#dStart").value = p.start;

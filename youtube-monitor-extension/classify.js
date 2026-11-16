@@ -22,6 +22,15 @@ function descLines(desc) {
     );
 }
 
+// 외국 콘텐츠: 제목에 한글이 없거나, 제목·채널 이름에 키릴(러시아어)·아랍·태국·힌디·히브리·그리스·일본 가나 글자가 있으면
+// (예: 'AK Auto Repair Автоэлектрик Диагност') — 수집하지 않음
+const FOREIGN_SCRIPT = /[\u0400-\u04FF\u0500-\u052F\u0600-\u06FF\u0750-\u077F\u0E00-\u0E7F\u0900-\u097F\u0590-\u05FF\u0370-\u03FF\u3040-\u30FF]/;
+function isForeign(v) {
+  const title = String(v.title || "");
+  if (!/[가-힣]/.test(title)) return true;
+  return FOREIGN_SCRIPT.test(`${title} ${v.channelName || ""}`);
+}
+
 // 규칙으로 쓰는 한 줄 요약: 설명의 첫 내용 문장 (없으면 제목)
 function ruleSummary(v) {
   const lines = descLines(v.desc);

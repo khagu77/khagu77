@@ -47,6 +47,7 @@ async function loadSettings() {
   const s = { ...DEFAULTS, ...(hmSettings || {}) };
   s.ai = { ...DEFAULTS.ai, ...(hmSettings?.ai || {}) };
   if (String(s.managed || "").trim() === OLD_MANAGED_DEFAULT) s.managed = DEFAULTS.managed; // 예전 기본값 → GV90 채널 48곳
+  if (String(s.topicWords || "").trim() === OLD_TOPIC_DEFAULT) s.topicWords = DEFAULTS.topicWords; // 영어 단어 뺀 새 기본값
   return s;
 }
 async function saveSettings(s) {
