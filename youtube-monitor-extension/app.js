@@ -179,6 +179,37 @@ function log(s) {
   el.textContent += `${new Date().toTimeString().slice(0, 8)}  ${s}\n`;
   el.scrollTop = el.scrollHeight;
 }
+// 수집 중에는 새로고침·뒤로 가기·탭 닫기를 막음 (확인 창) + 위쪽 '수집 중' 띠 + 탭 제목
+const BASE_TITLE = document.title;
+function setRunning(on) {
+  running = on;
+  $("#runBar").hidden = !on;
+  document.title = on ? `⏳ 수집 중 · ${BASE_TITLE}` : BASE_TITLE;
+}
+window.addEventListener("beforeunload", (e) => {
+  if (!running) return;
+  e.preventDefault();
+  e.returnValue = "수집 중입니다. 지금 나가면 수집이 멈춥니다.";
+  return e.returnValue;
+});
+// 새로고침 단축키(F5 · Ctrl/⌘+R)는 아예 막고 안내
+document.addEventListener(
+  "keydown",
+  (e) => {
+    if (!running) return;
+    const k = e.key.toLowerCase();
+    if (k === "f5" || ((e.ctrlKey || e.metaKey) && k === "r") || (e.altKey && (k === "arrowleft" || k === "arrowright")) || (e.metaKey && (k === "[" || k === "]"))) {
+      e.preventDefault();
+      e.stopPropagation();
+      const bar = $("#runBar");
+      bar.classList.remove("shake");
+      void bar.offsetWidth;
+      bar.classList.add("shake");
+    }
+  },
+  true,
+);
+
 // 유튜브가 잠시 막았을 때(봇 확인) 안내 — 기다렸다가 저절로 이어서 함
 let blockShown = false;
 let blockTimer = null;
@@ -207,6 +238,7 @@ YT.hooks.stopped = () => stopFlag;
 
 function stage(s, pct) {
   $("#stage").textContent = s;
+  $("#runStage").textContent = s;
   if (pct != null) $("#bar").style.width = `${Math.max(0, Math.min(100, pct))}%`;
 }
 
@@ -267,7 +299,7 @@ function inRangeApprox(it, start, endNext) {
 
 async function runCollect() {
   if (running) return;
-  running = true;
+  setRunning(true);
   stopFlag = false;
   $("#run").disabled = true;
   $("#stop").disabled = false;
@@ -462,7 +494,7 @@ async function runCollect() {
     stage(`오류: ${e.message}`);
     log(`오류: ${e.stack || e.message}`);
   } finally {
-    running = false;
+    setRunning(false);
     $("#run").disabled = false;
     $("#stop").disabled = true;
     $("#aiOnly").disabled = false;
@@ -539,7 +571,7 @@ $("#stop").addEventListener("click", () => {
 $("#aiOnly").addEventListener("click", async () => {
   if (running) return;
   if (!confirm("모니터링 기간 안 영상 전부를 AI 로 다시 요약·판단합니다. (직접 고친 요약·포함 여부는 그대로)\n계속할까요?")) return;
-  running = true;
+  setRunning(true);
   stopFlag = false;
   $("#run").disabled = $("#aiOnly").disabled = true;
   $("#stop").disabled = false;
@@ -547,7 +579,7 @@ $("#aiOnly").addEventListener("click", async () => {
     await runAi(true);
     stage("✔ AI 요약·판단 완료", 100);
   } finally {
-    running = false;
+    setRunning(false);
     $("#run").disabled = $("#aiOnly").disabled = false;
     $("#stop").disabled = true;
   }

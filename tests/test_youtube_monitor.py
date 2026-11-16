@@ -226,11 +226,17 @@ def test_collect_dashboard_excel(tmp_path):
         # 봇 확인으로 막히면 안내가 뜨고, '지금 다시 시도'로 이어서 읽음
         pg.wait_for_selector("#block:not([hidden])", timeout=120000)
         assert "유튜브가 요청을 잠시 막았습니다" in pg.inner_text("#block")
+        # 수집 중: 위쪽 띠 · 탭 제목 · 새로고침/닫기 확인 창 · F5 막기
+        assert pg.is_visible("#runBar") and pg.title().startswith("⏳ 수집 중")
+        assert pg.evaluate("(() => { const e = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented; })()")
+        assert pg.evaluate("(() => { const e = new KeyboardEvent('keydown', { key: 'F5', cancelable: true }); document.dispatchEvent(e); return e.defaultPrevented; })()")
         BLOCKED["done"] = True
         pg.click("#blockRetry")
         pg.wait_for_selector("#block", state="hidden", timeout=30000)
         pg.wait_for_function("() => /^(✔|오류)/.test(document.querySelector('#stage').textContent)", timeout=180000)
         log = pg.inner_text("#log")
+        assert not pg.is_visible("#runBar") and not pg.title().startswith("⏳")
+        assert not pg.evaluate("(() => { const e = new Event('beforeunload', { cancelable: true }); window.dispatchEvent(e); return e.defaultPrevented; })()")
         assert "오류" not in pg.inner_text("#stage"), log
 
         # 채널 안 검색·최신 영상, 전체 검색 + 다음 쪽(오래된 영상이 나와 3쪽은 안 봄)

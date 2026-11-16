@@ -105,3 +105,13 @@ button.del { border: 0; background: none; color: #9aa0a8; padding: 2px 6px; }
 button.del:hover { color: var(--red); background: #fdecea; }
 .block { margin: 8px 0 0; padding: 10px 12px; border: 1px solid #f0c36d; background: #fff8e1; border-radius: 10px; font-size: 13px; }
 .block .row { margin: 8px 0 0; }
+/* 수집 중 띠: 화면 위에 고정 */
+.runbar { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; padding: 8px 16px;
+  background: #002c5f; color: #fff; font-size: 13px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18); }
+.runbar[hidden] { display: none; }
+.runbar .runwarn { color: #ffd479; font-weight: 700; }
+.runbar a { color: #fff; margin-left: auto; font-weight: 700; }
+.runbar .spin { display: inline-block; animation: spin 2s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.runbar.shake { animation: shake 0.4s; background: #d93025; }
+@keyframes shake { 0%, 100% { transform: none; } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
