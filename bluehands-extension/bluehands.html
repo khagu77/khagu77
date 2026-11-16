@@ -37,6 +37,10 @@
         <div class="row"><input type="file" id="reportFile" accept=".xlsx"> <button id="clearReport" class="small" hidden>고른 파일 빼기</button></div>
         <div id="reportInfo" class="hint"></div>
 
+        <label>엑셀 저장 폴더 <span class="hint">(받는 보고서·DB 엑셀을 이 폴더에 바로 저장 · 크롬 파일 '출처' 정보가 남지 않음)</span></label>
+        <div class="row"><button id="pickSaveFolder" class="small">📁 저장 폴더 지정</button> <button id="clearSaveFolder" class="small" hidden>기본 다운로드 폴더로</button></div>
+        <div id="saveFolderInfo" class="hint"></div>
+
         <details id="settings">
           <summary>설정</summary>
           <label for="readMode">글 읽는 방식</label>
@@ -102,7 +106,7 @@
         <div id="dbInfo" class="hint"></div>
         <h2>받은 보고서 기록</h2>
         <table id="history" class="compact">
-          <thead><tr><th>받은 시각</th><th>파일 이름</th><th>새로 넣은 글</th><th>패스</th><th>삭제된 글</th><th>전체 행</th><th>전주 대비</th></tr></thead>
+          <thead><tr><th>받은 시각</th><th>파일 이름</th><th>새로 넣은 글</th><th>패스</th><th>삭제된 글</th><th>전체 행</th><th>전주 대비</th><th>파일</th></tr></thead>
           <tbody></tbody>
         </table>
       </section>

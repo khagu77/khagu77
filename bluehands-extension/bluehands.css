@@ -196,3 +196,10 @@ select { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; 
 .login-alarm .la-status { margin: 12px 0 0; font-size: 13px; font-weight: 700; color: #c5221f; min-height: 18px; }
 .login-alarm.ok .la-status { color: #11753d; }
 @media (prefers-reduced-motion: reduce) { .login-alarm, .login-alarm .la-card, .login-alarm .la-icon { animation: none; } .login-alarm { background: rgba(180, 0, 0, 0.9); } }
+
+/* 받은 보고서 기록의 파일 버튼 */
+.file-btns button, .file-btns label.button { margin: 0; }
+button.danger { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, var(--border)); }
+.edited { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px; background: color-mix(in srgb, var(--orange) 18%, var(--card)); color: var(--text); font-size: 11.5px; }
+label.button.small { padding: 4px 10px; font-size: 12.5px; }
+#history th, #history td:nth-child(n+3) { white-space: nowrap; }

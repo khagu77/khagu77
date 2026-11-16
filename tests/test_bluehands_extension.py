@@ -184,8 +184,14 @@ def test_bluehands(tmp_path: Path):
         ext = f"chrome-extension://{sw.url.split('/')[2]}"
         dialogs, leave_prompts = [], []
 
+        confirm_answers = []  # 확인 창 답(차례대로) - 비어 있으면 '확인'
+        confirm_messages = []
+
         def on_dialog(d):
-            if d.type == "beforeunload":  # 작업 중 새로고침·닫기 확인 → 테스트에서는 '나가기'
+            if d.type == "confirm":
+                confirm_messages.append(d.message)
+                d.accept() if (confirm_answers.pop(0) if confirm_answers else True) else d.dismiss()
+            elif d.type == "beforeunload":  # 작업 중 새로고침·닫기 확인 → 테스트에서는 '나가기'
                 leave_prompts.append(1)
                 d.accept()
             else:
@@ -317,16 +323,35 @@ def test_bluehands(tmp_path: Path):
         art = [h for h in server.hits if h[1].startswith("/aacafe/102?art=")]
         assert art and "search.naver.com" in art[0][2]
 
-        try:
-            with page.expect_download(timeout=15000) as dl:
-                page.click("#save", force=True)  # 축하 효과로 움직이는 중에도 누름
-        except Exception:
-            raise AssertionError(page.inner_text("#saveInfo"))
-        out = tmp_path / dl.value.suggested_filename
-        dl.value.save_as(out)
+        # 저장 폴더 지정: 내려받기를 거치지 않고 그 폴더에 바로 쓴다 ('출처' 정보가 붙지 않음).
+        # (테스트에서는 폴더 고르기 창 대신 크롬의 테스트용 폴더를 지정)
+        page.evaluate("async () => setSaveFolder(await navigator.storage.getDirectory())")
+        page.locator("#saveFolderInfo", has_text="폴더에 바로 저장합니다").wait_for()
+        downloads = []
+        page.on("download", lambda d: downloads.append(d))
+        page.click("#save", force=True)  # 축하 효과로 움직이는 중에도 누름
+        page.locator("#saveInfo", has_text="✔").wait_for()
+        assert not downloads, "폴더를 지정했으면 내려받기를 하지 않는다"
+        today = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y%m%d")
+        want = f"{today}_정비 예약 관련 테스트 보고서.xlsx"
+        assert f"{want} (" in page.inner_text("#saveInfo") and "폴더에 저장" in page.inner_text("#saveInfo")
+        data = page.evaluate("""async (name) => {
+            const dir = await navigator.storage.getDirectory();
+            const f = await (await dir.getFileHandle(name)).getFile();
+            return Array.from(new Uint8Array(await f.arrayBuffer()));
+        }""", want)
+        out = tmp_path / want
+        out.write_bytes(bytes(data))
+        # 같은 이름이 이미 있으면 덮어쓰지 않고 ' (2)'
+        assert page.evaluate("""async () => {
+            const dir = await navigator.storage.getDirectory();
+            return freeName(dir, document.querySelector('#saveInfo').textContent.split(' (')[0].slice(2));
+        }""") == f"{today}_정비 예약 관련 테스트 보고서 (2).xlsx"
+        # 기본 다운로드 폴더로 되돌리기 (아래 DB 엑셀은 내려받기로 확인)
+        page.click("#clearSaveFolder")
+        page.locator("#saveFolderInfo", has_text="기본 다운로드 폴더로 받습니다").wait_for()
         assert "celebrate" not in (page.get_attribute("#save", "class") or "")
         today = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y%m%d")
-        assert out.name == f"{today}_정비 예약 관련 테스트 보고서.xlsx"
         assert "3개 추가 (연번 6~9), 패스 1개는 넣지 않았습니다, 삭제된 게시물 2개는 넣지 않았습니다" in page.inner_text("#saveInfo")
         assert "이번 주 신규 3건 · 전주 신규 1건 대비 ▲ 2 건" in page.inner_text("#saveInfo .compare")
 
@@ -341,6 +366,40 @@ def test_bluehands(tmp_path: Path):
         db_file = tmp_path / dl.value.suggested_filename
         dl.value.save_as(db_file)
         assert db_file.name == f"{today}_정비 예약 관련 DB 목록_검색결과.xlsx"
+        # 받은 보고서 기록: 보관된 파일 다시 받기 · 수정본 올리기 · 삭제(두 번 확인)
+        row = page.locator("#history tbody tr").first
+        with page.expect_download() as dl:
+            row.locator("button", has_text="⬇ 받기").click()
+        again = tmp_path / ("again_" + dl.value.suggested_filename)
+        dl.value.save_as(again)
+        assert dl.value.suggested_filename == out.name and again.read_bytes() == out.read_bytes()
+        revised = tmp_path / "수정본.xlsx"
+        rwb = load_workbook(out)
+        rwb.active["F4"] = "고친닉네임"
+        rwb.save(revised)
+        row.locator("input[type=file]").set_input_files(str(revised))
+        page.locator("#dbInfo", has_text="수정본(수정본.xlsx, 5행)으로 바꾸고").wait_for()
+        assert "다음 보고서는 이 수정본 아래에 이어 씁니다" in page.inner_text("#dbInfo")
+        assert "수정본 ·" in page.inner_text("#history tbody tr")
+        page.fill("#dbQuery", "고친닉네임")
+        assert page.locator("#dbTable tbody tr").count() == 1  # DB 도 수정본 내용으로
+        page.fill("#dbQuery", "")
+        with page.expect_download() as dl:
+            row.locator("button", has_text="⬇ 받기").click()
+        dl.value.save_as(tmp_path / "rev_dl.xlsx")
+        assert (tmp_path / "rev_dl.xlsx").read_bytes() == revised.read_bytes()
+        # 삭제: 두 번째 확인에서 취소하면 그대로
+        n_conf = len(confirm_messages)
+        confirm_answers[:] = [True, False]
+        row.locator("button", has_text="삭제").click()
+        page.locator("#dbInfo", has_text="삭제를 취소했습니다").wait_for()
+        assert len(confirm_messages) == n_conf + 2 and "정말 삭제합니다" in confirm_messages[-1]
+        assert page.locator("#history tbody tr").count() == 1
+        confirm_answers[:] = [True, True]
+        row.locator("button", has_text="삭제").click()
+        page.locator("#dbInfo", has_text="기록을 삭제했습니다").wait_for()
+        assert page.locator("#history tbody tr").count() == 0
+        assert page.locator("#dbCount", has_text="DB 전체 5행").count() == 1  # DB 글은 그대로
         # 받은 보고서 기록의 전주 대비: 새로 넣은 글 수끼리 비교 (같은 주에 다시 받은 기록은 건너뜀)
         week_cells = page.evaluate("""() => {
             const day = 86400e3, t = new Date(2026, 10, 2, 10).getTime();  // 11/2(월)

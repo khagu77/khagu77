@@ -1400,6 +1400,132 @@ async function buildFromTemplate(records) {
   return wb.save();
 }
 
+// ---------------------------------------------------------------------------
+// 엑셀 저장 폴더: 지정하면 '내려받기'가 아니라 그 폴더에 파일을 바로 쓴다.
+// (크롬 내려받기는 맥에서 파일에 '출처(다운로드 주소)' 정보를 붙이므로, 폴더에 직접 써서 남기지 않는다)
+// 폴더는 크롬 IndexedDB 에 기억(폴더 '손잡이'는 chrome.storage 에 넣을 수 없음).
+// ---------------------------------------------------------------------------
+
+let saveDir = null; // FileSystemDirectoryHandle
+
+function idb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("bluehands", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("kv");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbSet(key, value) {
+  const db = await idb();
+  await new Promise((res, rej) => {
+    const tx = db.transaction("kv", "readwrite");
+    if (value === undefined) tx.objectStore("kv").delete(key);
+    else tx.objectStore("kv").put(value, key);
+    tx.oncomplete = res;
+    tx.onerror = () => rej(tx.error);
+  });
+  db.close();
+}
+
+async function idbGet(key) {
+  const db = await idb();
+  const v = await new Promise((res, rej) => {
+    const req = db.transaction("kv").objectStore("kv").get(key);
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+  });
+  db.close();
+  return v;
+}
+
+async function setSaveFolder(handle) {
+  saveDir = handle || null;
+  await idbSet("saveDir", saveDir || undefined).catch(() => {});
+  renderSaveFolder();
+}
+
+async function loadSaveFolder() {
+  saveDir = (await idbGet("saveDir").catch(() => null)) || null;
+  renderSaveFolder();
+}
+
+async function folderPermission(ask) {
+  if (!saveDir) return false;
+  const opts = { mode: "readwrite" };
+  try {
+    if ((await saveDir.queryPermission?.(opts)) === "granted") return true;
+    return ask && (await saveDir.requestPermission?.(opts)) === "granted";
+  } catch {
+    return false;
+  }
+}
+
+async function renderSaveFolder() {
+  const box = $("#saveFolderInfo");
+  $("#clearSaveFolder").hidden = !saveDir;
+  if (!saveDir) {
+    box.className = "hint";
+    box.textContent = "지정하지 않으면 크롬 기본 다운로드 폴더로 받습니다(맥에서는 파일 정보에 '출처'가 남습니다).";
+    return;
+  }
+  const ok = await folderPermission(false);
+  box.className = ok ? "hint ok" : "hint";
+  box.textContent = ok
+    ? `✔ '${saveDir.name}' 폴더에 바로 저장합니다 (내려받기를 거치지 않아 '출처' 정보가 붙지 않습니다).`
+    : `'${saveDir.name}' 폴더에 저장합니다. 크롬을 다시 켠 뒤 처음 저장할 때 폴더 사용을 한 번 허용해 주세요.`;
+}
+
+async function pickSaveFolder() {
+  if (!window.showDirectoryPicker) {
+    setHint("#saveFolderInfo", "이 크롬에서는 폴더 지정을 쓸 수 없습니다. 크롬을 최신 버전으로 업데이트해 주세요.", "err");
+    return;
+  }
+  try {
+    const handle = await window.showDirectoryPicker({ id: "bluehands-save", mode: "readwrite", startIn: "downloads" });
+    await setSaveFolder(handle);
+  } catch (e) {
+    if (e?.name !== "AbortError") setHint("#saveFolderInfo", `폴더를 지정하지 못했습니다: ${e.message}`, "err");
+  }
+}
+
+// 버튼을 누른 바로 그때 폴더 사용 허락을 받아 둔다(크롬은 누른 직후에만 허락 창을 띄울 수 있음)
+async function prepareSave() {
+  if (saveDir && !(await folderPermission(true))) {
+    setHint("#saveFolderInfo", `'${saveDir.name}' 폴더 사용을 허용하지 않아 이번에는 다운로드 폴더로 받습니다.`, "err");
+  }
+}
+
+// 같은 이름이 있으면 덮어쓰지 않고 ' (2)', ' (3)'… 를 붙인다
+async function freeName(dir, name) {
+  const dot = name.lastIndexOf(".");
+  const [base, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+  for (let n = 1; n < 100; n++) {
+    const candidate = n === 1 ? name : `${base} (${n})${ext}`;
+    try {
+      await dir.getFileHandle(candidate);
+    } catch {
+      return candidate;
+    }
+  }
+  return `${base} (${Date.now()})${ext}`;
+}
+
+// → { name, where }  지정 폴더에 쓰거나(허락이 있을 때), 아니면 내려받기
+async function saveBytes(bytes, name) {
+  if (saveDir && (await folderPermission(false))) {
+    const finalName = await freeName(saveDir, name);
+    const fh = await saveDir.getFileHandle(finalName, { create: true });
+    const w = await fh.createWritable();
+    await w.write(bytes);
+    await w.close();
+    return { name: finalName, where: `'${saveDir.name}' 폴더에 저장` };
+  }
+  downloadBytes(bytes, name);
+  return { name, where: "다운로드 폴더로 받음" };
+}
+
 function newRecords() {
   assignNumbers();
   return items
@@ -1431,17 +1557,19 @@ async function saveReport() {
       all = [...sortRecords(dbRecords()), ...fresh];
       bytes = await buildFromTemplate(all);
     }
-    const name = datedFileName(report ? report.name : rememberedReportName());
-    downloadBytes(bytes, name);
+    const saved = await saveBytes(bytes, datedFileName(report ? report.name : rememberedReportName()));
+    const name = saved.name;
     await addToDb(all, name);
-    history.unshift({ at: Date.now(), file: name, added: fresh.length, passed, deleted: removed, total: all.length, prevAdded: compare.prev });
+    const at = Date.now();
+    await idbSet(`file:${at}`, bytes).catch(() => {}); // 받은 기록에서 다시 받을 수 있게 파일도 보관
+    history.unshift({ at, file: name, added: fresh.length, passed, deleted: removed, total: all.length, prevAdded: compare.prev, stored: true });
     await chrome.storage.local.set({ bhHistory: history.slice(0, 200), bhLastReportDay: ymd(new Date()) }).catch(() => {});
     renderSchedule();
     renderDb();
     const nos = fresh.map((r) => r.no);
     setHint(
       "#saveInfo",
-      `✔ ${name} - ${fresh.length}개 추가 (연번 ${nos[0]}~${nos[nos.length - 1]})` +
+      `✔ ${name} (${saved.where}) - ${fresh.length}개 추가 (연번 ${nos[0]}~${nos[nos.length - 1]})` +
         (passed ? `, 패스 ${passed}개는 넣지 않았습니다` : "") +
         (removed ? `, 삭제된 게시물 ${removed}개는 넣지 않았습니다` : "") +
         `. 파일의 ${all.length.toLocaleString()}행을 DB 목록에 저장했습니다.`,
@@ -1512,7 +1640,7 @@ function renderDb() {
   hb.innerHTML = "";
   for (const h of history) {
     const tr = document.createElement("tr");
-    tr.innerHTML = "<td class=nowrap></td><td></td><td></td><td></td><td></td><td></td><td></td>";
+    tr.innerHTML = "<td class=nowrap></td><td></td><td></td><td></td><td></td><td></td><td></td><td class=\"nowrap file-btns\"></td>";
     tr.children[0].textContent = new Date(h.at).toLocaleString();
     tr.children[1].textContent = h.file;
     tr.children[2].textContent = h.added ?? "";
@@ -1523,9 +1651,103 @@ function renderDb() {
     const prevAdded = h.prevAdded ?? prevWeekAdded(h.at);
     tr.children[6].innerHTML = diffHtml(prevAdded === null || !Number.isFinite(h.added) ? null : h.added - prevAdded);
     if (prevAdded !== null) tr.children[6].title = `전주 새로 넣은 글 ${prevAdded}건 → 이번 ${h.added}건`;
+    if (h.editedAt) tr.children[1].insertAdjacentHTML("beforeend", ` <span class="edited">수정본 · ${new Date(h.editedAt).toLocaleString()}</span>`);
+    const btns = tr.children[7];
+    const dl = document.createElement("button");
+    dl.className = "small";
+    dl.textContent = h.stored ? "⬇ 받기" : "⬇ DB로 다시 만들기";
+    dl.title = h.stored
+      ? "이때 받은(또는 올린 수정본) 엑셀 파일을 그대로 다시 받습니다"
+      : "이 기록은 파일을 보관하기 전에 받은 것이라, DB 목록에서 이 시점의 전체 행 수만큼 같은 양식으로 다시 만들어 받습니다";
+    dl.addEventListener("click", () => downloadHistoryFile(h));
+    const up = document.createElement("label");
+    up.className = "button small";
+    up.textContent = "⬆ 수정본 올리기";
+    up.title = "엑셀에서 고친 파일을 올리면 이 기록의 파일을 바꾸고, DB 목록도 수정본 내용으로 갱신합니다";
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".xlsx";
+    input.hidden = true;
+    input.addEventListener("change", () => uploadRevision(h, input.files[0]).finally(() => (input.value = "")));
+    up.appendChild(input);
+    const del = document.createElement("button");
+    del.className = "small danger";
+    del.textContent = "🗑 삭제";
+    del.addEventListener("click", () => deleteHistory(h));
+    btns.append(dl, " ", up, " ", del);
     hb.appendChild(tr);
   }
   if (!report) renderReportInfo();
+}
+
+// ---------------------------------------------------------------------------
+// 받은 보고서 기록: 다시 받기 · 수정본 올리기 · 삭제
+// ---------------------------------------------------------------------------
+
+async function saveHistory() {
+  await chrome.storage.local.set({ bhHistory: history.slice(0, 200) }).catch(() => {});
+  renderDb();
+}
+
+async function downloadHistoryFile(h) {
+  await prepareSave();
+  try {
+    let bytes = h.stored ? await idbGet(`file:${h.at}`).catch(() => null) : null;
+    let note = "";
+    if (!bytes) {
+      // 파일을 보관하기 전 기록: DB 목록 앞쪽(날짜순) 전체 행 수만큼으로 다시 만든다
+      const rows = sortRecords(dbRecords()).slice(0, h.total || undefined);
+      if (!rows.length) throw new Error("DB 목록이 비어 있어 다시 만들 수 없습니다.");
+      bytes = await buildFromTemplate(rows);
+      note = ` · DB로 다시 만듦 ${rows.length.toLocaleString()}행`;
+    }
+    const saved = await saveBytes(bytes, h.file);
+    setHint("#dbInfo", `✔ ${saved.name} (${saved.where}${note})`, "ok");
+  } catch (e) {
+    setHint("#dbInfo", `파일을 받지 못했습니다: ${e.message}`, "err");
+  }
+}
+
+async function uploadRevision(h, file) {
+  if (!file) return;
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const info = await analyzeReport(await XlsxTemplate.Workbook.open(bytes)); // 보고서 양식인지 확인
+    if (!confirm(`'${h.file}' 기록의 파일을 올린 수정본 '${file.name}'(${info.records.length.toLocaleString()}행)으로 바꿀까요?\nDB 목록도 수정본 내용으로 갱신합니다.`)) return;
+    await idbSet(`file:${h.at}`, bytes);
+    await addToDb(info.records, h.file);
+    Object.assign(h, { stored: true, editedAt: Date.now(), total: info.records.length });
+    // 가장 최근 기록이면 다음 주 '지난 보고서'로도 이 수정본을 쓴다
+    const latest = history.reduce((a, b) => (b.at > a.at ? b : a), h);
+    if (latest === h) {
+      report = { name: h.file, bytes, info };
+      await chrome.storage.local.set({ bhReport: { name: h.file, b64: toBase64(bytes) } }).catch(() => {});
+      renderReportInfo();
+      markDuplicates();
+    }
+    await saveHistory();
+    setHint(
+      "#dbInfo",
+      `✔ '${h.file}' 기록을 수정본(${file.name}, ${info.records.length.toLocaleString()}행)으로 바꾸고 DB 목록을 갱신했습니다` +
+        (latest === h ? ". 다음 보고서는 이 수정본 아래에 이어 씁니다." : "."),
+      "ok",
+    );
+  } catch (e) {
+    setHint("#dbInfo", `수정본을 올리지 못했습니다: ${e.message}`, "err");
+  }
+}
+
+async function deleteHistory(h) {
+  // 삭제는 반드시 두 번 확인한다
+  if (!confirm(`'${h.file}' 기록을 삭제할까요?\n(${new Date(h.at).toLocaleString()} 받은 기록과 보관된 엑셀 파일이 지워집니다. DB 목록의 글은 그대로 남습니다.)`)) return;
+  if (!confirm(`정말 삭제합니다.\n'${h.file}' 기록과 보관 파일은 되돌릴 수 없습니다. 계속할까요?`)) {
+    setHint("#dbInfo", "삭제를 취소했습니다.");
+    return;
+  }
+  history = history.filter((x) => x !== h);
+  await idbSet(`file:${h.at}`, undefined).catch(() => {});
+  await saveHistory();
+  setHint("#dbInfo", `'${h.file}' 기록을 삭제했습니다.`);
 }
 
 async function exportDb() {
@@ -1534,9 +1756,8 @@ async function exportDb() {
   try {
     const bytes = await buildFromTemplate(list);
     const filtered = list.length !== dbRecords().length;
-    const name = `${today()}_정비 예약 관련 DB 목록${filtered ? "_검색결과" : ""}.xlsx`;
-    downloadBytes(bytes, name);
-    setHint("#dbInfo", `✔ ${name} - ${list.length.toLocaleString()}행`, "ok");
+    const saved = await saveBytes(bytes, `${today()}_정비 예약 관련 DB 목록${filtered ? "_검색결과" : ""}.xlsx`);
+    setHint("#dbInfo", `✔ ${saved.name} (${saved.where}) - ${list.length.toLocaleString()}행`, "ok");
   } catch (e) {
     setHint("#dbInfo", `엑셀을 만들지 못했습니다: ${e.message}`, "err");
   }
@@ -1611,12 +1832,19 @@ async function init() {
     $("#stop").disabled = true;
     setSummary("중지하는 중… (지금 보는 글까지 마칩니다)");
   });
-  $("#save").addEventListener("click", () => {
+  $("#save").addEventListener("click", async () => {
     celebrate(false); // 받으면 효과는 멈춘다
+    await prepareSave();
     saveReport();
   });
+  $("#pickSaveFolder").addEventListener("click", pickSaveFolder);
+  $("#clearSaveFolder").addEventListener("click", () => setSaveFolder(null));
+  await loadSaveFolder();
   for (const id of ["dbQuery", "dbFrom", "dbTo"]) $(`#${id}`).addEventListener("input", renderDb);
-  $("#dbExport").addEventListener("click", exportDb);
+  $("#dbExport").addEventListener("click", async () => {
+    await prepareSave();
+    exportDb();
+  });
   $("#dbImport").addEventListener("change", (e) => importDb(e.target.files[0]));
   $("#dbClear").addEventListener("click", clearDb);
   window.addEventListener("focus", () => {
