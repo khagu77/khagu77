@@ -152,6 +152,9 @@
     diff: [168, 1, 0, 1, "center", "center", false],
     kpiLabel: [0, 5, 3, 1, "center", "center", true],
     kpi: [164, 9, 3, 1, "center", "center", false],
+    section: [0, 9, 0, 0, "left", "center", false],
+    note: [0, 5, 0, 0, "left", "center", true],
+    boldC: [0, 1, 3, 1, "center", "center", true],
     totalL: [0, 1, 3, 1, "center", "center", false],
     totalN: [164, 1, 3, 1, "right", "center", false],
   };

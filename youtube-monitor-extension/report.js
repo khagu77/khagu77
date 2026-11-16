@@ -558,6 +558,80 @@ async function buildExcel(st, { stamp = new Date(), onProgress } = {}) {
     if (url) links4.push({ r: rows4.length - 1, c: 9, url });
   });
 
+  // 5) 기준 설명 — 논조 · 프레임 유형 · 부정 표현이 어떤 기준으로 정해지는지 (보고서에 함께 전달)
+  const cfg = typeof settings !== "undefined" && settings ? settings : DEFAULTS;
+  const rows5 = [];
+  const merges5 = [];
+  const add = (cells, h, merge) => {
+    rows5.push({ h, cells });
+    if (merge) merges5.push(merge.replace(/#/g, rows5.length));
+  };
+  const blank = () => add([], 10);
+  const section = (t) => add([{ v: t, s: "section" }], 24, "A#:C#");
+  const note = (t, h = 18) => add([{ v: t, s: "note" }], h, "A#:C#");
+  const head = (...hs) => add(hs.map((v) => ({ v, s: "head" })), 22, hs.length === 2 ? "B#:C#" : null);
+  const row2 = (k, v, h = 20) => add([{ v: k, s: "boldC" }, { v, s: "wrap" }, { v: "", s: "wrap" }], h, "B#:C#");
+  add([{ v: "부정 프레임 분류 기준", s: "title" }], 28, "A#:C#");
+  add([{ v: "모니터링 리스트의 '논조' · '프레임 유형' · '부정 표현' 항목이 정해지는 기준", s: "sub" }], 18, "A#:C#");
+  blank();
+  section("■ 한눈에 보기");
+  head("항목", "무엇을 보나", "정하는 방식");
+  for (const [k, a2, b2] of [
+    ["논조", "현대차에 대한 콘텐츠 태도", "영상 제목·설명 내용을 검토해 판단 (부정 / 중립 / 긍정)"],
+    ["프레임 유형", "위기론을 어떤 이야기로 다루는지", "영상 제목·설명 내용을 검토해 10가지 유형 중 하나로 분류"],
+    ["부정 표현", "실제로 쓰인 부정적 단어", "제목·설명에서 정해 둔 단어 목록과 같은 말을 찾아 표기"],
+  ])
+    add([{ v: k, s: "boldC" }, { v: a2, s: "wrap" }, { v: b2, s: "wrap" }], 22);
+  note("※ 논조·프레임 유형은 내용 검토 결과이고, 부정 표현은 단어 일치만 봅니다. 그래서 같은 콘텐츠라도 프레임 유형과 부정 표현의 결이 다를 수 있습니다.", 30);
+  blank();
+  section("■ 논조");
+  head("값", "기준");
+  row2("부정", "위기·실패·비판·조롱 프레임. 본문이 균형적이어도 제목·썸네일 문구가 자극적인 '위기' 프레임이면 부정", 30);
+  row2("중립", "사실 전달 위주, 양쪽 시각을 균형 있게 다룸");
+  row2("긍정", "극복·호평·기회를 강조");
+  note("※ 모니터링 리스트에는 '현대차 위기론 관련' 이면서 '논조 부정' 인 콘텐츠가 들어갑니다 (담당자가 직접 포함·제외한 것은 그 판단을 따름).", 30);
+  blank();
+  section("■ 프레임 유형 (10가지 · 콘텐츠마다 가장 가까운 유형 하나)");
+  head("유형", "주로 다루는 내용");
+  const FRAME_DESC = {
+    "판매·내수 부진": "판매량 감소, 내수 점유율 하락, 수입차에 밀림",
+    "가격·옵션 논란": "신차 가격 인상, 옵션 장사, 계기판 옵션화 등",
+    "중국차·테슬라 경쟁": "BYD 등 중국차, 테슬라와의 경쟁 열세",
+    "주가·실적": "주가 하락, 매출·이익 감소",
+    "관세·통상": "미국 관세, 통상 환경 악화",
+    "전기차·미래차 전략": "전기차·자율주행·로봇 전략 실패·지연",
+    "품질·결함": "결함, 리콜, 품질 문제",
+    "노사·파업": "노조, 파업, 임금 협상",
+    "경영·지배구조": "경영 판단, 해외 공장·투자, 지배구조",
+    기타: "위 9가지에 딱 맞지 않는 위기론",
+  };
+  for (const f of AI_FRAMES) row2(f, FRAME_DESC[f] || "");
+  blank();
+  section("■ 부정 표현 (단어 목록)");
+  head("묶음", "단어");
+  const GROUPS5 = [
+    ["위기·충격", "위기, 대위기, 비상, 위험, 경고, 경고등, 충격, 쇼크, 공포, 비명, 심각, 치명, 큰일"],
+    ["몰락·하락", "추락, 몰락, 붕괴, 무너, 흔들, 침몰, 폭락, 급락, 하락, 추풍낙엽, 후진, 뒤처, 역전, 판매량 역전"],
+    ["실패·종말", "끝났, 끝장, 망한, 망했, 망할, 망하, 망조, 실패, 최악, 참패, 굴욕, 옛말, 답이 없"],
+    ["판단 비판", "착각, 산으로, 오판, 뼈아픈, 늦었, 바꿔라"],
+    ["실적·판매", "적자, 손실, 부진, 고전, 덜 팔, 안 팔, 밀려, 밀린, 안방, 쩔쩔, 거품"],
+    ["여론", "손절, 외면, 분노, 불만, 실망, 배신, 논란, 꼼수, 옵션 장사"],
+    ["사건·이슈", "결함, 리콜, 파업, 철수, 구조조정, 감원, 관세 폭탄"],
+    ["신호", "적신호, 빨간불, 역풍, 우려"],
+  ];
+  // 지금 설정의 단어 목록 기준 (설정에서 뺀 단어는 빼고, 더한 단어는 '그 밖의 단어'로)
+  const now = new Set(splitList(cfg.negWords));
+  const used = new Set();
+  for (const [g, ws] of GROUPS5) {
+    const list = splitList(ws).filter((w) => now.has(w));
+    list.forEach((w) => used.add(w));
+    if (list.length) row2(g, list.join(", "), list.length > 9 ? 30 : 20);
+  }
+  const extra = [...now].filter((w) => !used.has(w));
+  if (extra.length) row2("그 밖의 단어", extra.join(", "), extra.length > 9 ? 30 : 20);
+  note("※ 점수: 제목에 있으면 2점, 설명 앞부분에 있으면 1점. 반대로 읽히는 말이 함께 있으면 1점을 뺍니다.");
+  note(`※ 반대로 읽히는 말: ${splitList(cfg.posWords).join(", ")}`);
+
   const last1 = rows1.length;
   return XlsxPro.build({
     sheets: [
@@ -584,6 +658,7 @@ async function buildExcel(st, { stamp = new Date(), onProgress } = {}) {
       },
       { name: "주간 추이", tab: "#eb6834", cols: [8, 12, 12, 10, 11, 13, 12], rows: rows3, merges: ["A1:G1", "A2:G2"], freeze: { row: 3, col: 0 } },
       { name: "채널별 현황", tab: "#1baf7a", cols: [5.5, 47, 8.5, 10, 13, 12, 12, 12, 12, 147.16], rows: rows4, merges: ["A1:J1", "A2:J2"], freeze: { row: 3, col: 0 }, links: links4 },
+      { name: "기준 설명", tab: "#6b7280", cols: [20, 46, 62], rows: rows5, merges: merges5, grid: false },
     ],
   }).then((bytes) => (void last1, bytes));
 }

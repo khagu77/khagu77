@@ -323,7 +323,9 @@ def test_collect_dashboard_excel(tmp_path):
     with zipfile.ZipFile(path) as z:
         assert not any("AI" in z.read(n).decode("utf-8", "ignore") for n in z.namelist() if n.endswith(".xml"))
     wb = load_workbook(path)
-    assert wb.sheetnames == ["모니터링 리스트", "일자별 발행 추이", "주간 추이", "채널별 현황"]
+    assert wb.sheetnames == ["모니터링 리스트", "일자별 발행 추이", "주간 추이", "채널별 현황", "기준 설명"]
+    guide = [c.value for r in wb["기준 설명"].iter_rows() for c in r if c.value]
+    assert "■ 논조" in guide and "판매·내수 부진" in guide and "위기·충격" in guide and "가격·옵션 논란" in guide
     ws = wb["모니터링 리스트"]
     assert [c.value for c in ws[3]][:11] == ["No.", "발행일", "썸네일", "채널명", "구분", "제목", "URL", "조회수", "좋아요", "댓글 수", "내용 요약"]
     rows = [[c.value for c in r] for r in ws.iter_rows(min_row=4, max_row=8)]
