@@ -1869,13 +1869,17 @@ async function dailyRowsFromDir(dir, win) {
   const ymd = (d) => `${String(d.getFullYear()).slice(2)}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
   const lo = ymd(win.from), hi = ymd(win.to);
   const picked = new Map(); // 날짜 → 가장 최근에 고친 파일
+  const seenXlsx = []; // 못 찾았을 때 폴더에 있던 엑셀 이름을 보여 주려고
   const scan = async (d, depth) => {
-    for await (const [name, h] of d.entries()) {
+    for await (const [rawName, h] of d.entries()) {
+      // 맥은 한글 파일 이름을 자모를 풀어 쓴 방식(NFD)으로 주기도 함 → 붙여 쓴 방식(NFC)으로 맞춰 비교
+      const name = String(rawName).normalize("NFC");
       if (h.kind === "directory") {
-        if (depth < 1 && !name.startsWith(".")) await scan(h, depth + 1).catch(() => {});
+        if (depth < 2 && !name.startsWith(".")) await scan(h, depth + 1).catch(() => {});
         continue;
       }
       if (name.startsWith("~$")) continue;
+      if (/\.xls[xm]?$/i.test(name) && seenXlsx.length < 300) seenXlsx.push(name);
       const m = name.match(DAILY_NAME_RE);
       if (!m || m[1] < lo || m[1] > hi) continue;
       const f = await h.getFile();
@@ -1886,7 +1890,9 @@ async function dailyRowsFromDir(dir, win) {
   };
   await scan(dir, 0);
   if (!picked.size) {
-    log(`✖ '${dir.name}' 폴더에 ${lo}~${hi} 일일동향 엑셀(예: ${hi}차종별 온라인 동향.xlsx)이 없음 (노란색 글 확인 못 함)`);
+    const near = seenXlsx.filter((n) => /온라인\s*동향/.test(n)).sort().slice(-5);
+    log(`✖ '${dir.name}' 폴더에 ${lo}~${hi} 일일동향 엑셀(예: ${hi}차종별 온라인 동향.xlsx)이 없음 (노란색 글 확인 못 함)` +
+      (near.length ? ` · 폴더에 있는 비슷한 파일: ${near.join(", ")}` : ` · 폴더의 엑셀 ${seenXlsx.length}개 중 '온라인 동향' 파일 없음`));
     return [];
   }
   return dailyRowsFromFiles([...picked.values()], win);
@@ -1899,7 +1905,8 @@ async function dailyRowsFromFiles(files, win = null) {
   const lo = win ? new Date(win.from.getFullYear(), win.from.getMonth(), win.from.getDate()) : null;
   const inRange = (r) => !win || (r.date ? r.date >= lo && r.date <= win.to : !/raw/i.test(r.file));
   for (const f of files) {
-    const all = (await readDailyRows(new Uint8Array(await f.arrayBuffer()), f.name)).map((r) => ({ ...r, file: f.name }));
+    const fname = String(f.name).normalize("NFC");
+    const all = (await readDailyRows(new Uint8Array(await f.arrayBuffer()), fname)).map((r) => ({ ...r, file: fname }));
     const yellow = all.filter((r) => r.yellow);
     const car = yellow.filter((r) => DAILY_CAR_RE.test(r.car));
     const got = car.filter(inRange);
@@ -1908,7 +1915,7 @@ async function dailyRowsFromFiles(files, win = null) {
       seenUrl.add(r.url);
       rows.push(r);
     }
-    log(`· 오전 일일동향 ${f.name}: 글 ${all.length}행 · 노란색 ${yellow.length}행 · 그중 LX3·ME1·MX5·JX ${car.length}행 → 찾는 기간 게시글 ${got.length}개`);
+    log(`· 오전 일일동향 ${fname}: 글 ${all.length}행 · 노란색 ${yellow.length}행 · 그중 LX3·ME1·MX5·JX ${car.length}행 → 찾는 기간 게시글 ${got.length}개`);
   }
   return rows;
 }
@@ -1951,7 +1958,7 @@ async function readDailyRows(bytes, fileName = "") {
     const xfs = doc.getElementsByTagName("cellXfs")[0];
     if (xfs) [...xfs.getElementsByTagName("xf")].forEach((xf, i) => fills[+xf.getAttribute("fillId")] && yellow.add(i));
   }
-  const fileYmd = (fileName.match(DAILY_NAME_RE) || [])[1];
+  const fileYmd = (String(fileName).normalize("NFC").match(DAILY_NAME_RE) || [])[1];
   const fileDate = fileYmd ? new Date(2000 + +fileYmd.slice(0, 2), +fileYmd.slice(2, 4) - 1, +fileYmd.slice(4)) : new Date();
   const out = [];
   for (const sheet of wb.sheets) {

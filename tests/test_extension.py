@@ -1804,10 +1804,11 @@ def test_lx3_daily_yellow(tmp_path: Path):
         res = page.evaluate("""async (b64) => {
           const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
           const file = (name, t) => ({ kind: 'file', getFile: async () => new File([bytes], name, { lastModified: t }) });
-          const sub = { kind: 'directory', async *entries() { yield ['261110차종별 온라인 동향 (1).xlsx', file('261110차종별 온라인 동향 (1).xlsx', 3)]; } };
+          const sub = { kind: 'directory', async *entries() { yield ['261110차종별 온라인 동향 (1).xlsx', file('261110차종별 온라인 동향 (1).xlsx', 1)]; } };
           const dir = { name: '일일동향', async *entries() {
             yield ['261105차종별 온라인 동향.xlsx', file('261105차종별 온라인 동향.xlsx', 1)];
-            yield ['261110차종별 온라인 동향.xlsx', file('261110차종별 온라인 동향.xlsx', 2)];
+            // 맥: 한글 이름이 자모를 풀어 쓴 방식(NFD)으로 옴
+            yield ['261110차종별 온라인 동향.xlsx'.normalize('NFD'), file('261110차종별 온라인 동향.xlsx'.normalize('NFD'), 2)];
             yield ['보고서', sub];
             yield ['학_261110_차종별 온라인 동향_통합.xlsx', file('학_261110_차종별 온라인 동향_통합.xlsx', 8)];
             yield ['261110_차종별 온라인 동향 raw data.xlsx', file('261110_차종별 온라인 동향 raw data.xlsx', 9)];
@@ -1817,7 +1818,7 @@ def test_lx3_daily_yellow(tmp_path: Path):
           return { n: rows.length, log: document.querySelector('#log').innerText };
         }""", b64)
         # 노란색은 '261110차종별 온라인 동향.xlsx'(일일 부정 이슈 수집 엑셀)에서만 · 통합·raw data 파일은 읽지 않음
-        assert res["n"] == 3 and "(1).xlsx" in res["log"] and "261105" not in res["log"] and "raw data.xlsx:" not in res["log"] and "통합" not in res["log"], res
+        assert res["n"] == 3 and "261110차종별 온라인 동향.xlsx:" in res["log"] and "(1).xlsx" not in res["log"] and "261105" not in res["log"] and "raw data.xlsx:" not in res["log"] and "통합" not in res["log"], res
         assert not errors, errors
         ctx.close()
 
