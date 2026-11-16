@@ -407,7 +407,8 @@ async function buildExcel(st, { stamp = new Date(), onProgress } = {}) {
   const period = `${ymd(st.start)} ~ ${ymd(st.end)}`;
   // 1) 모니터링 리스트
   // 요청서 순서: 발행일 / 썸네일 / 제목 / URL / 조회수 / 댓글 수 … + 내용 요약
-  const cols1 = [5.5, 15.5, 15, 17, 8.5, 46, 44, 12, 9, 9, 46, 7.5, 15, 20];
+  // 열 너비는 담당자가 맞춘 파일(261116 … DB.xlsx)과 같게
+  const cols1 = [5.5, 15.5, 15, 41.5, 8.5, 46, 44, 12, 9, 9, 46, 7.5, 15, 20];
   const head1 = ["No.", "발행일", "썸네일", "채널명", "구분", "제목", "URL", "조회수", "좋아요", "댓글 수", "내용 요약", "논조", "프레임 유형", "부정 표현"];
   const rows1 = [
     { h: 28, cells: [{ v: "'현대차 위기론' 관련 부정적 프레임의 유튜브 콘텐츠 모니터링", s: "title" }] },
@@ -529,6 +530,7 @@ async function buildExcel(st, { stamp = new Date(), onProgress } = {}) {
   st.channels.forEach((c, i) => {
     const url = c.url || (c.id ? `https://www.youtube.com/channel/${c.id}` : "");
     rows4.push({
+      h: 16,
       cells: [
         { v: i + 1, s: "textC" }, { v: c.name, s: "bold" }, { v: (GROUPS[c.group] || "기타").replace(" 채널", ""), s: "textC" }, { v: c.count, s: "numB" },
         { v: c.views, s: "num" }, { v: c.comments, s: "num" }, { v: c.count ? Math.round(c.views / c.count) : 0, s: "num" },
@@ -556,14 +558,14 @@ async function buildExcel(st, { stamp = new Date(), onProgress } = {}) {
       {
         name: "일자별 발행 추이",
         tab: "#2a78d6",
-        cols: [11, 12, 10, 10, 17, 14, 10, 10, 13, 12, 2], // 위 요약 칸(A~F)의 큰 숫자(누적 조회수 등)가 ### 로 안 보이게 넓게
+        cols: [11, 12, 10, 10, 17, 14, 10, 10, 13, 12, 11], // 위 요약 칸(A~F)의 큰 숫자(누적 조회수 등)가 ### 로 안 보이게 넓게
         rows: rows2,
         merges: ["A1:K1", "A2:K2"],
         freeze: { row: d0, col: 0 },
         charts: [chart, chart2],
       },
       { name: "주간 추이", tab: "#eb6834", cols: [8, 12, 12, 10, 11, 13, 12], rows: rows3, merges: ["A1:G1", "A2:G2"], freeze: { row: 3, col: 0 } },
-      { name: "채널별 현황", tab: "#1baf7a", cols: [5.5, 28, 8.5, 10, 13, 12, 12, 12, 12, 42], rows: rows4, merges: ["A1:J1", "A2:J2"], freeze: { row: 3, col: 0 }, links: links4 },
+      { name: "채널별 현황", tab: "#1baf7a", cols: [5.5, 47, 8.5, 10, 13, 12, 12, 12, 12, 147.16], rows: rows4, merges: ["A1:J1", "A2:J2"], freeze: { row: 3, col: 0 }, links: links4 },
     ],
   }).then((bytes) => (void last1, bytes));
 }

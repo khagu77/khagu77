@@ -226,7 +226,7 @@ def test_collect_dashboard_excel(tmp_path):
         # 예전 버전에서 들어온 외국 콘텐츠 → 화면을 열면 DB 에서 빠짐
         pg.evaluate("DB.put({ id: 'oldForeign1', title: 'Hyundai Palisade 2027 обзор', channelName: 'Авто', published: new Date().toISOString(), include: true })")
         pg.reload()
-        assert pg.evaluate("DB.get('oldForeign1')") is None
+        pg.wait_for_function("() => DB.get('oldForeign1').then((v) => !v)", timeout=10000)
         pg.goto(f"chrome-extension://{ext_id}/app.html#collect")
         pg.click("#run")
         # 봇 확인으로 막히면 안내가 뜨고, '지금 다시 시도'로 이어서 읽음
@@ -337,6 +337,9 @@ def test_collect_dashboard_excel(tmp_path):
     assert ws.cell(row=4, column=7).hyperlink.target.startswith("https://www.youtube.com/watch?v=")  # URL 칸은 링크
     assert ws.cell(row=4, column=6).hyperlink is None  # 제목은 링크 없이 글자만
     assert ws.row_dimensions[4].height == 46
+    # 담당자가 맞춘 파일과 같은 열 너비·제목 글자 크기
+    assert ws.column_dimensions["D"].width == 41.5 and ws["A1"].font.sz == 18
+    assert wb["채널별 현황"].column_dimensions["B"].width == 47 and wb["채널별 현황"].row_dimensions[4].height == 16
     assert ws["M4"].alignment.horizontal == "center" and ws["N4"].alignment.horizontal == "center"  # 프레임 유형·부정 표현 가운데
     # 글꼴 '현대산스 Text' · 표 테두리 회색
     assert ws["F4"].font.name == "현대산스 Text" and ws["A3"].font.name == "현대산스 Text"

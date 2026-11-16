@@ -108,7 +108,7 @@
     `<font><sz val="10"/><color rgb="FF1B1D21"/><name val="${FONT}"/><family val="2"/></font>`, // 0 기본
     `<font><b/><sz val="10"/><color rgb="FF1B1D21"/><name val="${FONT}"/><family val="2"/></font>`, // 1 굵게
     `<font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="${FONT}"/><family val="2"/></font>`, // 2 흰 굵게
-    `<font><b/><sz val="15"/><color rgb="FF002C5F"/><name val="${FONT}"/><family val="2"/></font>`, // 3 제목
+    `<font><b/><sz val="18"/><color rgb="FF002C5F"/><name val="${FONT}"/><family val="2"/></font>`, // 3 제목 (18pt)
     `<font><u/><sz val="9"/><color rgb="FF1A5FD0"/><name val="${FONT}"/><family val="2"/></font>`, // 4 링크
     `<font><sz val="9"/><color rgb="FF6B7280"/><name val="${FONT}"/><family val="2"/></font>`, // 5 회색 작게
     `<font><b/><sz val="10"/><color rgb="FFD93025"/><name val="${FONT}"/><family val="2"/></font>`, // 6 빨강 굵게
