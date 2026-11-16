@@ -350,8 +350,19 @@ ${chart}
 ${weekTable}
 ${two(chTable, topTable)}
 ${two(frameBox, recent)}
-<div style="font-size:10px;color:#8a8f98;margin:10px 6px 0;">※ 발행 수는 '현대차 위기론' 부정 프레임으로 분류된 콘텐츠 기준(제목·설명 내용 검토). 조회수·댓글 수는 기준 시각 값.</div>
+<div style="font-size:10px;color:#8a8f98;margin:10px 6px 0;">※ 발행 수는 '현대차 위기론' 부정 프레임으로 분류된 콘텐츠 기준(제목·설명 내용 검토). 조회수·댓글 수는 ${statTimeText(st.list) ? `${statTimeText(st.list)} 수집 시점` : "수집 시점"} 값.</div>
 </div></div>`;
+}
+
+// 조회수·댓글 수를 실제로 읽은 시각 (영상마다 마지막으로 읽은 때) → "11/16 14:20 ~ 16:05" · 하루면 날짜 한 번
+function statTimeText(list) {
+  const ts = list.map((v) => (v.updated ? new Date(v.updated).getTime() : NaN)).filter((t) => !isNaN(t));
+  if (!ts.length) return "";
+  const a = new Date(Math.min(...ts));
+  const b = new Date(Math.max(...ts));
+  const hm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  if (ymd(a) === ymd(b)) return `${md(a)} ${hm(a)}${hm(a) !== hm(b) ? ` ~ ${hm(b)}` : ""}`;
+  return `${md(a)} ${hm(a)} ~ ${md(b)} ${hm(b)}`;
 }
 
 // 서식 없이 붙여 넣을 때의 글
@@ -412,7 +423,7 @@ async function buildExcel(st, { stamp = new Date(), onProgress } = {}) {
   const head1 = ["No.", "발행일", "썸네일", "채널명", "구분", "제목", "URL", "조회수", "좋아요", "댓글 수", "내용 요약", "논조", "프레임 유형", "부정 표현"];
   const rows1 = [
     { h: 28, cells: [{ v: "'현대차 위기론' 관련 부정적 프레임의 유튜브 콘텐츠 모니터링", s: "title" }] },
-    { h: 18, cells: [{ v: `기간 ${period} · 총 ${list.length}건 · 조회수·댓글 수 기준 ${fmtDT(stamp)} · 대상: 관리 채널 + 주요 경제 채널 + 유튜브 전체 검색`, s: "sub" }] },
+    { h: 18, cells: [{ v: `기간 ${period} · 총 ${list.length}건 · 조회수·댓글 수 ${statTimeText(list) ? `${statTimeText(list)} 수집 시점` : "수집 시점"} 기준 · 대상: 관리 채널 + 주요 경제 채널 + 유튜브 전체 검색`, s: "sub" }] },
     { h: 30, cells: head1.map((v) => ({ v, s: "head" })) },
   ];
   const images = [];
