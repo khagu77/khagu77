@@ -168,7 +168,7 @@ function dailyChartSvg(days, W = 912, H = 230, interactive = false) {
       by -= bh + 1;
     }
     placed.push({ cx, by, bw });
-    const fill = d.count && i === peakI ? "#d93025" : d.count ? C_LINE : "#c3c9d2";
+    const fill = d.count && d.count === days[peakI].count ? "#d93025" : d.count ? C_LINE : "#c3c9d2"; // 최고 수치인 날은 모두 빨강
     s += `<rect x="${(cx - bw / 2).toFixed(1)}" y="${by.toFixed(1)}" width="${bw.toFixed(1)}" height="${bh}" rx="4.5" fill="${fill}"/>`;
     s += `<text x="${cx.toFixed(1)}" y="${(by + 6.8).toFixed(1)}" font-size="6.5" font-weight="700" letter-spacing="-0.5" text-anchor="middle" fill="#ffffff">${t}</text>`;
   });
