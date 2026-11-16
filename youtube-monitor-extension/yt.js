@@ -1,5 +1,5 @@
 // 유튜브 화면(공개 페이지)에서 영상 목록·영상 정보를 읽는다. 로그인 정보는 보내지 않는다(credentials: "omit").
-// - 검색: /results?search_query=…&sp=CAI%3D (업로드 날짜순) + 다음 쪽(youtubei/v1/search)
+// - 검색: /results?search_query=…&sp=CAI%3D (업로드 날짜순) · 기간을 잘라 after:/before: 로 여러 번
 // - 채널: /@채널/search?query=… (채널 안 검색) · /@채널/videos (최신 영상)
 // - 영상: /watch?v=… (정확한 게시 시각·조회수·좋아요·댓글 수·설명)
 (function (global) {
@@ -218,54 +218,50 @@
     return { items, token: tokens[tokens.length - 1] || null };
   }
 
-  function ytcfg(html) {
-    return {
-      apiKey: html.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/)?.[1] || "",
-      clientVersion: html.match(/"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"]+)"/)?.[1] || "2.20261112.10.00",
-      visitorData: html.match(/"VISITOR_DATA"\s*:\s*"([^"]+)"/)?.[1] || "",
-    };
+  // 검색 화면 한 쪽 (업로드 날짜순)
+  async function searchPage(q) {
+    const html = await getHtml(`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}&sp=CAI%253D`);
+    return listItems(extractJson(html, "ytInitialData") || {}).items;
   }
 
-  async function api(cfg, path, body) {
-    const context = { client: { clientName: "WEB", clientVersion: cfg.clientVersion, hl: "ko", gl: "KR" } };
-    if (cfg.visitorData) context.client.visitorData = cfg.visitorData;
-    const res = await fetch(`https://www.youtube.com/youtubei/v1/${path}?prettyPrint=false${cfg.apiKey ? `&key=${cfg.apiKey}` : ""}`, {
-      method: "POST",
-      credentials: "omit",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ context, ...body }),
-    });
-    if (!res.ok) throw new Error(`유튜브 ${path} ${res.status} 응답`);
-    return res.json();
-  }
-
-  // 전체 유튜브 검색 (업로드 날짜순). since 보다 오래된 영상이 계속 나오면 멈춘다.
-  // onPage(items) 가 쪽마다 불림. 반환: 모든 항목
-  async function search(query, { since, pages = 5, stopped = () => false, onPage } = {}) {
-    const html = await getHtml(`https://www.youtube.com/results?search_query=${encodeURIComponent(query)}&sp=CAI%253D`);
-    const cfg = ytcfg(html);
-    let { items, token } = listItems(extractJson(html, "ytInitialData") || {});
-    const all = [...items];
-    onPage?.(items, 1);
-    for (let p = 2; p <= pages && token && !stopped(); p++) {
-      if (since && tooOld(items, since)) break;
-      await jitter(700, 1500);
-      const r = listItems(await api(cfg, "search", { continuation: token }));
-      items = r.items;
-      token = r.token;
+  // 전체 유튜브 검색: 다음 쪽 요청(유튜브 내부 API)은 확장에서 막히므로 쓰지 않고,
+  // 기간을 windowDays 일씩 잘라 'after:날짜 before:날짜' 로 검색 화면(첫 쪽)을 여러 번 연다.
+  // 한 구간의 결과가 꽉 차면(일반 영상 16개 이상) 구간을 반으로 나눠 다시 (최소 1일).
+  // onPage(items, label) 가 구간마다 불림. 반환: 모든 항목
+  async function search(query, { since, until = new Date(), windowDays = 7, stopped = () => false, onPage } = {}) {
+    const day = 86400000;
+    const d0 = new Date(since.getFullYear(), since.getMonth(), since.getDate());
+    const dEnd = new Date(until.getFullYear(), until.getMonth(), until.getDate());
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const queue = [];
+    for (let t = d0.getTime(); t <= dEnd.getTime(); t += windowDays * day) queue.push([new Date(t), new Date(Math.min(t + (windowDays - 1) * day, dEnd.getTime()))]);
+    queue.reverse(); // 최근 구간부터
+    const all = [];
+    let first = true;
+    while (queue.length && !stopped()) {
+      const [a, b] = queue.shift();
+      if (!first) await jitter(600, 1300);
+      first = false;
+      // after 는 그 날을 빼고, before 도 그 날을 빼는 경우가 있어 앞뒤 하루씩 넓힘 (정확한 날짜는 영상 화면에서 다시 확인)
+      const q = `${query} after:${fmt(new Date(a.getTime() - day))} before:${fmt(new Date(b.getTime() + day))}`;
+      const items = await searchPage(q);
       all.push(...items);
-      onPage?.(items, p);
-      if (!items.length) break;
+      onPage?.(items, `${fmt(a)}~${fmt(b)}`);
+      const full = items.filter((x) => !x.isShort).length >= 16;
+      const span = Math.round((b - a) / day) + 1;
+      if (full && span > 1) {
+        const mid = new Date(a.getTime() + Math.floor(span / 2) * day);
+        queue.unshift([a, new Date(mid.getTime() - day)], [mid, b]);
+      }
+    }
+    // 마지막으로 기간 지정 없이 최신순 한 번 (오늘 올라온 영상)
+    if (!stopped()) {
+      await jitter(600, 1300);
+      const items = await searchPage(query);
+      all.push(...items);
+      onPage?.(items, "최신");
     }
     return all;
-  }
-
-  // 한 쪽의 영상 중 날짜를 아는 것의 60% 이상이 since 보다 오래됐으면 true (날짜순 검색에서 더 볼 필요 없음)
-  // (유튜브 '업로드 날짜순'도 완전히 정렬되지는 않아서 전부가 아니라 대부분으로 판단)
-  function tooOld(items, since) {
-    const dated = items.filter((x) => !x.isShort).map((x) => parseAgo(x.agoText)).filter(Boolean);
-    const old = dated.filter((a) => a.date.getTime() + a.slack < since.getTime()).length;
-    return old >= 2 && old >= dated.length * 0.6;
   }
 
   // 채널 주소 → 기본 주소 (https://www.youtube.com/@핸들 또는 /channel/UC…)
@@ -379,7 +375,7 @@
     return n;
   }
 
-  // 댓글 수: 영상 화면의 댓글 패널 머리글 → 없으면 첫 댓글 쪽(youtubei/v1/next)의 '댓글 N개'
+  // 댓글 수: 영상 화면의 댓글 패널 머리글 · 댓글 입구의 개수 (유튜브 내부 API 는 확장에서 막혀 쓰지 않음)
   async function commentCount(html, data) {
     let n = null;
     let off = false;
@@ -398,32 +394,7 @@
     });
     if (n != null) return n;
     if (off) return 0;
-    // 첫 댓글 쪽에서 '댓글 1,234개'
-    let token = null;
-    walk(data, (k, v) => {
-      if (token) return false;
-      if (k === "itemSectionRenderer" && v?.sectionIdentifier === "comment-item-section") {
-        walk(v, (k2, v2) => {
-          if (!token && k2 === "continuationCommand" && v2?.token) token = v2.token;
-        });
-        return false;
-      }
-    });
-    if (!token) return null;
-    try {
-      const r = await api(ytcfg(html), "next", { continuation: token });
-      let c = null;
-      walk(r, (k, v) => {
-        if (c != null) return false;
-        if (k === "commentsHeaderRenderer") {
-          c = parseCount(txt(v?.countText) || txt(v?.commentsCount));
-          return false;
-        }
-      });
-      return c;
-    } catch {
-      return null;
-    }
+    return null;
   }
 
   function videoId(url) {

@@ -313,9 +313,11 @@ async function runCollect() {
         try {
           await YT.search(qs[i], {
             since: start,
-            pages: +settings.searchPages || 6,
+            until: end,
+            windowDays: +settings.searchWindow || 7,
             stopped: () => stopFlag,
-            onPage: (items) => {
+            onPage: (items, label) => {
+              stage(`② 유튜브 검색 ${i + 1}/${qs.length} · '${qs[i]}' · ${label}`, 30 + (i / qs.length) * 20);
               for (const it of items) {
                 if (!inRangeApprox(it, start, endNext) || !topicCheck(it)) continue;
                 addCand(it, `검색:${qs[i]}`);
@@ -735,7 +737,7 @@ async function fillSettings() {
   $("#sEcon").value = settings.econ;
   $("#sChQ").value = settings.channelQueries;
   $("#sQueries").value = settings.queries;
-  $("#sPages").value = settings.searchPages;
+  $("#sPages").value = settings.searchWindow;
   $("#sTopic").value = settings.topicWords;
   $("#sNeg").value = settings.negWords;
   $("#sPos").value = settings.posWords;
@@ -760,7 +762,7 @@ $("#save").addEventListener("click", async () => {
     econ: $("#sEcon").value,
     channelQueries: $("#sChQ").value,
     queries: $("#sQueries").value,
-    searchPages: Math.max(1, Math.min(30, +$("#sPages").value || 6)),
+    searchWindow: Math.max(1, Math.min(31, +$("#sPages").value || 7)),
     topicWords: $("#sTopic").value,
     negWords: $("#sNeg").value,
     posWords: $("#sPos").value,

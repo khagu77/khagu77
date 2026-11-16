@@ -127,22 +127,25 @@ def yt_route(route, calls):
     url = route.request.url
     u = urlparse(url)
     calls.append(unquote(url))
-    if u.path.startswith("/youtubei/v1/search"):
-        body = {"onResponseReceivedCommands": [{"appendContinuationItemsAction": {"continuationItems": [
-            vr("page2Neg001", VIDEOS["page2Neg001"][0], ago(30), 45000, "주식채널", "UCother33333333333333333", "현대차 주가가 급락"),
-            vr("page2Old001", VIDEOS["page2Old001"][0], ago(200), 1000, "주식채널", "UCother33333333333333333", "현대차 위기"),
-            vr("page2Old002", VIDEOS["page2Old002"][0], ago(300), 1000, "주식채널", "UCother33333333333333333"),
-            {"continuationItemRenderer": {"continuationEndpoint": {"continuationCommand": {"token": "TOKEN3"}}}},
-        ]}}]}
-        return route.fulfill(status=200, content_type="application/json", body=json.dumps(body, ensure_ascii=False))
+    if u.path.startswith("/youtubei/"):
+        return route.fulfill(status=403, body="")  # 확장에서 보내는 유튜브 내부 API 는 실제로 403
     if u.path == "/results":
-        data = {"contents": {"sectionListRenderer": {"contents": [{"itemSectionRenderer": {"contents": [
-            vr("srchNeg0001", VIDEOS["srchNeg0001"][0], ago(1), 2753610, "크랩 KLAB", "UCother00000000000000000", "현대차 아반떼 가격"),
-            vr("srchMid0001", VIDEOS["srchMid0001"][0], ago(5), 30000, "카리뷰", "UCother11111111111111111", "신형 투싼"),
-            vr("econNeg0001", VIDEOS["econNeg0001"][0], ago(10), 880000, "경제채널B", "UCecon000000000000000000"),
-            {"reelShelfRenderer": {"items": [shorts("shortNeg001", VIDEOS["shortNeg001"][0], f"조회수 14만회 · {ago(20)}")]}},
-            vr("xxOffTopic1", "오늘의 날씨", ago(1), 10, "날씨", "UCwx0000000000000000000"),
-        ]}}, {"continuationItemRenderer": {"continuationEndpoint": {"continuationCommand": {"token": "TOKEN2"}}}}]}}}
+        q = parse_qs(u.query)["search_query"][0]
+        m = re.search(r"after:(\S+) before:(\S+)", q)
+        lo, hi = (datetime.fromisoformat(m.group(1)).date(), datetime.fromisoformat(m.group(2)).date()) if m else (None, None)
+        items = []
+        for v in ["srchNeg0001", "srchMid0001", "econNeg0001", "shortNeg001", "page2Neg001", "page2Old001", "page2Old002", "xxOffTopic1"]:
+            title, ch_id, ch_name, days = VIDEOS[v][:4] if v in VIDEOS else ("오늘의 날씨", "UCwx0000000000000000000", "날씨", 1)
+            d = (NOW - timedelta(days=days)).date()
+            if m and not (lo < d < hi):
+                continue
+            if not m and days > 7:
+                continue
+            if v == "shortNeg001":
+                items.append({"reelShelfRenderer": {"items": [shorts(v, title, f"조회수 14만회 · {ago(days)}")]}})
+            else:
+                items.append(vr(v, title, ago(days), VIDEOS.get(v, (0, 0, 0, 0, 10))[4], ch_name, ch_id, VIDEOS[v][7][:30] if v in VIDEOS else ""))
+        data = {"contents": {"sectionListRenderer": {"contents": [{"itemSectionRenderer": {"contents": items}}]}}}
         return route.fulfill(status=200, content_type="text/html", body=page(data))
     m = re.match(r"^/@([^/]+)/(search|videos)$", u.path)
     if m:
@@ -206,7 +209,7 @@ def test_collect_dashboard_excel(tmp_path):
         start = (NOW - timedelta(days=75)).strftime("%Y-%m-%d")
         pg.evaluate(
             """([start]) => chrome.storage.local.set({ hmAiKey: 'sk-test', hmSettings: { ...DEFAULTS, start, managed: '관리채널A | https://www.youtube.com/@managedch',
-               econ: '경제채널B | https://www.youtube.com/@econch', channelQueries: '현대차', queries: '현대차 위기', searchPages: 3, sound: false } })""",
+               econ: '경제채널B | https://www.youtube.com/@econch', channelQueries: '현대차', queries: '현대차 위기', searchWindow: 30, sound: false } })""",
             [start],
         )
         pg.reload()
@@ -220,7 +223,9 @@ def test_collect_dashboard_excel(tmp_path):
         assert any("/@managedch/search?query=현대차" in c for c in calls)
         assert any("/@econch/videos" in c for c in calls)
         assert any(c.startswith("https://www.youtube.com/results?search_query=") and "현대차" in c and "sp=CAI" in c for c in calls), calls
-        assert sum("/youtubei/v1/search" in c for c in calls) == 1, log
+        assert not any("/youtubei/" in c for c in calls), log  # 막히는 내부 API 는 쓰지 않음
+        windows = [c for c in calls if "/results?" in c and "after:" in c]
+        assert len(windows) == 3, windows  # 75일을 30일씩 → 3구간 (+ 기간 지정 없는 최신순 1번)
         watched = {parse_qs(urlparse(c).query)["v"][0] for c in calls if "/watch?" in c}
         assert "econOld0001" not in watched and "xxOffTopic1" not in watched and "econOff0001" not in watched  # 기간 밖·주제 밖은 열지 않음
         assert ai_calls and ai_calls[0]["model"] == "claude-sonnet-5-5" and ai_calls[0]["output_config"]["format"]["type"] == "json_schema"

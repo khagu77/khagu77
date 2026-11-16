@@ -157,9 +157,9 @@
       </div>
       <div class="card">
         <h2>유튜브 전체 검색 (그 외 모든 채널)</h2>
-        <label for="sQueries">검색어 <span class="hint">(한 줄에 하나 · 업로드 날짜순으로 기간 시작일까지)</span></label>
+        <label for="sQueries">검색어 <span class="hint">(한 줄에 하나 · 업로드 날짜순 · 모니터링 기간 전체)</span></label>
         <textarea id="sQueries" rows="8" spellcheck="false"></textarea>
-        <label>검색어마다 볼 쪽 수 <input type="number" id="sPages" min="1" max="30" style="width:70px"> <span class="hint">(1쪽 ≈ 20개, 기간 밖이 나오면 그 전에 멈춤)</span></label>
+        <label>기간을 며칠씩 나눠 검색 <input type="number" id="sPages" min="1" max="31" style="width:70px">일 <span class="hint">(검색어 × 구간마다 검색 화면을 한 번씩 · 결과가 꽉 찬 구간은 자동으로 더 잘게 나눔)</span></label>
       </div>
       <div class="card">
         <h2>판단 단어</h2>
