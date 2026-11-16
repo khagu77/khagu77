@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "'현대차 위기론' 관련 부정적 프레임의 유튜브 콘텐츠 모니터링",
+  "version": "1.0.0",
+  "description": "관리 채널·주요 경제 채널과 유튜브 검색에서 '현대차 위기론' 부정 프레임 콘텐츠를 모아 일자별 발행 추이 대시보드·DB·썸네일 포함 엑셀로 정리합니다.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "'현대차 위기론' 유튜브 콘텐츠 모니터링",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://i.ytimg.com/*",
+    "https://api.anthropic.com/*"
+  ],
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkuYvC6DnbxCANfMnjQwuwxWwtS76QypNxguPgZdsonvSM4BUSQsPT6NUifPDuopC/WMCYgcSXM0XM0afvBVrdVNX8BeXilLBWL8qyB9eoFhVECuWI+li3YmRqFuCEV1N6Cj+BrhrGAm05A8Lr0ImeFXMsonSyvljsNGhcWJ1NM3dQ1wwCUCbJTb3AEre1nLXN7jJBG2yp6aVtyqZ1n9qtr3YW2CkQiqHGWh9W6dVAkMf4pWdBWtLNRoXkyzwGZw6VUM7Uk8WP7Mhe6L7iynkPq45tcTAmNEdrUzpbgAH0FwWiyYJdmDAvEqv1oP/jZTWwRvnhafhVPv30F5c4bLXEQIDAQAB"
+}
