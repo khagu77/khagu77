@@ -74,6 +74,7 @@ def page(data, player=None):
 CH = {
     "managedch": ("UCmanaged000000000000000", "관리채널A"),
     "econch": ("UCecon000000000000000000", "경제채널B"),
+    "newch": ("UCother00000000000000000", "크랩 KLAB"),  # 나중에 관리 채널로 추가 ('빠진 것만 채우기')
 }
 # 영상 ID → (제목, 채널 ID, 채널 이름, 며칠 전, 조회수, 좋아요, 댓글 수, 설명)
 VIDEOS = {
@@ -85,6 +86,7 @@ VIDEOS = {
     "econOff0001": ("반도체 이야기", "UCecon000000000000000000", "경제채널B", 2, 7000, 50, 9, "반도체 이야기"),
     "srchNeg0001": ("\"이 돈이면 테슬라 사지\"…역대급 위기라는 현대차 상황", "UCother00000000000000000", "크랩 KLAB", 1, 2753610, 41000, 6200,
                     "아반떼·투싼 등 신차 가격이 오르며 현대차에 대한 소비자 불만이 커지고 있습니다."),
+    "newNeg00001": ("현대차 위기 3부, 끝없는 추락", "UCother00000000000000000", "크랩 KLAB", 4, 99000, 800, 77, "현대차가 흔들리고 있습니다."),
     "srchMid0001": ("현대차 신형 투싼 시승기", "UCother11111111111111111", "카리뷰", 5, 30000, 900, 120, "신형 투싼을 타 봤습니다. 승차감이 좋아졌습니다."),
     "shortNeg001": ("현대차 망했다? #shorts", "UCother22222222222222222", "쇼츠채널", 20, 141000, 2000, 88, "현대차 위기 쇼츠"),
     "page2Neg001": ("현대차 주가 폭락 이유", "UCother33333333333333333", "주식채널", 30, 45000, 700, 210, "현대차 주가가 급락했습니다."),
@@ -276,6 +278,25 @@ def test_collect_dashboard_excel(tmp_path):
             pg.click("#xlsxDash")
         path = tmp_path / "out.xlsx"
         dl.value.save_as(path)
+
+        # 관리 채널을 하나 더 넣고 '빠진 것만 채우기' → 새 채널만 훑고, 검색·이미 훑은 채널·이미 읽은 영상은 다시 안 함
+        pg.goto(f"chrome-extension://{ext_id}/app.html#collect")
+        pg.evaluate("""() => chrome.storage.local.get('hmSettings').then(({ hmSettings }) => chrome.storage.local.set({ hmSettings: {
+            ...hmSettings, managed: hmSettings.managed + '\\n크랩 | https://www.youtube.com/@newch' } }))""")
+        pg.reload()
+        n0 = len(calls)
+        pg.click("#fill")
+        pg.wait_for_function("() => /^(✔|오류)/.test(document.querySelector('#stage').textContent)", timeout=120000)
+        new_calls = calls[n0:]
+        log2 = pg.inner_text("#log")
+        assert any("/@newch/search" in c for c in new_calls), new_calls
+        assert not any("/@managedch/" in c or "/@econch/" in c or "/results?" in c for c in new_calls), new_calls
+        watched2 = {parse_qs(urlparse(c).query)["v"][0] for c in new_calls if "/watch?" in c}
+        assert watched2 == {"newNeg00001"}, (watched2, log2)
+        assert "2곳은 건너뜀" in log2, log2
+        vids2 = {v["id"]: v for v in pg.evaluate("DB.all()")}
+        assert vids2["newNeg00001"]["group"] == "managed" and vids2["newNeg00001"]["include"]
+        assert vids2["srchNeg0001"]["group"] == "managed"  # 전에 '기타'로 들어온 같은 채널 영상도 '관리'로 (다시 읽지 않고)
         ctx.close()
 
     with zipfile.ZipFile(path) as z:

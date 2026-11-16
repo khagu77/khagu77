@@ -46,6 +46,7 @@ async function loadSettings() {
   const { hmSettings } = await chrome.storage.local.get("hmSettings");
   const s = { ...DEFAULTS, ...(hmSettings || {}) };
   s.ai = { ...DEFAULTS.ai, ...(hmSettings?.ai || {}) };
+  if (String(s.managed || "").trim() === OLD_MANAGED_DEFAULT) s.managed = DEFAULTS.managed; // 예전 기본값 → GV90 채널 48곳
   return s;
 }
 async function saveSettings(s) {

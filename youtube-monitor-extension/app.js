@@ -251,7 +251,8 @@ function channelLines(text, group) {
     const [a, b] = l.includes("|") ? l.split("|").map((x) => x.trim()) : ["", l];
     const base = YT.channelBase(b);
     const vid = !base ? YT.videoId(b) : null;
-    if (base || vid) out.push({ name: a, base, video: vid, group });
+    const id = base?.match(/\/channel\/(UC[\w-]{22})/)?.[1] || "";
+    if (base || vid) out.push({ name: a, base, video: vid, group, id });
   }
   return out;
 }
@@ -297,11 +298,11 @@ function inRangeApprox(it, start, endNext) {
   return a.date.getTime() + a.slack >= start.getTime() && a.date.getTime() - 86400000 <= endNext.getTime();
 }
 
-async function runCollect() {
+async function runCollect(override = null) {
   if (running) return;
   setRunning(true);
   stopFlag = false;
-  $("#run").disabled = true;
+  $("#run").disabled = $("#fill").disabled = true;
   $("#stop").disabled = false;
   $("#aiOnly").disabled = true;
   $("#log").textContent = "";
@@ -311,7 +312,8 @@ async function runCollect() {
   const start = parseYmd(p.start);
   const end = parseYmd(p.end);
   const endNext = new Date(end.getFullYear(), end.getMonth(), end.getDate() + 1);
-  const opt = { channels: $("#optChannels").checked, search: $("#optSearch").checked, refresh: $("#optRefresh").checked, ai: $("#optAi").checked };
+  const opt = override || { channels: $("#optChannels").checked, search: $("#optSearch").checked, refresh: $("#optRefresh").checked, ai: $("#optAi").checked };
+  if (override) log("빠진 것만 채우기: 아직 안 훑은 채널만 훑고, 새로 찾은 영상만 읽습니다 (전체 검색·DB 새로 고침 없음)");
   const cands = new Map(); // id → 목록에서 본 정보
   const addCand = (it, src) => {
     const c = cands.get(it.id);
@@ -327,12 +329,34 @@ async function runCollect() {
     log(`수집 기간 ${p.start} ~ ${p.end}`);
     // 1) 관리·경제 채널
     const chans = await resolveChannels();
+    // 예전에 훑은 채널 정보(채널 ID·훑은 시각)를 이어 받음 — 주소(핸들·채널 ID)가 달라도 같은 채널이면 같게
+    const prevById = new Map();
+    const { hmLastRun } = await chrome.storage.local.get("hmLastRun");
+    for (const [base, v0] of Object.entries(hmChannels)) {
+      // 1.0.4 까지는 훑은 시각을 따로 적지 않았음 → 마지막 수집이 끝난 시각으로
+      const v = { ...v0, scannedAt: v0.scannedAt || hmLastRun?.at || null };
+      if (v.id) prevById.set(v.id, v);
+      const c = chans.find((x) => x.base === base);
+      if (c && !c.id && v.id) c.id = v.id;
+    }
     const groupById = new Map();
     for (const c of chans) if (c.id) groupById.set(c.id, c.group);
+    const freshMs = (override ? 24 : 12) * 3600000; // 이 시간 안에 훑은 채널은 건너뜀
+    const newChannels = {};
+    for (const c of chans) {
+      const pv = c.id && prevById.get(c.id);
+      if (pv) newChannels[c.base] = { ...pv, group: c.group };
+    }
     if (opt.channels) {
       const qs = splitList(settings.channelQueries);
+      let skipped = 0;
       for (let i = 0; i < chans.length && !stopFlag; i++) {
         const c = chans[i];
+        const pv = c.id && prevById.get(c.id);
+        if (pv?.scannedAt && Date.now() - new Date(pv.scannedAt).getTime() < freshMs) {
+          skipped++;
+          continue;
+        }
         stage(`① 채널 훑기 ${i + 1}/${chans.length} · ${c.name || c.base}`, (i / chans.length) * 30);
         let found = 0;
         for (const q of [...qs, null]) {
@@ -343,7 +367,7 @@ async function runCollect() {
               c.id = r.channel.id;
               c.name = c.name || r.channel.name;
               groupById.set(r.channel.id, c.group);
-              hmChannels[c.base] = { id: r.channel.id, name: r.channel.name || c.name, url: r.channel.url || c.base, group: c.group };
+              newChannels[c.base] = { id: r.channel.id, name: r.channel.name || c.name, url: r.channel.url || c.base, group: c.group, scannedAt: new Date().toISOString() };
             }
             for (const it of r.items) {
               if (it.channelId && c.id && it.channelId !== c.id) continue; // 채널 검색 결과에 섞인 다른 채널
@@ -361,7 +385,23 @@ async function runCollect() {
         }
         log(`${GROUPS[c.group]} · ${c.name || c.base}: 관련 영상 ${found}개`);
       }
-      await chrome.storage.local.set({ hmChannels });
+      if (skipped) log(`최근 ${freshMs / 3600000}시간 안에 훑은 채널 ${skipped}곳은 건너뜀`);
+    }
+    await chrome.storage.local.set({ hmChannels: newChannels });
+    // DB 영상의 구분(관리·경제·기타)을 지금 채널 목록에 맞게 (다시 읽지 않고 바꿈)
+    {
+      const regroup = [];
+      for (const v of videos) {
+        const g = groupById.get(v.channelId) || "other";
+        if (v.group !== g) {
+          v.group = g;
+          regroup.push(v);
+        }
+      }
+      if (regroup.length) {
+        await DB.putMany(regroup);
+        log(`DB 영상 ${regroup.length}개의 구분을 채널 목록에 맞게 바꿈`);
+      }
     }
     // 2) 유튜브 전체 검색
     if (opt.search && !stopFlag) {
@@ -495,7 +535,7 @@ async function runCollect() {
     log(`오류: ${e.stack || e.message}`);
   } finally {
     setRunning(false);
-    $("#run").disabled = false;
+    $("#run").disabled = $("#fill").disabled = false;
     $("#stop").disabled = true;
     $("#aiOnly").disabled = false;
     await reloadVideos();
@@ -563,7 +603,8 @@ async function runAi(all) {
   await reloadVideos();
 }
 
-$("#run").addEventListener("click", runCollect);
+$("#run").addEventListener("click", () => runCollect());
+$("#fill").addEventListener("click", () => runCollect({ channels: true, search: false, refresh: false, ai: $("#optAi").checked }));
 $("#stop").addEventListener("click", () => {
   stopFlag = true;
   stage("중지하는 중… (지금 하던 것까지 저장)");

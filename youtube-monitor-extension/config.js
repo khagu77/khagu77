@@ -3,13 +3,58 @@
 const DEFAULTS = {
   start: "2026-09-01",
   end: "", // 비우면 오늘
-  // 기존 관리 채널: 다른 프로그램(LX3 수집기)에서 관리 중인 유튜브 영상 목록 — 영상 주소를 넣으면 그 영상의 채널로 바꿔 씀
+  // 기존 관리 채널: GV90 수집기의 모니터링 유튜브 채널 48곳 (이슈 모니터링 보고서와 같은 목록)
   managed: [
-    "qCzKGyMaDq4", "XBMdMt_QCCc", "4RBKMiM7U2U", "vUDDF-qIHc8", "8nD5NuYU78Q", "e0HLk5TohDc", "zHKmLScJwmQ",
-    "1ZTBkyUWVsk", "c0BjmtN0U4g", "_JCP2fRFMDA", "Ul8LAQ6SL5o", "SUcSFeNftzg", "vYGVhHMIiwM", "Gw8QlbmzHY8",
-    "LlVeeM8i9r8", "Oxhnyr4nchQ", "Ya7tNSCWHKQ", "JQ0328NfbWc", "Z_IMxiszGII", "fxKieGRWEd8", "Ee0tytsS_Ks",
+    ["인싸 케이", "UCjYS1a6ENGSfUfxEJpVCOtQ"],
+    ["우파푸른하늘 Woopa TV", "UCFUpTxU3nlGed-suY-FjjxA"],
+    ["모트라인", "UCMTZqwCdw9Nynw9BkCgfeRQ"],
+    ["없섭UPSub", "UCdpbqw5DPdBfaeByMF2Re0g"],
+    ["오토기어", "UCsjzJWuBnPyA8-tj9pEDwXg"],
+    ["BPD", "UCrOl7IuctoHW0iW-Gozj4EQ"],
+    ["훼사원", "UCF2AFWB3tROplgmkt3nOXIw"],
+    ["블라인드 카스토리", "UCFQ8D7RnvA1_1BWtIJXu86w"],
+    ["재뻘TV", "UCknfGXdai7ZaDhs3Frhtb6A"],
+    ["신사용", "UC6QJowhz8WHwkKr1KeN7FWg"],
+    ["카비니", "UCu1zVEpCdQ0_aW0GoJxeb8w"],
+    ["신차정보 연못구름", "UC-QNLjGvjEdwqtl3VtcuqgQ"],
+    ["윤순의 평범치 않은 생활", "UCjUT74Kh33A-CRJFYGqNCmg"],
+    ["멜론머스크", "UC3gZhNlLSVdRQLsItqA4VKA"],
+    ["안오준TV", "UCX62PLc24ML_-tQ3fVPa2tQ"],
+    ["자동차읽어주는남자", "UC4_AL-HBcYBjCTyNnMw0DOw"],
+    ["강병휘의 Station.B", "UCZp9xeMSXrhlxFvOEuBCoAQ"],
+    ["홍시CAR", "UCG2PHnetcVllQFPW5BsE_LA"],
+    ["차도녀TV", "UCMe445IIQn_f0s7G2wdAOZg"],
+    ["차봤서영", "UC5b2_GAScxz4guty7rv4Ulg"],
+    ["더베스트랩", "UCV9aJOO9QY057Bo6U1l5yzg"],
+    ["앗 차가와!", "UCu8vJYXzPbpG50NTZ6zTEqg"],
+    ["주니TV", "UCXiruUThysG7zssj-unDgog"],
+    ["Car Scene Korea", "UC0IsFqJzKJLRjHIznNNdhxQ"],
+    ["정우성의 THE PARK", "UChO8Bz0JvDfareLOg3w1-jg"],
+    ["울트라TV", "UCVdMEXU3GY8jnDdEwu2rOqw"],
+    ["윤키라이드", "UC-LZSOdNyYJWfFyH94pJPsg"],
+    ["카잼TV", "UCCE4oHV3UzJAEiZWuyqBt7g"],
+    ["카티", "UCOGb_1FPYViRDGuw1i4-vdw"],
+    ["모크리TV", "UC1cx02FHrEi6N7Q6AlAPicA"],
+    ["김한용의 MOCAR", "UCd5CdYxogKBwvv1xyuxhvZA"],
+    ["픽플러스", "UCvJnb0ty7RpquJKouRBeEzQ"],
+    ["미디어오토", "UCT29dZNPg6exiMyMrVLL0fg"],
+    ["금아", "UCYVZ6zFmvUmeBmmFD7CJRqQ"],
+    ["남자들의 자동차", "UCCbLQtdzoIJB-Ah6_oWFsoA"],
+    ["자동차 미생 Auto Engineer", "UCPv8dcL52lwQD2tbpgC9Kmw"],
+    ["차쌈TV", "UCSjpMqEtqlhowucDxAXi4Og"],
+    ["모드개러지", "UCIUKfPFV7ji0-tXyrevsjXA"],
+    ["김누킴", "UCAnu8zuqomikJ58d6MsW_kw"],
+    ["오렌지커스텀 TV", "UCZPybXX8kSB8prRtQQLH4Bg"],
+    ["[싼존] 팰리세이드 생활", "UCcVFN2zfq6DWfzik4NLfh3g"],
+    ["왜있슈TV", "UCO067SLFx4DEAsrkoY8ETFA"],
+    ["한문철TV", "UCH5U89kvHrVxxS80xpoOydw"],
+    ["박병일의 명장본색", "UCw0qRuJiJ47bLwUc_YgS3TQ"],
+    ["노보스 인더스트리", "UC9Amgn24YSvlyzKWynKZh-w"],
+    ["김승현의 스포일러", "UCqU_tyJmNZyCNcpcQubt24w"],
+    ["차플레이", "UC3EoxBWACw1aMJca4OKhFUg"],
+    ["모터그래프", "UCp0B9n0YYC8E8bJmS5i4oqw"],
   ]
-    .map((id) => `https://www.youtube.com/watch?v=${id}`)
+    .map(([n, id]) => `${n} | https://www.youtube.com/channel/${id}`)
     .join("\n"),
   // 주요 경제 채널 (경제, 금융 유튜브 서칭 자료)
   econ: [
@@ -70,6 +115,15 @@ const AI_MODELS = [
 ];
 const AI_PRICE = { "claude-opus-5-5": [4, 20], "claude-sonnet-5-5": [2, 10], "claude-haiku-5-5": [0.1, 0.5] }; // 100만 토큰당 달러 (입력, 출력)
 const WON_PER_USD = 1400;
+
+// 1.0.4 까지의 관리 채널 기본값 (LX3 수집기 유튜브 영상 21개) — 저장된 설정이 이 값 그대로면 새 기본값(48곳)으로 바꿈
+const OLD_MANAGED_DEFAULT = [
+  "qCzKGyMaDq4", "XBMdMt_QCCc", "4RBKMiM7U2U", "vUDDF-qIHc8", "8nD5NuYU78Q", "e0HLk5TohDc", "zHKmLScJwmQ",
+  "1ZTBkyUWVsk", "c0BjmtN0U4g", "_JCP2fRFMDA", "Ul8LAQ6SL5o", "SUcSFeNftzg", "vYGVhHMIiwM", "Gw8QlbmzHY8",
+  "LlVeeM8i9r8", "Oxhnyr4nchQ", "Ya7tNSCWHKQ", "JQ0328NfbWc", "Z_IMxiszGII", "fxKieGRWEd8", "Ee0tytsS_Ks",
+]
+  .map((id) => `https://www.youtube.com/watch?v=${id}`)
+  .join("\n");
 
 const GROUPS = { managed: "관리 채널", econ: "경제 채널", other: "기타 채널" };
 const GROUP_COLOR = { managed: "#2a78d6", econ: "#eb6834", other: "#1baf7a" };
