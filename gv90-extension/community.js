@@ -304,8 +304,10 @@ class CommunityCollector {
       const api = await readPpomppuCommentsApi(post.url, { isStopped: this.isStopped }).catch(() => null);
       if (api && api.comments.length >= comments.length && api.comments.length) {
         comments = api.comments;
-        how = "뽐뿌 댓글 목록";
         expected = api.total || comments.length; // 화면 글자에서 센 수보다 정확
+        // 목록에서 전체 댓글 수의 80% 이상 읽혔을 때만 '그게 전부' (적게 읽혔으면 탭으로 열어 다시 읽음)
+        how = comments.length >= Math.ceil(expected * 0.8) ? "뽐뿌 댓글 목록" : "뽐뿌 댓글 목록(일부)";
+        if (how !== "뽐뿌 댓글 목록") this.log(`  · 뽐뿌 댓글 목록에서 ${comments.length}/${expected}개만 읽힘 (받은 항목 ${api.raw}개 · 칸: ${api.fields}) → 탭으로 열어 다시 읽음`);
       } else if (api && api.total) expected = Math.max(expected, api.total);
     }
     // 뽐뿌 댓글 목록을 받았으면 그게 전부 (차단·지운 댓글은 빠지므로 전체 수보다 적을 수 있음) → 탭·AI 판독은 하지 않음
@@ -559,7 +561,9 @@ async function readPpomppuCommentsApi(url, { isStopped = () => false } = {}) {
     const res = await get(p).catch(() => null);
     if (res && Array.isArray(res.comments)) flat(res.comments, comments);
   }
-  return { comments: comments.filter((c) => c.text), total: parseInt(first.total_comment, 10) || 0 };
+  // 원인 확인용: 받은 항목 수와 칸 이름 (일부만 읽혔을 때 기록에 남김)
+  const sample = first.comments.find((o) => o && typeof o === "object");
+  return { comments: comments.filter((c) => c.text), total: parseInt(first.total_comment, 10) || 0, raw: comments.length, fields: sample ? Object.keys(sample).slice(0, 20).join(",") : "" };
 }
 
 // 작성자 정보 줄('작성글: 게시글 16,067 | 댓글 55,929' = 작성자가 지금까지 쓴 글·댓글 수)을 지운다
