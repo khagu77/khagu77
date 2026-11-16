@@ -1709,8 +1709,10 @@ def test_lx3_daily_yellow(tmp_path: Path):
               date: new Date(2026, 10, 10), checked: true, related: true, note: '오전 일일동향 노란색 글', dup: false, daily: true },
           ];
           renderResults(); }""")
-        page.fill("#from", "2026-11-09T11:30")
-        page.fill("#to", "2026-11-10T11:30")
+        # 결과 표는 11-09 11:30 ~ 11-10 11:30 을 찾은 것 · 시작·끝 칸은 이어 찾기용(11:30~11:39)이어도 결과 표 기간 전체로 판단
+        page.evaluate("lastRange = { from: '2026-11-09T11:30', to: '2026-11-10T11:30' }")
+        page.fill("#from", "2026-11-10T11:30")
+        page.fill("#to", "2026-11-10T11:39")
         page.set_input_files("#dailyFiles", str(daily))
         page.locator("#dailyInfo", has_text="✔").wait_for()
         info = page.inner_text("#dailyInfo")

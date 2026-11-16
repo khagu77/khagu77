@@ -955,7 +955,8 @@ async function search(resume = null) {
   markDuplicates();
   renderResults();
   lastSearchAt = Date.now();
-  lastRange = { from: $("#from").value, to: $("#to").value };
+  // 결과 표의 기간: 고른 기록에 이어 찾았으면 그 기록 시작부터 (주말에 미리 찾아 둔 것 포함)
+  lastRange = { from: base && cont && base.from < win.from.getTime() ? toLocalInput(new Date(base.from)) : $("#from").value, to: $("#to").value };
   lastKw = { mainKw, subKw };
   // 수집 기록으로 남김 (고른 기록에 이어 찾았으면 그 기록 + 이번 결과 합본, 기간도 그 기록 시작부터)
   if (!stopRequested) {
@@ -2197,7 +2198,7 @@ function setupDaily() {
     }
     let win;
     try {
-      win = range();
+      win = resultsWindow(); // 지금 결과 표가 찾은 기간 전체 (시작·끝 칸은 이어 찾기용이라 짧을 수 있음)
     } catch (err) {
       info.className = "hint err";
       info.textContent = err.message;
@@ -2213,7 +2214,7 @@ function setupDaily() {
       renderResults();
       await saveLast();
       info.className = "hint ok";
-      info.textContent = `✔ 노란색 시트 글 ${r.total}개 확인 → 새로 넣음 ${r.added}개 · 이미 찾은 글 체크 ${r.checked}개 · 기간(${$("#from").value.replace("T", " ")} ~ ${$("#to").value.replace("T", " ")}) 밖 ${r.out}개${r.failed ? ` · 열지 못함 ${r.failed}개` : ""}`;
+      info.textContent = `✔ 노란색 시트 글 ${r.total}개 확인 → 새로 넣음 ${r.added}개 · 이미 찾은 글 체크 ${r.checked}개 · 기간(${formatDateTime(win.from)} ~ ${formatDateTime(win.to)}) 밖 ${r.out}개${r.failed ? ` · 열지 못함 ${r.failed}개` : ""}`;
       setSummary(info.textContent, "ok");
     } catch (err) {
       info.className = "hint err";
@@ -2232,8 +2233,7 @@ async function fixOldDaily() {
   if (!old.length || running) return;
   let win;
   try {
-    win = lastRange?.from && lastRange?.to ? { from: new Date(lastRange.from), to: new Date(lastRange.to) } : range();
-    if (isNaN(win.from) || isNaN(win.to)) win = range();
+    win = resultsWindow();
   } catch {
     return;
   }
@@ -2315,8 +2315,7 @@ async function checkTimeOnTick(item) {
   if (running || !(item.ambiguous || (item.approx && item.naverUrl))) return;
   let win;
   try {
-    win = lastRange?.from && lastRange?.to ? { from: new Date(lastRange.from), to: new Date(lastRange.to) } : range();
-    if (isNaN(win.from) || isNaN(win.to)) win = range();
+    win = resultsWindow();
   } catch {
     return;
   }
@@ -2328,4 +2327,18 @@ async function checkTimeOnTick(item) {
   );
   renderResults();
   await saveLast();
+}
+
+// 지금 결과 표가 찾은 기간 전체: 고른 수집 기록(주말에 이어 찾은 것까지 합친 기간) > 마지막 찾기 기간 > 시작·끝 칸
+// (화면을 다시 열면 시작·끝 칸은 '이어 찾기'용으로 오늘 끝 시각 이후가 되므로, 결과 표 기준 판단엔 쓰지 않음)
+function resultsWindow() {
+  const r = curRun();
+  let from = r?.from ? new Date(r.from) : null;
+  let to = r?.to ? new Date(r.to) : null;
+  const lf = lastRange?.from ? new Date(lastRange.from) : null;
+  const lt = lastRange?.to ? new Date(lastRange.to) : null;
+  if (lf && !isNaN(lf) && (!from || lf < from)) from = lf;
+  if (lt && !isNaN(lt) && (!to || lt > to)) to = lt;
+  if (!from || !to || isNaN(from) || isNaN(to) || from >= to) return range();
+  return { from, to };
 }
