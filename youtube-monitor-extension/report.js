@@ -207,7 +207,7 @@ function dashHtml(st, { fluid = false, banner = BANNER_URL, logo = LOGO_URL, cha
       "padding:10px 12px;",
     )}</td>`;
   const groupBadge = (g) =>
-    `<span style="display:inline-block;font-size:10px;font-weight:700;color:#ffffff;background:${GROUP_COLOR[g] || "#6b7280"};border-radius:4px;padding:0 5px;line-height:16px;white-space:nowrap;">${(GROUPS[g] || "기타").replace(" 채널", "")}</span>`;
+    `<span style="display:inline-block;font-size:10px;font-weight:700;color:#ffffff;background:${GROUP_COLOR[g] || "#6b7280"};border-radius:4px;padding:0 5px;line-height:16px;white-space:nowrap;vertical-align:middle;letter-spacing:0;">${(GROUPS[g] || "기타").replace(" 채널", "")}</span>`;
   const clip = (s, n) => {
     s = String(s || "");
     return s.length > n ? `${s.slice(0, n - 1)}..` : s;
@@ -305,23 +305,33 @@ function dashHtml(st, { fluid = false, banner = BANNER_URL, logo = LOGO_URL, cha
           `<span style="display:inline-block;border:1px solid #d9dde3;border-radius:999px;padding:1px 8px;margin:0 4px 5px 0;font-size:11px;color:#1b1d21;white-space:nowrap;">${escH(k)} <b style="color:${color};">${n}</b></span>`,
       )
       .join("");
+  // 아래 두 상자(프레임 유형·부정 표현 / 최근 발행 콘텐츠)는 같은 높이로 고정
+  const PAIR_H = 170;
+  const fixedH = (inner) => `<div style="height:${PAIR_H}px;overflow:hidden;">${inner}</div>`;
   const frameBox = box(
-    (st.frames.length ? h3("위기론 프레임 유형", "건수") + `<div>${chips(st.frames, "#d93025")}</div>` : "") +
-      h3("자주 쓰인 부정 표현", "제목·설명 · 건수") +
-      `<div>${chips(st.words, "#d93025") || '<span style="font-size:12px;color:#6b7280;">아직 없습니다</span>'}</div>`,
+    fixedH(
+      (st.frames.length ? h3("위기론 프레임 유형", "건수") + `<div>${chips(st.frames.slice(0, 8), "#d93025")}</div>` : "") +
+        h3("자주 쓰인 부정 표현", "제목·설명 · 건수") +
+        `<div>${chips(st.words.slice(0, st.frames.length ? 10 : 18), "#d93025") || '<span style="font-size:12px;color:#6b7280;">아직 없습니다</span>'}</div>`,
+    ),
   );
 
+  // 최근 발행: 한 줄씩(줄바꿈 없이) 자간을 좁혀 6줄 × 22px
+  const ROW_R = 22;
+  const tdR = (extra = "") => `<td height="${ROW_R}" style="height:${ROW_R}px;line-height:${ROW_R}px;padding:0 5px 0 0;white-space:nowrap;vertical-align:middle;${extra}">`;
   const recent = box(
-    h3("최근 발행 콘텐츠") +
-      `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:12px;">` +
-      st.recent
-        .map(
-          (v) =>
-            `<tr><td style="padding:3px 6px 3px 0;color:#6b7280;white-space:nowrap;vertical-align:top;">${md(new Date(v.published))}</td><td style="padding:3px 6px 3px 0;white-space:nowrap;vertical-align:top;">${groupBadge(v.group)}</td>` +
-            `<td style="padding:3px 0;vertical-align:top;"><a href="https://www.youtube.com/watch?v=${v.id}" style="color:#1b1d21;text-decoration:none;">${escH(clip(v.title, 40))}</a> <span style="color:#6b7280;font-size:11px;">${escH(clip(v.channelName, 12))}</span></td></tr>`,
-        )
-        .join("") +
-      "</table>",
+    fixedH(
+      h3("최근 발행 콘텐츠") +
+        `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:12px;letter-spacing:-0.4px;table-layout:fixed;">` +
+        st.recent
+          .map(
+            (v) =>
+              `<tr>${tdR("width:34px;color:#6b7280;")}${md(new Date(v.published))}</td>${tdR("width:32px;")}${groupBadge(v.group)}</td>` +
+              `${tdR("padding:0;overflow:hidden;")}<a href="https://www.youtube.com/watch?v=${v.id}" style="color:#1b1d21;text-decoration:none;">${escH(clip(v.title, 34))}</a> <span style="color:#6b7280;font-size:11px;">${escH(clip(v.channelName, 10))}</span></td></tr>`,
+          )
+          .join("") +
+        "</table>",
+    ),
   );
 
   const two = (a, b) =>
