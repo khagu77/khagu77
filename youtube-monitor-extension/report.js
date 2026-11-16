@@ -249,7 +249,10 @@ function dashHtml(st, { fluid = false, banner = BANNER_URL, logo = LOGO_URL, cha
   </tr></table>`;
 
   const pk = st.peak && st.peak.count ? `&nbsp;&nbsp;&nbsp;<span style="display:inline-block;background:#d93025;color:#ffffff;font-size:10px;font-weight:700;border-radius:999px;padding:0 6px;line-height:14px;vertical-align:middle;">${st.peak.count}건</span> <span style="font-size:11px;color:#1b1d21;">최고 (${md(st.peak.date)})</span>` : "";
-  const legend = `<span style="display:inline-block;width:14px;height:0;border-top:2px solid ${C_LINE};vertical-align:middle;"></span> <span style="font-size:11px;color:#1b1d21;">일자별 발행 수</span>&nbsp;&nbsp;&nbsp;<span style="display:inline-block;width:14px;height:0;border-top:2px dashed ${C_MA};vertical-align:middle;"></span> <span style="font-size:11px;color:#1b1d21;">7일 평균</span>${pk}`;
+  // 범례 선은 작은 SVG 그림으로 (빈 칸의 테두리로 그리면 메일 편집기가 지워 버림)
+  const legLine = (color, dash) =>
+    `<svg width="18" height="8" viewBox="0 0 18 8" xmlns="http://www.w3.org/2000/svg" style="display:inline-block;vertical-align:middle;"><line x1="1" y1="4" x2="17" y2="4" stroke="${color}" stroke-width="2.4" stroke-linecap="round"${dash ? ' stroke-dasharray="4 3"' : ""}/>${dash ? "" : `<circle cx="9" cy="4" r="2.6" fill="${color}"/>`}</svg>`;
+  const legend = `${legLine(C_LINE, false)} <span style="font-size:11px;color:#1b1d21;">일자별 발행 수</span>&nbsp;&nbsp;&nbsp;${legLine(C_MA, true)} <span style="font-size:11px;color:#1b1d21;">7일 평균</span>${pk}`;
   const chart = `<div style="margin:12px 4px 0;">${box(
     `<table width="100%" cellpadding="0" cellspacing="0"><tr><td>${h3("일자별 발행 추이", `${period} · 단위: 건`)}</td><td align="right" style="text-align:right;">${legend}</td></tr></table>` +
       `<div class="chart-wrap" style="position:relative;">${dailyChartSvg(st.days, fluid ? 1100 : 912, 230, chartInteractive)}</div>`,
@@ -317,22 +320,17 @@ function dashHtml(st, { fluid = false, banner = BANNER_URL, logo = LOGO_URL, cha
           `<span style="display:inline-block;border:1px solid #d9dde3;border-radius:999px;padding:1px 8px;margin:0 4px 5px 0;font-size:11px;color:#1b1d21;white-space:nowrap;">${escH(k)} <b style="color:${color};">${n}</b></span>`,
       )
       .join("");
-  // 아래 두 상자(프레임 유형·부정 표현 / 최근 발행 콘텐츠)는 같은 높이로 고정
-  const PAIR_H = 170;
-  const fixedH = (inner) => `<div style="height:${PAIR_H}px;overflow:hidden;">${inner}</div>`;
-  const frameBox = box(
-    fixedH(
-      (st.frames.length ? h3("위기론 프레임 유형", "건수") + `<div>${chips(st.frames.slice(0, 8), "#d93025")}</div>` : "") +
-        h3("자주 쓰인 부정 표현", "제목·설명 · 건수") +
-        `<div>${chips(st.words.slice(0, st.frames.length ? 10 : 18), "#d93025") || '<span style="font-size:12px;color:#6b7280;">아직 없습니다</span>'}</div>`,
-    ),
-  );
+  // 아래 두 상자(프레임 유형·부정 표현 / 최근 발행 콘텐츠): 높이를 고정해 자르면 메일에서 글자 아래가 잘림
+  //  → 한 표의 두 칸(테두리 칸)으로 만들어 내용에 맞춰 높이가 저절로 같아지게 (twoCells)
+  const frameBox =
+    (st.frames.length ? h3("위기론 프레임 유형", "건수") + `<div>${chips(st.frames.slice(0, 10), "#d93025")}</div>` : "") +
+    h3("자주 쓰인 부정 표현", "제목·설명 · 건수") +
+    `<div>${chips(st.words.slice(0, st.frames.length ? 12 : 18), "#d93025") || '<span style="font-size:12px;color:#6b7280;">아직 없습니다</span>'}</div>`;
 
   // 최근 발행: 한 줄씩(줄바꿈 없이) 자간을 좁혀 6줄 × 22px
   const ROW_R = 22;
   const tdR = (extra = "") => `<td height="${ROW_R}" style="height:${ROW_R}px;line-height:${ROW_R}px;padding:0 5px 0 0;white-space:nowrap;vertical-align:middle;${extra}">`;
-  const recent = box(
-    fixedH(
+  const recent =
       h3("최근 발행 콘텐츠") +
         `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:12px;letter-spacing:-0.4px;table-layout:fixed;">` +
         st.recent
@@ -342,9 +340,13 @@ function dashHtml(st, { fluid = false, banner = BANNER_URL, logo = LOGO_URL, cha
               `${tdR("padding:0;overflow:hidden;")}<a href="https://www.youtube.com/watch?v=${v.id}" style="color:#1b1d21;text-decoration:none;">${escH(clip(v.title, 34))}</a> <span style="color:#6b7280;font-size:11px;">${escH(clip(v.channelName, 10))}</span></td></tr>`,
           )
           .join("") +
-        "</table>",
-    ),
-  );
+        "</table>";
+
+  const twoCells = (a, b) => {
+    const cell = (x) => `<td width="50%" valign="top" bgcolor="#ffffff" style="width:50%;vertical-align:top;background:#ffffff;background-color:#ffffff;border:1px solid #d9dde3;border-radius:10px;padding:12px 14px;">${x}</td>`;
+    // 칸 사이 8px · 바깥 여백은 -4px 로 위 상자들과 왼쪽·오른쪽 끝을 맞춤
+    return `<div style="margin:12px -4px 0;"><table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:8px 0;"><tr>${cell(a)}${cell(b)}</tr></table></div>`;
+  };
 
   const two = (a, b) =>
     `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:12px 0 0;"><tr><td width="50%" style="width:50%;padding:0 4px;vertical-align:top;">${a}</td><td width="50%" style="width:50%;padding:0 4px;vertical-align:top;">${b}</td></tr></table>`;
@@ -356,8 +358,8 @@ ${kpis}
 ${chart}
 ${weekTable}
 ${two(chTable, topTable)}
-${two(frameBox, recent)}
-<div style="font-size:10px;color:#8a8f98;margin:10px 6px 0;">※ 발행 수는 '현대차 위기론' 부정 프레임으로 분류된 콘텐츠 기준(제목·설명 내용 검토). 조회수·댓글 수는 ${statTimeText(st.list) ? `${statTimeText(st.list)} 수집 시점` : "수집 시점"} 값.</div>
+${twoCells(frameBox, recent)}
+<div style="font-size:10px;color:#8a8f98;margin:10px 6px 0;white-space:normal;word-break:keep-all;">※ 발행 수는 '현대차 위기론' 부정 프레임으로 분류된 콘텐츠 기준(제목·설명 내용 검토). 조회수·댓글 수는 ${statTimeText(st.list) ? `${statTimeText(st.list)} 수집 시점` : "수집 시점"} 값.</div>
 </div></div>`;
 }
 
