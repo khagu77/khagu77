@@ -16,7 +16,14 @@ let mergedRunIds = []; // 결과 표에 합친 휴일 수집 회차
 let pendingXlsx = null; // { bytes, name } 만든 엑셀 (저장 버튼으로 다시 저장할 때)
 let dbKeys = new Map(); // 데일리 DB 에 이미 있는 글 (key → 보고일)
 // 지난 보고에 들어간 글인지 — 오늘 저장한 글(오늘 보고)은 '이미 DB' 가 아님
-const isPrevDb = (key) => dbKeys.has(key) && dbKeys.get(key).day !== todayKey();
+// 보고일이 오늘보다 앞선 글만 '지난 보고' (오늘·이후 보고일 = 아직 보고 안 됨)
+// 작성일이 이번 수집 기간 안이면 (주말·오늘 글) 지난 보고에 들어갔을 수 없음 → 이번 보고 대상
+const isPrevDb = (x, start = curRange?.start) => {
+  const r = dbKeys.get(x.key);
+  if (!r || (r.day && r.day >= todayKey())) return false;
+  if (x.date && start && x.date >= start) return false;
+  return true;
+};
 const loadDbKeys = async () => (dbKeys = new Map((await allPosts()).map((p) => [p.key, { day: p.day || "", savedAt: p.savedAt || 0, via: p.via || "" }])));
 let heartbeatTimer = null;
 
@@ -538,7 +545,7 @@ async function collectDirectOnly(urls) {
       }
       it.related = true;
       it.checked = true;
-      if (isPrevDb(it.key)) {
+      if (isPrevDb(it)) {
         it.dup = true;
         it.checked = false;
       }
@@ -668,7 +675,7 @@ async function collect() {
     }
     it.related = it.direct || mentionsCar(itemText(it)) || matchesKeywords(itemText(it), kw);
     it.checked = it.related;
-    if (isPrevDb(it.key)) {
+    if (isPrevDb(it, range.start.getTime())) {
       it.dup = true;
       it.checked = false;
     }
@@ -937,9 +944,9 @@ async function collect() {
   }
   // 데일리 DB 에 이미 있는 글은 체크 해제 (지난 보고에 들어감)
   await loadDbKeys();
-  for (const x of fresh) if (isPrevDb(x.key)) {
-    x.dup = true;
-    if (!x.touched) x.checked = false;
+  for (const x of fresh) {
+    x.dup = isPrevDb(x, range.start.getTime());
+    if (x.dup && !x.touched) x.checked = false;
   }
   items = fresh;
   curRange = { start: range.start.getTime(), end: range.end.getTime() };
@@ -1102,7 +1109,7 @@ async function mergePending() {
       if (have.has(x.key)) continue;
       have.add(x.key);
       x.fromRun = `${fmtDay(r.range.end)}${r.holiday ? ` ${r.holiday}` : ""} 수집`;
-      if (isPrevDb(x.key)) {
+      if (isPrevDb(x)) {
         x.dup = true;
         x.checked = false;
       }
@@ -1162,12 +1169,12 @@ function renderResults() {
     const dbWhy = dbRec ? ` — ${dbRec.savedAt ? fmtDateTime(dbRec.savedAt).slice(5, 16) + " " : ""}${dbRec.via || "엑셀 만들기·자동 수집·엑셀 등록 중 하나"}로 DB 에 들어감` : "";
     const shortDay = dbDay ? dbDay.slice(5).replace("-", "/") : "";
     if (x.dup) notes.push(el("span", { class: "badge dup", text: shortDay ? `이미 DB ${shortDay}` : "이미 DB" }));
-    else if (dbDay && dbDay === todayKey()) notes.push(el("span", { class: "badge saved", text: "오늘 저장됨" }));
+    else if (dbDay && dbDay >= todayKey()) notes.push(el("span", { class: "badge saved", text: dbDay === todayKey() ? "오늘 저장됨" : `DB ${shortDay} 보고` }));
     else notes.push(el("span", { class: "badge new", text: "새 글" }));
     if (x.fromRun) notes.push(el("span", { class: "hint", text: ` ${x.fromRun.replace(/ 수집$/, "")}` }));
     if (x.note) notes.push(el("span", { class: "hint err", text: ` ${x.note}` }));
     if (!x.related && !x.direct) notes.push(el("span", { class: "hint", text: " 키워드 없음" }));
-    const noteTitle = [x.dup ? `이미 데일리 DB 에 있는 글 (${dbDay || "지난"} 보고${dbWhy})` : dbDay && dbDay === todayKey() ? `오늘 보고에 저장된 글${dbWhy}` : "새 글", String(x.by || "").startsWith("ai") ? "AI 판독" : "", x.fromRun || "", x.note || "", !x.related && !x.direct ? "제목·본문에 GV90 키워드 없음" : ""].filter(Boolean).join(" · ");
+    const noteTitle = [x.dup ? `이미 데일리 DB 에 있는 글 (${dbDay || "지난"} 보고${dbWhy})` : dbDay && dbDay >= todayKey() ? `${dbDay} 보고로 DB 에 저장된 글 (아직 보고 전)${dbWhy}` : "새 글", String(x.by || "").startsWith("ai") ? "AI 판독" : "", x.fromRun || "", x.note || "", !x.related && !x.direct ? "제목·본문에 GV90 키워드 없음" : ""].filter(Boolean).join(" · ");
     tr.append(
       el("td", {}, cb),
       el("td", {}, chChip(x.channel)),
@@ -1215,7 +1222,7 @@ function fixDirtySummaries() {
 // '이미 DB' 다시 판단 — 예전 버전은 오늘 저장한 글도 '이미 DB' 로 표시했음
 function recheckDup() {
   for (const x of items) {
-    const prev = isPrevDb(x.key);
+    const prev = isPrevDb(x);
     if (x.dup && !prev && !x.touched) x.checked = x.related || !!x.direct;
     x.dup = prev;
   }
@@ -1244,7 +1251,7 @@ async function makeExcel({ interactive = true } = {}) {
   $("#saveList").disabled = true;
   const day = todayKey();
   // 데일리 DB 저장 (이미 있는 글은 연번·보고일 그대로, 분석값만 갱신)
-  const toSave = chosen.map((x) => ({ ...x, body: (x.body || "").slice(0, 2000), day, via: interactive ? "엑셀 만들기" : "자동 수집(평일 엑셀 자동 저장)" }));
+  const toSave = chosen.map((x) => ({ ...x, body: (x.body || "").slice(0, 2000), day, reassign: !x.dup, via: interactive ? "엑셀 만들기" : "자동 수집(평일 엑셀 자동 저장)" }));
   const res = await savePosts(toSave, day);
   const fileName = reportFileName(s, curRange ? new Date(curRange.end) : new Date());
   await refreshDay(day, { from: curRange?.start ?? null, to: curRange?.end ?? null, fileName, keepEmpty: true });

@@ -146,13 +146,29 @@ async function savePosts(list, day) {
     return {
       ...old,
       ...x,
-      day: old?.day || x.day || day,
+      // reassign: 지난 보고일로 잘못 들어가 있던 글을 이번 보고일로 옮김
+      day: (x.reassign ? x.day : old?.day) || x.day || day,
       serial: old?.serial || ++maxSerial,
       savedAt: now,
     };
   });
+  const moved = new Set();
+  for (const r of recs) {
+    const old = existing.get(r.key);
+    if (old?.day && old.day !== r.day) moved.add(old.day);
+    delete r.reassign;
+  }
   await gvTx("posts", "readwrite", (s) => recs.forEach((r) => s.put(r)));
-  return { added, updated, recs };
+  // 옮긴 글의 댓글도 새 보고일로, 원래 보고일 집계는 다시 셈
+  for (const r of recs) {
+    const old = existing.get(r.key);
+    if (old?.day && old.day !== r.day) {
+      const cs = await getAll("comments", "postKey", r.key);
+      if (cs.length) await gvTx("comments", "readwrite", (s) => cs.forEach((c) => s.put({ ...c, day: r.day })));
+    }
+  }
+  for (const d of moved) await refreshDay(d);
+  return { added, updated, recs, moved: [...moved] };
 }
 
 async function updatePost(key, patch) {
