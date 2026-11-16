@@ -179,6 +179,32 @@ function log(s) {
   el.textContent += `${new Date().toTimeString().slice(0, 8)}  ${s}\n`;
   el.scrollTop = el.scrollHeight;
 }
+// 유튜브가 잠시 막았을 때(봇 확인) 안내 — 기다렸다가 저절로 이어서 함
+let blockShown = false;
+let blockTimer = null;
+function showBlock(info) {
+  const el = $("#block");
+  clearInterval(blockTimer);
+  blockShown = !!info;
+  el.hidden = !info;
+  if (!info) {
+    log("✔ 유튜브 막힘이 풀려 이어서 읽습니다");
+    return;
+  }
+  log(`⏸ 유튜브가 요청을 잠시 막았습니다 (봇 확인) — ${info.sec}초 뒤 다시 시도`);
+  const tick = () => {
+    const left = Math.max(0, Math.round((info.until - Date.now()) / 1000));
+    $("#blockLeft").textContent = left ? `${left}초 뒤 자동으로 다시 시도` : "다시 시도하는 중…";
+    $("#blockFor").textContent = `${Math.max(1, Math.round((Date.now() - info.since) / 60000))}분째`;
+  };
+  tick();
+  blockTimer = setInterval(tick, 1000);
+}
+$("#blockOpen").addEventListener("click", () => chrome.tabs.create({ url: "https://www.youtube.com/watch?v=qCzKGyMaDq4" }));
+$("#blockRetry").addEventListener("click", () => YT.retryNow());
+YT.hooks.onBlock = showBlock;
+YT.hooks.stopped = () => stopFlag;
+
 function stage(s, pct) {
   $("#stage").textContent = s;
   if (pct != null) $("#bar").style.width = `${Math.max(0, Math.min(100, pct))}%`;
@@ -247,6 +273,7 @@ async function runCollect() {
   $("#stop").disabled = false;
   $("#aiOnly").disabled = true;
   $("#log").textContent = "";
+  YT.resetGate();
   const t0 = Date.now();
   const p = periodOf();
   const start = parseYmd(p.start);
@@ -401,19 +428,24 @@ async function runCollect() {
             prev.updated = new Date().toISOString();
             await DB.put(prev);
             log(`⚠ 삭제·비공개: ${prev.title}`);
-          } else {
+          } else if (e instanceof YT.BlockedError) {
+            errors++;
+            log(`⚠ ${e.message} — 남은 ${work.length + 1}개는 다음 수집 때 이어서 읽습니다`);
+            work.length = 0;
+          } else if (!stopFlag) {
             errors++;
             log(`⚠ 영상 ${id} 읽기 실패: ${e.message}`);
           }
         } finally {
           done++;
           const n = done + work.length;
-          stage(`③ 영상 정보 ${done}/${n}`, 50 + (done / Math.max(1, n)) * 35);
-          await YT.jitter(300, 800);
+          if (!blockShown) stage(`③ 영상 정보 ${done}/${n}`, 50 + (done / Math.max(1, n)) * 35);
+          await YT.jitter(700, 1500);
         }
       }
     };
-    await Promise.all([worker(), worker(), worker()]);
+    // 동시에 2개씩만 (많이 보내면 유튜브가 잠시 막음)
+    await Promise.all([worker(), worker()]);
     log(`새로 추가 ${added}개 · 갱신 ${updated}개 · 기간 밖 ${outRange}개`);
     await reloadVideos();
     // 4) AI

@@ -1,7 +1,9 @@
-// 유튜브 화면(공개 페이지)에서 영상 목록·영상 정보를 읽는다. 로그인 정보는 보내지 않는다(credentials: "omit").
+// 유튜브 화면(공개 페이지)에서 영상 목록·영상 정보를 읽는다.
 // - 검색: /results?search_query=…&sp=CAI%3D (업로드 날짜순) · 기간을 잘라 after:/before: 로 여러 번
 // - 채널: /@채널/search?query=… (채널 안 검색) · /@채널/videos (최신 영상)
 // - 영상: /watch?v=… (정확한 게시 시각·조회수·좋아요·댓글 수·설명)
+// 요청이 많으면 유튜브가 잠시 '로봇이 아닙니다' 확인 화면(google.com/sorry)으로 넘긴다 → 막힘으로 알아채
+// 모든 요청을 멈추고 기다렸다가(1분 → 2분 → 5분 → 10분) 다시 시도한다. 크롬에서 유튜브 확인을 마치면 그 쿠키로 바로 풀린다.
 (function (global) {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const jitter = (a, b) => sleep(a + Math.random() * (b - a));
@@ -13,19 +15,80 @@
     return u.toString();
   }
 
-  async function getHtml(url) {
-    let lastErr;
-    for (let i = 0; i < 2; i++) {
-      try {
-        const res = await fetch(withLang(url), { credentials: "omit", cache: "no-store" });
-        if (!res.ok) throw new Error(`유튜브 ${res.status} 응답`);
-        return await res.text();
-      } catch (e) {
-        lastErr = e;
-        await sleep(3000);
-      }
+  // ---- 막힘(봇 확인) 관리: 모든 요청이 함께 기다림 ----
+  const BACKOFF = [60, 120, 300, 600]; // 초
+  const gate = { until: 0, level: 0, since: 0, kick: false };
+  const hooks = { onBlock: null, stopped: () => false, maxWaitMin: 45 };
+
+  class BlockedError extends Error {}
+
+  async function waitGate() {
+    while (Date.now() < gate.until && !gate.kick && !hooks.stopped()) await sleep(1000);
+    gate.kick = false;
+  }
+
+  function markBlocked() {
+    if (Date.now() < gate.until) return; // 다른 요청이 이미 표시함
+    if (!gate.since) gate.since = Date.now();
+    if (Date.now() - gate.since > hooks.maxWaitMin * 60000) throw new BlockedError(`유튜브가 ${hooks.maxWaitMin}분 넘게 막고 있어 멈춥니다`);
+    const sec = BACKOFF[Math.min(gate.level, BACKOFF.length - 1)];
+    gate.level++;
+    gate.until = Date.now() + sec * 1000;
+    hooks.onBlock?.({ until: gate.until, sec, since: gate.since });
+  }
+
+  function markOk() {
+    if (gate.since) {
+      gate.since = 0;
+      gate.level = 0;
+      gate.until = 0;
+      hooks.onBlock?.(null);
     }
-    throw lastErr;
+  }
+
+  // 새 수집을 시작할 때 막힘 기록을 지움
+  function resetGate() {
+    Object.assign(gate, { until: 0, level: 0, since: 0, kick: false });
+  }
+
+  // 지금 바로 다시 시도 (유튜브에서 확인을 마친 뒤)
+  function retryNow() {
+    gate.until = 0;
+    gate.kick = true;
+  }
+
+  async function getHtml(url) {
+    const u = withLang(url);
+    for (let net = 0; ; ) {
+      await waitGate();
+      if (hooks.stopped()) throw new Error("중지됨");
+      let res;
+      try {
+        // 다른 주소로 넘기면(봇 확인 화면 등) 따라가지 않고 알아챔
+        res = await fetch(u, { credentials: "include", cache: "no-store", redirect: "manual" });
+      } catch (e) {
+        if (++net >= 3) throw e;
+        await sleep(3000 * net);
+        continue;
+      }
+      if (res.type === "opaqueredirect" || res.status === 302 || res.status === 429) {
+        // 채널 주소 바뀜 같은 정상적인 이동이면 따라가서 읽힘 · 봇 확인 화면(google.com)이면 막힘
+        if (res.status !== 429) {
+          try {
+            const r2 = await fetch(u, { credentials: "include", cache: "no-store" });
+            if (r2.ok && new URL(r2.url).hostname.endsWith("youtube.com")) {
+              markOk();
+              return await r2.text();
+            }
+          } catch {}
+        }
+        markBlocked();
+        continue;
+      }
+      if (!res.ok) throw new Error(`유튜브 ${res.status} 응답`);
+      markOk();
+      return await res.text();
+    }
   }
 
   // html 안의 `marker = {...}` JSON 을 괄호 짝을 맞춰 잘라낸다
@@ -403,6 +466,6 @@
     return s.match(/(?:youtube\.com\/(?:watch\?(?:[^#]*&)?v=|shorts\/|live\/|embed\/|v\/)|youtu\.be\/)([\w-]{11})(?![\w-])/)?.[1] || null;
   }
 
-  global.YT = { getHtml, extractJson, walk, txt, parseCount, parseAgo, listItems, search, channelBase, channelSearch, channelLatest, video, videoId, sleep, jitter };
+  global.YT = { hooks, retryNow, resetGate, BlockedError, getHtml, extractJson, walk, txt, parseCount, parseAgo, listItems, search, channelBase, channelSearch, channelLatest, video, videoId, sleep, jitter };
   if (typeof module !== "undefined") module.exports = global.YT;
 })(typeof window !== "undefined" ? window : globalThis);

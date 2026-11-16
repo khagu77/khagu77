@@ -93,6 +93,9 @@ VIDEOS = {
 }
 
 
+BLOCKED = {"hits": 0, "done": False}
+
+
 def ago(days):
     return f"{days}일 전" if days < 7 else f"{days // 7}주 전" if days < 30 else f"{days // 30}개월 전"
 
@@ -160,6 +163,10 @@ def yt_route(route, calls):
         return route.fulfill(status=200, content_type="text/html", body=page(data))
     if u.path == "/watch":
         vid = parse_qs(u.query)["v"][0]
+        if vid == "srchNeg0001" and not BLOCKED["done"]:
+            # 처음 한 번은 유튜브가 봇 확인 화면으로 넘김 → 확장은 막힘으로 알아채고 기다림
+            BLOCKED["hits"] += 1
+            return route.fulfill(status=302, headers={"Location": "https://www.google.com/sorry/index?continue=x"}, body="")
         if vid not in VIDEOS:
             return route.fulfill(status=200, content_type="text/html", body=page({}, {"playabilityStatus": {"status": "ERROR", "reason": "동영상을 사용할 수 없습니다"}}))
         return route.fulfill(status=200, content_type="text/html", body=watch_page(vid))
@@ -202,6 +209,7 @@ def test_collect_dashboard_excel(tmp_path):
         ctx.route("https://www.youtube.com/**", lambda r: yt_route(r, calls))
         ctx.route("https://i.ytimg.com/**", lambda r: r.fulfill(status=200, content_type="image/jpeg", body=jpeg))
         ctx.route("https://api.anthropic.com/**", lambda r: ai_route(r, ai_calls))
+        ctx.route("https://www.google.com/**", lambda r: r.abort())
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext_id = sw.url.split("/")[2]
         pg = ctx.new_page()
@@ -215,6 +223,12 @@ def test_collect_dashboard_excel(tmp_path):
         pg.reload()
         pg.goto(f"chrome-extension://{ext_id}/app.html#collect")
         pg.click("#run")
+        # 봇 확인으로 막히면 안내가 뜨고, '지금 다시 시도'로 이어서 읽음
+        pg.wait_for_selector("#block:not([hidden])", timeout=120000)
+        assert "유튜브가 요청을 잠시 막았습니다" in pg.inner_text("#block")
+        BLOCKED["done"] = True
+        pg.click("#blockRetry")
+        pg.wait_for_selector("#block", state="hidden", timeout=30000)
         pg.wait_for_function("() => /^(✔|오류)/.test(document.querySelector('#stage').textContent)", timeout=180000)
         log = pg.inner_text("#log")
         assert "오류" not in pg.inner_text("#stage"), log
@@ -224,6 +238,7 @@ def test_collect_dashboard_excel(tmp_path):
         assert any("/@econch/videos" in c for c in calls)
         assert any(c.startswith("https://www.youtube.com/results?search_query=") and "현대차" in c and "sp=CAI" in c for c in calls), calls
         assert not any("/youtubei/" in c for c in calls), log  # 막히는 내부 API 는 쓰지 않음
+        assert BLOCKED["hits"] >= 1 and "막힘이 풀려" in log and "srchNeg0001 읽기 실패" not in log, log
         windows = [c for c in calls if "/results?" in c and "after:" in c]
         assert len(windows) == 3, windows  # 75일을 30일씩 → 3구간 (+ 기간 지정 없는 최신순 1번)
         watched = {parse_qs(urlparse(c).query)["v"][0] for c in calls if "/watch?" in c}

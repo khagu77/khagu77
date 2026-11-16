@@ -77,6 +77,12 @@
         </div>
         <div class="progress"><div id="bar"></div></div>
         <div id="stage" class="stage"></div>
+        <div id="block" class="block" hidden>
+          <b>⏸ 유튜브가 요청을 잠시 막았습니다</b> (<span id="blockFor"></span> · <span id="blockLeft"></span>)<br>
+          짧은 시간에 영상을 많이 열면 유튜브가 '로봇이 아닙니다' 확인을 요구합니다. 기다리면 저절로 이어서 읽습니다.
+          빨리 풀려면 <b>유튜브 열기</b>를 눌러 나온 화면에서 확인(체크)을 마친 뒤 <b>지금 다시 시도</b>를 누르세요.
+          <div class="row"><button id="blockOpen">유튜브 열기</button><button id="blockRetry" class="primary">지금 다시 시도</button></div>
+        </div>
         <pre id="log" class="log"></pre>
       </div>
       <div class="card">
