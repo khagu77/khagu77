@@ -1529,6 +1529,7 @@ async function renderDtHistory() {
             const all = (await pptKv("readonly", (st) => st.get("dtHistory"))) || [];
             await pptKv("readwrite", (st) => st.delete(`dtFile:${h.id}`));
             await pptKv("readwrite", (st) => st.put(all.filter((x) => x.id !== h.id), "dtHistory"));
+            chrome.storage.local.set({ dtUpdatedAt: Date.now() }).catch(() => {});
             renderDtHistory();
           } })
         )

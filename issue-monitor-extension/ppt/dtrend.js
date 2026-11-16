@@ -115,6 +115,7 @@ async function histAdd(meta, bytes) {
   for (const x of list.filter((x) => x.date && x.date === meta.date)) await kvSet(`dtFile:${x.id}`, null);
   await kvSet(`dtFile:${meta.id}`, bytes);
   await kvSet("dtHistory", [meta, ...list.filter((x) => !(x.date && x.date === meta.date))]);
+  chrome.storage.local.set({ dtUpdatedAt: Date.now() }).catch(() => {}); // 월간 실적 보고가 바로 다시 집계하도록
 }
 async function renderHist() {
   const hist = await histList();
@@ -170,6 +171,7 @@ async function renderHist() {
       if (!confirm(`보관함에서 지울까요?\n${h.name}\n(저장 폴더의 파일은 그대로입니다)`)) return;
       await kvSet(`dtFile:${h.id}`, null);
       await kvSet("dtHistory", (await histList()).filter((x) => x.id !== h.id));
+      chrome.storage.local.set({ dtUpdatedAt: Date.now() }).catch(() => {});
       renderHist();
     });
     tbody.append(tr);

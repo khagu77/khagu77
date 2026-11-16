@@ -272,7 +272,7 @@ async function refresh() {
   $("#moDateInfo").className = ovKey ? "hint err" : "hint";
   $("#moTplInfo").textContent = tpl ? `틀: ${tpl.entry.name} (${tpl.info.year}년 ${tpl.info.month}월 보고서)${tpl.entry.ym !== ymKey(py, pm) ? ` · ⚠ ${pm}월 보고서가 없어 더 앞선 보고서를 씁니다` : ""}` : `${y}년 ${m}월 보다 앞선 월간 실적 보고가 없습니다. 지난달 보고서 PPT 를 넣어 주세요.`;
   $("#moTplInfo").className = tpl ? "hint ok" : "hint err";
-  $("#moXlInfo").textContent = xl ? `일일동향 엑셀: ${xl.name}${xlOverride ? " (직접 고름)" : ""}${xl.date && xl.date < dkey(date) ? ` · ⚠ 보고일(${dkey(date)}) 파일이 아직 없어 ${xl.date} 파일로 집계 (보고일에 다시 불러오세요)` : ""}` : "일일동향 엑셀이 없습니다. 3번 탭에서 만들거나 넣어 주세요.";
+  $("#moXlInfo").textContent = xl ? `일일동향 엑셀: ${xl.name}${xlOverride ? " (직접 고름)" : ""}${xl.date && xl.date < dkey(date) ? ` · ⚠ 보고일(${dkey(date)}) 파일이 아직 없어 ${xl.date} 파일로 집계 (3번 탭에서 새 일일동향 엑셀이 저장되면 자동으로 다시 집계)` : ""}` : "일일동향 엑셀이 없습니다. 3번 탭에서 만들거나 넣어 주세요.";
   $("#moXlInfo").className = xl ? "hint ok" : "hint err";
   $("#moNameInfo").textContent = tpl ? `파일 이름: ${fileName()}` : "";
   await loadDraft();
@@ -311,7 +311,12 @@ async function loadStats() {
   const lost = sel.length - cats.reduce((s, c) => s + c.cur, 0);
   stats = { total: sel.length, sel, cars, cats, chans };
   renderStats();
-  if (!$("#moOnline").value) $("#moOnline").value = String(sel.length);
+  // 온라인 상시 모니터링 건수: 자동 값이면 집계할 때마다 따라감, 담당자가 직접 고쳤으면 그대로 (담당자 지적 2026-11-16)
+  if (onlineAuto || !$("#moOnline").value) {
+    $("#moOnline").value = String(sel.length);
+    onlineAuto = true;
+  }
+  $("#moOnline").classList.toggle("auto", onlineAuto);
   saveDraft();
   setSummary(`✅ ${dkey(ctx.start)} ~ ${dkey(ctx.end)} 게시글 ${sel.length}건을 집계했습니다${lost ? ` · ⚠ 카테고리 표에 없는 불만구분 ${lost}건` : ""}`, lost ? "err" : "ok");
 }
@@ -371,6 +376,7 @@ const NUMS = [
   ["moExtraCount", "extraCount", "pvExtraCount"],
 ];
 let extras = [];
+let onlineAuto = true; // 온라인 상시 모니터링 건수가 집계 자동 값인지 (직접 고치면 false)
 const draftKey = () => (ctx ? `moDraft:${ymKey(ctx.y, ctx.m)}` : "");
 async function loadDraft() {
   const d = (draftKey() && (await kvGet(draftKey()))) || null;
@@ -379,6 +385,8 @@ async function loadDraft() {
     $(`#${id}`).value = d && d[k] != null ? d[k] : k === "cafes" && prev.cafes ? String(prev.cafes) : "";
     $(`#${pv}`).textContent = prev[k] != null ? `지난달 ${Number(prev[k]).toLocaleString()}` : "";
   }
+  onlineAuto = !d || d.onlineAuto !== false;
+  $("#moOnline").classList.toggle("auto", onlineAuto && $("#moOnline").value !== "");
   extras = d && d.extras ? d.extras : (prev.extras || []).map((x) => ({ title: x.title, date: x.date, count: "" })); // 지난달 목록은 건수 비우고
   $("#ov1").value = d ? d.ov1 || "" : "";
   $("#ov2").value = d ? d.ov2 || "" : "";
@@ -508,6 +516,7 @@ async function saveDraft() {
   if (!draftKey()) return;
   const d = { extras, ov1: $("#ov1").value, ov2: $("#ov2").value, issues: $("#issues").value };
   for (const [id, k] of NUMS) d[k] = $(`#${id}`).value;
+  d.onlineAuto = onlineAuto;
   await kvSet(draftKey(), d);
 }
 // 번외 보고 건수 합계 → '번외 추가 요청 보고 (회)' 자동 입력 (담당자 요청 2026-11-13)
@@ -829,6 +838,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   for (const id of ["ov1", "ov2", "issues"]) $(`#${id}`).addEventListener("input", () => { updateLens(); saveDraft(); });
   for (const [id] of NUMS) $(`#${id}`).addEventListener("input", saveDraft);
+  $("#moOnline").addEventListener("input", () => {
+    onlineAuto = false; // 직접 고친 값은 다시 집계해도 유지
+    $("#moOnline").classList.remove("auto");
+    saveDraft();
+  });
+  // 3번 탭에서 일일동향 엑셀을 새로 만들거나 넣으면 가장 최근 파일로 바로 다시 집계 (담당자 지적 2026-11-16: 실시간 반영)
+  chrome.storage.onChanged.addListener(async (ch, area) => {
+    if (area !== "local" || !ch.dtUpdatedAt) return;
+    xlOverride = null;
+    await refresh();
+    if (ctx && ctx.tpl && ctx.xl) {
+      await loadStats().catch(() => {});
+      setSummary(`🔄 일일동향 엑셀이 새로 저장되어 ${ctx.xl.name} 로 다시 집계했습니다 (게시글 ${stats ? stats.total : 0}건)`, "ok");
+    }
+  });
   $("#aiWrite").addEventListener("click", aiWrite);
   bindPreviewFocus();
   $("#moBuild").addEventListener("click", build);
