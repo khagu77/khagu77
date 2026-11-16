@@ -156,7 +156,9 @@ function dailyChartSvg(days, W = 912, H = 230, interactive = false) {
   // 직접 표시: 최고점 · 마지막 날
   const peakI = days.reduce((m, d, i) => (d.count > days[m].count ? i : m), 0);
   const label = (i, txt, bold) => {
-    const tx = Math.min(Math.max(x(i), L + 20), W - R - 20);
+    // 글자 폭(대략: 한글 11px · 숫자·기호 6.5px)만큼 그래프 안쪽으로 → 양 끝에서 잘리지 않게
+    const tw = [...txt].reduce((a, ch) => a + (/[가-힣]/.test(ch) ? 11 : 6.5), 0);
+    const tx = Math.min(Math.max(x(i), L + tw / 2 + 2), W - tw / 2 - 2);
     s += `<text x="${tx.toFixed(1)}" y="${(y(days[i].count) - 8).toFixed(1)}" font-size="11" font-weight="${bold ? 800 : 700}" text-anchor="middle" fill="#1b1d21">${txt}</text>`;
   };
   if (days[peakI].count) label(peakI, `최고 ${days[peakI].count}건 (${md(days[peakI].date)})`, true);
@@ -243,35 +245,40 @@ function dashHtml(st, { fluid = false, banner = BANNER_URL, logo = LOGO_URL, cha
         .join("")}</tr></table>`,
   )}</div>`;
 
-  // 채널별 TOP
-  const chTop = st.channels.slice(0, 10);
+  // 채널별 TOP 20 · 조회수 TOP 5 — 두 상자의 높이가 같게 행 높이를 고정 (TOP 20: 14px × 20 = TOP 5: 56px × 5 = 280px)
+  const ROW_S = 14;
+  const ROW_L = 56;
+  const chTop = st.channels.slice(0, 20);
   const maxC = Math.max(1, ...chTop.map((c) => c.count));
+  const smallBadge = (g) =>
+    `<span style="display:inline-block;font-size:9px;font-weight:700;color:#ffffff;background:${GROUP_COLOR[g] || "#6b7280"};border-radius:3px;padding:0 4px;line-height:12px;white-space:nowrap;">${(GROUPS[g] || "기타").replace(" 채널", "")}</span>`;
+  const tdS = (extra = "") => `<td height="${ROW_S}" style="height:${ROW_S}px;line-height:${ROW_S}px;padding:0 4px;white-space:nowrap;${extra}">`;
   const chTable = box(
-    h3("채널별 발행 TOP 10", "건수순") +
-      `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:12px;">` +
+    h3("채널별 발행 TOP 20", "건수순 · 조회수 합") +
+      `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:11px;">` +
       chTop
         .map(
           (c, i) =>
-            `<tr><td style="padding:4px 4px 4px 0;color:#6b7280;width:16px;">${i + 1}</td><td style="padding:4px 4px;white-space:nowrap;">${groupBadge(c.group)}</td><td style="padding:4px 4px;color:#1b1d21;white-space:nowrap;">${escH(clip(c.name, 14))}</td>` +
-            `<td style="padding:4px 4px;width:90px;"><div style="height:8px;width:${Math.max(4, Math.round((c.count / maxC) * 86))}px;background:${GROUP_COLOR[c.group] || "#6b7280"};border-radius:0 4px 4px 0;"></div></td>` +
-            `<td style="padding:4px 0 4px 4px;text-align:right;font-weight:800;white-space:nowrap;">${c.count}건</td><td style="padding:4px 0 4px 8px;text-align:right;color:#6b7280;white-space:nowrap;">${shortNum(c.views)}</td></tr>`,
+            `<tr>${tdS("padding-left:0;color:#6b7280;width:16px;")}${i + 1}</td>${tdS("width:30px;")}${smallBadge(c.group)}</td>${tdS("color:#1b1d21;")}${escH(clip(c.name, 16))}</td>` +
+            `${tdS("width:84px;")}<div style="height:6px;line-height:6px;font-size:1px;width:${Math.max(4, Math.round((c.count / maxC) * 80))}px;background:${GROUP_COLOR[c.group] || "#6b7280"};border-radius:0 3px 3px 0;">&nbsp;</div></td>` +
+            `${tdS("text-align:right;font-weight:800;")}${num(c.count)}건</td>${tdS("padding-right:0;text-align:right;color:#6b7280;width:44px;")}${shortNum(c.views)}</td></tr>`,
         )
         .join("") +
       (chTop.length ? "" : `<tr><td style="color:#6b7280;padding:6px 0;">아직 없습니다</td></tr>`) +
       "</table>",
   );
 
-  // 조회수 TOP 5
   const topTable = box(
-    h3("조회수 TOP 5 콘텐츠") +
-      `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:12px;">` +
+    h3("조회수 TOP 5 콘텐츠", "조회수순") +
+      `<table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;font-size:12px;table-layout:fixed;">` +
       st.top
         .map(
           (v) =>
-            `<tr><td style="padding:4px 8px 4px 0;width:80px;vertical-align:top;"><a href="https://www.youtube.com/watch?v=${v.id}"><img src="https://i.ytimg.com/vi/${v.id}/mqdefault.jpg" width="80" height="45" alt="" style="display:block;width:80px;height:45px;border:0;border-radius:4px;"></a></td>` +
-            `<td style="padding:4px 0;vertical-align:top;"><a href="https://www.youtube.com/watch?v=${v.id}" style="color:#1b1d21;text-decoration:none;font-weight:700;">${escH(clip(v.title, 46))}</a>` +
-            `<div style="font-size:11px;color:#6b7280;margin-top:2px;">${escH(clip(v.channelName, 16))} · ${md(new Date(v.published))} · 조회 ${shortNum(v.views)} · 댓글 ${num(v.comments)}</div>` +
-            (v.summary ? `<div style="font-size:11px;color:#3c4043;margin-top:1px;">${escH(clip(v.summary, 60))}</div>` : "") +
+            `<tr><td width="88" height="${ROW_L}" style="width:88px;height:${ROW_L}px;padding:0 8px 0 0;vertical-align:middle;"><a href="https://www.youtube.com/watch?v=${v.id}"><img src="https://i.ytimg.com/vi/${v.id}/mqdefault.jpg" width="80" height="45" alt="" style="display:block;width:80px;height:45px;border:0;border-radius:4px;"></a></td>` +
+            `<td height="${ROW_L}" style="height:${ROW_L}px;padding:0;vertical-align:middle;overflow:hidden;">` +
+            `<div style="white-space:nowrap;overflow:hidden;line-height:16px;"><a href="https://www.youtube.com/watch?v=${v.id}" style="color:#1b1d21;text-decoration:none;font-weight:700;">${escH(clip(v.title, 34))}</a></div>` +
+            `<div style="font-size:11px;color:#6b7280;white-space:nowrap;overflow:hidden;line-height:15px;">${escH(clip(v.channelName, 14))} · ${md(new Date(v.published))} · 조회 ${num(v.views)} · 댓글 ${num(v.comments)}</div>` +
+            `<div style="font-size:11px;color:#3c4043;white-space:nowrap;overflow:hidden;line-height:15px;">${escH(clip(v.summary || "", 40))}</div>` +
             `</td></tr>`,
         )
         .join("") +
@@ -289,7 +296,7 @@ function dashHtml(st, { fluid = false, banner = BANNER_URL, logo = LOGO_URL, cha
       )
       .join("");
   const frameBox = box(
-    (st.frames.length ? h3("위기론 프레임 유형", "AI 분류 · 건수") + `<div>${chips(st.frames, "#d93025")}</div>` : "") +
+    (st.frames.length ? h3("위기론 프레임 유형", "건수") + `<div>${chips(st.frames, "#d93025")}</div>` : "") +
       h3("자주 쓰인 부정 표현", "제목·설명 · 건수") +
       `<div>${chips(st.words, "#d93025") || '<span style="font-size:12px;color:#6b7280;">아직 없습니다</span>'}</div>`,
   );
@@ -318,7 +325,7 @@ ${chart}
 ${weekTable}
 ${two(chTable, topTable)}
 ${two(frameBox, recent)}
-<div style="font-size:10px;color:#8a8f98;margin:10px 6px 0;">※ 발행 수는 '현대차 위기론' 부정 프레임으로 분류된 콘텐츠 기준(제목·설명 단어 + AI 판단, 담당자 확인). 조회수·댓글 수는 기준 시각 값.</div>
+<div style="font-size:10px;color:#8a8f98;margin:10px 6px 0;">※ 발행 수는 '현대차 위기론' 부정 프레임으로 분류된 콘텐츠 기준(제목·설명 내용 검토). 조회수·댓글 수는 기준 시각 값.</div>
 </div></div>`;
 }
 
@@ -423,7 +430,7 @@ async function buildExcel(st, { stamp = new Date(), onProgress } = {}) {
     });
 
   // 2) 일자별 발행 추이 (+ 꺾은선 차트)
-  const head2 = ["날짜", "요일", "발행 수", "7일 평균", "누적", "관리 채널", "경제 채널", "기타 채널", "조회수 합", "댓글 수 합"];
+  const head2 = ["No.", "날짜", "요일", "발행 수", "7일 평균", "누적", "관리 채널", "경제 채널", "기타 채널", "조회수 합", "댓글 수 합"];
   const kpiRow = [
     ["총 콘텐츠", st.total], ["최근 7일", st.last7], ["직전 7일", st.prev7], ["7일 증감", st.last7 - st.prev7], ["누적 조회수", st.views], ["누적 댓글", st.comments],
   ];
@@ -436,51 +443,52 @@ async function buildExcel(st, { stamp = new Date(), onProgress } = {}) {
     { h: 24, cells: head2.map((v) => ({ v, s: "head" })) },
   ];
   const d0 = rows2.length;
-  for (const d of st.days)
+  st.days.forEach((d, di) =>
     rows2.push({
       cells: [
-        { v: d.date, s: "date" }, { v: WD[d.date.getDay()], s: "textC" }, { v: d.count, s: d.count ? "numB" : "num" }, { v: d.ma7 == null ? "" : Math.round(d.ma7 * 10) / 10, s: "num" }, { v: d.cum, s: "num" },
+        { v: di + 1, s: "textC" }, { v: d.date, s: "date" }, { v: WD[d.date.getDay()], s: "textC" }, { v: d.count, s: d.count ? "numB" : "num" }, { v: d.ma7 == null ? "" : Math.round(d.ma7 * 10) / 10, s: "num" }, { v: d.cum, s: "num" },
         { v: d.managed, s: "num" }, { v: d.econ, s: "num" }, { v: d.other, s: "num" }, { v: d.views, s: "num" }, { v: d.comments, s: "num" },
       ],
-    });
+    }),
+  );
   const d1 = rows2.length - 1;
   rows2.push({
     h: 22,
     cells: [
-      { v: "합계", s: "totalL" }, { v: "", s: "totalL" }, { v: st.total, s: "totalN" }, { v: "", s: "totalL" }, { v: st.total, s: "totalN" },
+      { v: "합계", s: "totalL" }, { v: "", s: "totalL" }, { v: "", s: "totalL" }, { v: st.total, s: "totalN" }, { v: "", s: "totalL" }, { v: st.total, s: "totalN" },
       { v: st.groups.managed, s: "totalN" }, { v: st.groups.econ, s: "totalN" }, { v: st.groups.other, s: "totalN" }, { v: st.views, s: "totalN" }, { v: st.comments, s: "totalN" },
     ],
   });
   const chart = {
-    from: { r: 2, c: 11 },
-    to: { r: 26, c: 25 },
+    from: { r: 2, c: 12 },
+    to: { r: 26, c: 26 },
     title: "일자별 발행 수 (건)",
     fmt: "m/d",
     skip: 7,
-    cat: { r1: d0, r2: d1, c: 0, values: st.days.map((d) => XlsxPro.serial(d.date)) },
+    cat: { r1: d0, r2: d1, c: 1, values: st.days.map((d) => XlsxPro.serial(d.date)) },
     series: [
-      { name: "일자별 발행 수", r1: d0, r2: d1, c: 2, color: C_LINE, marker: true, width: 2, values: st.days.map((d) => d.count) },
-      { name: "7일 평균", r1: d0, r2: d1, c: 3, color: C_MA, dash: true, width: 2, values: st.days.map((d) => (d.ma7 == null ? null : Math.round(d.ma7 * 10) / 10)) },
+      { name: "일자별 발행 수", r1: d0, r2: d1, c: 3, color: C_LINE, marker: true, width: 2, values: st.days.map((d) => d.count) },
+      { name: "7일 평균", r1: d0, r2: d1, c: 4, color: C_MA, dash: true, width: 2, values: st.days.map((d) => (d.ma7 == null ? null : Math.round(d.ma7 * 10) / 10)) },
     ],
   };
   const chart2 = {
-    from: { r: 28, c: 11 },
-    to: { r: 50, c: 25 },
+    from: { r: 28, c: 12 },
+    to: { r: 50, c: 26 },
     title: "누적 콘텐츠 수 (건)",
     fmt: "m/d",
     skip: 7,
     cat: chart.cat,
-    series: [{ name: "누적", r1: d0, r2: d1, c: 4, color: "#d93025", width: 2, values: st.days.map((d) => d.cum) }],
+    series: [{ name: "누적", r1: d0, r2: d1, c: 5, color: "#d93025", width: 2, values: st.days.map((d) => d.cum) }],
   };
 
   // 3) 주간 추이
   const rows3 = [
     { h: 28, cells: [{ v: "주간 발행 추이 (월~일)", s: "title" }] },
     { h: 18, cells: [{ v: `기간 ${period}`, s: "sub" }] },
-    { h: 24, cells: ["주차", "시작", "끝", "발행 수", "전주 대비", "조회수 합", "댓글 수 합"].map((v) => ({ v, s: "head" })) },
+    { h: 24, cells: ["No.", "시작", "끝", "발행 수", "전주 대비", "조회수 합", "댓글 수 합"].map((v) => ({ v, s: "head" })) },
     ...st.weeks.map((w, i) => ({
       cells: [
-        { v: `${i + 1}주차`, s: "textC" }, { v: w.from, s: "date" }, { v: w.to, s: "date" }, { v: w.count, s: "numB" },
+        { v: i + 1, s: "textC" }, { v: w.from, s: "date" }, { v: w.to, s: "date" }, { v: w.count, s: "numB" },
         { v: w.diff ?? "", s: "diff" }, { v: w.views, s: "num" }, { v: w.comments, s: "num" },
       ],
     })),
@@ -523,9 +531,9 @@ async function buildExcel(st, { stamp = new Date(), onProgress } = {}) {
       {
         name: "일자별 발행 추이",
         tab: "#2a78d6",
-        cols: [12, 7, 10, 10, 13, 13, 10, 10, 13, 12, 2],
+        cols: [6, 12, 6, 10, 10, 13, 13, 10, 10, 13, 12, 2],
         rows: rows2,
-        merges: ["A1:J1", "A2:J2"],
+        merges: ["A1:K1", "A2:K2"],
         freeze: { row: d0, col: 0 },
         charts: [chart, chart2],
       },

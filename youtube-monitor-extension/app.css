@@ -115,3 +115,11 @@ button.del:hover { color: var(--red); background: #fdecea; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .runbar.shake { animation: shake 0.4s; background: #d93025; }
 @keyframes shake { 0%, 100% { transform: none; } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+/* DB 표: 프레임 유형(남색) · 부정 표현(빨강) · 출처(회색 칩) */
+table.db .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+table.db .tags span { display: inline-block; font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 999px; white-space: nowrap; }
+table.db .tags .frame { background: #002c5f; color: #fff; font-weight: 700; }
+table.db .tags .neg { background: #fdecea; color: #d93025; border: 1px solid #f6c7c2; }
+table.db .tags .neg b { font-weight: 800; }
+table.db .tags .src { background: #eef0f3; color: #5f6670; }
+table.db tr.out .tags .frame { background: #8a94a6; }

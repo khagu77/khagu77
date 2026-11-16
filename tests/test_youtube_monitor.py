@@ -189,7 +189,7 @@ def ai_route(route, calls):
     out = []
     for it in items:
         neg = any(w in it["제목"] for w in ["비상", "착각", "위기", "망했", "폭락"])
-        out.append({"id": it["id"], "summary": f"AI요약: {it['제목'][:20]}", "relevant": "시승기" not in it["제목"], "tone": "부정" if neg else "중립",
+        out.append({"id": it["id"], "summary": f"내용요약: {it['제목'][:20]}", "relevant": "시승기" not in it["제목"], "tone": "부정" if neg else "중립",
                     "frame": "판매·내수 부진" if "내수" in it["제목"] else "기타"})
     body = {"content": [{"type": "text", "text": json.dumps({"items": out}, ensure_ascii=False)}], "stop_reason": "end_turn", "usage": {"input_tokens": 1000, "output_tokens": 200}}
     route.fulfill(status=200, content_type="application/json", body=json.dumps(body, ensure_ascii=False))
@@ -258,7 +258,7 @@ def test_collect_dashboard_excel(tmp_path):
         assert vids["mgdNeg00001"]["group"] == "managed" and vids["econNeg0001"]["group"] == "econ" and vids["srchNeg0001"]["group"] == "other"
         assert vids["econNeg0001"]["comments"] == 2301 and vids["econNeg0001"]["likes"] == 15000 and vids["econNeg0001"]["views"] == 880000
         assert vids["srchNeg0001"]["include"] and not vids["srchMid0001"]["include"]
-        assert vids["mgdNeg00001"]["summary"].startswith("AI요약") and vids["mgdNeg00001"]["ai"]["frame"] == "판매·내수 부진"
+        assert vids["mgdNeg00001"]["summary"].startswith("내용요약") and vids["mgdNeg00001"]["ai"]["frame"] == "판매·내수 부진"
         assert vids["shortNeg001"]["isShort"]
 
         # 대시보드: 숫자·꺾은선·메일 복사
@@ -271,6 +271,7 @@ def test_collect_dashboard_excel(tmp_path):
         html = pg.evaluate("navigator.clipboard.read().then(async (items) => { for (const it of items) if (it.types.includes('text/html')) return (await it.getType('text/html')).text(); return ''; })")
         assert "raw.githubusercontent.com" in html and "<svg" in html and "chrome-extension://" not in html
         assert 'class="hit"' not in html  # 마우스 안내용 칸은 메일에 넣지 않음
+        assert "AI" not in html  # 전달용(메일·엑셀)에는 'AI' 표현을 쓰지 않음
         assert "복사했습니다" in pg.inner_text("#dashInfo")
 
         # 엑셀
@@ -305,6 +306,8 @@ def test_collect_dashboard_excel(tmp_path):
         assert "xl/charts/chart1.xml" in names and "xl/charts/chart2.xml" in names
         drawing = z.read("xl/drawings/drawing1.xml").decode()
         assert drawing.count("<xdr:pic>") == 5 and 'cx="914400"' in drawing  # 96px 폭
+    with zipfile.ZipFile(path) as z:
+        assert not any("AI" in z.read(n).decode("utf-8", "ignore") for n in z.namelist() if n.endswith(".xml"))
     wb = load_workbook(path)
     assert wb.sheetnames == ["모니터링 리스트", "일자별 발행 추이", "주간 추이", "채널별 현황"]
     ws = wb["모니터링 리스트"]
@@ -316,13 +319,16 @@ def test_collect_dashboard_excel(tmp_path):
     assert {r[6] for r in rows} == {f"https://www.youtube.com/watch?v={v}" for v in ["mgdNeg00001", "econNeg0001", "srchNeg0001", "shortNeg001", "page2Neg001"]}
     econ = next(r for r in rows if r[6].endswith("econNeg0001"))
     assert econ[3] == "경제채널B" and econ[4] == "경제" and econ[7] == 880000 and econ[8] == 15000 and econ[9] == 2301 and econ[11] == "부정"
-    assert econ[10].startswith("AI요약")
+    assert econ[10].startswith("내용요약")
     assert ws.cell(row=4, column=7).hyperlink.target.startswith("https://www.youtube.com/watch?v=")  # URL 칸은 링크
     assert ws.cell(row=4, column=6).hyperlink is None  # 제목은 링크 없이 글자만
     assert ws.row_dimensions[4].height == 46
     days = wb["일자별 발행 추이"]
-    assert isinstance(days["A7"].value, datetime) and days["B7"].value in "월화수목금토일" and days["C6"].value == "발행 수"
-    total = sum(r[2].value or 0 for r in days.iter_rows(min_row=7) if isinstance(r[0].value, datetime))
+    assert days["A6"].value == "No." and days["A7"].value == 1 and days["A8"].value == 2  # 맨 앞 연번
+    assert isinstance(days["B7"].value, datetime) and days["C7"].value in "월화수목금토일" and days["D6"].value == "발행 수"
+    total = sum(r[3].value or 0 for r in days.iter_rows(min_row=7) if isinstance(r[1].value, datetime))
+    assert wb["주간 추이"]["A3"].value == "No." and wb["주간 추이"]["A4"].value == 1
+    assert wb["채널별 현황"]["A3"].value == "No." and ws["A3"].value == "No."
     assert total == 5
     ch = wb["채널별 현황"]
     assert ch["B4"].value and ch["D4"].value >= 1

@@ -116,7 +116,7 @@ function copyHtml(html, text, okMsg) {
 async function mailHtml(withImages) {
   const cc = await channelCount();
   let body = dashHtml(dashStats, { fluid: false, banner: withImages ? BANNER_URL : "", logo: withImages ? LOGO_URL : "", channelCount: cc });
-  if (!withImages) body = body.replace(/<td style="padding:4px 8px 4px 0;width:80px;vertical-align:top;"><a [^>]*><img [^>]*><\/a><\/td>/g, "");
+  if (!withImages) body = body.replace(/<td width="88"[^>]*><a [^>]*><img [^>]*><\/a><\/td>/g, "");
   return body;
 }
 
@@ -742,7 +742,7 @@ function renderDb() {
       <td style="min-width:120px"><span class="badge" style="background:${GROUP_COLOR[v.group] || "#6b7280"}">${(GROUPS[v.group] || "기타").replace(" 채널", "")}</span><div>${escH(v.channelName)}</div></td>
       <td class="title" style="min-width:320px"><a href="${v.url}" target="_blank">${escH(v.title)}</a>${v.gone ? ' <span class="tone neg">삭제·비공개</span>' : ""}
         <div class="sum" contenteditable="plaintext-only" spellcheck="false">${escH(v.summary || "")}</div>
-        <div class="meta">${v.ai?.frame ? `${escH(v.ai.frame)} · ` : ""}${(v.negHits || []).length ? `<span class="kw">부정 표현: ${escH(v.negHits.join(", "))}</span> · ` : ""}${escH((v.sources || []).slice(0, 3).join(", "))}</div></td>
+        <div class="meta tags">${v.ai?.frame ? `<span class="frame">${escH(v.ai.frame)}</span>` : ""}${(v.negHits || []).length ? `<span class="neg">부정 표현 <b>${escH(v.negHits.join(", "))}</b></span>` : ""}${(v.sources || []).slice(0, 4).map((x) => `<span class="src">${escH(x.replace(/^검색:/, "🔍 ").replace(/^채널검색:/, "📺 ").replace(/^채널최신$/, "📺 최신 영상"))}</span>`).join("")}</div></td>
       <td class="r">${num(v.views)}</td>
       <td class="r">${num(v.likes)}</td>
       <td class="r">${num(v.comments)}</td>
