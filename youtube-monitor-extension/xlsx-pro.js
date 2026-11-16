@@ -103,7 +103,7 @@
   }
 
   // ---- 서식 ----
-  const FONT = "맑은 고딕";
+  const FONT = "현대산스 Text"; // 받는 엑셀 글꼴 (없는 PC 는 엑셀이 비슷한 글꼴로 보여 줌)
   const fonts = [
     `<font><sz val="10"/><color rgb="FF1B1D21"/><name val="${FONT}"/><family val="2"/></font>`, // 0 기본
     `<font><b/><sz val="10"/><color rgb="FF1B1D21"/><name val="${FONT}"/><family val="2"/></font>`, // 1 굵게
@@ -125,7 +125,7 @@
   ];
   const borders = [
     "<border><left/><right/><top/><bottom/><diagonal/></border>",
-    '<border><left style="thin"><color rgb="FFD9DDE3"/></left><right style="thin"><color rgb="FFD9DDE3"/></right><top style="thin"><color rgb="FFD9DDE3"/></top><bottom style="thin"><color rgb="FFD9DDE3"/></bottom><diagonal/></border>',
+    '<border><left style="thin"><color rgb="FFBFBFBF"/></left><right style="thin"><color rgb="FFBFBFBF"/></right><top style="thin"><color rgb="FFBFBFBF"/></top><bottom style="thin"><color rgb="FFBFBFBF"/></bottom><diagonal/></border>',
   ];
   const numFmts = { 164: "#,##0", 165: "yyyy-mm-dd hh:mm", 166: "yyyy-mm-dd", 167: 'm"/"d"("aaa")"', 168: '[Red]"▲"#,##0;[Blue]"▼"#,##0;"-"' };
   // 이름 → [numFmt, font, fill, border, 가로, 세로, 줄바꿈]
@@ -138,6 +138,7 @@
     textC: [0, 0, 0, 1, "center", "center", false],
     wrap: [0, 0, 0, 1, "left", "center", true],
     small: [0, 8, 0, 1, "left", "center", true],
+    smallC: [0, 8, 0, 1, "center", "center", true],
     bold: [0, 1, 0, 1, "left", "center", true],
     num: [164, 0, 0, 1, "right", "center", false],
     numB: [164, 1, 0, 1, "right", "center", false],

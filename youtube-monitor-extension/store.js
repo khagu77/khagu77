@@ -7,9 +7,10 @@ const DB = (() => {
   function open() {
     if (dbp) return dbp;
     dbp = new Promise((resolve, reject) => {
-      const req = indexedDB.open("hyundai-yt-monitor", 1);
+      const req = indexedDB.open("hyundai-yt-monitor", 2);
       req.onupgradeneeded = () => {
         const db = req.result;
+        if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv"); // 저장 폴더 핸들 등
         if (!db.objectStoreNames.contains("videos")) db.createObjectStore("videos", { keyPath: "id" });
         if (!db.objectStoreNames.contains("thumbs")) db.createObjectStore("thumbs", { keyPath: "id" });
         if (!db.objectStoreNames.contains("runs")) db.createObjectStore("runs", { keyPath: "at" });
@@ -39,6 +40,9 @@ const DB = (() => {
     putMany: (recs, store = "videos") => tx(store, "readwrite", (st) => Promise.all(recs.map((r) => req(st.put(r))))),
     del: (id, store = "videos") => tx(store, "readwrite", (st) => req(st.delete(id))),
     clear: (store = "videos") => tx(store, "readwrite", (st) => req(st.clear())),
+    kvGet: (k) => tx("kv", "readonly", (st) => req(st.get(k))),
+    kvSet: (k, v) => tx("kv", "readwrite", (st) => req(st.put(v, k))),
+    kvDel: (k) => tx("kv", "readwrite", (st) => req(st.delete(k))),
   };
 })();
 

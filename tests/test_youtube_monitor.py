@@ -279,7 +279,16 @@ def test_collect_dashboard_excel(tmp_path):
         assert "AI" not in html  # 전달용(메일·엑셀)에는 'AI' 표현을 쓰지 않음
         assert "복사했습니다" in pg.inner_text("#dashInfo")
 
-        # 엑셀
+        # 저장 폴더를 고르면 그 폴더에 바로 저장 (테스트는 브라우저 안 임시 폴더를 '고른 폴더'로)
+        pg.evaluate("navigator.storage.getDirectory().then((d) => DB.kvSet('saveDir', d))")
+        pg.click("#xlsxDash")
+        pg.wait_for_function("() => /폴더에 .*저장했습니다/.test(document.querySelector('#dashInfo').textContent)", timeout=60000)
+        saved = pg.evaluate("""async () => { const d = await navigator.storage.getDirectory(); const out = [];
+            for await (const [n, h] of d.entries()) if (n.endsWith('.xlsx')) out.push([n, (await (await h.getFile()).arrayBuffer()).byteLength]); return out; }""")
+        assert len(saved) == 1 and saved[0][0].endswith("_현대차 위기론 유튜브 모니터링.xlsx") and saved[0][1] > 5000, saved
+        pg.evaluate("DB.kvDel('saveDir')")
+
+        # 엑셀 (고른 폴더가 없으면 크롬 다운로드 폴더로)
         with pg.expect_download() as dl:
             pg.click("#xlsxDash")
         path = tmp_path / "out.xlsx"
@@ -328,8 +337,13 @@ def test_collect_dashboard_excel(tmp_path):
     assert ws.cell(row=4, column=7).hyperlink.target.startswith("https://www.youtube.com/watch?v=")  # URL 칸은 링크
     assert ws.cell(row=4, column=6).hyperlink is None  # 제목은 링크 없이 글자만
     assert ws.row_dimensions[4].height == 46
+    assert ws["M4"].alignment.horizontal == "center" and ws["N4"].alignment.horizontal == "center"  # 프레임 유형·부정 표현 가운데
+    # 글꼴 '현대산스 Text' · 표 테두리 회색
+    assert ws["F4"].font.name == "현대산스 Text" and ws["A3"].font.name == "현대산스 Text"
+    assert ws["F4"].border.left.style == "thin" and ws["F4"].border.left.color.rgb == "FFBFBFBF"
     days = wb["일자별 발행 추이"]
     assert days["A6"].value == "No." and days["A7"].value == 1 and days["A8"].value == 2  # 맨 앞 연번
+    assert days.column_dimensions["E"].width >= 16  # 요약 칸 '누적 조회수' 가 ### 로 안 보이게
     assert isinstance(days["B7"].value, datetime) and days["C7"].value in "월화수목금토일" and days["D6"].value == "발행 수"
     total = sum(r[3].value or 0 for r in days.iter_rows(min_row=7) if isinstance(r[1].value, datetime))
     assert wb["주간 추이"]["A3"].value == "No." and wb["주간 추이"]["A4"].value == 1

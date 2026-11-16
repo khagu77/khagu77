@@ -159,22 +159,14 @@ async function downloadExcel(st, label, infoEl) {
     infoEl.className = "hint err";
     return;
   }
+  await prepareSaveDir(); // 클릭 직후 폴더 쓰기 허락
   infoEl.className = "hint";
   infoEl.textContent = "썸네일을 받는 중…";
   const bytes = await buildExcel(st, { onProgress: (i, n) => (infoEl.textContent = `썸네일 넣는 중… ${i}/${n}`) });
   const d = new Date();
   const name = `${String(d.getFullYear()).slice(2)}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}_현대차 위기론 유튜브 모니터링${label ? `_${label}` : ""}.xlsx`;
-  const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
-  try {
-    await chrome.downloads.download({ url, filename: name, saveAs: false });
-  } catch {
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    a.click();
-  }
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
-  infoEl.textContent = `✔ ${name} (${st.list.length}건) 을 받았습니다.`;
+  const where = await saveFile(bytes, name);
+  infoEl.textContent = `✔ ${where} (${st.list.length}건) 저장했습니다.`;
   infoEl.className = "hint ok";
   if (infoEl.id === "dashInfo") infoEl.dataset.keep = "1";
 }
@@ -823,13 +815,10 @@ $("#xlsxDb").addEventListener("click", () => {
   downloadExcel(st, "DB", $("#dbInfo"));
 });
 $("#backup").addEventListener("click", async () => {
+  await prepareSaveDir();
   const data = { app: "hyundai-yt-monitor", at: new Date().toISOString(), settings, videos: await DB.all() };
-  const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: "application/json" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `현대차위기론_유튜브모니터링_백업_${todayYmd()}.json`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 30000);
+  const where = await saveFile(new TextEncoder().encode(JSON.stringify(data)), `현대차위기론_유튜브모니터링_백업_${todayYmd()}.json`, "application/json");
+  $("#dbInfo").textContent = `✔ 백업: ${where}`;
 });
 $("#restore").addEventListener("change", async (e) => {
   const f = e.target.files[0];
@@ -859,6 +848,14 @@ async function fillSettings() {
   $("#sQueries").value = settings.queries;
   $("#sPages").value = settings.searchWindow;
   $("#sTopic").value = settings.topicWords;
+  $("#saveFolder").value = settings.saveFolder || "";
+  $("#saveAsk").checked = !!settings.saveAsk;
+  $("#macFolderPath").value = settings.macFolderPath || "";
+  const sd = await getSaveDir();
+  $("#saveDirName").textContent = sd ? `📁 ${sd.name} (고른 폴더에 바로 저장)` : "고른 폴더 없음 → 크롬 다운로드 폴더에 저장";
+  $("#saveDirClear").hidden = !sd;
+  $("#macBox").hidden = !IS_MAC;
+  $("#saveWhere").textContent = await saveWhereText();
   $("#sForeign").checked = settings.excludeForeign !== false;
   $("#sNeg").value = settings.negWords;
   $("#sPos").value = settings.posWords;
@@ -885,6 +882,9 @@ $("#save").addEventListener("click", async () => {
     queries: $("#sQueries").value,
     searchWindow: Math.max(1, Math.min(31, +$("#sPages").value || 7)),
     topicWords: $("#sTopic").value,
+    saveFolder: $("#saveFolder").value.trim(),
+    saveAsk: $("#saveAsk").checked,
+    macFolderPath: $("#macFolderPath").value.trim(),
     excludeForeign: $("#sForeign").checked,
     negWords: $("#sNeg").value,
     posWords: $("#sPos").value,
@@ -907,9 +907,41 @@ $("#save").addEventListener("click", async () => {
   $("#saveInfo").textContent = "✔ 저장했습니다.";
   $("#saveInfo").className = "hint ok";
 });
+// 저장 위치
+$("#saveDirPick").addEventListener("click", async () => {
+  try {
+    const d = await pickSaveDir();
+    $("#saveDirName").textContent = `📁 ${d.name} (고른 폴더에 바로 저장)`;
+    $("#saveDirClear").hidden = false;
+  } catch {}
+  $("#saveWhere").textContent = await saveWhereText();
+});
+$("#saveDirClear").addEventListener("click", async () => {
+  await clearSaveDir();
+  $("#saveDirName").textContent = "고른 폴더 없음 → 크롬 다운로드 폴더에 저장";
+  $("#saveDirClear").hidden = true;
+  $("#saveWhere").textContent = await saveWhereText();
+});
+$("#pingHelper").addEventListener("click", async () => {
+  const info = $("#pingHelperInfo");
+  info.className = "hint";
+  info.textContent = "확인 중…";
+  const r = await chrome.runtime.sendMessage({ type: "gvPingHelper" }).catch((e) => ({ ok: false, error: e.message }));
+  if (r?.ok) {
+    info.className = "hint ok";
+    info.textContent = `✔ 연결됨 (도우미 버전 ${r.version}) — 저장할 때마다 '출처' 정보를 지웁니다.`;
+  } else {
+    info.className = "hint err";
+    info.textContent = r?.version
+      ? `⚠ 도우미가 예전 버전(${r.version})입니다. '빠른다운로드_도우미설치.app'을 다시 실행해 주세요.`
+      : `⚠ 연결 안 됨 — 이 확장의 ID ${r?.id || chrome.runtime.id} 가 도우미에 등록되어 있지 않거나 도우미가 없습니다. 이 프로그램 압축 안의 '빠른다운로드_도우미설치.app'을 실행한 뒤, chrome://extensions 에서 이 확장을 새로고침(↻)하세요. (${r?.error || ""})`;
+  }
+});
+$("#cleanFolder").addEventListener("click", () => cleanSaveFolder($("#cleanFolderInfo")));
+
 $("#reset").addEventListener("click", async () => {
   if (!confirm("설정을 기본값으로 되돌릴까요? (DB 와 API 키는 그대로)")) return;
-  settings = { ...DEFAULTS, ai: { ...DEFAULTS.ai } };
+  settings = { ...DEFAULTS, ai: { ...DEFAULTS.ai }, saveFolder: settings.saveFolder, saveAsk: settings.saveAsk, macFolderPath: settings.macFolderPath };
   await saveSettings(settings);
   await fillSettings();
   heroSub();

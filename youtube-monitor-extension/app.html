@@ -31,6 +31,7 @@
     <a href="#collect">진행 보기</a>
   </div>
   <main>
+    <div id="cleanNotice" class="clean-notice" hidden></div>
     <!-- 대시보드 -->
     <section id="tab-dash" class="tab">
       <div class="toolbar">
@@ -184,6 +185,25 @@
         <input id="sPos" type="text">
       </div>
       <div class="card">
+        <h2>💾 저장 위치 <span class="hint" id="saveWhere"></span></h2>
+        <label>저장 폴더 <span class="hint">(폴더 선택 창에서 고르면 그 폴더에 엑셀을 바로 저장 · 고르지 않으면 크롬 다운로드 폴더)</span></label>
+        <div class="row">
+          <button id="saveDirPick">📁 저장 폴더 고르기</button>
+          <button id="saveDirClear" hidden>기본(다운로드 폴더)으로</button>
+          <span id="saveDirName" class="hint"></span>
+        </div>
+        <div id="macBox">
+          <div class="hint">🍎 맥: 크롬은 저장한 파일마다 '출처'(chrome-extension://…) 정보를 붙이고, 확장프로그램은 이를 막을 수 없습니다. 그래서 저장이 끝나면 <b>빠른다운로드 도우미</b>가 자동으로 지웁니다 — 이 프로그램 압축 안의 <b>'빠른다운로드_도우미설치.app'을 한 번 실행</b>해 두세요(GV90 수집기 것도 같이 됨). 저장 폴더를 골랐다면 아래에 그 폴더의 <b>전체 경로</b>도 넣어 주세요. 처음 저장할 때 크롬이 폴더 쓰기 허락을 물으면 <b>'방문할 때마다 허용'</b>.</div>
+          <label for="macFolderPath">🍎 고른 저장 폴더의 전체 경로 <span class="hint">('출처' 정보 지우기용 · Finder 에서 폴더 우클릭 → Option 키를 누른 채 '경로 이름 복사' → 여기에 붙여 넣기)</span></label>
+          <input type="text" id="macFolderPath" spellcheck="false" placeholder="예: /Users/이름/Desktop/현대차 위기론 모니터링">
+          <div class="row"><button id="pingHelper">🔌 빠른다운로드 도우미 연결 확인</button><span id="pingHelperInfo" class="hint"></span></div>
+          <div class="row"><button id="cleanFolder" title="엑셀에서 고쳐 저장하면 '출처'가 다시 붙을 수 있음 → 저장 폴더의 엑셀 파일에서 한꺼번에 지움">🧹 저장 폴더 출처 모두 지우기</button><span id="cleanFolderInfo" class="hint"></span></div>
+        </div>
+        <label for="saveFolder">다운로드 폴더 안 하위 폴더 <span class="hint">(저장 폴더를 고르지 않았을 때)</span></label>
+        <div class="row"><span class="hint">크롬 다운로드 폴더 /</span><input type="text" id="saveFolder" spellcheck="false" placeholder="비우면 다운로드 폴더에 바로 저장" style="flex:1;width:auto"></div>
+        <label class="chk"><input type="checkbox" id="saveAsk"> 받을 때마다 저장 위치 묻기</label>
+      </div>
+      <div class="card">
         <h2>Claude AI (한 줄 요약 · 부정 프레임 판단)</h2>
         <p class="hint">API 키를 넣으면 영상마다 제목·설명을 읽고 보고서용 한 줄 요약, 위기론 관련 여부, 논조(부정·중립·긍정), 프레임 유형을 정합니다.
           키가 없으면 영상 설명에서 내용 문장을 골라 요약하고 단어로 판단합니다. 키는 이 PC 크롬에만 저장됩니다.</p>
@@ -203,6 +223,7 @@
 
   <script src="config.js"></script>
   <script src="store.js"></script>
+  <script src="save.js"></script>
   <script src="yt.js"></script>
   <script src="classify.js"></script>
   <script src="xlsx-pro.js"></script>

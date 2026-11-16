@@ -107,6 +107,10 @@ const DEFAULTS = {
   posWords: "위기 극복, 기회, 반등, 역대 최대, 신기록, 호실적, 급등, 상승, 사상 최고",
   ai: { on: true, model: "claude-sonnet-5-5" },
   sound: true,
+  // 저장 위치: 고른 폴더(📁) > 크롬 다운로드 폴더(하위 폴더) · 맥 '출처' 지우기용 고른 폴더 전체 경로
+  saveFolder: "",
+  saveAsk: false,
+  macFolderPath: "",
 };
 
 const AI_MODELS = [

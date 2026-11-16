@@ -123,3 +123,7 @@ table.db .tags .neg { background: #fdecea; color: #d93025; border: 1px solid #f6
 table.db .tags .neg b { font-weight: 800; }
 table.db .tags .src { background: #eef0f3; color: #5f6670; }
 table.db tr.out .tags .frame { background: #8a94a6; }
+.clean-notice { margin: 6px 0; padding: 8px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; }
+.clean-notice.ok { background: #e6f4ea; color: #137333; }
+.clean-notice.err { background: #fff8e1; color: #8a5a00; border: 1px solid #f0c36d; }
+#macBox { border-left: 3px solid #d9dde3; padding-left: 12px; margin: 8px 0; }

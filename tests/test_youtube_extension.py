@@ -1018,7 +1018,8 @@ def test_helper_installer(tmp_path: Path):
     assert os.access(dest / "bin/ffmpeg", os.X_OK) and (dest / "bin/ffmpeg").read_bytes()[:4] == b"\xcf\xfa\xed\xfe"
     for b in ("Google/Chrome", "Naver/Whale"):
         m = json.loads((sup / b / "NativeMessagingHosts/com.khagu77.ytdl.json").read_text())
-        assert m["path"] == str(dest / "ytdl_host.sh") and m["allowed_origins"] == [f"chrome-extension://{EXT_ID}/", "chrome-extension://edngphpmbgehcodhafhapdapdncnkcba/"]
+        assert m["path"] == str(dest / "ytdl_host.sh") and m["allowed_origins"] == [f"chrome-extension://{EXT_ID}/", "chrome-extension://edngphpmbgehcodhafhapdapdncnkcba/",
+                                                                                   "chrome-extension://clilfhjihcanehbgnihenggjbjejechg/", "chrome-extension://dpenbcefelaahacoeoegfiflcgnjbhch/"]
     assert not (sup / "Microsoft Edge").exists()  # 없는 브라우저는 건드리지 않는다
 
 
@@ -1037,7 +1038,7 @@ def test_helper_cleanmeta(tmp_path: Path):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     log = tmp_path / "xattr.log"
-    (bin_dir / "xattr").write_text(f"#!/bin/bash\nprintf '%s\\n' \"$@\" >> '{log}'\n")
+    (bin_dir / "xattr").write_text(f"#!/bin/bash\nprintf '%s\\n' \"$@\" >> '{log}'\n[ \"$1\" = -p ] && exit 1\nexit 0\n")
     (bin_dir / "xattr").chmod(0o755)
 
     def ask(path):
@@ -1049,7 +1050,7 @@ def test_helper_cleanmeta(tmp_path: Path):
         return json.loads(p.stdout[4:4 + n])
 
     assert ask(target) == {"type": "cleaned", "ok": True}
-    assert log.read_text().splitlines() == ["-d", "com.apple.metadata:kMDItemWhereFroms", str(target)]
+    assert log.read_text().splitlines() == ["-d", "com.apple.metadata:kMDItemWhereFroms", str(target), "-p", "com.apple.metadata:kMDItemWhereFroms", str(target)]
     log.unlink()
     assert ask(outside) == {"type": "cleaned", "ok": False}  # 내 폴더 밖
     assert ask(home / "Downloads" / "x.sh") == {"type": "cleaned", "ok": False}  # 엑셀·txt 가 아님

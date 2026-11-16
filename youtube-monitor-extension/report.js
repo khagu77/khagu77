@@ -203,9 +203,14 @@ function dashHtml(st, { fluid = false, banner = BANNER_URL, logo = LOGO_URL, cha
   const period = `'${String(st.start.getFullYear()).slice(2)}. ${st.start.getMonth() + 1}. ${st.start.getDate()}. ~ ${st.end.getMonth() + 1}. ${st.end.getDate()}.`;
   const kpi = (label, value, sub) =>
     `<td width="20%" style="width:20%;padding:0 4px;vertical-align:top;">${box(
-      `<div style="font-size:11px;color:#6b7280;white-space:nowrap;">${label}</div><div style="font-size:24px;font-weight:900;color:#1b1d21;line-height:1.2;margin-top:2px;white-space:nowrap;">${value}</div><div style="font-size:11px;color:#6b7280;margin-top:2px;white-space:nowrap;">${sub}</div>`,
+      `<div style="font-size:11px;color:#6b7280;white-space:nowrap;">${label}</div><div style="font-size:${kpiSize(value)}px;font-weight:900;color:#1b1d21;line-height:29px;height:29px;margin-top:2px;white-space:nowrap;letter-spacing:-0.5px;">${value}</div><div style="font-size:10.5px;color:#6b7280;margin-top:2px;white-space:nowrap;letter-spacing:-0.3px;overflow:hidden;">${sub}</div>`,
       "padding:10px 12px;",
     )}</td>`;
+  // 큰 숫자가 칸을 넘지 않게: 글자 수가 많으면 글씨를 줄임 (예: 407,717,149회)
+  const kpiSize = (html) => {
+    const n = String(html).replace(/<[^>]+>/g, "").length;
+    return n <= 8 ? 24 : n <= 10 ? 21 : n <= 12 ? 18 : 16;
+  };
   const groupBadge = (g) =>
     `<span style="display:inline-block;font-size:10px;font-weight:700;color:#ffffff;background:${GROUP_COLOR[g] || "#6b7280"};border-radius:4px;padding:0 5px;line-height:16px;white-space:nowrap;vertical-align:middle;letter-spacing:0;">${(GROUPS[g] || "기타").replace(" 채널", "")}</span>`;
   const clip = (s, n) => {
@@ -430,8 +435,8 @@ async function buildExcel(st, { stamp = new Date(), onProgress } = {}) {
         { v: v.comments ?? "", s: "num" },
         { v: v.summary || "", s: "small" },
         { v: tone, s: tone === "부정" ? "neg" : "gray" },
-        { v: v.ai?.frame || "", s: "small" },
-        { v: (v.negHits || []).join(", "), s: "small" },
+        { v: v.ai?.frame || "", s: "smallC" },
+        { v: (v.negHits || []).join(", "), s: "smallC" },
       ],
     });
     links.push({ r, c: 6, url: `https://www.youtube.com/watch?v=${v.id}` });
@@ -551,7 +556,7 @@ async function buildExcel(st, { stamp = new Date(), onProgress } = {}) {
       {
         name: "일자별 발행 추이",
         tab: "#2a78d6",
-        cols: [6, 12, 6, 10, 10, 13, 13, 10, 10, 13, 12, 2],
+        cols: [11, 12, 10, 10, 17, 14, 10, 10, 13, 12, 2], // 위 요약 칸(A~F)의 큰 숫자(누적 조회수 등)가 ### 로 안 보이게 넓게
         rows: rows2,
         merges: ["A1:K1", "A2:K2"],
         freeze: { row: d0, col: 0 },
