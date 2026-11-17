@@ -500,6 +500,16 @@ async function cafePageProbe(mode, target, maxComments, maxImages, knownBoilerpl
     /스팸\s*광고\s*아이디들?은\s*즉시\s*강퇴/,
     /타\s*차량\s*비하\s*분쟁\s*,?\s*욕설\s*,?\s*명예\s*훼손/,
     /카페\s*규정\s*위반\s*회원은\s*영구\s*강퇴/,
+    // 올뉴 아반떼 CN8 카페 글쓰기 양식 (담당자 지정 2026-11-17: naver.me/5re1983l)
+    //   "※ no1. 올뉴 아반떼 cn8 팁! 회원님들이 제목만 확인하고도 어느정도 알아볼수있게 제목에 간단한 결함/불만 내용 작성해주시면 다른회원님들도 확인하기 편하실꺼에요~※
+    //    / (예시 : 올뉴 아반떼 cn8 ( 배터리 방전 결함/불만 ) / 올뉴 아반떼 cn8 결함/불만 내용 :" (그 아래 작성자 글은 남김)
+    /no\s*\.?\s*1\s*\.?\s*올\s*뉴\s*아반떼\s*cn\s*8\s*팁/i,
+    /회원님들이\s*제목만\s*확인하고도/,
+    /제목에\s*간단한\s*결함\s*\/?\s*불만\s*내용\s*작성/,
+    /^님들도\s*확인하기\s*편하실/,
+    /확인하기\s*편하실\s*(꺼|거)에요\s*~?\s*※?$/,
+    /^\(?\s*예시\s*[:：]\s*올\s*뉴\s*아반떼/i,
+    /^올\s*뉴\s*아반떼\s*cn\s*8\s*결함\s*\/?\s*불만\s*내용\s*[:：]?\s*$/i,
   ];
   // 담당자가 미리보기 카드 '수정 요청'으로 빼 달라고 한 문구 (본문 어디에 있든, 글자·숫자만 비교)
   const userEx = (userExcludes || []).map(norm).filter((k) => k.length >= 4);
@@ -1102,6 +1112,81 @@ async function readList(tabId, url) {
   }
 }
 
+// 목록을 여러 페이지 읽기 (담당자 지적 2026-11-17: 작성자 '게시물 보기' 첫 페이지에 출고 인증 글이 없어 제원 '-',
+// 게시판도 첫 페이지만 봐서 '최근 3개월 동일 증상' 중복 건수가 모자람)
+//  - 주소에 쪽 번호를 붙여 열고(f-e: page·size=50 / 옛 주소: search.page·userDisplay=50), 안 되면 화면의 쪽 번호 버튼을 눌러 넘긴다
+//  - stop(rows): true 면 그만 (예: 인증 글을 찾음, 3개월 전 글까지 봄). 새 글이 안 나오면 그만
+function pageUrl(url, p) {
+  try {
+    const u = new URL(url);
+    if (/ArticleList\.nhn|MemberArticleList|search\./i.test(u.pathname + u.search)) {
+      u.searchParams.set("search.page", String(p));
+      u.searchParams.set("userDisplay", "50");
+    } else {
+      u.searchParams.set("page", String(p));
+      u.searchParams.set("size", "50");
+    }
+    return u.href;
+  } catch {
+    return url;
+  }
+}
+async function clickPageProbe(p) {
+  const frame = document.querySelector("iframe#cafe_main");
+  let doc = document;
+  try {
+    if (frame && frame.contentDocument && frame.contentDocument.body) doc = frame.contentDocument;
+  } catch {}
+  const btn = [...doc.querySelectorAll("button, a")].find((b) => b.innerText.trim() === String(p) && b.closest("[class*='pagination' i], [class*='Pagination'], .prev-next, [class*='page' i]"));
+  if (!btn) return false;
+  btn.click();
+  await new Promise((r) => setTimeout(r, 2500));
+  return true;
+}
+async function readListPages(tabId, url, { maxPages = 5, stop = () => false } = {}) {
+  if (!url) return [];
+  const all = [];
+  const seen = new Set();
+  const add = (rows) => {
+    let n = 0;
+    for (const r of rows || []) {
+      const k = r.href || r.title;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      all.push(r);
+      n++;
+    }
+    return n;
+  };
+  add(await readList(tabId, url));
+  for (let p = 2; p <= maxPages && !stop(all); p++) {
+    await sleep(1000 + Math.random() * 1200);
+    let added = add(await readList(tabId, pageUrl(url, p)));
+    if (!added) {
+      // 쪽 번호 주소가 안 먹으면 화면의 쪽 번호 버튼으로
+      try {
+        const [res] = await withTimeout(chrome.scripting.executeScript({ target: { tabId }, func: clickPageProbe, args: [p] }), 15000);
+        if (res && res.result) {
+          const [r2] = await withTimeout(chrome.scripting.executeScript({ target: { tabId }, func: cafeListProbe, args: [LIST_LIMIT] }), 20000);
+          added = add((r2 && r2.result) || []);
+        }
+      } catch {}
+    }
+    if (!added) break; // 더 이상 새 글이 없음
+  }
+  return all;
+}
+// 목록 날짜 → Date ("2026.08.10." / "26.08.10" / "10:23"(오늘))
+function listDate(t) {
+  const s = String(t || "");
+  let m = s.match(/(\d{4})\.\s?(\d{1,2})\.\s?(\d{1,2})/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  m = s.match(/(\d{2})\.(\d{2})\.(\d{2})/);
+  if (m) return new Date(2000 + +m[1], +m[2] - 1, +m[3]);
+  if (/\d{1,2}:\d{2}/.test(s)) return new Date();
+  return null;
+}
+
 // 게시글 본문 글자만 읽기 (작성자의 계약·출고 인증 글에서 제원 확인용)
 async function articleTextProbe() {
   const frame = document.querySelector("iframe#cafe_main");
@@ -1366,7 +1451,8 @@ async function captureCafePostOnce(url, onStep = () => {}, known = {}) {
     // 지역(작성자의 다른 글)·중복(같은 게시판 최근 글) 판단용 목록. 사람처럼 잠깐씩 쉬며 같은 창에서 연다.
     onStep("작성글·게시판 목록 확인 중");
     await sleep(1000 + Math.random() * 1500);
-    info.authorPosts = await readList(tabId, info.authorLink);
+    // 작성자 '게시물 보기': 출고·계약 인증 글이 나올 때까지 이전 페이지로 (최대 5쪽)
+    info.authorPosts = await readListPages(tabId, info.authorLink, { maxPages: 5, stop: (rows) => rows.some((p) => CERT_RE.test(p.title)) });
     // 제원(2.5T·1.6T·HEV 등) 확인용: 작성자의 계약·출고 인증 글을 최대 2개 열어 본문을 읽는다
     info.authorCertPosts = [];
     for (const p of info.authorPosts.filter((p) => CERT_RE.test(p.title) && p.href).slice(0, MAX_CERT_POSTS)) {
@@ -1399,7 +1485,15 @@ async function captureCafePostOnce(url, onStep = () => {}, known = {}) {
     }
     info.specHints = specCandidates(specSources()).slice(0, 12);
     if (info.boardLink) await sleep(1000 + Math.random() * 1500);
-    info.boardPosts = await readList(tabId, info.boardLink);
+    // 같은 게시판 최근 3개월 글 (중복 건수용): 3개월 전 글이 나올 때까지 이전 페이지로 (최대 10쪽)
+    const since3m = Date.now() - 92 * 86400000;
+    info.boardPosts = await readListPages(tabId, info.boardLink, {
+      maxPages: 10,
+      stop: (rows) => rows.some((p) => {
+        const d = listDate(p.date);
+        return d && d.getTime() < since3m;
+      }),
+    });
     return out;
   } finally {
     await close();

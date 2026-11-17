@@ -105,7 +105,8 @@ const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작�
   예) "주행 중 소음이 나는데 원인이 뭘까요" = 초기 / "하이테크센터 예약해서 다음 주 방문 예정입니다" = 초기 / "수리 후 재발해서 다음 주 재방문 예정" = 진행 / "센터 점검 결과 부품 교체 필요, 부품 대기 중" = 진행 / "센터에서 수리 받고 해결됐습니다" = 타결
 - duplicate: 아래 두 가지를 러프하게 더한 수.
   ① 댓글 중 "저도 그래요", "나도 그랬다"처럼 같은 증상을 겪었다는 뉘앙스의 댓글 수
-  ② boardPosts(이 글이 있는 게시판의 최근 글 목록) 중 게시일(postDate) 기준 최근 3개월 안의 같은 차종/같은 증상 관련 게시글 수 (이 글 자신은 빼고, 날짜가 시간만 있으면 최근 글)
+  ② boardPosts(이 글이 있는 게시판의 최근 3개월 글 목록, 여러 쪽을 넘겨 모음) 중 같은 차종/같은 증상 관련 게시글 수 (이 글 자신은 빼고, 날짜가 시간만 있으면 최근 글)
+     — 이 글 댓글 안에서만 세지 말고 반드시 게시판 3개월 글 제목도 함께 봅니다 (담당자 확인 2026-11-17)
   합이 0이면 "신규", 있으면 "중복 N건". 대부분은 "신규"입니다.
 - region: 입고/운행 지역. 먼저 작성자 닉네임(author)에서 지역을 판단합니다(예: "부산ll홍길동" → 부산, "파주II아무개" → 파주).
   닉네임으로 알 수 없으면 authorPosts(작성자의 다른 글 제목)와 본문에서 지역이 분명히 드러나면 씁니다. 도(충북, 경기 등)는 빼고 시 이름만 씁니다(예: "충북 청주" → "청주", "경기 오산" → "오산", "부산", "서울 강동구").
@@ -360,7 +361,16 @@ async function aiSummarize(row, info, { apiKey, model, recentBodies = [], titleP
     authorPostTexts: info.authorPostTexts || [],
     specHints: info.specHints || [],
     specLineup: typeof specLineup === "function" ? specLineup(String(row.car || "").split(/\s+/)[0]) || [] : [],
-    boardPosts: (info.boardPosts || []).map((p) => ({ title: p.title, date: p.date })),
+    // 같은 게시판 최근 3개월 글 (여러 쪽에서 모음, 3개월 넘은 글은 뺌)
+    boardPosts: (info.boardPosts || [])
+      .filter((p) => {
+        const m = String(p.date || "").match(/(\d{4})\.\s?(\d{1,2})\.\s?(\d{1,2})/) || String(p.date || "").match(/(\d{2})\.(\d{2})\.(\d{2})/);
+        if (!m) return true;
+        const y = m[1].length === 2 ? 2000 + +m[1] : +m[1];
+        return new Date(y, +m[2] - 1, +m[3]).getTime() >= Date.now() - 92 * 86400000;
+      })
+      .slice(0, 400)
+      .map((p) => ({ title: p.title, date: p.date })),
   };
   const params = {
     model,
