@@ -185,6 +185,7 @@ function pageSignalsInFrame() {
   return {
     href: location.href,
     blocked,
+    captcha: !!captchaUi, // 자동입력 방지 입력칸·그림이 있는 진짜 막힘 화면
     blockedWhy: blocked ? (captchaUi ? "자동입력 방지 입력칸" : `'${phrase}' 안내 화면`) : "",
     memberOnly: /멤버만 (볼|이용)|카페 멤버가 아닙니다|가입 후 이용|등급이 (부족|되어야)|읽기 권한/.test(text),
     login: location.hostname === "nid.naver.com",
@@ -542,8 +543,23 @@ class NaverCollector {
     this.checkStop();
     const finalUrl = await this.tab.open(url);
     if (/nid\.naver\.com/.test(finalUrl)) throw new BlockedError("네이버 로그인이 풀렸습니다. 크롬에서 네이버에 다시 로그인해 주세요");
-    const signals = await this.tab.run(pageSignalsInFrame);
+    let signals = await this.tab.run(pageSignalsInFrame);
     if (signals.some((s) => s.login)) throw new BlockedError("네이버 로그인이 풀렸습니다. 크롬에서 네이버에 다시 로그인해 주세요");
+    if (signals.some((s) => s.blocked) && !signals.some((s) => s.captcha)) {
+      // 막힘 문구만 보이고 자동입력 방지 칸은 없음 → 글 내용('배터리 보호조치', '충전이 일시적으로 제한' 등)이나
+      // 화면이 늦게 그려진 것일 수 있다 (담당자 지적 2026-11-18: cafeclip/1325698 에서 로그인 정상인데 네이버 수집 전체 중단).
+      // 4초 뒤 다시 보고, 그래도 같으면 카페 첫 화면이 정상인지 확인해 정상이면 이 글만 건너뛴다.
+      await sleep(4000);
+      signals = await this.tab.run(pageSignalsInFrame);
+      if (signals.some((s) => s.blocked) && !signals.some((s) => s.captcha)) {
+        const why = blockedMsg(signals);
+        await this.tab.open("https://cafe.naver.com/");
+        const home = await this.tab.run(pageSignalsInFrame);
+        if (home.some((s) => s.login)) throw new BlockedError("네이버 로그인이 풀렸습니다. 크롬에서 네이버에 다시 로그인해 주세요");
+        if (home.some((s) => s.blocked)) throw new BlockedError(blockedMsg(home));
+        throw new PassError(`이 글만 막힘 문구가 보여 건너뜀 (네이버는 정상) — ${why.replace(/^네이버 보호조치·자동입력 방지 화면이 보여 네이버 수집을 멈췄습니다 /, "")}`);
+      }
+    }
     if (signals.some((s) => s.blocked)) throw new BlockedError(blockedMsg(signals));
     return { finalUrl, memberOnly: signals.some((s) => s.memberOnly) };
   }
@@ -879,7 +895,9 @@ class NaverCollector {
       const tab = { url: await this.tab.url() };
       if (/nid\.naver\.com/.test(tab.url || "")) throw new BlockedError("네이버 로그인이 풀렸습니다. 크롬에서 네이버에 다시 로그인해 주세요");
       const signals = await this.tab.run(pageSignalsInFrame);
-      if (signals.some((x) => x.blocked)) throw new BlockedError(blockedMsg(signals));
+      // 자동입력 방지 칸이 있을 때만 진짜 막힘. 문구만 보이면 이 글만 넘김 (담당자 지적 2026-11-18)
+      if (signals.some((x) => x.captcha)) throw new BlockedError(blockedMsg(signals));
+      if (signals.some((x) => x.blocked)) return null;
       const info = await this.readOpenedArticle(post);
       if (info) return { ...info, via: "검색" };
       break;

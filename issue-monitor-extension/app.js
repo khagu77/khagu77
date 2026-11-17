@@ -2612,7 +2612,10 @@ async function processSource(src, posts, readBody, ctx) {
 
   posts = posts.filter((p) => !isAttendancePost(p.title));
   let candidates;
-  if (ai) {
+  const retry = ctx.retryPosts && ctx.retryPosts[src.key];
+  if (retry) {
+    candidates = posts; // 지난번에 건너뛴 글 다시 읽기: 이미 후보였던 글이므로 다시 고르지 않음
+  } else if (ai) {
     const picked = await ai.triage(posts.map((p) => ({ key: p.articleId, source: src.name, title: p.title })));
     candidates = posts.filter((p) => picked.has(p.articleId));
   } else {
@@ -2652,6 +2655,14 @@ async function processSource(src, posts, readBody, ctx) {
         passed++;
         log(`${src.name} 「${post.title}」 본문 확인 불가 → 패스 (${e.message}) ${post.url}`);
       } else log(`${src.name} ${post.url} 본문 읽기 실패: ${e.message}`, "err");
+      // 건너뛴 글은 기록해 두었다가 [건너뛴 곳·글 다시 수집해서 합치기]로 그 글만 다시 읽는다 (담당자 요청 2026-11-18)
+      if (state.cp) {
+        state.cp.skipped = state.cp.skipped || [];
+        if (!state.cp.skipped.some((x) => x.post.url === post.url)) {
+          const { articleId, title, url, ts, exact, menu, menuId, views, ccount } = post;
+          state.cp.skipped.push({ key: src.key, why: String(e.message || "").slice(0, 80), post: { articleId, title, url, ts, exact, menu, menuId, views, ccount } });
+        }
+      }
     }
     updateSource(src.key, { read, status: `본문 확인 중 ${read}/${candidates.length}${passed ? ` · 패스 ${passed}` : ""}` });
     if (src.kind === "cafe") await ctx.naverWait(delays.article);
@@ -2843,8 +2854,8 @@ async function saveCheckpoint(final = false) {
   if (!state.cp) return;
   const doneNow = [...sourceRows].filter(([, tr]) => /^완료/.test(tr.children[5].textContent)).map(([k]) => k);
   const done = [...new Set([...(state.cp.done || []), ...doneNow])];
-  const cp = { ...state.cp, at: Date.now(), done, rows: serializeRows(state.rows), count: state.rows.length };
-  if (final && cp.keys.every((k) => done.includes(k))) {
+  const cp = { ...state.cp, at: Date.now(), done, rows: serializeRows(state.rows), count: state.rows.length, skipped: state.cp.skipped || [] };
+  if (final && cp.keys.every((k) => done.includes(k)) && !cp.skipped.length) {
     await chrome.storage.local.remove("runCheckpoint"); // 모두 끝남 → 이어서 할 것 없음
   } else {
     await chrome.storage.local.set({ runCheckpoint: cp });
@@ -2865,7 +2876,10 @@ async function renderResumeBox() {
   box.hidden = !cp;
   if (!cp) return;
   const left = cp.keys.filter((k) => !cp.done.includes(k)).length;
-  $("#resumeText").textContent = `지난 수집이 끝까지 마치지 못했습니다 (${fmtDateTime(new Date(cp.startedAt))} 시작 · 기간 ${fmtDateTime(new Date(cp.range.start))} ~ ${fmtDateTime(new Date(cp.range.end))} · ${cp.keys.length}곳 중 ${cp.done.length}곳 완료 · 지금까지 ${cp.count || 0}건). 남은 ${left}곳만 이어서 수집할 수 있습니다.`;
+  const skipped = (cp.skipped || []).length;
+  const parts = [left ? `건너뛰거나 못 마친 곳 ${left}곳` : "", skipped ? `건너뛴 글 ${skipped}건` : ""].filter(Boolean).join(" · ");
+  $("#resumeText").textContent = `⚠ 지난 수집에서 ${parts}이 남았습니다 (${fmtDateTime(new Date(cp.startedAt))} 시작 · 기간 ${fmtDateTime(new Date(cp.range.start))} ~ ${fmtDateTime(new Date(cp.range.end))} · ${cp.keys.length}곳 중 ${cp.done.length}곳 완료 · 지금까지 ${cp.count || 0}건). 아래 버튼을 누르면 그 곳·글만 다시 수집해서 지금 결과에 중복 없이 합칩니다.`;
+  $("#resumeRun").textContent = `💰 ↻ 건너뛴 ${[left ? `${left}곳` : "", skipped ? `글 ${skipped}건` : ""].filter(Boolean).join("·")} 다시 수집해서 합치기`;
 }
 
 async function resumeCollection() {
@@ -2892,6 +2906,8 @@ async function runCollection() {
   if (resume) {
     // 이어하기: 지난번에 고른 곳 중 아직 못 끝낸 곳만
     const left = new Set(resume.keys.filter((k) => !resume.done.includes(k)));
+    // 끝난 곳이라도 건너뛴 글이 있으면 그 글만 다시 읽는다
+    for (const x of resume.skipped || []) if (!left.has(x.key)) left.add(x.key);
     cafes = (settings.cafes || []).filter((c) => left.has(`cafe:${c.id}`));
     communities = (settings.communities || []).filter((c) => left.has(`comm:${c.url}`));
   }
@@ -2971,6 +2987,7 @@ async function runCollection() {
     auto: AUTO,
     autoBaseUsed: !!state.autoBaseUsed,
     baseLabel: state.base ? state.base.label : "",
+    skipped: [], // 이번에 건너뛴 글 (다시 읽기에서 또 건너뛰면 다시 쌓임)
   };
   await saveCheckpoint();
   const cpTimer = setInterval(() => saveCheckpoint().catch(() => {}), 15000);
@@ -2984,6 +3001,14 @@ async function runCollection() {
     delays,
     naver,
     authorLookups: 0,
+    // 다시 읽을 건너뛴 글 (끝난 곳은 목록을 다시 읽지 않고 이 글만): { sourceKey: [post] }
+    retryPosts: (() => {
+      if (!resume) return null;
+      const notDone = new Set(resume.keys.filter((k) => !resume.done.includes(k)));
+      const m = {};
+      for (const x of resume.skipped || []) if (!notDone.has(x.key)) (m[x.key] = m[x.key] || []).push(x.post);
+      return Object.keys(m).length ? m : null;
+    })(),
     naverWait: (r) => naver.wait(r),
     communityWait: (r) => community.wait(r),
   };
@@ -3003,8 +3028,9 @@ async function runCollection() {
         const src = order[i];
         updateSource(src.key, { status: "글 목록 읽는 중" });
         try {
-          const posts = await naver.listCafe(src.cafe, range);
-          log(`${src.name}: 기간 내 글 ${posts.length}개`);
+          const retryList = ctx.retryPosts && ctx.retryPosts[src.key];
+          const posts = retryList || (await naver.listCafe(src.cafe, range));
+          log(retryList ? `${src.name}: 지난번에 건너뛴 글 ${posts.length}건 다시 읽기` : `${src.name}: 기간 내 글 ${posts.length}개`);
           await processSource(src, posts, (post) => naver.readArticle(post, src.cafe), ctx);
         } catch (e) {
           if (e instanceof StopError || e instanceof BlockedError) throw e;
@@ -3044,8 +3070,9 @@ async function runCollection() {
       if (state.stopRequested) return;
       updateSource(src.key, { status: "글 목록 읽는 중" });
       try {
-        const posts = await community.list(src.site, range);
-        log(`${src.name}: 기간 내 글 ${posts.length}개`);
+        const retryList = ctx.retryPosts && ctx.retryPosts[src.key];
+        const posts = retryList || (await community.list(src.site, range));
+        log(retryList ? `${src.name}: 지난번에 건너뛴 글 ${posts.length}건 다시 읽기` : `${src.name}: 기간 내 글 ${posts.length}개`);
         await processSource(src, posts, (post) => community.readArticle(src.site, post), ctx);
       } catch (e) {
         if (e instanceof StopError) return;
