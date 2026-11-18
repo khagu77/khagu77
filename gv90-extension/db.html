@@ -54,6 +54,11 @@
         <label class="inline">기간 엑셀 <input type="date" id="rangeFrom"> ~ <input type="date" id="rangeTo"></label>
         <button id="rangeXlsx" class="small getbtn">📥 기간 엑셀 저장</button>
       </div>
+      <div class="row">
+        <input type="text" id="allFind" placeholder="🔎 전체 게시물에서 찾기 (모든 보고일 · 최종 엑셀에 들어가는 글 전부)" spellcheck="false" style="flex:1">
+        <button id="allFindBtn" class="small">찾기</button>
+      </div>
+      <div id="orphanInfo" class="hint err" hidden></div>
       <div id="info" class="hint"></div>
       <div class="tablewrap">
         <table class="dbtable" id="days">

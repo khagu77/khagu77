@@ -724,3 +724,29 @@ def test_gv90_naver_login_gate(ext, tmp_path: Path):
     wait_js(page, "!running && /GV90 관련 게시물|중지됨/.test(document.querySelector('#summary').textContent)", 120000)
     assert page.locator("#loginAlarm").count() == 0
     assert not errors, errors
+
+
+def test_gv90_db_find_orphan(ext, tmp_path: Path):
+    """데일리 DB: 보고일 목록에 없는 글 경고 · 전체 게시물에서 찾기 · ✕ 로 지우기"""
+    ctx, sw, ext_id, requests = ext
+    page = ctx.new_page()
+    page.goto(f"chrome-extension://{ext_id}/db.html")
+    page.evaluate(
+        """async () => {
+        await savePosts([{ key: 'cafe:a/1', url: 'https://cafe.naver.com/a/1', channel: '동호회', media: '카페A', car: 'GV90', date: Date.now(), summary: 'GV90 시승 후기', sentiment: '긍정', day: '20261118' }], '20261118');
+        await refreshDay('20261118');
+        await savePosts([{ key: 'cafe:hmckorea/1306112', url: 'https://cafe.naver.com/hmckorea/1306112', channel: '동호회', media: '현대모터클럽', car: 'GV90', date: Date.now(), summary: '[스타리아EV 리무진 종합시승기]', sentiment: '긍정', day: '20261117' }], '20261117');
+      }"""
+    )
+    page.reload()
+    wait_js(page, "!document.getElementById('orphanInfo').hidden")
+    assert "1건" in page.inner_text("#orphanInfo")
+    page.fill("#allFind", "스타리아")
+    page.click("#allFindBtn")
+    wait_js(page, "document.querySelectorAll('#dayPosts tbody tr').length === 1")
+    assert "전체 게시물" in page.inner_text("#dayTitle")
+    assert "보고일 2026.11.17" in page.inner_text("#dayPosts tbody")
+    page.once("dialog", lambda d: d.accept())
+    page.click("#dayPosts tbody button.danger")
+    wait_js(page, "document.getElementById('orphanInfo').hidden")
+    assert page.evaluate("async () => (await allPosts()).map((p) => p.key)") == ["cafe:a/1"]

@@ -111,6 +111,12 @@ function sentiPanel(ps, cs, days, editedC = 0) {
 
 async function render() {
   const days = await listDays();
+  orphanPosts().then((o) => {
+    const box = $("#orphanInfo");
+    box.hidden = !o.length;
+    box.textContent = "";
+    if (o.length) box.append(`⚠ 보고일 목록에 없는 게시물 ${o.length}건이 있습니다 (최종 엑셀에는 들어감). `, el("button", { class: "small", text: "보기", onclick: () => showDay("orphan") }));
+  });
   const posts = await allPosts();
   const comments = await allComments();
   // 댓글은 원글의 보고일로 묶음 (댓글을 모은 날이 아니라 그 게시글이 보고된 날)
@@ -198,23 +204,30 @@ async function removeDay(day) {
   render().then(renderFinal);
 }
 
+// 보고일 목록에 없는 글 (보고일 칸이 비었거나 그 보고일 기록이 없음) — 최종 엑셀에는 들어감
+async function orphanPosts() {
+  const days = new Set((await listDays()).map((d) => d.day));
+  return (await allPosts()).filter((p) => !p.day || !days.has(p.day));
+}
+
+// day: 보고일 · "*" 전체 게시물 · "orphan" 보고일 목록에 없는 글
 async function showDay(day) {
   openDay = day;
-  const posts = await postsOfDay(day);
+  const posts = day === "*" ? await allPosts() : day === "orphan" ? await orphanPosts() : await postsOfDay(day);
   $("#dayBox").hidden = false;
-  $("#dayTitle").textContent = `${prettyDay(day)} 보고 게시물 ${posts.length}건`;
+  $("#dayTitle").textContent = day === "*" ? `전체 게시물 ${posts.length}건 (모든 보고일)` : day === "orphan" ? `⚠ 보고일 목록에 없는 게시물 ${posts.length}건 (최종 엑셀에는 들어감)` : `${prettyDay(day)} 보고 게시물 ${posts.length}건`;
   const q = compactLower($("#dayFilter").value);
   const sf = $("#daySenti").value;
   const tb = $("#dayPosts tbody");
   tb.textContent = "";
   for (const p of posts) {
     if (sf && p.sentiment !== sf) continue;
-    if (q && !compactLower(`${p.media} ${p.title} ${p.summary}`).includes(q)) continue;
+    if (q && !compactLower(`${p.media} ${p.title} ${p.summary} ${p.url}`).includes(q)) continue;
     tb.append(
       el("tr", {},
         el("td", { text: p.serial }),
         el("td", {}, chChip(p.channel)),
-        el("td", { class: "nowrap", text: p.media }),
+        el("td", { class: "nowrap", text: p.media, title: `보고일 ${p.day ? prettyDay(p.day) : "없음"}${p.via ? ` · ${p.via}로 들어감` : ""}${p.savedAt ? ` · 저장 ${fmtDateTime(p.savedAt)}` : ""}` }, day === "*" || day === "orphan" ? el("div", { class: "hint", text: p.day ? `보고일 ${prettyDay(p.day)}` : "보고일 없음" }) : null),
         el("td", { class: "nowrap", text: p.date ? fmtDateTime(p.date).slice(5, 10) : "-" }),
         el("td", { text: p.category || "" }),
         el("td", { class: "url" }, countsBadge(p), el("a", { href: p.url, target: "_blank", text: p.url.replace(/^https?:\/\/(www\.)?/, "").slice(0, 48) })),
@@ -223,7 +236,7 @@ async function showDay(day) {
         el("td", {}, el("button", { class: "small danger", text: "✕", title: "이 게시물을 DB 에서 지우기", onclick: async () => {
           if (!confirm(`'${(p.summary || p.title).slice(0, 40)}' 게시물을 DB 에서 지울까요?`)) return;
           await deletePosts([p.key]);
-          await refreshDay(day);
+          if (p.day) await refreshDay(p.day);
           render().then(renderFinal);
         } })),
       ),
@@ -520,3 +533,11 @@ const dbInit = mergeUploadDuplicates()
 
 // 저장 폴더 출처 모두 지우기
 document.getElementById("cleanFolder")?.addEventListener("click", () => cleanSaveFolder(document.getElementById("cleanFolderInfo")));
+
+// 전체 게시물에서 찾기
+function findAll() {
+  $("#dayFilter").value = $("#allFind").value;
+  showDay("*").then(() => $("#dayBox").scrollIntoView({ behavior: "smooth" }));
+}
+$("#allFindBtn").addEventListener("click", findAll);
+$("#allFind").addEventListener("keydown", (e) => e.key === "Enter" && findAll());
