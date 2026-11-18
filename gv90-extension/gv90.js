@@ -398,6 +398,25 @@ async function checkLogin() {
 // 수집
 // ---------------------------------------------------------------------------
 
+// 다른 차종 이야기인 글 (제목에 GV90 없이 다른 차 이름 · 본문에 GV90 이 한두 번 지나가듯 나옴)
+const OTHER_CAR_TITLE = /스타리아|staria|us4|st1|gv80|gv70|gv60|g80|g90|g70|eq900|팰리세이드|싼타페|쏘렌토|카니발|아이오닉|ev9|ev6|ev3|ev4|ev5|그랜저|제네시스\s*g\d|테슬라|모델\s*[ysx3]|벤츠|bmw|볼보|레인지로버|에스컬레이드|넥쏘|투싼|쏘나타|k8|k9|코나|캐스퍼/i;
+function isOtherCarPost(x) {
+  if (x.direct) return false;
+  const title = String(x.title || "");
+  if (mentionsCar(title) || !OTHER_CAR_TITLE.test(title)) return false;
+  const body = String(x.body || x.snippet || "").replace(/\s+/g, "").toLowerCase();
+  const hits = CAR_WORDS.reduce((n, w) => n + body.split(w).length - 1, 0);
+  return hits <= 2;
+}
+function relatedOf(x, kw) {
+  if (x.direct) return true;
+  if (isOtherCarPost(x)) {
+    x.otherCar = true;
+    return false;
+  }
+  return mentionsCar(itemText(x)) || matchesKeywords(itemText(x), kw);
+}
+
 function itemText(x) {
   return `${x.title || ""} ${x.body || ""} ${x.snippet || ""}`;
 }
@@ -674,7 +693,7 @@ async function collect() {
       items.push(it);
       return liveRender();
     }
-    it.related = it.direct || mentionsCar(itemText(it)) || matchesKeywords(itemText(it), kw);
+    it.related = relatedOf(it, kw);
     it.checked = it.related;
     if (isPrevDb(it, range.start.getTime())) {
       it.dup = true;
@@ -940,7 +959,7 @@ async function collect() {
   $("#liveInfo").textContent = "";
   for (const x of fresh) {
     delete x.restored;
-    x.related = x.direct || mentionsCar(itemText(x)) || matchesKeywords(itemText(x), kw);
+    x.related = relatedOf(x, kw);
     if (!x.touched) x.checked = x.related; // 수집 중에 표에서 직접 바꾼 체크는 그대로
   }
   // 데일리 DB 에 이미 있는 글은 체크 해제 (지난 보고에 들어감)
@@ -1174,7 +1193,8 @@ function renderResults() {
     else notes.push(el("span", { class: "badge new", text: "새 글" }));
     if (x.fromRun) notes.push(el("span", { class: "hint", text: ` ${x.fromRun.replace(/ 수집$/, "")}` }));
     if (x.note) notes.push(el("span", { class: "hint err", text: ` ${x.note}` }));
-    if (!x.related && !x.direct) notes.push(el("span", { class: "hint", text: " 키워드 없음" }));
+    if (x.otherCar && !x.related) notes.push(el("span", { class: "hint", text: " 다른 차종 글" }));
+    else if (!x.related && !x.direct) notes.push(el("span", { class: "hint", text: " 키워드 없음" }));
     const noteTitle = [x.dup ? `이미 데일리 DB 에 있는 글 (${dbDay || "지난"} 보고${dbWhy})` : dbDay && dbDay >= todayKey() ? `${dbDay} 보고로 DB 에 저장된 글 (아직 보고 전)${dbWhy}` : "새 글", String(x.by || "").startsWith("ai") ? "AI 판독" : "", x.fromRun || "", x.note || "", !x.related && !x.direct ? "제목·본문에 GV90 키워드 없음" : ""].filter(Boolean).join(" · ");
     tr.append(
       el("td", {}, cb),
