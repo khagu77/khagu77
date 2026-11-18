@@ -79,6 +79,24 @@ function ytText(t) {
   return "";
 }
 
+// 화면·응답 글자에서 댓글 수 찾기 (유튜브가 칸 이름을 바꿔도 되게 여러 모양)
+function ytCountFromText(t) {
+  const pats = [
+    /"commentsHeaderRenderer":\{"countText":\{"runs":\[\{"text":"([\d.,]+\s*[천만]?)/,
+    /"commentsCount":\{"simpleText":"([\d.,]+\s*[천만]?)/,
+    /"commentCount":\{"simpleText":"([\d.,]+\s*[천만]?)/,
+    /"commentsEntryPointHeaderRenderer":\{.{0,400}?"commentCount":\{"simpleText":"([\d.,]+\s*[천만]?)/,
+    /"engagementPanelTitleHeaderRenderer":\{"title":\{"runs":\[\{"text":"댓글"\}\]\},"contextualInfo":\{"runs":\[\{"text":"([\d.,]+\s*[천만]?)/,
+    /"text":"댓글\s*([\d.,]+\s*[천만]?)\s*개"/,
+    /"commentCount":"(\d+)"/,
+  ];
+  for (const re of pats) {
+    const m = String(t || "").match(re);
+    if (m) return m[1];
+  }
+  return "";
+}
+
 function findCommentsToken(initialData) {
   let token = null;
   walk(initialData, (k, v) => {
@@ -208,6 +226,7 @@ class YoutubeCollector {
         return false;
       }
     });
+    if (ccount === null) ccount = ytCountFromText(html) || null;
     return {
       html,
       player,
@@ -237,8 +256,9 @@ class YoutubeCollector {
       body: JSON.stringify({ context, continuation: token }),
     });
     if (!resp.ok) return null;
+    const data = await resp.json();
     let count = null;
-    walk(await resp.json(), (k, v) => {
+    walk(data, (k, v) => {
       if (count !== null) return false;
       if (k === "commentsHeaderRenderer") {
         const t = ytText(v.countText || v.commentsCount);
@@ -251,19 +271,27 @@ class YoutubeCollector {
         return false;
       }
     });
+    // 칸 이름이 바뀌었을 때: 응답 글자에서 '댓글 수' 모양을 직접 찾음
+    if (!count) count = ytCountFromText(JSON.stringify(data));
+    // 그래도 없으면 댓글을 끝까지 세어 봄 (댓글이 적은 영상 · 요청 40번까지만)
+    if (!count) {
+      const r = await this.readComments(null, null, { page, maxRequests: 40 }).catch(() => null);
+      if (r?.complete) count = String(r.comments.length);
+    }
     return count;
   }
 
-  async readComments(videoId, onProgress) {
+  // opts.page: 이미 받은 영상 화면 · opts.maxRequests: 요청 수 한도 (넘으면 complete=false)
+  async readComments(videoId, onProgress, opts = {}) {
     // 영상 화면을 가끔 덜 받아 오는 때가 있어 두 번 더 시도 (실제로 삭제·비공개면 세 번 다 실패)
-    let page = await this.videoPage(videoId);
-    for (let i = 0; i < 2 && !page.initialData; i++) {
+    let page = opts.page || (await this.videoPage(videoId));
+    for (let i = 0; i < 2 && !page.initialData && !opts.page; i++) {
       await sleep(2000 + i * 2000);
       page = await this.videoPage(videoId);
     }
     if (!page.initialData) throw new Error("영상 정보를 읽지 못함 (세 번 시도 · 삭제/비공개 영상이거나 유튜브가 잠시 막음 → '수집 전·0개·실패 글만 선택'으로 다시 수집)");
     const first = findCommentsToken(page.initialData);
-    if (!first) return { page, comments: [] }; // 댓글이 꺼진 영상
+    if (!first) return { page, comments: [], complete: true }; // 댓글이 꺼진 영상
     const apiKey = page.html.match(/"INNERTUBE_API_KEY"\s*:\s*"([^"]+)"/)?.[1];
     const clientVersion = page.html.match(/"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"]+)"/)?.[1] || "2.20241001.00.00";
     const visitorData = page.html.match(/"VISITOR_DATA"\s*:\s*"([^"]+)"/)?.[1];
@@ -273,7 +301,8 @@ class YoutubeCollector {
     const queue = [first];
     const used = new Set(queue);
     const byId = new Map();
-    for (let n = 0; queue.length && n < 3000; n++) {
+    const maxReq = opts.maxRequests || 3000;
+    for (let n = 0; queue.length && n < maxReq; n++) {
       if (this.isStopped()) throw new StopError("중지됨");
       const token = queue.shift();
       let resp;
@@ -305,6 +334,6 @@ class YoutubeCollector {
         const d = parseKoreanDate(c.writtenAt, now);
         return { text: c.text, writtenAt: c.writtenAt, date: d ? d.date.getTime() : null, isReply: c.id.includes("."), author: c.author };
       });
-    return { page, comments };
+    return { page, comments, complete: !queue.length };
   }
 }
