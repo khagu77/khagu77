@@ -113,6 +113,9 @@ const AI_SYSTEM = `당신은 현대자동차 온라인 이슈 보고서를 작�
 - focus: 집중관리고객 여부(true/false). 게시글 본문(제목 포함)에 민원 제기(본사 VOC·고객센터 민원 등), 소송·법적 대응, 한국소비자원(소비자보호원), 자동차리콜센터, 국민청원, 언론·방송 제보,
   집단 행동 등 이슈화하려는 내용이 확인되고 강하게 불만을 드러내는 글이면 true. 그러면 집중관리고객 칸에 작성자 닉네임이 들어갑니다.
   댓글에서 남이 "민원 넣으세요"라고 권한 것만으로는 해당하지 않습니다(작성자 본인이 하겠다·했다는 내용이어야 함). 단순 문의·가벼운 불만은 false. (2026-10-20 담당자 지정 규칙)
+- focus_count: focus 가 true 일 때, 이 작성자가 이 건(같은 차·같은 이슈/불만)으로 게재한 글 수 [필수] (담당자 지정 2026-11-18).
+  이 글 1건 + authorPosts(작성자의 다른 글 제목, 여러 쪽)·authorPostTexts 중 같은 이슈로 올린 글 수. 관련 없는 글(출고 인증, 용품, 일상 글 등)은 세지 않습니다. 최소 1.
+  집중관리고객 칸에는 "닉네임 N건" 으로 들어갑니다 (예: "수원!I사돈오른 1건", "천안!!심마니시다 1건"). focus 가 false 면 0.
 - comment_picks: 보고서에 캡처해 넣을 댓글 번호(index) 2개 (index 작은 것부터. reaction 도 이 순서). 자극적이거나 심각하다고 느껴지는, 길지 않은 댓글을 우선 고릅니다.
   hasSticker 가 true 인(이모티콘이 있는) 댓글은 될 수 있으면 고르지 말고, 그것밖에 없을 때만 고릅니다. 댓글이 2개보다 적으면 있는 만큼.`;
 
@@ -298,8 +301,9 @@ const AI_SCHEMA = {
     duplicate: { type: "string" },
     region: { type: "string" },
     focus: { type: "boolean" },
+    focus_count: { type: "integer" },
   },
-  required: ["issue", "spec", "short", "body", "reaction", "level", "progress", "duplicate", "region", "focus", "comment_picks"],
+  required: ["issue", "spec", "short", "body", "reaction", "level", "progress", "duplicate", "region", "focus", "focus_count", "comment_picks"],
   additionalProperties: false,
 };
 
@@ -354,7 +358,7 @@ async function aiSummarize(row, info, { apiKey, model, recentBodies = [], titleP
     titleBudget,
     comments,
     recentBodies: recentBodies.slice(-6),
-    authorPosts: (info.authorPosts || []).slice(0, 30).map((p) => ({ title: p.title, date: p.date })),
+    authorPosts: (info.authorPosts || []).slice(0, 120).map((p) => ({ title: p.title, date: p.date })), // 집중관리고객 건수 세기에도 씀 (여러 쪽)
     authorCertPosts: info.authorCertPosts || [],
     authorPostTexts: info.authorPostTexts || [],
     specHints: info.specHints || [],

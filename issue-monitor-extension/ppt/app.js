@@ -534,7 +534,8 @@ function fieldsFrom(row, info, ai) {
     duplicate: ai.duplicate,
     region: ai.region || "-",
     // 집중관리고객: 민원·소송·소비자원·리콜센터·국민청원·언론 제보 등 이슈화하려는 강한 불만 글이면 작성자 닉네임
-    focus: ai.focus && info?.author ? String(info.author).trim() : "-",
+    // 집중관리고객: "닉네임 N건" — 이 작성자가 이 건으로 게재한 글 수 (담당자 지정 2026-11-18)
+    focus: ai.focus && info?.author ? `${String(info.author).trim()} ${Math.max(1, Number(ai.focus_count) || 1)}건` : "-",
   };
 }
 
@@ -778,7 +779,7 @@ const FIELD_DEFS = [
   ["short", "요약표 내용", "text"],
   ["duplicate", "신규/중복", "text", "예: 신규, 중복 2건"],
   ["region", "입고/운행지역", "text", "본문에 명시된 경우만 (예: 부산 사상구)"],
-  ["focus", "집중관리고객", "text"],
+  ["focus", "집중관리고객", "text", "예: 수원!I사돈오른 1건 (닉네임 + 이 건으로 게재한 글 수)"],
 ];
 
 function setItemStatus(it, text, cls = "") {
