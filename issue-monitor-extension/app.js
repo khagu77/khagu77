@@ -2481,10 +2481,16 @@ async function refineUncertainCars(src, items, judged, ctx) {
       //  - 아니면(차가 안 보이거나 여러 차가 섞이면) 계약·출고·인수 인증 글 → 차 관련 제목(시승·정비·충전 등) → 나머지 순으로 열어 본다
       //  - 인증 글에서 차가 한 종류로 나오거나, 열어 본 글 전체에서 한 종류로 모이면 그만
       const texts = [];
-      // 본문까지 여는 건 차종을 아예 모르는('-') 글만. 차종은 있고 세대·PE 만 애매하면 제목 목록으로 충분 (시간 절약)
+      // 본문까지 열어 정확히 확인 (담당자 지시 2026-11-18: 본문까지 정확히 체크) — 단 이미 답이 나온 경우만 열지 않음 (시간 절약)
+      //  - 차종 '-' 글: 작성자 글 제목들에 나온 차가 딱 한 종류가 아니면 본문을 연다
+      //  - 차종은 있고 세대·PE 만 애매한 글: 작성자 글 제목에 연식·세대 표시(더 뉴·PE·페리·디 올 뉴·신형 등)가 없으면 본문을 열어
+      //    연식·출고 시기를 확인한다 (출고·계약 인증 글 제목만 있고 연식이 안 보이면 그 인증 글 본문을 연다)
       const nowCar = (judged.get(it.key) || {}).car_code;
       const unknownCar = !nowCar || String(nowCar).trim() === "-";
-      if (unknownCar && carsIn(titles.join("\n")).length !== 1) {
+      const GEN_RE = /\d{2}\s*(년식|연식|년형|my)|20\d{2}\s*(년식|연식|년형)|더\s*뉴|디\s*올\s*뉴|올\s*뉴|페리|페이스\s*리프트|\bPE\b|신형|구형|전기형|후기형|\d세대/i;
+      const titleText = titles.join("\n");
+      const needBody = unknownCar ? carsIn(titleText).length !== 1 : !GEN_RE.test(titleText);
+      if (needBody) {
         const cert = posts.filter((p) => CAR_CERT_RE.test(p.title));
         const hinty = posts.filter((p) => !CAR_CERT_RE.test(p.title) && (CAR_HINT_TITLE_RE.test(p.title) || carsIn(p.title).length));
         const rest = posts.filter((p) => !cert.includes(p) && !hinty.includes(p));
@@ -2501,9 +2507,12 @@ async function refineUncertainCars(src, items, judged, ctx) {
             if (!t) continue;
             t.cert = CAR_CERT_RE.test(p.title);
             texts.push(t);
-            const certCars = carsIn(texts.filter((x) => x.cert).map((x) => `${x.title}\n${x.body}`).join("\n"));
-            if (certCars.length === 1) break;
-            if (carsIn(texts.map((x) => `${x.title}\n${x.body}\n${x.comments}`).join("\n")).length === 1 && texts.length >= 2) break;
+            const all = texts.map((x) => `${x.title}\n${x.body}\n${x.comments}`).join("\n");
+            if (unknownCar) {
+              const certCars = carsIn(texts.filter((x) => x.cert).map((x) => `${x.title}\n${x.body}`).join("\n"));
+              if (certCars.length === 1) break;
+              if (carsIn(all).length === 1 && texts.length >= 2) break;
+            } else if (GEN_RE.test(all) || findModelYear(all)) break; // 세대·연식 근거를 찾으면 그만
           } catch (e) {
             if (e instanceof StopError || e instanceof BlockedError) throw e;
           }
