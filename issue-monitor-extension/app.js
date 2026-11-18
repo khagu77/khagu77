@@ -2369,9 +2369,11 @@ function seatHighlight(r) {
 // 작성자의 다른 글로 타사 차(예: 기아 EV6)로 확인되면 보고서에서 뺀다.
 // (네이버 화면을 더 열게 되므로 한 번 수집에 최대 AUTHOR_LOOKUP_MAX 명까지)
 // 차종은 반드시 채워야 하므로 넉넉하게 (담당자 재지적 2026-11-14: 작성자 이전 글로 확인되는데 '-' 2건)
-const AUTHOR_LOOKUP_MAX = 200;
-const AUTHOR_POST_READS = 8; // 작성자의 다른 글 본문·댓글을 열어 보는 최대 수 (한 사람당)
-const AUTHOR_POST_READS_MAX = 500; // 한 번 수집에 전체 상한 (네이버 화면 수 보호)
+// (담당자 지적 2026-11-18: 1인용 수집이 30분 → 1시간 가까이 — '판정 중' 작성자 글 확인이 너무 많음 → 한도를 줄이고,
+//  차종을 아예 모르는('-') 글만 본문까지 열고, 세대·PE 만 애매한 글은 제목 목록만 본다)
+const AUTHOR_LOOKUP_MAX = 120;
+const AUTHOR_POST_READS = 4; // 차종 '-' 글: 작성자의 다른 글 본문·댓글을 열어 보는 최대 수 (한 사람당, 인증 글 우선)
+const AUTHOR_POST_READS_MAX = 200; // 한 번 수집에 전체 상한 (네이버 화면 수 보호)
 // 차종 근거가 강한 작성자 글 (PPT 제원 확인과 같은 방식: 계약·출고·인수 인증 글을 먼저 연다)
 const CAR_CERT_RE = /계약|출고|인수|인증|구매|탁송|차키|오너|입양/;
 const CAR_HINT_TITLE_RE = /시승|후기|정비|충전|연비|옵션|수리|센터|블루핸즈|하이테크|타이어|엔진오일|블랙박스|썬팅|틴팅|PPF|코팅|세차|용품|튜닝|연식|년식|\d{2}년/;
@@ -2479,7 +2481,10 @@ async function refineUncertainCars(src, items, judged, ctx) {
       //  - 아니면(차가 안 보이거나 여러 차가 섞이면) 계약·출고·인수 인증 글 → 차 관련 제목(시승·정비·충전 등) → 나머지 순으로 열어 본다
       //  - 인증 글에서 차가 한 종류로 나오거나, 열어 본 글 전체에서 한 종류로 모이면 그만
       const texts = [];
-      if (carsIn(titles.join("\n")).length !== 1) {
+      // 본문까지 여는 건 차종을 아예 모르는('-') 글만. 차종은 있고 세대·PE 만 애매하면 제목 목록으로 충분 (시간 절약)
+      const nowCar = (judged.get(it.key) || {}).car_code;
+      const unknownCar = !nowCar || String(nowCar).trim() === "-";
+      if (unknownCar && carsIn(titles.join("\n")).length !== 1) {
         const cert = posts.filter((p) => CAR_CERT_RE.test(p.title));
         const hinty = posts.filter((p) => !CAR_CERT_RE.test(p.title) && (CAR_HINT_TITLE_RE.test(p.title) || carsIn(p.title).length));
         const rest = posts.filter((p) => !cert.includes(p) && !hinty.includes(p));
