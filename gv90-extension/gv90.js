@@ -1308,6 +1308,20 @@ async function makeExcel({ interactive = true } = {}) {
   if (!chosen.length) return null;
   $("#saveList").disabled = true;
   const day = todayKey();
+  // 오늘 보고로 이미 DB 에 들어간 글 중 지금 결과 표에서 지웠거나 체크를 푼 글 → DB·엑셀에서 뺌 (엑셀 = 지금 표에서 체크한 글)
+  const chosenKeys = new Set(chosen.map((x) => x.key));
+  const stale = (await postsOfDay(day)).filter((p) => !chosenKeys.has(p.key));
+  if (stale.length) {
+    const inTable = new Set(items.map((x) => x.key));
+    const lines = stale.slice(0, 8).map((p) => `· ${(p.title || p.summary || p.url).slice(0, 40)}${inTable.has(p.key) ? " (체크 해제)" : " (표에서 지움·표에 없음)"}`);
+    const drop =
+      interactive &&
+      confirm(`오늘 보고로 데일리 DB 에 이미 저장된 글 중 지금 결과 표에서 체크하지 않은 글이 ${stale.length}건 있습니다.\n${lines.join("\n")}${stale.length > 8 ? `\n… 외 ${stale.length - 8}건` : ""}\n\n[확인] 이 글들을 DB · 엑셀에서 빼기 (댓글도 함께)\n[취소] 그대로 두기`);
+    if (drop) {
+      await deletePosts(stale.map((p) => p.key));
+      log(`오늘 보고에서 체크하지 않은 글 ${stale.length}건을 데일리 DB · 엑셀에서 뺐습니다`);
+    }
+  }
   // 데일리 DB 저장 (이미 있는 글은 연번·보고일 그대로, 분석값만 갱신)
   const toSave = chosen.map((x) => ({ ...x, body: (x.body || "").slice(0, 2000), day, reassign: !x.dup, via: interactive ? "엑셀 만들기" : "자동 수집(평일 엑셀 자동 저장)" }));
   const res = await savePosts(toSave, day);

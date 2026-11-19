@@ -761,3 +761,23 @@ def test_gv90_db_find_orphan(ext, tmp_path: Path):
     page.click("#dayPosts tbody button.danger")
     wait_js(page, "document.getElementById('orphanInfo').hidden")
     assert page.evaluate("async () => (await allPosts()).map((p) => p.key)") == ["cafe:a/1"]
+
+
+def test_gv90_excel_drops_removed(ext, tmp_path: Path):
+    """결과 표에서 지운·체크 푼 글은 '엑셀 만들기' 때 오늘 보고 DB 에서도 빠짐"""
+    ctx, sw, ext_id, requests = ext
+    page = ctx.new_page()
+    page.goto(f"chrome-extension://{ext_id}/gv90.html")
+    page.on("dialog", lambda d: d.accept())
+    keys = page.evaluate(
+        """async () => {
+        const day = todayKey();
+        const mk = (k, t) => ({ key: k, url: 'https://cafe.naver.com/a/' + k.split('/')[1], channel: 'cafe', source: '카페', title: t, date: Date.now(), summary: t, sentiment: '중립', category: '일반', related: true, checked: true });
+        await savePosts([mk('cafe:a/1', 'GV90 남길 글'), mk('cafe:a/2', '스타리아 지운 글')].map((x) => ({ ...x, day })), day);
+        items = [mk('cafe:a/1', 'GV90 남길 글'), mk('cafe:a/3', 'GV90 새 글')];
+        curRange = { start: Date.now() - 86400e3, end: Date.now() };
+        await makeExcel();
+        return (await postsOfDay(day)).map((p) => p.key).sort();
+      }"""
+    )
+    assert keys == ["cafe:a/1", "cafe:a/3"], keys
