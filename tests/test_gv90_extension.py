@@ -282,7 +282,18 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     news1 = by_key["news:001/0000000001"]
     assert news1["channel"] == "언론" and news1["media"] == "연합뉴스" and news1["ccount"] == 31 and news1["checked"]
     assert news1["sentiment"] == "긍정"  # 무료 분석: '만족·호평·고급스럽'
-    assert by_key["news:002/0000000002"]["dup"] and not by_key["news:002/0000000002"]["checked"]
+    # 이미 데일리 DB 에 들어간 지난 글은 결과에 넣지 않음
+    assert "news:002/0000000002" not in by_key
+    assert "이미 있는 지난 글 1건" in page.inner_text("#log")
+    # 동호회 가입인사 글은 체크하지 않음
+    greet = page.evaluate("""() => [
+      isGreeting({ channel: 'cafe', title: '안녕하세요 가입인사 드립니다', body: '' }),
+      isGreeting({ channel: 'cafe', title: '안녕하세요~', body: 'GV90 네오룬 구매 후 동호회에 가입했습니다' }),
+      isGreeting({ channel: 'cafe', title: 'GV90 시승 후기', body: '가입했습니다' }),
+      isGreeting({ channel: 'cafe', title: '안녕하세요 가입인사', direct: true }),
+      isGreeting({ channel: 'youtube', title: '가입인사' }),
+    ]""")
+    assert greet == [True, True, False, False, False], greet
     # 유튜브: 채널 RSS 중 키워드 맞는 영상만 · 조회수·댓글 수
     yt = by_key["yt:gv90video01"]
     assert yt["views"] == 15234 and yt["ccount"] == 128 and yt["checked"]

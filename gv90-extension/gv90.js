@@ -408,6 +408,18 @@ function isOtherCarPost(x) {
   const hits = CAR_WORDS.reduce((n, w) => n + body.split(w).length - 1, 0);
   return hits <= 2;
 }
+// 동호회 가입인사 글 (체크하지 않음 · 직접 넣은 주소는 그대로)
+const GREETING_TITLE = /가입\s*인사|가입\s*했|가입\s*합니다|가입\s*하였|가입\s*신고|가입\s*인사드|새로\s*가입|신규\s*가입|등업\s*(신청|부탁|요청)|신입\s*(회원|인사)|첫\s*인사|인사\s*드립니다|인사\s*드려요|인사\s*올립니다|^\s*(안녕하세요|안녕하십니까|반갑습니다|처음\s*뵙겠습니다)[\s~!.ㅎㅋ^*:)]*$/;
+const GREETING_BODY = /^.{0,80}(가입\s*(했|하게|인사|합니다|하였)|새로\s*가입|신입\s*회원)/;
+function isGreeting(x) {
+  if (x.direct || (x.channel !== "cafe" && x.channel !== "동호회")) return false;
+  const title = String(x.title || "").trim();
+  if (GREETING_TITLE.test(title)) return true;
+  return /^\s*(안녕|반갑)/.test(title) && GREETING_BODY.test(String(x.body || x.snippet || "").replace(/\s+/g, " ").trim());
+}
+// 체크 기본값: 관련 글 · 가입인사 글은 빼고
+const autoCheck = (x) => (x.related || !!x.direct) && !x.greeting;
+
 function relatedOf(x, kw) {
   if (x.direct) return true;
   if (isOtherCarPost(x)) {
@@ -647,6 +659,7 @@ async function collect() {
   const queries = searchQueries(kw, 30);
   const range2 = { from: range.start, to: range.end };
   const found = new Map();
+  const prevSkipped = new Set(); // 이미 DB 에 있어 건너뛴 글
   // 찾는 대로 아래 결과 표에 바로 보여 줌 (일일동향처럼) · 성향은 무료 분석으로 바로 채우고, 끝나면 한 번 더 정리
   await loadDbKeys();
   // 새로 수집하기 전에 지금 결과(AI 분석 포함)를 따로 보관 → '↩ 직전 결과 불러오기'로 되돌릴 수 있게
@@ -693,8 +706,14 @@ async function collect() {
       items.push(it);
       return liveRender();
     }
+    // 전일 수집·데일리 DB 에 이미 들어간 글은 결과에 넣지 않음 (직접 넣은 주소는 그대로)
+    if (!it.direct && isPrevDb(it, range.start.getTime())) {
+      prevSkipped.add(it.key);
+      return;
+    }
     it.related = relatedOf(it, kw);
-    it.checked = it.related;
+    it.greeting = isGreeting(it);
+    it.checked = autoCheck(it);
     if (isPrevDb(it, range.start.getTime())) {
       it.dup = true;
       it.checked = false;
@@ -705,6 +724,12 @@ async function collect() {
     liveRender();
   };
   const inRange = (ms) => !ms || (ms >= range.start.getTime() && ms < range.end.getTime());
+  // 글을 열기 전에: 이미 DB 에 있는 지난 글이면 열지 않고 넘김
+  const prevSkip = (key, date, direct) => {
+    if (direct || !isPrevDb({ key, date }, range.start.getTime())) return false;
+    prevSkipped.add(key);
+    return true;
+  };
   const errors = [];
   if (cp) {
     for (const raw of cp.items || []) add({ ...deserialize(raw), restored: true });
@@ -742,6 +767,7 @@ async function collect() {
           add(toItem({ ...c, source: c.press || new URL(c.url).hostname.replace(/^www\./, ""), date: parsed ? parsed.date.getTime() : null, exact: !!parsed?.exact }));
           continue;
         }
+        if (prevSkip(c.key, null, c.direct)) continue;
         try {
           const a = await nc.readArticle(c);
           check(c.key);
@@ -805,6 +831,7 @@ async function collect() {
         const v = list[i];
         showWork(`유튜브: 영상 확인 ${i + 1}/${list.length}`, i, list.length);
         if (seen.has(`yt:${v.videoId}`) || found.has(`yt:${v.videoId}`)) continue;
+        if (prevSkip(`yt:${v.videoId}`, v.date, v.direct)) continue;
         try {
           // 쇼츠는 빼고 수집 (직접 넣은 주소는 그대로)
           if (!v.direct && (await yc.isShort(v.videoId))) {
@@ -849,6 +876,7 @@ async function collect() {
         for (let j = 0; j < posts.length && !stopRequested; j++) {
           const { post, cafe } = posts[j];
           if (seen.has(post.key) || found.has(post.key)) continue;
+          if (prevSkip(post.key, post.date, post.direct)) continue;
           showWork(`${label} · 글 읽기 ${j + 1}/${posts.length}`, ...prog(j));
           let a = null;
           try {
@@ -929,6 +957,7 @@ async function collect() {
           const p = list[j];
           showWork(`커뮤니티 ${site.name}: 글 확인 ${j + 1}/${list.length}`, j, list.length);
           if (seen.has(p.key) || found.has(p.key)) continue;
+          if (prevSkip(p.key, p.date, p.direct)) continue;
           const info = await readCommunityInfo(p).catch(() => null);
           check(p.key);
           add(toItem({ ...p, body: info?.body || "", date: info?.date || p.date, exact: info?.date ? true : p.exact, views: info?.views ?? null, ccount: info?.ccount ?? p.ccount }, { direct: !!p.direct, title: info?.title || p.title }));
@@ -960,15 +989,23 @@ async function collect() {
   for (const x of fresh) {
     delete x.restored;
     x.related = relatedOf(x, kw);
-    if (!x.touched) x.checked = x.related; // 수집 중에 표에서 직접 바꾼 체크는 그대로
+    x.greeting = isGreeting(x);
+    if (!x.touched) x.checked = autoCheck(x); // 수집 중에 표에서 직접 바꾼 체크는 그대로
   }
-  // 데일리 DB 에 이미 있는 글은 체크 해제 (지난 보고에 들어감)
+  // 데일리 DB 에 이미 있는 지난 글은 결과에서 뺌 (직접 넣은 주소는 '이미 DB'로 남김)
   await loadDbKeys();
   for (const x of fresh) {
     x.dup = isPrevDb(x, range.start.getTime());
     if (x.dup && !x.touched) x.checked = false;
   }
-  items = fresh;
+  items = fresh.filter((x) => {
+    if (!x.dup || x.direct) return true;
+    prevSkipped.add(x.key);
+    return false;
+  });
+  if (prevSkipped.size) log(`전일 수집·데일리 DB 에 이미 있는 지난 글 ${prevSkipped.size}건은 수집하지 않았습니다`);
+  const greetN = items.filter((x) => x.greeting).length;
+  if (greetN) log(`동호회 가입인사 글 ${greetN}건은 체크하지 않았습니다 (비고 '가입인사')`);
   curRange = { start: range.start.getTime(), end: range.end.getTime() };
   mergedRunIds = [];
   log(`찾은 후보 게시글 ${items.length}건 (${CH_ORDER.map((c) => `${c} ${items.filter((x) => x.channel === c).length}`).join(" · ")})`);
@@ -1106,7 +1143,7 @@ async function analyze(list, { auto = false, forceAi = false } = {}) {
       x.by = "ai";
       x.related = r.related;
       x.harsh = x.harsh || r.sentiment === "단순비난";
-      if (!x.touched && !x.dup) x.checked = r.related || !!x.direct;
+      if (!x.touched && !x.dup) x.checked = (r.related || !!x.direct) && !x.greeting;
       Object.assign(x, edited);
     },
   });
@@ -1129,10 +1166,9 @@ async function mergePending() {
       if (have.has(x.key)) continue;
       have.add(x.key);
       x.fromRun = `${fmtDay(r.range.end)}${r.holiday ? ` ${r.holiday}` : ""} 수집`;
-      if (isPrevDb(x)) {
-        x.dup = true;
-        x.checked = false;
-      }
+      if (isPrevDb(x) && !x.direct) continue; // 이미 DB 에 들어간 지난 글은 합치지 않음
+      x.greeting = isGreeting(x);
+      if (x.greeting && !x.touched) x.checked = false;
       items.push(x);
       added++;
     }
@@ -1193,6 +1229,7 @@ function renderResults() {
     else notes.push(el("span", { class: "badge new", text: "새 글" }));
     if (x.fromRun) notes.push(el("span", { class: "hint", text: ` ${x.fromRun.replace(/ 수집$/, "")}` }));
     if (x.note) notes.push(el("span", { class: "hint err", text: ` ${x.note}` }));
+    if (x.greeting) notes.push(el("span", { class: "hint", text: " 가입인사" }));
     if (x.otherCar && !x.related) notes.push(el("span", { class: "hint", text: " 다른 차종 글" }));
     else if (!x.related && !x.direct) notes.push(el("span", { class: "hint", text: " 키워드 없음" }));
     const noteTitle = [x.dup ? `이미 데일리 DB 에 있는 글 (${dbDay || "지난"} 보고${dbWhy})` : dbDay && dbDay >= todayKey() ? `${dbDay} 보고로 DB 에 저장된 글 (아직 보고 전)${dbWhy}` : "새 글", String(x.by || "").startsWith("ai") ? "AI 판독" : "", x.fromRun || "", x.note || "", !x.related && !x.direct ? "제목·본문에 GV90 키워드 없음" : ""].filter(Boolean).join(" · ");
@@ -1244,7 +1281,7 @@ function fixDirtySummaries() {
 function recheckDup() {
   for (const x of items) {
     const prev = isPrevDb(x);
-    if (x.dup && !prev && !x.touched) x.checked = x.related || !!x.direct;
+    if (x.dup && !prev && !x.touched) x.checked = autoCheck(x);
     x.dup = prev;
   }
 }
@@ -1457,7 +1494,7 @@ $("#analyzeRule").addEventListener("click", async () => {
   fixDirtySummaries();
   for (const x of items) {
     Object.assign(x, ruleAnalyze(x), pickEdited(x));
-    if (!x.touched && !x.dup) x.checked = x.related || !!x.direct;
+    if (!x.touched && !x.dup) x.checked = autoCheck(x);
   }
   renderResults();
   saveLast();
