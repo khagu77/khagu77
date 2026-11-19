@@ -333,7 +333,9 @@ def test_gv90_collect_excel_db_dashboard(ext, tmp_path: Path):
     keyseq = [(days[r[5]], CHO.index(r[1])) for r in rows]
     assert keyseq == sorted(keyseq), keyseq
     urls = {r[5]: r for r in rows}
-    assert "https://n.news.naver.com/mnews/article/002/0000000002" in urls  # 지난 보고 글도 누적 엑셀에
+    assert "https://n.news.naver.com/mnews/article/002/0000000002" not in urls  # 엑셀에는 결과 표에서 체크한 글만
+    checked_urls = set(page.evaluate("items.filter((x) => x.checked).map((x) => x.url)"))
+    assert set(urls) == checked_urls, (set(urls) ^ checked_urls)
     assert urls["https://www.clien.net/service/board/cm_car/501"][8] == "부정"
     assert urls["https://www.clien.net/service/board/cm_car/501"][3] == "GV90"
     assert urls["https://www.clien.net/service/board/cm_car/501"][1] == "자동차 커뮤니티"
@@ -781,3 +783,14 @@ def test_gv90_excel_drops_removed(ext, tmp_path: Path):
       }"""
     )
     assert keys == ["cafe:a/1", "cafe:a/3"], keys
+    # AI 로 분석한 주요 내용은 무료 분석으로 덮어쓰지 않고 그대로 DB · 엑셀에
+    summ = page.evaluate(
+        """async () => {
+        const x = { key: 'cafe:a/9', url: 'https://cafe.naver.com/a/9', channel: 'cafe', source: '카페', title: '카이엔 vs GV90', body: '카이엔 이야기 GV90', date: Date.now(), summary: 'AI가 쓴 주요 내용', category: '일반', sentiment: '중립', by: 'ai', related: true, checked: true };
+        items = [x];
+        await analyze([x]);
+        await makeExcel();
+        return [x.summary, (await postsOfDay(todayKey())).find((p) => p.key === 'cafe:a/9').summary];
+      }"""
+    )
+    assert summ == ["AI가 쓴 주요 내용", "AI가 쓴 주요 내용"], summ

@@ -1012,7 +1012,7 @@ async function collect() {
 
   // 분석
   if (!stopRequested) await analyze(items.filter((x) => !x.dup), { auto: AUTO });
-  else for (const x of items) Object.assign(x, { ...ruleAnalyze(x), ...pickEdited(x) });
+  else for (const x of items) if (!String(x.by || "").startsWith("ai")) Object.assign(x, { ...ruleAnalyze(x), ...pickEdited(x) });
 
   // 수집 회차로 남김 (휴일 수집분은 다음 근무일에 합침)
   const off = s.workdayReport ? dayOffReason(new Date(), s) : "";
@@ -1114,6 +1114,7 @@ function pickEdited(x) {
 async function analyze(list, { auto = false, forceAi = false } = {}) {
   setExtraLexicon(settings.lexicon);
   for (const x of list) {
+    if (String(x.by || "").startsWith("ai")) continue; // 이미 AI 로 분석한 값(주요 내용 등)은 무료 분석으로 덮어쓰지 않음
     Object.assign(x, ruleAnalyze(x), pickEdited(x));
     x.harsh = x.harsh || x.sentiment === "단순비난";
   }
@@ -1329,7 +1330,9 @@ async function makeExcel({ interactive = true } = {}) {
   await refreshDay(day, { from: curRange?.start ?? null, to: curRange?.end ?? null, fileName, keepEmpty: true });
   await loadDbKeys();
   // 엑셀
-  const posts = s.xlsxScope === "today" ? await postsOfDay(day) : await allPosts();
+  // 엑셀에는 지금 결과 표에서 체크한 글만 (값은 방금 저장한 표의 값 그대로 · AI 주요 내용 포함)
+  const savedByKey = new Map(res.recs.map((r) => [r.key, r]));
+  const posts = chosen.map((x) => savedByKey.get(x.key)).filter(Boolean).sort(postOrder);
   const daily = (await listDays()).slice().reverse();
   const bytes = Gv90Xlsx.buildRaw({ posts, daily });
   await saveDayFile(day, fileName, bytes);
@@ -1340,7 +1343,7 @@ async function makeExcel({ interactive = true } = {}) {
   let where = "";
   try {
     where = await saveFile(bytes, fileName, { interactive });
-    $("#saveInfo").textContent = `✔ 데일리 DB 저장(새 글 ${res.added}건 · 고친 글 ${res.updated}건) · 엑셀(${s.xlsxScope === "today" ? "이번 보고분" : `누적 ${posts.length}건`})을 ${where} 바로 저장했습니다.`;
+    $("#saveInfo").textContent = `✔ 데일리 DB 저장(새 글 ${res.added}건 · 고친 글 ${res.updated}건) · 엑셀(체크한 글 ${posts.length}건)을 ${where} 바로 저장했습니다.`;
     $("#saveInfo").className = "hint ok";
     markSaved($("#getList"), "✔ 엑셀 저장 완료!", where);
   } catch (e) {
@@ -1592,6 +1595,16 @@ $("#saveList").addEventListener("click", () => prepareSaveDir().then(() => makeE
   $("#saveList").disabled = false;
 }));
 $("#getList").addEventListener("click", async () => {
+  // 결과 표가 있으면 지금 표(체크·AI 주요 내용)로 다시 만들어 저장 — 예전 파일을 그대로 다시 저장하면 그 뒤 고친 값이 빠짐
+  if (items.some((x) => x.checked)) {
+    if (!confirmResave($("#getList"))) return;
+    await prepareSaveDir();
+    return makeExcel().catch((e) => {
+      $("#saveInfo").textContent = `엑셀을 만들지 못했습니다: ${e.message}`;
+      $("#saveInfo").className = "hint err";
+      $("#saveList").disabled = false;
+    });
+  }
   if (!pendingXlsx) {
     const f = await getDayFile(todayKey());
     if (f) pendingXlsx = { bytes: f.bytes, name: f.name };
