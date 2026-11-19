@@ -1395,14 +1395,17 @@ async function runAuto() {
     chrome.runtime.sendMessage({ type: "autoRunDone", count, holiday: off }).catch(() => {});
     return;
   }
-  let where = "";
-  try {
-    if (count) where = await makeExcel({ interactive: false });
-    else log("체크된 GV90 관련 게시물이 없어 엑셀을 만들지 않았습니다");
-  } catch (e) {
-    log(`엑셀 저장 실패: ${e.message}`, "err");
+  // 엑셀·데일리 DB 저장은 자동으로 하지 않음 → 화면에서 확인·AI 분석을 마친 뒤 '엑셀 만들기'를 직접 눌러 저장
+  await saveLast();
+  if (count) {
+    log(`수집을 마쳤습니다 (체크 ${count}건). 엑셀은 자동으로 저장하지 않았습니다 — 확인·AI 분석을 마친 뒤 '엑셀 만들기'를 눌러 저장하세요.`);
+    setSummary(`🕕 자동 수집 완료 — GV90 관련 게시물 ${count}건을 체크했습니다. 아직 저장하지 않았습니다: 확인·AI 분석을 마친 뒤 '엑셀 만들기'를 눌러 데일리 DB · 엑셀에 저장하세요.`, "ok");
   }
-  chrome.runtime.sendMessage({ type: "autoRunDone", count, where, message: count ? undefined : "새 GV90 관련 게시물이 없습니다." }).catch(() => {});
+  chrome.runtime.sendMessage({
+    type: "autoRunDone",
+    count,
+    message: count ? `${count}건을 수집했습니다. 아직 저장 전입니다 — 수집 화면에서 AI 분석을 마친 뒤 '엑셀 만들기'를 눌러 주세요.` : "새 GV90 관련 게시물이 없습니다.",
+  }).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
