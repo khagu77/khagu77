@@ -1816,7 +1816,59 @@ async function renderWeeklyDb() {
     );
   }
 }
-$("#wkDbGo").addEventListener("click", () => document.querySelector('button[data-tab="weekly"]').click());
+// 지난 주간 보고서 PPT 올리기 (담당자 요청 2026-11-20: 다른 섹션처럼 데일리 DB 에서 바로 올리기)
+// 파일 이름 날짜(없으면 물어봄)로 그 주(월~마지막 근무일)를 정하고, 그 주 기록의 최종본(담당자 수정본)으로 넣는다 (주간 탭 [주간 보고서 올리기]와 같은 방식)
+async function weeklyRowsInDb(bytes) {
+  try {
+    const files = await Zip.read(bytes);
+    let n = 0;
+    for (const [name, data] of files) {
+      if (!/^ppt\/slides\/slide\d+\.xml$/.test(name)) continue;
+      const x = Zip.text(data);
+      n += (x.match(/<a:tr[ >][\s\S]*?<\/a:tr>/g) || []).filter((tr) => /<a:t>\s*온라인\s*<\/a:t>/.test(tr)).length;
+    }
+    return n;
+  } catch {
+    return 0;
+  }
+}
+$("#wkDbUpload").addEventListener("change", async (ev) => {
+  const files = [...ev.target.files];
+  ev.target.value = "";
+  const ok = [];
+  const bad = [];
+  for (const file of files) {
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const count = await weeklyRowsInDb(bytes);
+      if (!count) throw new Error("주간 보고서 표(구분 '온라인' 줄)를 찾지 못했습니다");
+      let d = DailyPpt.dateFromName(file.name);
+      if (!d) {
+        d = (prompt(`「${file.name}」 은 어느 주의 보고서인가요? 그 주의 아무 날짜나 적어 주세요 (예: 2026-10-23)`, ymdKey(new Date())) || "").trim().replace(/[./]/g, "-");
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error("날짜를 알 수 없어 건너뜁니다");
+      }
+      const base = new Date(`${d}T00:00`);
+      const end = weeklyReportDay(base, state.settings);
+      const mon = new Date(base.getFullYear(), base.getMonth(), base.getDate() - ((base.getDay() + 6) % 7));
+      const start = ymdKey(mon);
+      const endKey = ymdKey(end);
+      const hist = (await pptKv("readonly", (st) => st.get("weeklyHistory"))) || [];
+      let h = hist.find((x) => x.start === start && x.end === endKey);
+      if (!h) {
+        h = { at: Date.now(), start, end: endKey, name: file.name, bytes, count, where: "", uploaded: true };
+        hist.unshift(h);
+      }
+      h.final = { name: file.name, bytes, at: Date.now(), count };
+      await pptKv("readwrite", (st) => st.put(hist, "weeklyHistory"));
+      ok.push(`${start} ~ ${endKey} (${count}건)`);
+    } catch (e) {
+      bad.push(`${file.name}: ${e.message || e}`);
+    }
+  }
+  chrome.storage.local.set({ weeklyUpdatedAt: Date.now() }).catch(() => {});
+  renderWeeklyDb();
+  alert(`${ok.length ? `✅ 주간 보고서 ${ok.length}개를 그 주의 최종본으로 넣었습니다\n- ${ok.join("\n- ")}` : ""}${bad.length ? `\n⚠ ${bad.join("\n⚠ ")}` : ""}`.trim());
+});
 chrome.storage.onChanged.addListener((ch, area) => {
   if (area === "local" && ch.weeklyUpdatedAt && !$("#tab-db").hidden) renderWeeklyDb();
 });

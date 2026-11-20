@@ -202,8 +202,11 @@
       </table>
       <p id="dtEmpty" class="hint">아직 만든 일일동향 엑셀이 없습니다.</p>
 
-      <h2>주간 보고서 <span class="hint">④ 주간 보고서에서 만든 보고서와 올린 수정본(최종본) (모두 영구 보관, 주 최근 순). 최종본 = 담당자 수정본 &gt; 시스템 작성본. 수정본 올리기는 ④ 주간 보고서 탭에서 합니다.</span></h2>
-      <div class="buttons"><button id="wkDbGo" type="button">④ 주간 보고서 탭으로 가서 올리기·만들기</button></div>
+      <h2>주간 보고서 <span class="hint">④ 주간 보고서에서 만든 보고서와 올린 수정본(최종본) (모두 영구 보관, 주 최근 순). 최종본 = 담당자 수정본 &gt; 시스템 작성본. 아래 버튼으로 지난 주간 보고서·수정본을 올릴 수 있습니다.</span></h2>
+      <div class="buttons">
+        <label class="filebtn">지난 주간 보고서 PPT 올리기 (여러 개 가능)<input type="file" id="wkDbUpload" accept=".pptx" multiple hidden></label>
+        <span class="hint">파일 이름의 날짜(예: 261120)로 그 주를 정해 그 주의 최종본(담당자 수정본)으로 보관합니다. 날짜가 없으면 물어봅니다. 새로 만들기는 ④ 주간 보고서 탭에서 합니다.</span>
+      </div>
       <table id="wkTable">
         <thead><tr><th>주</th><th>최종본</th><th>파일 이름</th><th>건수</th><th>만든·올린 일시</th><th></th></tr></thead>
         <tbody></tbody>

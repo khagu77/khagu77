@@ -315,7 +315,7 @@ nav .tab.work.due-seen .due-badge { animation: none; box-shadow: none; opacity: 
 /* 데일리 DB 섹션별 AI 비용 요약 (담당자 요청 2026-11-20) */
 .cost-summary { margin: 8px 0 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); }
 .cost-summary .cs-title { font-weight: 800; color: var(--blue); margin-bottom: 6px; }
-.cost-summary table.cs-table { width: auto; min-width: 560px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); }
+.cost-summary table.cs-table { width: 100%; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); }
 .cost-summary .cs-table td, .cost-summary .cs-table th { padding: 6px 12px; text-align: right; white-space: nowrap; }
 .cost-summary .cs-table td:first-child, .cost-summary .cs-table th:first-child { text-align: left; }
 .cost-summary .hint { margin-top: 6px; font-size: 12px; }
@@ -331,11 +331,14 @@ nav .tab.work.due-seen .due-badge { animation: none; box-shadow: none; opacity: 
 /* 데일리 DB 표: 짧은 칸은 한 줄로, 남는 폭은 긴 칸에 (담당자 요청 2026-11-20: 표 텍스트 밀림) */
 #tab-db table th { white-space: nowrap; }
 #tab-db table { font-size: 12.5px; letter-spacing: -0.01em; }
-#pptTable td:nth-child(1), #pptTable td:nth-child(2), #pptTable td:nth-child(4), #pptTable td:nth-child(5) { white-space: nowrap; width: 1%; }
+/* 칸: 1 보고 날짜 · 2 최종본 · 3 파일 이름 · 4 건수 · 5 소요 · 6 AI 비용 · 7 보관된 파일 · 8 버튼 (2026-11-20 소요 칸 추가로 순서 바뀜) */
+#pptTable td:nth-child(1), #pptTable td:nth-child(2), #pptTable td:nth-child(4), #pptTable td:nth-child(5), #pptTable td:nth-child(6) { white-space: nowrap; width: 1%; }
 #pptTable td:nth-child(3) { min-width: 210px; word-break: keep-all; }
-#pptTable td:nth-child(6) { width: 100%; }
-#pptTable td:nth-child(6) .kept-file { white-space: nowrap; }
+#pptTable td:nth-child(7) { width: 100%; }
+#pptTable td:nth-child(7) .kept-file { white-space: nowrap; }
 #pptTable td.actions { width: 1%; white-space: nowrap; }
 #pptTable td.actions button { margin: 0 3px 4px 0; padding: 4px 9px; font-size: 12px; min-height: 28px; }
 #pptTable td { vertical-align: middle; }
 #wkTable td:not(:nth-child(3)), #moTable td:not(:nth-child(3)), #dtTable td:not(:nth-child(2)), #rawTable td:nth-child(-n+2) { white-space: nowrap; }
+
+#moTable td:nth-child(5), #moTable td:nth-child(6) { white-space: nowrap; width: 1%; }
