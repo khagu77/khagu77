@@ -3319,7 +3319,7 @@ async function renderLearned() {
 // 담당자 규칙 (PPT 미리보기 카드 '수정 요청'에서 저장) · 본문 캡처 제외 문구
 async function renderRules() {
   const { pptRules = [], captureExcludes = [] } = await chrome.storage.local.get(["pptRules", "captureExcludes"]);
-  $("#rulesInfo").textContent = pptRules.length || captureExcludes.length ? `규칙 ${pptRules.length}개 · 캡처 제외 문구 ${captureExcludes.length}줄` : "아직 없습니다. PPT 미리보기 카드의 '✍ 수정 요청'에 적으면 여기에 쌓입니다.";
+  $("#rulesInfo").textContent = pptRules.length || captureExcludes.length ? `규칙 ${pptRules.length}개 · 캡처 제외 문구 ${captureExcludes.length}줄` : "아직 없습니다. 아래 칸에 직접 적어 추가하거나, PPT 미리보기 카드의 '✍ 수정 요청'에 적으면 여기에 쌓입니다.";
   const box = $("#rulesList");
   box.textContent = "";
   pptRules.forEach((x, i) => {
@@ -3342,7 +3342,26 @@ async function renderRules() {
       )
     );
   });
+  box.hidden = !box.children.length; // 규칙이 없으면 빈 상자를 숨김 (담당자 요청 2026-11-20)
 }
+// 규칙 직접 추가 (담당자 요청 2026-11-20): 카드 수정 요청을 거치지 않고 바로 규칙·캡처 제외 문구를 넣는다 → 다음 PPT 작성부터 반영
+$("#ruleAdd").addEventListener("click", async () => {
+  const text = $("#ruleText").value.trim();
+  if (!text) return $("#ruleText").focus();
+  if ($("#ruleKind").value === "exclude") {
+    const { captureExcludes: all = [] } = await chrome.storage.local.get("captureExcludes");
+    const lines = text.split(/\n+/).map((t) => t.trim()).filter(Boolean);
+    for (const t of lines) if (!all.some((x) => (x.text || x) === t)) all.unshift({ at: Date.now(), text: t, url: "", manual: true });
+    await chrome.storage.local.set({ captureExcludes: all });
+  } else {
+    const { pptRules: all = [] } = await chrome.storage.local.get("pptRules");
+    all.unshift({ at: Date.now(), rule: text, request: "직접 입력", car: "", cafe: "", url: "", manual: true });
+    await chrome.storage.local.set({ pptRules: all, pptLearnedUpdatedAt: Date.now() });
+  }
+  $("#ruleText").value = "";
+  renderRules();
+  Celebrate.done($("#ruleAdd"), "✔ 추가됨");
+});
 $("#rulesMd").addEventListener("click", async () => {
   const { pptRules = [], captureExcludes = [] } = await chrome.storage.local.get(["pptRules", "captureExcludes"]);
   const d = new Date();

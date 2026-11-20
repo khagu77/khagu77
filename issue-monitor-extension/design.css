@@ -303,3 +303,11 @@ nav .tab.work.due-seen .due-badge { animation: none; box-shadow: none; opacity: 
 .resume-list li { margin: 2px 0; word-break: break-all; }
 .resume-list a { color: var(--blue-2); }
 @media (prefers-color-scheme: dark) { .resume-list { background: rgba(0, 0, 0, 0.25); } }
+
+/* 규칙 직접 추가 칸 (담당자 요청 2026-11-20) */
+.rule-add { display: grid; grid-template-columns: 190px 1fr auto; gap: 8px; align-items: start; margin: 10px 0; }
+.rule-add textarea { width: 100%; min-height: 54px; font: inherit; font-size: 13px; background: #eef6ff; border-color: #b9d6f5; }
+.rule-add select { min-height: 36px; }
+.rule-add button { min-height: 54px; }
+@media (max-width: 760px) { .rule-add { grid-template-columns: 1fr; } }
+@media (prefers-color-scheme: dark) { .rule-add textarea { background: #182a42; border-color: #2d4d75; } }
