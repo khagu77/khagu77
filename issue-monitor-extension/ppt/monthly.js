@@ -273,7 +273,11 @@ async function refresh() {
   info.textContent = "";
   const rd = document.createElement("span");
   rd.className = "mo-rdate";
-  rd.textContent = `보고일 ${fmt(date)}`;
+  // 오늘 기준 남은 날 (D-N · 당일 D-Day · 지나면 D+N) (담당자 요청 2026-11-20)
+  const t = new Date();
+  const diff = Math.round((new Date(date.getFullYear(), date.getMonth(), date.getDate()) - new Date(t.getFullYear(), t.getMonth(), t.getDate())) / 86400000);
+  const dday = diff > 0 ? `D-${diff}` : diff === 0 ? "D-Day" : `D+${-diff}`;
+  rd.textContent = `보고일 ${fmt(date)} (${dday})`;
   info.append(
     ovKey ? "✎ 특정일 기준 요청: " : "",
     rd,
