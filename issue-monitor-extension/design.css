@@ -327,3 +327,15 @@ nav .tab.work.due-seen .due-badge { animation: none; box-shadow: none; opacity: 
   #tab-db h2.badge-safety { background: #4a3a78; color: #f1eaff; border-color: #7b63c0; }
   #tab-db h2.badge-safety .hint, #tab-db h2.badge-safety .tip-i { color: #d8ccff; }
 }
+
+/* 데일리 DB 표: 짧은 칸은 한 줄로, 남는 폭은 긴 칸에 (담당자 요청 2026-11-20: 표 텍스트 밀림) */
+#tab-db table th { white-space: nowrap; }
+#tab-db table { font-size: 12.5px; letter-spacing: -0.01em; }
+#pptTable td:nth-child(1), #pptTable td:nth-child(2), #pptTable td:nth-child(4), #pptTable td:nth-child(5) { white-space: nowrap; width: 1%; }
+#pptTable td:nth-child(3) { min-width: 210px; word-break: keep-all; }
+#pptTable td:nth-child(6) { width: 100%; }
+#pptTable td:nth-child(6) .kept-file { white-space: nowrap; }
+#pptTable td.actions { width: 1%; white-space: nowrap; }
+#pptTable td.actions button { margin: 0 3px 4px 0; padding: 4px 9px; font-size: 12px; min-height: 28px; }
+#pptTable td { vertical-align: middle; }
+#wkTable td:not(:nth-child(3)), #moTable td:not(:nth-child(3)), #dtTable td:not(:nth-child(2)), #rawTable td:nth-child(-n+2) { white-space: nowrap; }
