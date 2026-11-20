@@ -628,6 +628,7 @@ const AI_SCHEMA = {
 };
 
 async function aiWrite() {
+  const t0 = Date.now(); // 데일리 DB 월간 '소요' 칸 (AI 개요 작성 시간)
   if (!ctx) return;
   const { apiKey, model } = await aiKeyModel();
   if (!apiKey) return setSummary("Claude API 키가 없습니다. 모니터링 설정 또는 PPT·RAW 작성 설정에서 넣어 주세요", "err");
@@ -712,6 +713,7 @@ async function aiWrite() {
     updateLens();
     await saveDraft();
     $("#aiInfo").textContent = `✅ 작성 완료 — ${out.note || ""}`;
+    if (typeof CostLog !== "undefined") CostLog.addTime("monthly", ymKey(ctx.y, ctx.m), Date.now() - t0);
   } catch (e) {
     $("#aiInfo").textContent = "";
     setSummary(`AI 작성 실패: ${e.message || e}`, "err");
@@ -734,6 +736,7 @@ function fileName() {
 }
 
 async function build() {
+  const t0 = Date.now(); // 데일리 DB 월간 '소요' 칸 (PPT 만들기 시간)
   if (!ctx || !ctx.tpl) return setSummary("지난달 월간 실적 보고 PPT 를 먼저 넣어 주세요", "err");
   if (!stats) await loadStats();
   if (!stats) return;
@@ -767,6 +770,7 @@ async function build() {
     const where = await saveFile(name, bytes);
     await histAdd({ id: `mo-${Date.now()}`, at: Date.now(), ym: ymKey(ctx.y, ctx.m), date: dkey(ctx.date), name, overview1: ov1, overview2: ov2 }, bytes);
     await renderHist();
+    if (typeof CostLog !== "undefined") CostLog.addTime("monthly", ymKey(ctx.y, ctx.m), Date.now() - t0);
     const msg = `✅ 월간 실적 보고 저장 완료: ${where}`;
     setSummary(msg, "ok");
     Celebrate.done(btn);

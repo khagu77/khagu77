@@ -252,6 +252,7 @@ function openSettings() {
 // 소요 시간 · 예상 AI 비용
 // ---------------------------------------------------------------------------
 let runStart = 0; // [캡처·요약 시작] 누른 시각
+let timeLoggedFor = 0; // 이 작업의 소요 시간을 데일리 DB 에 기록했는지 (runStart 값)
 let captureMs = 0; // 캡처·요약에 걸린 시간
 let statsTimer = null;
 
@@ -1440,6 +1441,11 @@ async function buildPptWork(opts = {}) {
     const done = async (where, sz) => {
       setSummary(`저장했습니다: ${where} (${sz})`, "ok");
       const total = runStart ? Date.now() - runStart : 0;
+      // 데일리 DB 'PPT 소요' 칸: 이번 작업(캡처·요약 시작 ~ PPT 저장) 시간을 한 번만 기록 (담당자 요청 2026-11-20)
+      if (runStart && timeLoggedFor !== runStart && typeof CostLog !== "undefined") {
+        timeLoggedFor = runStart;
+        CostLog.addTime("ppt", window.pptCostDay() || CostLog.dayKey(), total);
+      }
       const stats = runStart ? `${statsText(total)}` : `💰 예상 AI 비용 ${AiCost.text()}`;
       $("#stats").hidden = false;
       $("#stats").textContent = stats + (captureMs ? ` (캡처·요약 ${fmtDuration(captureMs)})` : "");

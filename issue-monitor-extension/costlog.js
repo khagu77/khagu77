@@ -45,6 +45,25 @@
     return chain;
   }
 
+  // 작업 소요 시간 누적 (ms) — 데일리 DB '소요' 칸 (담당자 요청 2026-11-20)
+  function addTime(section, key, ms) {
+    if (!section || !key || !(ms > 0)) return chain;
+    chain = chain
+      .then(async () => {
+        const r = await chrome.storage.local.get(KEY);
+        const log = r[KEY] || {};
+        const k = `${section}|${key}`;
+        const e = log[k] || { section, key, usd: 0, calls: 0, inTok: 0, outTok: 0 };
+        e.ms = (e.ms || 0) + ms;
+        e.runs = (e.runs || 0) + 1;
+        e.at = Date.now();
+        log[k] = e;
+        await chrome.storage.local.set({ [KEY]: log, aiCostUpdatedAt: Date.now() });
+      })
+      .catch(() => {});
+    return chain;
+  }
+
   function addUsage(section, key, model, usage) {
     const c = usdOf(model, usage);
     return addUsd(section, key, c.usd, c.inTok, c.outTok);
@@ -55,5 +74,5 @@
     return r[KEY] || {};
   }
 
-  global.CostLog = { addUsd, addUsage, all, dayKey, usdOf };
+  global.CostLog = { addUsd, addUsage, addTime, all, dayKey, usdOf };
 })(typeof window !== "undefined" ? window : self);

@@ -1242,6 +1242,24 @@ async function renderDailyPpts() {
   tbody.textContent = "";
   $("#pptEmpty").hidden = days.length > 0;
   $("#pptTable").hidden = !days.length;
+  // 합계 줄 (수집 기록 표와 같은 모양, 담당자 요청 2026-11-20): 건수·소요·AI 비용
+  if (days.length) {
+    const totCount = days.reduce((n, d) => n + ((d.final && d.final.count) || 0), 0);
+    const totMs = days.reduce((n, d) => n + ((pptCost(d.date) || {}).ms || 0), 0);
+    const totUsd = days.reduce((n, d) => n + ((pptCost(d.date) || {}).usd || 0), 0);
+    tbody.append(
+      el("tr", { class: "db-total" },
+        el("td", {}, el("b", { text: `합계 (${days.length}일)` })),
+        el("td", { text: "" }),
+        el("td", { text: "" }),
+        el("td", {}, el("b", { class: "count-red", text: `${totCount}건` })),
+        el("td", {}, el("b", { text: totMs ? fmtDuration(totMs) : "-" })),
+        el("td", {}, el("b", { text: totUsd ? `$${totUsd.toFixed(2)}` : "-" })),
+        el("td", { class: "hint", text: "소요·AI 비용은 v1.10.105~106 부터 기록" }),
+        el("td", { text: "" })
+      )
+    );
+  }
   const dow = (k) => "일월화수목금토"[new Date(`${k}T00:00`).getDay()];
   const pptPg = pageOf("ppt", days);
   renderPager($("#pptTable"), "ppt", days.length, pptPg.p, pptPg.pages, renderDailyPpts);
@@ -1253,6 +1271,7 @@ async function renderDailyPpts() {
         el("td", {}, el("b", { text: DailyPpt.KIND_LABEL[f.kind] || f.kind }), f.partial ? el("span", { class: "count-red", text: " · 일부(나눠 쓴 PPT)" }) : null),
         el("td", { text: f.name }),
         el("td", {}, el("b", { class: "count-red", text: `${f.count || 0}건` })),
+        el("td", { text: (pptCost(day.date) || {}).ms ? fmtDuration(pptCost(day.date).ms) : "-" }),
         (() => {
           // 바로 전 보고일(더 오래된 쪽) 중 비용 기록이 있는 날과 비교
           const i = days.indexOf(day);
@@ -1551,15 +1570,30 @@ const PPTX_MIME_MO = "application/vnd.openxmlformats-officedocument.presentation
 async function moHistory() {
   return ((await pptKv("readonly", (st) => st.get("moHistory"))) || []).sort((a, b) => (b.ym || "").localeCompare(a.ym || "") || b.at - a.at);
 }
+let tbody_mo_total = null;
 async function renderMoHistory() {
   markMonthlyDue();
   const hist = await moHistory();
   const costLog = await CostLog.all();
   const moCost = (ym) => costLog[`monthly|${ym}`];
+  if (hist.length) {
+    const totMs = hist.reduce((n, h) => n + ((moCost(h.ym) || {}).ms || 0), 0);
+    const totUsd = hist.reduce((n, h) => n + ((moCost(h.ym) || {}).usd || 0), 0);
+    tbody_mo_total = el("tr", { class: "db-total" },
+      el("td", {}, el("b", { text: `합계 (${hist.length}개월)` })),
+      el("td", { text: "" }),
+      el("td", { class: "hint", text: "소요·AI 비용은 v1.10.105~106 부터 기록" }),
+      el("td", { text: "" }),
+      el("td", {}, el("b", { text: totMs ? fmtDuration(totMs) : "-" })),
+      el("td", {}, el("b", { text: totUsd ? `$${totUsd.toFixed(2)}` : "-" })),
+      el("td", { text: "" })
+    );
+  } else tbody_mo_total = null;
   const tbody = $("#moTable tbody");
   tbody.textContent = "";
   $("#moEmpty").hidden = hist.length > 0;
   $("#moTable").hidden = !hist.length;
+  if (tbody_mo_total) tbody.append(tbody_mo_total);
   const pg = pageOf("monthly", hist);
   renderPager($("#moTable"), "monthly", hist.length, pg.p, pg.pages, renderMoHistory);
   for (const h of pg.items) {
@@ -1570,6 +1604,7 @@ async function renderMoHistory() {
         el("td", { text: h.date || "-" }),
         el("td", {}, h.uploaded ? el("span", { class: "badge-edit", text: "넣은 지난 보고서" }) : null, ` ${h.name}`),
         el("td", { text: fmtDateTime(new Date(h.at)) }),
+        el("td", { text: (moCost(h.ym) || {}).ms ? fmtDuration(moCost(h.ym).ms) : "-" }),
         (() => {
           const i = hist.indexOf(h);
           const prev = hist.slice(i + 1).find((x) => moCost(x.ym));
