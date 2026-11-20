@@ -65,6 +65,30 @@ function reportDate(y, m) {
   for (let i = 0; i < 15 && dayOffReason(d, settings); i++) d.setDate(d.getDate() - 1);
   return d;
 }
+// 실제 보고일: 특정일 기준 요청(moDateOverride)이 있으면 그 날, 없으면 25일 규칙
+async function effReportDate(y, m) {
+  const ov = await kvGet(`moDateOverride:${ymKey(y, m)}`);
+  return ov && /^\d{4}-\d{2}-\d{2}$/.test(ov) ? new Date(`${ov}T00:00`) : reportDate(y, m);
+}
+// 그 달 보고서를 작성·다운로드했는지 (보관함에 그 달 보고서가 있으면 완료. 직접 넣은 보고서도 완료로 봄)
+async function moDone(y, m) {
+  return ((await kvGet("moHistory")) || []).some((h) => h.ym === ymKey(y, m));
+}
+// 오늘 기준 보고 월: 보고일이 지났어도 작성·다운로드를 안 했으면 그 달(D+N 경고), 했으면 다음 달 (담당자 지시 2026-11-20)
+async function upcomingYm() {
+  const now = new Date();
+  let [y, m] = prevYm(now.getFullYear(), now.getMonth() + 1); // 지난달 보고가 밀려 있을 수도
+  for (let i = 0; i < 3; i++) {
+    if (dkey(now) <= dkey(await effReportDate(y, m)) || !(await moDone(y, m))) return [y, m];
+    [y, m] = m === 12 ? [y + 1, 1] : [y, m + 1];
+  }
+  return [y, m];
+}
+const daysUntil = (d) => {
+  const t = new Date();
+  return Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(t.getFullYear(), t.getMonth(), t.getDate())) / 86400000);
+};
+let autoMonth = true; // 보고 월을 담당자가 직접 고르지 않았으면 날짜가 지나면 자동으로 다음 보고 월로
 function selYm() {
   const v = $("#moMonth").value || "";
   const m = v.match(/^(\d{4})-(\d{2})$/);
@@ -246,6 +270,39 @@ function chanLabel(labels, media) {
 }
 
 let ctx = null; // 지금 보고 월의 {y, m, date, start, end, tpl, xl}
+// 보고일 표시 (담당자 요청 2026-11-20: 블루 굵게 조금 크게 · 이탤릭 밑줄 · D-N)
+// 보고일이 지났는데 작성·다운로드를 안 했으면만 빨간 강한 효과와 D+N. 했으면 다음 보고일까지 D-N.
+async function renderDateLabel() {
+  if (!ctx || !ctx.date) return;
+  const { y, m, date, start, autoDate, ovKey } = ctx;
+  const info = $("#moDateInfo");
+  info.textContent = "";
+  const rd = document.createElement("span");
+  rd.className = "mo-rdate";
+  const diff = daysUntil(date);
+  let warn = null;
+  if (diff >= 0) rd.textContent = `보고일 ${fmt(date)} (${diff === 0 ? "D-Day" : `D-${diff}`})`;
+  else if (!(await moDone(y, m))) {
+    rd.textContent = `보고일 ${fmt(date)} (D+${-diff})`;
+    rd.classList.add("mo-overdue");
+    warn = document.createElement("div");
+    warn.className = "mo-overdue-box";
+    warn.textContent = `🚨 ${m}월 보고일이 ${-diff}일 지났는데 아직 보고서를 작성·다운로드하지 않았습니다! 아래에서 바로 작성해 주세요.`;
+  } else {
+    const [uy, um] = await upcomingYm();
+    const nd = await effReportDate(uy, um);
+    const nd2 = daysUntil(nd);
+    rd.textContent = `보고일 ${fmt(date)} (✓ 작성 완료 · 다음 보고일 ${nd.getMonth() + 1}/${nd.getDate()} ${nd2 === 0 ? "D-Day" : `D-${nd2}`})`;
+  }
+  info.append(
+    ovKey ? "✎ 특정일 기준 요청: " : "",
+    rd,
+    ovKey ? ` (원래 25일 기준 ${fmt(autoDate)})` : date.getDate() !== 25 ? " (25일이 주말·휴일이라 전 근무일)" : "",
+    ` · 기간 ${dkey(start)} ~ ${dkey(date)}`
+  );
+  if (warn) info.append(warn);
+  info.className = ovKey ? "hint err" : "hint";
+}
 async function refresh() {
   stats = null;
   $("#moStats").hidden = true;
@@ -268,23 +325,9 @@ async function refresh() {
   })();
   const xl = await excelFor(date);
   ctx = { y, m, date, start, end: date, tpl, xl };
-  // 보고일은 눈에 띄게 (담당자 요청 2026-11-20: 블루 굵게 조금 크게)
-  const info = $("#moDateInfo");
-  info.textContent = "";
-  const rd = document.createElement("span");
-  rd.className = "mo-rdate";
-  // 오늘 기준 남은 날 (D-N · 당일 D-Day · 지나면 D+N) (담당자 요청 2026-11-20)
-  const t = new Date();
-  const diff = Math.round((new Date(date.getFullYear(), date.getMonth(), date.getDate()) - new Date(t.getFullYear(), t.getMonth(), t.getDate())) / 86400000);
-  const dday = diff > 0 ? `D-${diff}` : diff === 0 ? "D-Day" : `D+${-diff}`;
-  rd.textContent = `보고일 ${fmt(date)} (${dday})`;
-  info.append(
-    ovKey ? "✎ 특정일 기준 요청: " : "",
-    rd,
-    ovKey ? ` (원래 25일 기준 ${fmt(autoDate)})` : date.getDate() !== 25 ? " (25일이 주말·휴일이라 전 근무일)" : "",
-    ` · 기간 ${dkey(start)} ~ ${dkey(date)}`
-  );
-  $("#moDateInfo").className = ovKey ? "hint err" : "hint";
+  ctx.autoDate = autoDate;
+  ctx.ovKey = ovKey;
+  await renderDateLabel();
   $("#moTplInfo").textContent = tpl ? `틀: ${tpl.entry.name} (${tpl.info.year}년 ${tpl.info.month}월 보고서)${tpl.entry.ym !== ymKey(py, pm) ? ` · ⚠ ${pm}월 보고서가 없어 더 앞선 보고서를 씁니다` : ""}` : `${y}년 ${m}월 보다 앞선 월간 실적 보고가 없습니다. 지난달 보고서 PPT 를 넣어 주세요.`;
   $("#moTplInfo").className = tpl ? "hint ok" : "hint err";
   $("#moXlInfo").textContent = xl ? `일일동향 엑셀: ${xl.name}${xlOverride ? " (직접 고름)" : ""}${xl.date && xl.date < dkey(date) ? ` · ⚠ 보고일(${dkey(date)}) 파일이 아직 없어 ${xl.date} 파일로 집계 (3번 탭에서 새 일일동향 엑셀이 저장되면 자동으로 다시 집계)` : ""}` : "일일동향 엑셀이 없습니다. 3번 탭에서 만들거나 넣어 주세요.";
@@ -785,6 +828,7 @@ async function build() {
     const where = await saveFile(name, bytes);
     await histAdd({ id: `mo-${Date.now()}`, at: Date.now(), ym: ymKey(ctx.y, ctx.m), date: dkey(ctx.date), name, overview1: ov1, overview2: ov2 }, bytes);
     await renderHist();
+    await renderDateLabel(); // 밀린 보고(D+N) 경고 끄고 다음 보고일 D-N 으로
     if (typeof CostLog !== "undefined") CostLog.addTime("monthly", ymKey(ctx.y, ctx.m), Date.now() - t0);
     const msg = `✅ 월간 실적 보고 저장 완료: ${where}`;
     setSummary(msg, "ok");
@@ -801,15 +845,34 @@ async function build() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   settings = await loadSettings().catch(() => ({ ...DEFAULT_SETTINGS }));
-  // 기본 보고 월: 이번 달 보고일이 지나지 않았으면 이번 달, 지났으면 다음 달
-  const now = new Date();
-  let y = now.getFullYear();
-  let m = now.getMonth() + 1;
-  if (dkey(now) > dkey(reportDate(y, m))) [y, m] = m === 12 ? [y + 1, 1] : [y, m + 1];
-  $("#moMonth").value = ymKey(y, m);
+  // 기본 보고 월: 이번 달 보고일(특정일 기준 요청 반영)이 지나지 않았으면 이번 달, 지났으면 다음 달
+  {
+    const [y, m] = await upcomingYm();
+    $("#moMonth").value = ymKey(y, m);
+  }
   $("#moMonth").addEventListener("change", () => {
+    autoMonth = false; // 직접 고른 달은 그대로 둔다
     xlOverride = null;
     refresh();
+  });
+  // 화면을 열어 둔 채 날짜가 바뀌면: 자동 선택이면 다음 보고 월로 넘어가고, D-N 다시 계산
+  let lastDay = dkey(new Date());
+  const onNewDay = async () => {
+    const d = dkey(new Date());
+    if (d === lastDay) return;
+    lastDay = d;
+    if (autoMonth) {
+      const [y, m] = await upcomingYm();
+      if ($("#moMonth").value !== ymKey(y, m)) {
+        $("#moMonth").value = ymKey(y, m);
+        xlOverride = null;
+      }
+    }
+    refresh();
+  };
+  setInterval(onNewDay, 10 * 60 * 1000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) onNewDay();
   });
   // 일찍 보고: 보고일을 바꾸면 기간 끝·파일 이름·쓸 일일동향 엑셀이 그 날로 바뀐다 (다음 달 기간은 이 날 다음 날부터)
   $("#moDate").addEventListener("change", async () => {

@@ -4043,6 +4043,34 @@ async function markMonthlyDue() {
   const hist = (await pptKv("readonly", (st) => st.get("moHistory")).catch(() => null)) || [];
   const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const moDone = hist.some((h) => h.ym === ym && (!h.uploaded || h.at >= startOfDay));
+  // 보고일이 지났는데 작성·다운로드 안 한 달(지난달·이번 달)이 있으면 빨간 강한 효과 + D+N (담당자 지시 2026-11-20)
+  let overdue = null;
+  {
+    const pm = now.getMonth() === 0 ? [now.getFullYear() - 1, 12] : [now.getFullYear(), now.getMonth()];
+    for (const [yy, mm] of [pm, [now.getFullYear(), now.getMonth() + 1]]) {
+      const k = `${yy}-${String(mm).padStart(2, "0")}`;
+      const o = await pptKv("readonly", (st) => st.get(`moDateOverride:${k}`)).catch(() => null);
+      const d = o && /^\d{4}-\d{2}-\d{2}$/.test(o) ? new Date(`${o}T00:00`) : monthlyReportDay(yy, mm, state.settings);
+      if (ymdKey(d) < today && !hist.some((h) => h.ym === k)) {
+        overdue = { m: mm, days: Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - d) / 86400000) };
+        break;
+      }
+    }
+  }
+  const mt = document.querySelector('nav .tab.work[data-tab="monthly"]');
+  if (mt) {
+    mt.classList.toggle("overdue", !!overdue);
+    let ob = mt.querySelector(".overdue-badge");
+    if (overdue) {
+      if (!ob) {
+        ob = document.createElement("span");
+        ob.className = "overdue-badge";
+        mt.append(ob);
+      }
+      ob.textContent = `🚨 ${overdue.m}월 미작성 D+${overdue.days}`;
+      mt.title = `${overdue.m}월 월간 실적 보고일이 ${overdue.days}일 지났는데 아직 작성·다운로드하지 않았습니다`;
+    } else if (ob) ob.remove();
+  }
   setDueTab("monthly", { isDue: today === ymdKey(due), done: moDone, dayKey: today, label: "월간 실적" });
   // 주간: 그 주 마지막 근무일, 그 주 보고서를 만들었으면 완료
   const wEnd = ymdKey(weeklyReportDay(now, state.settings));

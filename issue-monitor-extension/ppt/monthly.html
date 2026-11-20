@@ -12,6 +12,12 @@
     .mo-rdate { color: #0b4a8f; font-weight: 800; font-size: 15px; margin-right: 2px; font-style: italic; text-decoration: underline; text-underline-offset: 3px; }
     #moDateInfo.err .mo-rdate { color: #0b4a8f; }
     @media (prefers-color-scheme: dark) { .mo-rdate, #moDateInfo.err .mo-rdate { color: #8ab4ff; } }
+    /* 보고일 지났는데 미작성: 강한 경고 (담당자 지시 2026-11-20) */
+    .mo-rdate.mo-overdue, #moDateInfo.err .mo-rdate.mo-overdue { color: #fff; background: #d32f2f; padding: 2px 10px; border-radius: 8px; font-size: 16px; animation: mo-od-pulse 1s ease-in-out infinite; }
+    .mo-overdue-box { margin-top: 8px; padding: 10px 14px; border: 2px solid #d32f2f; border-radius: 10px; background: #fdecea; color: #b71c1c; font-weight: 900; font-size: 14px; font-style: normal; animation: mo-od-blink 1.2s ease-in-out infinite; }
+    @keyframes mo-od-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.7); } 50% { box-shadow: 0 0 0 8px rgba(211, 47, 47, 0); } }
+    @keyframes mo-od-blink { 0%, 100% { background: #fdecea; } 50% { background: #ffcdd2; } }
+    @media (prefers-color-scheme: dark) { .mo-overdue-box { background: #4a1414; color: #ffb4b4; } @keyframes mo-od-blink { 0%, 100% { background: #4a1414; } 50% { background: #6b1c1c; } } }
     .mo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px 14px; }
     .mo-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; font-weight: 600; }
     .mo-grid input { font-weight: 400; }
