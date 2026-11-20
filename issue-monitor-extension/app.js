@@ -2868,7 +2868,10 @@ async function saveCheckpoint(final = false) {
   if (!state.cp) return;
   const doneNow = [...sourceRows].filter(([, tr]) => /^완료/.test(tr.children[5].textContent)).map(([k]) => k);
   const done = [...new Set([...(state.cp.done || []), ...doneNow])];
-  const cp = { ...state.cp, at: Date.now(), done, rows: serializeRows(state.rows), count: state.rows.length, skipped: state.cp.skipped || [] };
+  // 못 마친 곳의 이름·상태(이유)도 남겨 안내 상자에 보여 준다 (담당자 요청 2026-11-20)
+  const sourceInfo = {};
+  for (const [k, tr] of sourceRows) if (!done.includes(k)) sourceInfo[k] = { name: tr.children[0].textContent.trim(), status: tr.children[5].textContent.trim() };
+  const cp = { ...state.cp, at: Date.now(), done, rows: serializeRows(state.rows), count: state.rows.length, skipped: state.cp.skipped || [], sourceInfo };
   if (final && cp.keys.every((k) => done.includes(k)) && !cp.skipped.length) {
     await chrome.storage.local.remove("runCheckpoint"); // 모두 끝남 → 이어서 할 것 없음
   } else {
@@ -2893,6 +2896,33 @@ async function renderResumeBox() {
   const skipped = (cp.skipped || []).length;
   const parts = [left ? `건너뛰거나 못 마친 곳 ${left}곳` : "", skipped ? `건너뛴 글 ${skipped}건` : ""].filter(Boolean).join(" · ");
   $("#resumeText").textContent = `⚠ 지난 수집에서 ${parts}이 남았습니다 (${fmtDateTime(new Date(cp.startedAt))} 시작 · 기간 ${fmtDateTime(new Date(cp.range.start))} ~ ${fmtDateTime(new Date(cp.range.end))} · ${cp.keys.length}곳 중 ${cp.done.length}곳 완료 · 지금까지 ${cp.count || 0}건). 아래 버튼을 누르면 그 곳·글만 다시 수집해서 지금 결과에 중복 없이 합칩니다.`;
+  // 어떤 곳·글을 왜 건너뛰었는지 목록 (담당자 요청 2026-11-20)
+  const list = $("#resumeList");
+  if (list) {
+    list.textContent = "";
+    const nameOf = (k) => {
+      if (cp.sourceInfo && cp.sourceInfo[k] && cp.sourceInfo[k].name) return cp.sourceInfo[k].name;
+      const c = (state.settings.cafes || []).find((x) => `cafe:${x.id}` === k);
+      if (c) return c.name || c.id;
+      const m = (state.settings.communities || []).find((x) => `comm:${x.url}` === k);
+      return m ? m.name || m.url : k.replace(/^(cafe|comm):/, "");
+    };
+    for (const k of cp.keys.filter((k) => !cp.done.includes(k))) {
+      const st = (cp.sourceInfo && cp.sourceInfo[k] && cp.sourceInfo[k].status) || "끝까지 못 마침";
+      list.append(el("li", {}, el("b", { text: `🏷 ${nameOf(k)}` }), ` — 카페/커뮤니티 전체 · ${st}`));
+    }
+    for (const x of cp.skipped || []) {
+      const p = x.post || {};
+      list.append(
+        el("li", {},
+          el("b", { text: `📝 ${nameOf(x.key)}` }),
+          ` 「${p.title || "(제목 없음)"}」 · 이유: ${x.why || "본문 확인 불가"} · `,
+          el("a", { href: p.url, target: "_blank", text: p.url || "" })
+        )
+      );
+    }
+    list.hidden = !list.children.length;
+  }
   $("#resumeRun").textContent = `💰 ↻ 건너뛴 ${[left ? `${left}곳` : "", skipped ? `글 ${skipped}건` : ""].filter(Boolean).join("·")} 다시 수집해서 합치기`;
 }
 

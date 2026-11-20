@@ -297,3 +297,9 @@ nav .tab.work.due-seen .due-badge { animation: none; box-shadow: none; opacity: 
 .login-alarm .la-status { margin: 12px 0 0; font-size: 13px; font-weight: 700; color: #c5221f; min-height: 18px; }
 .login-alarm.ok .la-status { color: #11753d; }
 @media (prefers-reduced-motion: reduce) { .login-alarm, .login-alarm .la-card, .login-alarm .la-icon { animation: none; } .login-alarm { background: rgba(180, 0, 0, 0.9); } }
+
+/* 건너뛴 곳·글 목록 (담당자 요청 2026-11-20) */
+.resume-list { margin: 8px 0 4px; padding: 8px 12px 8px 26px; background: rgba(255, 255, 255, 0.7); border-radius: 8px; font-size: 12.5px; font-weight: 500; line-height: 1.6; max-height: 220px; overflow: auto; }
+.resume-list li { margin: 2px 0; word-break: break-all; }
+.resume-list a { color: var(--blue-2); }
+@media (prefers-color-scheme: dark) { .resume-list { background: rgba(0, 0, 0, 0.25); } }
