@@ -1236,6 +1236,8 @@ async function addDailyPptFile(file, { date, kind } = {}) {
 let dailyPptTarget = null; // 표에서 [수정본 올리기]/[전체 PPT 올리기]를 누른 날짜·종류
 async function renderDailyPpts() {
   const days = await DailyPpt.byDate().catch(() => []);
+  const costLog = await CostLog.all();
+  const pptCost = (d) => costLog[`ppt|${d}`];
   const tbody = $("#pptTable tbody");
   tbody.textContent = "";
   $("#pptEmpty").hidden = days.length > 0;
@@ -1251,6 +1253,12 @@ async function renderDailyPpts() {
         el("td", {}, el("b", { text: DailyPpt.KIND_LABEL[f.kind] || f.kind }), f.partial ? el("span", { class: "count-red", text: " · 일부(나눠 쓴 PPT)" }) : null),
         el("td", { text: f.name }),
         el("td", {}, el("b", { class: "count-red", text: `${f.count || 0}건` })),
+        (() => {
+          // 바로 전 보고일(더 오래된 쪽) 중 비용 기록이 있는 날과 비교
+          const i = days.indexOf(day);
+          const prevDay = days.slice(i + 1).find((x) => pptCost(x.date));
+          return costTd(pptCost(day.date), prevDay && pptCost(prevDay.date), prevDay ? `전 보고일(${prevDay.date})` : "");
+        })(),
         // 보관된 파일마다 ✕ (필요 없는 파일만 지우기) — 담당자 요청 2026-10-23
         el("td", { class: "hint" }, ...day.entries.map((e) =>
           el("span", { class: "kept-file" },
@@ -1546,6 +1554,8 @@ async function moHistory() {
 async function renderMoHistory() {
   markMonthlyDue();
   const hist = await moHistory();
+  const costLog = await CostLog.all();
+  const moCost = (ym) => costLog[`monthly|${ym}`];
   const tbody = $("#moTable tbody");
   tbody.textContent = "";
   $("#moEmpty").hidden = hist.length > 0;
@@ -1560,6 +1570,11 @@ async function renderMoHistory() {
         el("td", { text: h.date || "-" }),
         el("td", {}, h.uploaded ? el("span", { class: "badge-edit", text: "넣은 지난 보고서" }) : null, ` ${h.name}`),
         el("td", { text: fmtDateTime(new Date(h.at)) }),
+        (() => {
+          const i = hist.indexOf(h);
+          const prev = hist.slice(i + 1).find((x) => moCost(x.ym));
+          return costTd(moCost(h.ym), prev && moCost(prev.ym), prev ? `전월(${prev.ym})` : "");
+        })(),
         el("td", { class: "actions" },
           el("button", { class: "btn-get", text: "받기", onclick: async (ev) => {
             const btn = ev.currentTarget;
@@ -1610,7 +1625,171 @@ async function uploadMonthlyReports(files) {
   alert(`${ok.length ? `✅ 지난 월간 실적 보고 ${ok.length}개를 넣었습니다 (${ok.join(", ")})` : ""}${bad.length ? `\n⚠ ${bad.join("\n⚠ ")}` : ""}`.trim());
 }
 
+// 섹션별 AI 비용 칸: 금액 + 바로 전 기록 대비 ▲▼ (수집 비용 칸과 같은 모양, 담당자 요청 2026-11-20)
+function costTd(cur, prev, prevLabel, bold = false) {
+  if (!cur || !cur.usd) return el("td", { text: "-" });
+  const cents = (v) => Math.round(v * 100);
+  const d = prev && prev.usd ? cents(cur.usd) - cents(prev.usd) : null;
+  const tip = `${prev ? `${prevLabel} $${prev.usd.toFixed(2)} 대비` : ""}${cur.calls ? `${prev ? " · " : ""}AI 호출 ${cur.calls}회` : ""}`;
+  const mark =
+    d == null ? null : d === 0 ? el("span", { class: "cost-same", title: tip, text: " – $0.00" }) : el("span", { class: d > 0 ? "cost-up" : "cost-down", title: tip, text: ` ${d > 0 ? "▲" : "▼"} $${(Math.abs(d) / 100).toFixed(2)}` });
+  const amount = `$${cur.usd.toFixed(2)}`;
+  return el("td", { title: tip }, bold ? el("b", { text: amount }) : amount, mark);
+}
+// 월간 실적 보고 기간: 지난 보고일 다음 날 ~ 이번 보고일 (25일, 주말·휴일이면 전 근무일, 특정일 기준 요청이면 그 날)
+async function monthlyPeriod(y, m) {
+  const ymOf = (yy, mm) => `${yy}-${String(mm).padStart(2, "0")}`;
+  const endOf = async (yy, mm) => {
+    const ov = await pptKv("readonly", (st) => st.get(`moDateOverride:${ymOf(yy, mm)}`)).catch(() => null);
+    return ov && /^\d{4}-\d{2}-\d{2}$/.test(ov) ? new Date(`${ov}T00:00`) : monthlyReportDay(yy, mm, state.settings);
+  };
+  const [py, pm] = m === 1 ? [y - 1, 12] : [y, m - 1];
+  const prevEnd = await endOf(py, pm);
+  const end = await endOf(y, m);
+  const start = new Date(prevEnd.getFullYear(), prevEnd.getMonth(), prevEnd.getDate() + 1);
+  return { ym: ymOf(y, m), start: ymdKey(start), end: ymdKey(end) };
+}
+// 기간별 섹션 비용 모으기 (수집 = 데일리 DB 수집 기록 끝난 날짜, PPT = 보고 날짜, 월간 = 보고 월)
+async function costsByPeriod(p, runs, log) {
+  const inP = (k) => k >= p.start && k <= p.end;
+  const acc = () => ({ usd: 0, calls: 0 });
+  const col = acc();
+  for (const e of runs) if (e.costUsd && inP(ymdKey(new Date(e.finishedAt)))) { col.usd += e.costUsd; col.calls++; }
+  const ppt = acc();
+  const mo = acc();
+  for (const e of Object.values(log)) {
+    if (e.section === "ppt" && inP(e.key)) { ppt.usd += e.usd; ppt.calls += e.calls; }
+    if (e.section === "monthly" && e.key === p.ym) { mo.usd += e.usd; mo.calls += e.calls; }
+  }
+  return { col, ppt, mo, total: { usd: col.usd + ppt.usd + mo.usd, calls: 0 } };
+}
+// 데일리 DB 맨 위: 섹션별 AI 비용 (이번 실적 기간 · 누적)
+async function renderCostSummary() {
+  const box = $("#costSummary");
+  if (!box || !state.settings) return;
+  const log = await CostLog.all();
+  const runs = await dbList();
+  const now = new Date();
+  let cur = await monthlyPeriod(now.getFullYear(), now.getMonth() + 1);
+  if (ymdKey(now) > cur.end) cur = await monthlyPeriod(...(now.getMonth() === 11 ? [now.getFullYear() + 1, 1] : [now.getFullYear(), now.getMonth() + 2]));
+  const c = await costsByPeriod(cur, runs, log);
+  const sum = (arr, f) => arr.reduce((n, x) => n + (f(x) || 0), 0);
+  const entries = Object.values(log);
+  const all = { col: sum(runs, (e) => e.costUsd), ppt: sum(entries.filter((e) => e.section === "ppt"), (e) => e.usd), mo: sum(entries.filter((e) => e.section === "monthly"), (e) => e.usd) };
+  const $f = (v) => `$${v.toFixed(2)}`;
+  const won = (v) => `약 ${Math.round(v * 1400).toLocaleString("ko-KR")}원`;
+  const allT = all.col + all.ppt + all.mo;
+  box.textContent = "";
+  box.append(
+    el("div", { class: "cs-title", text: "💰 섹션별 AI 비용" }),
+    el("table", { class: "cs-table" },
+      el("thead", {}, el("tr", {}, el("th", { text: "" }), el("th", { text: "① 수집" }), el("th", { text: "② PPT·RAW 작성" }), el("th", { text: "⑤ 월간 실적 보고" }), el("th", { text: "합계" }))),
+      el("tbody", {},
+        el("tr", {}, el("td", { text: `이번 실적 기간 (${cur.ym.replace("-", "년 ")}월 · ${cur.start} ~ ${cur.end})` }), el("td", { text: $f(c.col.usd) }), el("td", { text: $f(c.ppt.usd) }), el("td", { text: $f(c.mo.usd) }), el("td", {}, el("b", { text: `${$f(c.total.usd)} (${won(c.total.usd)})` }))),
+        el("tr", {}, el("td", { text: "누적" }), el("td", { text: $f(all.col) }), el("td", { text: $f(all.ppt) }), el("td", { text: $f(all.mo) }), el("td", {}, el("b", { text: `${$f(allT)} (${won(allT)})` })))
+      )
+    ),
+    el("div", { class: "hint", text: "③ 일일동향 엑셀 · ④ 주간 보고서는 AI 를 쓰지 않아 비용이 없습니다. PPT·월간 보고 비용은 v1.10.105 부터 쌓입니다 (그 전 비용은 기록이 없음). 달마다 정리는 아래 '월간 AI 비용' 섹션." })
+  );
+  box.hidden = false;
+}
+// 월간 AI 비용 섹션: 월간 실적 보고 기간마다 (담당자 요청 2026-11-20)
+async function renderMonthlyCost() {
+  const tbody = $("#moCostTable tbody");
+  if (!tbody || !state.settings) return;
+  const log = await CostLog.all();
+  const runs = await dbList();
+  // 비용 기록이 있는 가장 이른 날부터 이번(또는 다음) 보고 월까지
+  const keys = [...runs.filter((e) => e.costUsd).map((e) => ymdKey(new Date(e.finishedAt))), ...Object.values(log).filter((e) => e.section === "ppt").map((e) => e.key), ...Object.values(log).filter((e) => e.section === "monthly").map((e) => `${e.key}-01`)].sort();
+  tbody.textContent = "";
+  $("#moCostEmpty").hidden = keys.length > 0;
+  $("#moCostTable").hidden = !keys.length;
+  if (!keys.length) return;
+  const now = new Date();
+  let [y, m] = [now.getFullYear(), now.getMonth() + 1];
+  if (ymdKey(now) > (await monthlyPeriod(y, m)).end) [y, m] = m === 12 ? [y + 1, 1] : [y, m + 1];
+  const rows = [];
+  for (let i = 0; i < 36; i++) {
+    const p = await monthlyPeriod(y, m);
+    if (p.end < keys[0]) break;
+    rows.push({ p, c: await costsByPeriod(p, runs, log) });
+    [y, m] = m === 1 ? [y - 1, 12] : [y, m - 1];
+  }
+  rows.forEach((r, i) => {
+    const prev = rows[i + 1];
+    const lbl = prev ? `전월(${prev.p.ym})` : "";
+    const [yy, mm] = r.p.ym.split("-");
+    tbody.append(
+      el("tr", {},
+        el("td", {}, el("b", { text: `${yy}년 ${+mm}월` })),
+        el("td", { text: `${r.p.start} ~ ${r.p.end}` }),
+        costTd(r.c.col, prev && prev.c.col, lbl),
+        costTd(r.c.ppt, prev && prev.c.ppt, lbl),
+        costTd(r.c.mo, prev && prev.c.mo, lbl),
+        costTd(r.c.total, prev && prev.c.total, lbl, true)
+      )
+    );
+  });
+}
+chrome.storage.onChanged.addListener((ch, area) => {
+  if (area === "local" && ch.aiCostUpdatedAt && !$("#tab-db").hidden) {
+    renderCostSummary();
+    renderMonthlyCost();
+    renderDailyPpts();
+    renderMoHistory();
+  }
+});
+
+// 주간 보고서 보관함 (담당자 요청 2026-11-20: 데일리 DB 에 주간 보고서 섹션이 없음) — ④ 주간 보고서 탭의 보관함과 같은 목록
+async function renderWeeklyDb() {
+  const hist = ((await pptKv("readonly", (st) => st.get("weeklyHistory"))) || []).slice().sort((a, b) => (b.end || "").localeCompare(a.end || "") || b.at - a.at);
+  const tbody = $("#wkTable tbody");
+  tbody.textContent = "";
+  $("#wkEmpty").hidden = hist.length > 0;
+  $("#wkTable").hidden = !hist.length;
+  const pg = pageOf("weekly", hist);
+  renderPager($("#wkTable"), "weekly", hist.length, pg.p, pg.pages, renderWeeklyDb);
+  const PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  const save = async (btn, name, bytes) => {
+    if (!bytes) return alert("파일 내용을 찾지 못했습니다");
+    const where = await saveBytesFile(name, bytes, PPTX, true);
+    Celebrate.done(btn);
+    await Celebrate.after();
+    alert(`✅ 주간 보고서 저장 완료\n\n저장 위치: ${where}`);
+  };
+  for (const h of pg.items) {
+    const f = h.final || null;
+    tbody.append(
+      el("tr", {},
+        el("td", {}, el("b", { text: `${h.start} ~ ${h.end}` })),
+        el("td", {}, f ? el("span", { class: "badge-edit", text: "담당자 수정본" }) : h.uploaded ? el("span", { class: "badge-edit", text: "올린 파일" }) : "시스템 작성본"),
+        el("td", { text: f ? f.name : h.name }),
+        el("td", {}, el("b", { class: "count-red", text: `${f ? f.count : h.count}건` })),
+        el("td", { text: fmtDateTime(new Date(f ? f.at : h.at)) }),
+        el("td", { class: "actions" },
+          el("button", { class: "btn-get", text: f ? "최종본 받기" : "받기", onclick: (ev) => save(ev.currentTarget, f ? f.name : h.name, f ? f.bytes : h.bytes) }),
+          f && !h.uploaded ? el("button", { class: "btn-sys", text: "시스템본 받기", onclick: (ev) => save(ev.currentTarget, h.name, h.bytes) }) : null,
+          el("button", { class: "danger", text: "삭제", onclick: async () => {
+            if (!confirm(`주간 보고서 기록을 지울까요?\n${h.start} ~ ${h.end} ${f ? f.name : h.name}\n(저장 폴더의 파일은 그대로입니다)`)) return;
+            const all = (await pptKv("readonly", (st) => st.get("weeklyHistory"))) || [];
+            await pptKv("readwrite", (st) => st.put(all.filter((x) => x.at !== h.at), "weeklyHistory"));
+            chrome.storage.local.set({ weeklyUpdatedAt: Date.now() }).catch(() => {});
+            renderWeeklyDb();
+          } })
+        )
+      )
+    );
+  }
+}
+$("#wkDbGo").addEventListener("click", () => document.querySelector('button[data-tab="weekly"]').click());
+chrome.storage.onChanged.addListener((ch, area) => {
+  if (area === "local" && ch.weeklyUpdatedAt && !$("#tab-db").hidden) renderWeeklyDb();
+});
+
 async function renderDb() {
+  renderCostSummary();
+  renderMonthlyCost();
+  renderWeeklyDb();
   renderMoHistory();
   renderDtHistory();
   renderRawHistory();

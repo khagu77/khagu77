@@ -311,3 +311,19 @@ nav .tab.work.due-seen .due-badge { animation: none; box-shadow: none; opacity: 
 .rule-add button { min-height: 54px; }
 @media (max-width: 760px) { .rule-add { grid-template-columns: 1fr; } }
 @media (prefers-color-scheme: dark) { .rule-add textarea { background: #182a42; border-color: #2d4d75; } }
+
+/* 데일리 DB 섹션별 AI 비용 요약 (담당자 요청 2026-11-20) */
+.cost-summary { margin: 8px 0 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--soft); }
+.cost-summary .cs-title { font-weight: 800; color: var(--blue); margin-bottom: 6px; }
+.cost-summary table.cs-table { width: auto; min-width: 560px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); }
+.cost-summary .cs-table td, .cost-summary .cs-table th { padding: 6px 12px; text-align: right; white-space: nowrap; }
+.cost-summary .cs-table td:first-child, .cost-summary .cs-table th:first-child { text-align: left; }
+.cost-summary .hint { margin-top: 6px; font-size: 12px; }
+#moCostTable td, #moCostTable th { white-space: nowrap; }
+/* 안전 우려 게시글 모음 제목 뱃지: 연보라색으로 구분 (담당자 요청 2026-11-20) */
+#tab-db h2.badge-safety { background: #e4d7fb; color: #3b1f7a; box-shadow: 0 2px 6px rgba(124, 92, 196, 0.25); border: 1.5px solid #b79cf0; }
+#tab-db h2.badge-safety .hint, #tab-db h2.badge-safety .tip-i { color: #5b3f9a; }
+@media (prefers-color-scheme: dark) {
+  #tab-db h2.badge-safety { background: #4a3a78; color: #f1eaff; border-color: #7b63c0; }
+  #tab-db h2.badge-safety .hint, #tab-db h2.badge-safety .tip-i { color: #d8ccff; }
+}

@@ -156,6 +156,7 @@
     <!-- ===================== 데일리 DB ===================== -->
     <section id="tab-db" hidden>
       <h2>데일리 DB <span class="hint">수집할 때마다 결과가 저장됩니다. 엑셀로 받거나, 이어받기 기준으로 고를 수 있습니다.</span></h2>
+      <div id="costSummary" class="cost-summary" hidden></div>
       <div class="recoverbox">
         <b>백업 폴더에서 복구</b>
         <span class="hint">크롬 저장 폴더(Local Extension Settings/확장 ID)를 복사해 둔 폴더를 고르면, 덮어쓰기 전에 남아 있던 옛 수집 기록을 찾아 되살립니다.</span>
@@ -176,7 +177,7 @@
         <span class="hint">파일 이름의 날짜(예: 261016, 2026-10-16)로 보고 날짜를 정합니다. 날짜가 없으면 물어봅니다.</span>
       </div>
       <table id="pptTable">
-        <thead><tr><th>보고 날짜</th><th>최종본</th><th>파일 이름</th><th>건수</th><th>보관된 파일</th><th></th></tr></thead>
+        <thead><tr><th>보고 날짜</th><th>최종본</th><th>파일 이름</th><th>건수</th><th>PPT AI 비용</th><th>보관된 파일</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
       <p id="pptEmpty" class="hint">아직 보관된 PPT 가 없습니다. PPT·RAW 작성 탭에서 PPT 를 받거나, 위 버튼으로 지난 전체 PPT 를 올려 주세요.</p>
@@ -201,15 +202,30 @@
       </table>
       <p id="dtEmpty" class="hint">아직 만든 일일동향 엑셀이 없습니다.</p>
 
+      <h2>주간 보고서 <span class="hint">④ 주간 보고서에서 만든 보고서와 올린 수정본(최종본) (모두 영구 보관, 주 최근 순). 최종본 = 담당자 수정본 &gt; 시스템 작성본. 수정본 올리기는 ④ 주간 보고서 탭에서 합니다.</span></h2>
+      <div class="buttons"><button id="wkDbGo" type="button">④ 주간 보고서 탭으로 가서 올리기·만들기</button></div>
+      <table id="wkTable">
+        <thead><tr><th>주</th><th>최종본</th><th>파일 이름</th><th>건수</th><th>만든·올린 일시</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p id="wkEmpty" class="hint">아직 보관된 주간 보고서가 없습니다.</p>
+
       <h2>월간 실적 보고 <span class="hint">⑤ 월간 실적 보고에서 만든 보고서와 넣은 지난 보고서 (모두 영구 보관, 보고 월 최근 순). 시스템 전에 만든 지난 보고서도 여기서 올릴 수 있습니다.</span></h2>
       <div class="buttons"><label class="filebtn">지난 월간 실적 보고 PPT 올리기 (여러 개 가능)<input type="file" id="moDbUpload" accept=".pptx" multiple hidden></label></div>
       <table id="moTable">
-        <thead><tr><th>보고 월</th><th>보고일</th><th>파일 이름</th><th>만든·넣은 일시</th><th></th></tr></thead>
+        <thead><tr><th>보고 월</th><th>보고일</th><th>파일 이름</th><th>만든·넣은 일시</th><th>AI 비용</th><th></th></tr></thead>
         <tbody></tbody>
       </table>
       <p id="moEmpty" class="hint">아직 보관된 월간 실적 보고가 없습니다.</p>
 
-      <h2>안전 우려 게시글 모음 (연보라색) <span class="hint">지금까지 수집한 기록에서 결과 표에 연보라색으로 표시된 안전사고 우려 글만 모읍니다. [누적 엑셀 받기]는 모든 날짜를 날짜 순으로 한 파일에 쌓아 일일 보고 엑셀과 같은 양식으로 받습니다 (결과 표에서 고친 내용 그대로).</span></h2>
+      <h2>월간 AI 비용 (월간 실적 보고 기간 기준) <span class="hint">월간 실적 보고 기간(지난 보고일 다음 날 ~ 이번 보고일, 25일·휴일·특정일 기준 요청 반영)마다 ① 수집 · ② PPT·RAW 작성 · ⑤ 월간 실적 보고에 든 AI 비용을 모읍니다. ③ 일일동향 엑셀 · ④ 주간 보고서는 AI 를 쓰지 않아 비용이 없습니다.</span></h2>
+      <table id="moCostTable">
+        <thead><tr><th>보고 월</th><th>기간</th><th>① 수집</th><th>② PPT·RAW 작성</th><th>⑤ 월간 실적 보고</th><th>합계</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p id="moCostEmpty" class="hint">아직 비용 기록이 없습니다.</p>
+
+      <h2 class="badge-safety">안전 우려 게시글 모음 (연보라색) <span class="hint">지금까지 수집한 기록에서 결과 표에 연보라색으로 표시된 안전사고 우려 글만 모읍니다. [누적 엑셀 받기]는 모든 날짜를 날짜 순으로 한 파일에 쌓아 일일 보고 엑셀과 같은 양식으로 받습니다 (결과 표에서 고친 내용 그대로).</span></h2>
       <div id="safetyTotal" class="big-total" hidden></div>
       <div class="buttons">
         <span id="safetyInfo" class="hint"></span>
@@ -421,6 +437,7 @@
   <script src="ppt/dailyppt.js"></script>
   <script src="ppt/monthlypptx.js"></script>
   <script src="celebrate.js"></script>
+  <script src="costlog.js"></script>
   <script src="app.js"></script>
   <script src="polish.js"></script>
 </body>

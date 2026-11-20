@@ -401,6 +401,7 @@ async function buildWeekly({ auto = false } = {}) {
     const hist = (await kvGet("weeklyHistory")) || [];
     hist.unshift({ at: Date.now(), start: DailyPpt.dateKey(week.start), end: endKey, name: fileName, bytes, count: picked.length, where });
     await kvSet("weeklyHistory", hist); // 영구 보관
+    chrome.storage.local.set({ weeklyUpdatedAt: Date.now() }).catch(() => {});
     await chrome.storage.local.set({ weeklyLastBuilt: endKey });
     renderHistory();
     const msg = `✅ 주간 보고서 저장 완료: ${where} (${picked.length}건 · 조회수·댓글 새로 읽음 ${refreshed}건${picked.length - refreshed ? `, 나머지는 일일 보고 때 값` : ""})`;
@@ -459,6 +460,7 @@ async function attachWeeklyFinal(file, target = null) {
   }
   h.final = { name: file.name, bytes, at: Date.now(), count };
   await kvSet("weeklyHistory", hist); // 영구 보관
+    chrome.storage.local.set({ weeklyUpdatedAt: Date.now() }).catch(() => {});
   return `${h.start} ~ ${h.end} 주 최종본: ${file.name} (${count}건)`;
 }
 
@@ -641,6 +643,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   await showWhere();
   await renderHistory();
   await loadWeek().catch(() => {});
+  // 데일리 DB 탭에서 주간 보고서 기록을 지우면 보관함도 바로 다시 그린다
+  chrome.storage.onChanged.addListener((ch, area) => {
+    if (area === "local" && ch.weeklyUpdatedAt) renderHistory();
+  });
   // 데일리 DB 에 일일 PPT 를 새로 올리거나(전체 PPT·수정본) 지우면 바로 다시 불러온다 (담당자 지적 2026-11-13)
   chrome.storage.onChanged.addListener((ch, area) => {
     if (area === "local" && ch.dailyPptUpdatedAt) loadWeek().catch(() => {});

@@ -531,7 +531,10 @@ const AiCost = {
     const write = usage.cache_creation_input_tokens || 0;
     const read = usage.cache_read_input_tokens || 0;
     const output = usage.output_tokens || 0;
-    this.usd += (input * pin + write * pin * 1.25 + read * pread + output * pout) / 1e6;
+    const delta = (input * pin + write * pin * 1.25 + read * pread + output * pout) / 1e6;
+    this.usd += delta;
+    // 데일리 DB 'PPT AI 비용'으로 보고 날짜별 누적 (담당자 요청 2026-11-20)
+    if (typeof CostLog !== "undefined") CostLog.addUsd("ppt", (typeof window !== "undefined" && window.pptCostDay && window.pptCostDay()) || CostLog.dayKey(), delta, input + write + read, output);
     this.input += input + write + read;
     this.output += output;
     this.calls++;

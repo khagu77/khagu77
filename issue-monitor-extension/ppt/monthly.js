@@ -702,6 +702,7 @@ async function aiWrite() {
     const params = { model, max_tokens: 12000, system, output_config: { effort: "high", format: { type: "json_schema", schema: AI_SCHEMA } }, messages: [{ role: "user", content: JSON.stringify(input) }] };
     const stream = model === "claude-haiku-5-5" ? client.messages.stream(params) : client.beta.messages.stream({ ...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" });
     const msg = await stream.finalMessage();
+    if (typeof CostLog !== "undefined") CostLog.addUsage("monthly", ymKey(ctx.y, ctx.m), msg.model || model, msg.usage); // 데일리 DB 월간 AI 비용
     if (msg.stop_reason === "refusal") throw new Error("Claude 가 작성을 거절했습니다");
     const out = JSON.parse(msg.content.filter((b) => b.type === "text").map((b) => b.text).join(""));
     const clean = (a) => (a || []).map((s) => String(s).replace(/^\s*[○●•\-]\s*/, "").replace(/·/g, ", ").trim()).filter(Boolean);
