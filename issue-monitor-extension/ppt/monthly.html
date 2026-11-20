@@ -8,6 +8,10 @@
   <link rel="stylesheet" href="weekly.css">
   <style>
     #summary { white-space: pre-line; }
+    /* 보고일 강조 (담당자 요청 2026-11-20) */
+    .mo-rdate { color: #0b4a8f; font-weight: 800; font-size: 15px; margin-right: 2px; }
+    #moDateInfo.err .mo-rdate { color: #0b4a8f; }
+    @media (prefers-color-scheme: dark) { .mo-rdate, #moDateInfo.err .mo-rdate { color: #8ab4ff; } }
     .mo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px 14px; }
     .mo-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; font-weight: 600; }
     .mo-grid input { font-weight: 400; }

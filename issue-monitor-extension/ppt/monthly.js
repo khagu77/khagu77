@@ -268,7 +268,18 @@ async function refresh() {
   })();
   const xl = await excelFor(date);
   ctx = { y, m, date, start, end: date, tpl, xl };
-  $("#moDateInfo").textContent = `${ovKey ? `✎ 특정일 기준 요청: 보고일 ${fmt(date)} (원래 25일 기준 ${fmt(autoDate)})` : `보고일 ${fmt(date)}${date.getDate() !== 25 ? " (25일이 주말·휴일이라 전 근무일)" : ""}`} · 기간 ${dkey(start)} ~ ${dkey(date)}`;
+  // 보고일은 눈에 띄게 (담당자 요청 2026-11-20: 블루 굵게 조금 크게)
+  const info = $("#moDateInfo");
+  info.textContent = "";
+  const rd = document.createElement("span");
+  rd.className = "mo-rdate";
+  rd.textContent = `보고일 ${fmt(date)}`;
+  info.append(
+    ovKey ? "✎ 특정일 기준 요청: " : "",
+    rd,
+    ovKey ? ` (원래 25일 기준 ${fmt(autoDate)})` : date.getDate() !== 25 ? " (25일이 주말·휴일이라 전 근무일)" : "",
+    ` · 기간 ${dkey(start)} ~ ${dkey(date)}`
+  );
   $("#moDateInfo").className = ovKey ? "hint err" : "hint";
   $("#moTplInfo").textContent = tpl ? `틀: ${tpl.entry.name} (${tpl.info.year}년 ${tpl.info.month}월 보고서)${tpl.entry.ym !== ymKey(py, pm) ? ` · ⚠ ${pm}월 보고서가 없어 더 앞선 보고서를 씁니다` : ""}` : `${y}년 ${m}월 보다 앞선 월간 실적 보고가 없습니다. 지난달 보고서 PPT 를 넣어 주세요.`;
   $("#moTplInfo").className = tpl ? "hint ok" : "hint err";
