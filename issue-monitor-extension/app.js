@@ -87,7 +87,7 @@ async function kakaoNotify(text) {
   if (!s.kakaoOn || !s.kakaoRestKey || typeof Kakao === "undefined") return;
   if (!AUTO && !s.kakaoManual) return;
   try {
-    await Kakao.send(`🌅 [오전 일일동향] ${text}`, s);
+    await Kakao.send(`[🚨 오전 일일동향] ${text}`, s);
   } catch (e) {
     log(`카카오톡 알림을 보내지 못했습니다: ${e.message || e}`, "err");
   }
@@ -142,7 +142,7 @@ $("#kakaoTest")?.addEventListener("click", async () => {
   try {
     const { key, secret } = await kakaoSaveKeys();
     st.textContent = "보내는 중…";
-    await Kakao.send(`🌅 [오전 일일동향] 📨 테스트 알림 (${kakaoHm()})\n자동 수집이 시작·끝나면 이렇게 알려 드립니다.`, { kakaoRestKey: key, kakaoSecret: secret });
+    await Kakao.send(`[🚨 오전 일일동향] 📨 테스트 알림 (${kakaoHm()})\n자동 수집이 시작·끝나면 이렇게 알려 드립니다.`, { kakaoRestKey: key, kakaoSecret: secret });
     await renderKakaoStatus();
     st.textContent = `${st.textContent} · 📨 테스트 알림을 보냈습니다. 카카오톡 '나와의 채팅'을 확인해 주세요`;
   } catch (e) {
