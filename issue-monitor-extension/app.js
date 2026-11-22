@@ -87,11 +87,16 @@ async function kakaoNotify(text) {
   if (!s.kakaoOn || !s.kakaoRestKey || typeof Kakao === "undefined") return;
   if (!AUTO && !s.kakaoManual) return;
   try {
-    await Kakao.send(`[🚨 오전 일일동향 🚨] ${text}`, s);
+    await Kakao.send(`[🚨 오전 일일동향 🚨]\n${text}`, s);
   } catch (e) {
     log(`카카오톡 알림을 보내지 못했습니다: ${e.message || e}`, "err");
   }
 }
+// 수집 끝 알림의 건수 줄 (담당자 요청 2026-11-22: 총 건수 · 노란색 시트 · 안전이슈)
+const kakaoCounts = () => {
+  const rows = state.rows || [];
+  return `📋 수집 ${rows.length}건 · 보고 필요 ${rows.filter((r) => r.report).length}건\n🟨 노란색(시트) ${rows.filter((r) => r.highlight).length}건\n🟪 안전이슈 ${rows.filter((r) => isSafetyRow(r)).length}건`;
+};
 const kakaoHm = (d = new Date()) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 async function renderKakaoStatus() {
   if (typeof Kakao === "undefined") return;
@@ -142,7 +147,7 @@ $("#kakaoTest")?.addEventListener("click", async () => {
   try {
     const { key, secret } = await kakaoSaveKeys();
     st.textContent = "보내는 중…";
-    await Kakao.send(`[🚨 오전 일일동향 🚨] 📨 테스트 알림 (${kakaoHm()})\n자동 수집이 시작·끝나면 이렇게 알려 드립니다.`, { kakaoRestKey: key, kakaoSecret: secret });
+    await Kakao.send(`[🚨 오전 일일동향 🚨]\n📨 테스트 알림 (${kakaoHm()})\n자동 수집이 시작·끝나면 이렇게 알려 드립니다.`, { kakaoRestKey: key, kakaoSecret: secret });
     await renderKakaoStatus();
     st.textContent = `${st.textContent} · 📨 테스트 알림을 보냈습니다. 카카오톡 '나와의 채팅'을 확인해 주세요`;
   } catch (e) {
@@ -3539,7 +3544,7 @@ async function runCollection() {
       // 휴일: 수집만 해 두고 다음 근무일 아침 보고서에 합친다
       log(`오늘은 ${off} → 엑셀은 받지 않고 데일리 DB 에 저장했습니다. 다음 근무일 아침 보고서에 합쳐집니다.`);
       chrome.runtime.sendMessage({ type: "autoRunDone", count: state.rows.length, holiday: off }).catch(() => {});
-      kakaoNotify(`${state.stopRequested ? "⏹ 휴일 수집 중지됨" : "✅ 휴일 수집 끝"} (${off})\n${kakaoHm(new Date(finishedAt))} 끝 · ${mins}분 · 부정 이슈 ${state.rows.length}건\n다음 근무일 아침 보고서에 합쳐집니다${state.naverBlocked ? `\n⚠ ${state.naverBlocked}` : ""}`);
+      kakaoNotify(`${state.stopRequested ? "⏹ 휴일 수집 중지됨" : "✅ 휴일 수집 끝"} (${off})\n${kakaoHm(new Date(finishedAt))} 끝 · ${mins}분\n${kakaoCounts()}\n다음 근무일 아침 보고서에 합쳐집니다${state.naverBlocked ? `\n⚠ ${state.naverBlocked}` : ""}`);
     } else {
       let where = "";
       try {
@@ -3553,11 +3558,11 @@ async function runCollection() {
         log(`엑셀 저장 실패: ${e.message}`, "err");
       }
       chrome.runtime.sendMessage({ type: "autoRunDone", count: state.rows.length, blocked: state.naverBlocked, where }).catch(() => {});
-      kakaoNotify(`${state.stopRequested ? "⏹ 자동 수집 중지됨" : "✅ 자동 수집 끝"}\n${kakaoHm(new Date(finishedAt))} 끝 · ${mins}분\n부정 이슈 ${state.rows.length}건 · 보고 필요 ${state.rows.filter((r) => r.report).length}건\n${where ? "엑셀 저장 완료" : "⚠ 엑셀 저장 실패 — PC 확인"}${state.naverBlocked ? `\n⚠ ${state.naverBlocked}` : ""}`);
+      kakaoNotify(`${state.stopRequested ? "⏹ 자동 수집 중지됨" : "✅ 자동 수집 끝"}\n${kakaoHm(new Date(finishedAt))} 끝 · ${mins}분\n${kakaoCounts()}\n${where ? "엑셀 저장 완료" : "⚠ 엑셀 저장 실패 — PC 확인"}${state.naverBlocked ? `\n⚠ ${state.naverBlocked}` : ""}`);
       if (where) savedAlert(where, true);
     }
   } else {
-    kakaoNotify(`${state.stopRequested ? "⏹ 수집 중지됨" : "✅ 수집 끝"}\n${kakaoHm(new Date(finishedAt))} 끝 · ${mins}분\n부정 이슈 ${state.rows.length}건 · 보고 필요 ${state.rows.filter((r) => r.report).length}건${state.naverBlocked ? `\n⚠ ${state.naverBlocked}` : ""}`);
+    kakaoNotify(`${state.stopRequested ? "⏹ 수집 중지됨" : "✅ 수집 끝"}\n${kakaoHm(new Date(finishedAt))} 끝 · ${mins}분\n${kakaoCounts()}${state.naverBlocked ? `\n⚠ ${state.naverBlocked}` : ""}`);
   }
 }
 
