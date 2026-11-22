@@ -184,6 +184,36 @@
       <label for="lexNeg">부정 단어</label><input type="text" id="lexNeg" class="full" spellcheck="false" style="width:100%">
       <label for="lexBlame">단순비난 단어</label><input type="text" id="lexBlame" class="full" spellcheck="false" style="width:100%">
 
+      <h3><span class="kakao-badge"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.54 2 10.9c0 2.8 1.86 5.27 4.66 6.67-.2.74-.74 2.7-.85 3.12-.13.52.19.51.4.37.17-.11 2.62-1.78 3.68-2.5.69.1 1.39.15 2.11.15 5.52 0 10-3.54 10-7.9S17.52 3 12 3z"/></svg>카카오톡 알림</span></h3>
+      <div class="row"><label class="inline"><input type="checkbox" id="kakaoOn"> 자동 수집이 시작·끝나면 카카오톡 '나와의 채팅'으로 알림 — 오류로 멈추거나 네이버 로그인이 풀려 시작 못 할 때도 알림</label></div>
+      <div class="row"><label class="inline"><input type="checkbox" id="kakaoManual"> 직접 [수집 시작]한 수집도 알림</label></div>
+      <div class="row">
+        <label class="inline">REST API 키 <input type="password" id="kakaoRestKey" spellcheck="false" autocomplete="off" style="width:280px"></label>
+        <label class="inline">클라이언트 시크릿 <input type="password" id="kakaoSecret" spellcheck="false" autocomplete="off" style="width:280px"></label>
+      </div>
+      <div class="row">
+        <span class="hint">리다이렉트 URI</span> <code id="kakaoRedirect"></code>
+        <button id="kakaoCopy" class="small">복사</button>
+        <span class="hint">카카오 개발자 사이트에 이 주소를 그대로 등록</span>
+      </div>
+      <div class="row">
+        <button id="kakaoConnect" class="small">🔗 카카오톡 연결</button>
+        <button id="kakaoTest" class="small">📨 테스트 알림 보내기</button>
+        <button id="kakaoDisconnect" class="small">연결 끊기</button>
+        <span id="kakaoStatus" class="hint"></span>
+      </div>
+      <div id="kakaoInfo" class="hint"></div>
+      <details class="sub">
+        <summary>처음 한 번 준비</summary>
+        <ol class="hint">
+          <li><a href="https://developers.kakao.com" target="_blank">developers.kakao.com</a> → 내 애플리케이션 (이미 만든 '일일동향 알림' 앱을 그대로 써도 됩니다)</li>
+          <li>[앱] → [플랫폼 키] → [REST API 키]: 키 복사 · 위 <b>리다이렉트 URI 등록</b>(이미 다른 주소가 있으면 추가 등록) · 클라이언트 시크릿(카카오 로그인 줄) 복사</li>
+          <li>[카카오 로그인] 사용 설정 <b>ON</b></li>
+          <li>[카카오 로그인] → [동의항목] → 접근권한 '카카오톡 메시지 전송' <b>선택 동의</b></li>
+          <li>여기에 키·시크릿을 넣고 [🔗 카카오톡 연결] → [📨 테스트 알림 보내기] → [설정 저장]</li>
+        </ol>
+      </details>
+
       <h3>🤖 Claude AI 판독 <span class="badge ai">AI</span></h3>
       <div class="row">
         <label class="inline"><input type="checkbox" id="aiOn"> 수집할 때마다(자동 수집 포함) AI 로도 판독 <span class="hint">(꺼 두면 무료 분석만 하고, 결과 표의 '💰 Claude AI 로 분석' 버튼을 누를 때만 AI 를 씁니다 · 기본: 꺼짐)</span></label>
@@ -221,6 +251,7 @@
   <script src="gv90-analyze.js"></script>
   <script src="gv90-db.js"></script>
   <script src="gv90-xlsx.js"></script>
+  <script src="kakao.js"></script>
   <script src="gv90-ui.js"></script>
   <script src="gv90.js"></script>
 </body>

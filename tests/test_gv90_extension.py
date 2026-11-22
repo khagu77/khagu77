@@ -794,3 +794,33 @@ def test_gv90_excel_drops_removed(ext, tmp_path: Path):
       }"""
     )
     assert summ == ["AI가 쓴 주요 내용", "AI가 쓴 주요 내용"], summ
+
+
+def test_gv90_kakao_settings(ext, tmp_path: Path):
+    """카카오톡 알림: 설정 칸 · 리다이렉트 URI · 머리말 [🚙 GV90 관련 일일동향 🚙] 다음 줄에 내용"""
+    ctx, sw, ext_id, requests = ext
+    page = ctx.new_page()
+    page.goto(f"chrome-extension://{ext_id}/gv90.html")
+    page.evaluate("document.getElementById('settings').open = true")
+    assert page.inner_text("#kakaoRedirect").endswith("/kakao")
+    assert page.inner_text("#kakaoStatus") == "연결 안 됨"
+    sent = page.evaluate(
+        """async () => {
+        const out = [];
+        Kakao.send = async (t) => out.push(t);
+        settings.kakaoOn = false; settings.kakaoRestKey = 'k';
+        await kakaoNotify('꺼져 있으면 안 보냄');
+        settings.kakaoOn = true; settings.kakaoManual = false;
+        await kakaoNotify('직접 수집은 kakaoManual 일 때만');
+        settings.kakaoManual = true;
+        await kakaoNotify('✅ 수집 끝\\n10:00 끝 · 3분');
+        return out;
+      }"""
+    )
+    assert sent == ["[🚙 GV90 관련 일일동향 🚙]\n✅ 수집 끝\n10:00 끝 · 3분"], sent
+    page.fill("#kakaoRestKey", "abc")
+    page.check("#kakaoOn")
+    page.click("#saveSettings")
+    s = page.evaluate("loadSettings()")
+    assert s["kakaoRestKey"] == "abc" and s["kakaoOn"] is True and s["kakaoManual"] is False
+    page.screenshot(path=str(tmp_path / "kakao.png"))

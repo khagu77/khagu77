@@ -71,12 +71,80 @@ chrome.runtime.onMessage.addListener((msg, sender, reply) => {
 });
 
 // ---------------------------------------------------------------------------
+// 카카오톡 '나에게 보내기' 알림 (실패해도 수집은 그대로 · 기록에만 남김)
+// ---------------------------------------------------------------------------
+
+const KAKAO_HEAD = "[🚙 GV90 관련 일일동향 🚙]";
+const hhmm = (d = new Date()) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+const mdhm = (d) => `${d.getMonth() + 1}/${d.getDate()} ${hhmm(d)}`;
+async function kakaoNotify(text) {
+  const s = settings;
+  if (!s?.kakaoOn || !s.kakaoRestKey || typeof Kakao === "undefined") return;
+  if (!AUTO && !s.kakaoManual) return;
+  try {
+    await Kakao.send(`${KAKAO_HEAD}\n${text}`, s);
+  } catch (e) {
+    log(`카카오톡 알림을 보내지 못했습니다: ${e.message || e}`, "err");
+  }
+}
+const runLabel = () => (AUTO ? "자동 수집" : "수집");
+
+async function showKakaoStatus() {
+  const a = await Kakao.status().catch(() => null);
+  const box = $("#kakaoStatus");
+  if (a) {
+    box.className = "hint ok";
+    box.textContent = `✓ 연결됨${a.refreshExp ? ` (연결 유효 ~${new Date(a.refreshExp).toISOString().slice(0, 10)}, 알림을 보내면 자동 연장)` : ""}`;
+  } else {
+    box.className = "hint";
+    box.textContent = "연결 안 됨";
+  }
+}
+function kakaoInfo(t, cls = "") {
+  $("#kakaoInfo").textContent = t;
+  $("#kakaoInfo").className = `hint ${cls}`;
+}
+$("#kakaoRedirect").textContent = Kakao.redirectUri();
+$("#kakaoCopy").addEventListener("click", async () => {
+  await navigator.clipboard.writeText(Kakao.redirectUri()).catch(() => {});
+  kakaoInfo("✓ 리다이렉트 URI 를 복사했습니다. 카카오 [플랫폼 키] → [REST API 키] → 리다이렉트 URI 에 붙여 넣어 등록해 주세요.", "ok");
+});
+$("#kakaoConnect").addEventListener("click", async () => {
+  await persistSettings(); // 키는 바로 설정에 저장
+  kakaoInfo("카카오 로그인 창을 여는 중…");
+  try {
+    await Kakao.connect(settings.kakaoRestKey, settings.kakaoSecret);
+    kakaoInfo("✓ 카카오톡을 연결했습니다. [📨 테스트 알림 보내기]로 확인해 보세요.", "ok");
+  } catch (e) {
+    kakaoInfo(`⚠ ${e.message || e}`, "err");
+  }
+  showKakaoStatus();
+});
+$("#kakaoTest").addEventListener("click", async () => {
+  await persistSettings();
+  kakaoInfo("보내는 중…");
+  try {
+    await Kakao.send(`${KAKAO_HEAD}\n📨 테스트 알림 (${hhmm()})\n자동 수집이 시작·끝나면 이렇게 알려 드립니다.`, settings);
+    kakaoInfo("✓ 테스트 알림을 보냈습니다. 카카오톡 '나와의 채팅'을 확인해 주세요.", "ok");
+  } catch (e) {
+    kakaoInfo(`⚠ ${e.message || e}`, "err");
+  }
+  showKakaoStatus();
+});
+$("#kakaoDisconnect").addEventListener("click", async () => {
+  await Kakao.disconnect();
+  kakaoInfo("카카오톡 연결을 끊었습니다.");
+  showKakaoStatus();
+});
+showKakaoStatus();
+
+// ---------------------------------------------------------------------------
 // 설정 화면
 // ---------------------------------------------------------------------------
 
 function fillSettingsForm(s) {
-  for (const id of ["autoRunTime", "rangeStartTime", "cutoffTime", "holidays", "fileName", "saveFolder", "macFolderPath", "keywords", "cafeKeywords", "newsMaxPages", "cafeMaxPages", "speed", "apiKey"]) $(`#${id}`).value = s[id] ?? "";
-  for (const id of ["autoRun", "workdayReport", "collectOnHolidays", "saveAsk", "sound", "youtubeSearch", "aiOn"]) $(`#${id}`).checked = !!s[id];
+  for (const id of ["autoRunTime", "rangeStartTime", "cutoffTime", "holidays", "fileName", "saveFolder", "macFolderPath", "keywords", "cafeKeywords", "newsMaxPages", "cafeMaxPages", "speed", "apiKey", "kakaoRestKey", "kakaoSecret"]) $(`#${id}`).value = s[id] ?? "";
+  for (const id of ["autoRun", "workdayReport", "collectOnHolidays", "saveAsk", "sound", "youtubeSearch", "aiOn", "kakaoOn", "kakaoManual"]) $(`#${id}`).checked = !!s[id];
   const days = String(s.workdays || "1,2,3,4,5").split(",").map(Number);
   const box = $("#workdaysBox");
   box.querySelectorAll("label").forEach((l) => l.remove());
@@ -100,9 +168,11 @@ function readSettingsForm(s) {
   const out = { ...s };
   for (const id of ["autoRunTime", "rangeStartTime", "cutoffTime", "holidays", "fileName", "saveFolder", "macFolderPath", "keywords", "cafeKeywords", "speed", "model"]) out[id] = $(`#${id}`).value;
   out.apiKey = $("#apiKey").value.trim();
+  out.kakaoRestKey = $("#kakaoRestKey").value.trim();
+  out.kakaoSecret = $("#kakaoSecret").value.trim();
   out.newsMaxPages = Math.max(1, Math.min(10, +$("#newsMaxPages").value || 3));
   out.cafeMaxPages = Math.max(1, Math.min(10, +$("#cafeMaxPages").value || 3));
-  for (const id of ["autoRun", "workdayReport", "collectOnHolidays", "saveAsk", "sound", "youtubeSearch", "aiOn"]) out[id] = $(`#${id}`).checked;
+  for (const id of ["autoRun", "workdayReport", "collectOnHolidays", "saveAsk", "sound", "youtubeSearch", "aiOn", "kakaoOn", "kakaoManual"]) out[id] = $(`#${id}`).checked;
   out.workdays = [...document.querySelectorAll("#workdaysBox input[data-day]")].filter((x) => x.checked).map((x) => x.dataset.day).join(",") || "1,2,3,4,5";
   out.lexicon = { pos: $("#lexPos").value, neg: $("#lexNeg").value, blame: $("#lexBlame").value };
   out.channels = { news: $("#chNews").checked, cafe: $("#chCafe").checked, youtube: $("#chYoutube").checked, community: $("#chCommunity").checked };
@@ -641,7 +711,11 @@ async function collect() {
   }
   // [필수] 카페를 수집하는데 네이버 로그인이 풀려 있으면 시작하지 않고 경고 · 로그인되면 이어서 시작
   if (on.cafe && !(await naverLoggedIn())) {
-    if (!(await naverLoginGate({ auto: AUTO }))) return setSummary("네이버 로그인이 안 돼 수집을 시작하지 않았습니다. 로그인한 뒤 '수집 시작'을 눌러 주세요.", "err");
+    kakaoNotify(`🚨 네이버 로그인이 풀려 있습니다 (${hhmm()})\n${runLabel()}을 시작하지 못하고 기다리는 중\nPC에서 네이버에 로그인해 주세요`);
+    if (!(await naverLoginGate({ auto: AUTO }))) {
+      kakaoNotify(`🚨 네이버 로그인이 안 돼 ${runLabel()}을 시작하지 못했습니다 (${hhmm()})\nPC에서 로그인한 뒤 '수집 시작'을 눌러 주세요`);
+      return setSummary("네이버 로그인이 안 돼 수집을 시작하지 않았습니다. 로그인한 뒤 '수집 시작'을 눌러 주세요.", "err");
+    }
   }
   running = true;
   stopRequested = false;
@@ -653,6 +727,8 @@ async function collect() {
   $("#getList").disabled = true;
   pendingXlsx = null;
   const startedAt = cp?.startedAt || Date.now();
+  const chText = [on.news && "언론", on.youtube && "유튜브", on.cafe && `동호회 ${s.cafes.filter((c) => c.on).length}곳`, on.community && `커뮤니티 ${s.communities.filter((c) => c.on).length}곳`].filter(Boolean).join(" · ");
+  kakaoNotify(`🚀 ${runLabel()} ${cp ? "이어서 " : ""}시작\n${hhmm()} 시작\n기간 ${mdhm(range.start)} ~ ${mdhm(range.end)}\n${chText}`);
   const isStopped = () => stopRequested;
   const delays = DELAYS[s.speed] || DELAYS.normal;
   const kw = parseKeywords(s.keywords);
@@ -1042,9 +1118,21 @@ async function collect() {
     errors.length ? "err" : "ok",
   );
   if (!stopRequested) celebrate(null);
+  {
+    const mins = Math.max(1, Math.round((Date.now() - startedAt) / 60000));
+    const save = off ? `${off}: 다음 근무일 엑셀에 합쳐집니다` : checked ? "아직 저장 전 — AI 분석 후 '엑셀 만들기'를 눌러 주세요" : "새 GV90 관련 게시물 없음";
+    kakaoNotify(
+      `${stopRequested ? "⏹ " + runLabel() + " 중지됨" : "✅ " + runLabel() + " 끝"}\n${hhmm()} 끝 · ${mins}분\nGV90 관련 ${checked}건 체크 (후보 ${items.length}건)` +
+        (errors.length ? `\n⚠ 못 읽은 곳 ${errors.length}곳` : "") +
+        (incomplete && !stopRequested ? "\n⏸ 남은 곳 있음" : "") +
+        `\n${save}`,
+    );
+  }
   // 수집 도중 로그인이 풀려 카페 수집을 멈췄으면 같은 경고 → 로그인되면 멈춘 곳부터 이어서
   if (on.cafe && !stopRequested && errors.some((x) => /로그인|보호조치/.test(x)) && !(await naverLoggedIn())) {
+    kakaoNotify(`🚨 수집 도중 네이버 로그인이 풀렸습니다 (${hhmm()})\n카페 수집을 멈추고 로그인을 기다리는 중`);
     if (await naverLoginGate({ auto: AUTO, reason: "수집 도중 네이버 로그인이 풀려 카페 수집을 멈췄습니다." })) setTimeout(() => collect(), 300);
+    else kakaoNotify(`🚨 네이버 로그인을 기다리다 그만뒀습니다 (${hhmm()})\n남은 카페는 PC에서 로그인 후 '수집 시작'으로 이어서`);
   }
   return { off, errors };
 }
@@ -1402,6 +1490,7 @@ async function runAuto() {
   try {
     result = await collect();
   } catch (e) {
+    kakaoNotify(`❌ 자동 수집이 오류로 멈췄습니다 (${hhmm()})\n${korMsg(e.message).slice(0, 100)}`);
     chrome.runtime.sendMessage({ type: "autoRunDone", ok: false, message: `수집 중 오류: ${korMsg(e.message)}` }).catch(() => {});
     return;
   }
@@ -1449,6 +1538,7 @@ async function init() {
 
 $("#start").addEventListener("click", () => collect().catch((e) => {
   log(`오류: ${e.message}`, "err");
+  kakaoNotify(`❌ 수집이 오류로 멈췄습니다 (${hhmm()})\n${korMsg(e.message).slice(0, 100)}`);
   running = false;
   markRunning(false);
   hideWork();

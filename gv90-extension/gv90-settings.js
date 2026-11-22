@@ -190,6 +190,11 @@ const DEFAULT_SETTINGS = {
   macFolderPath: "", // 맥: 고른 저장 폴더의 전체 경로 ('출처' 정보 지우기에 씀)
   saveAsk: false,
   sound: true,
+  // 카카오톡 '나에게 보내기' 알림 (이 PC 크롬에만 저장)
+  kakaoOn: false, // 자동 수집이 시작·끝나면 알림 (오류·네이버 로그인 풀림 포함)
+  kakaoManual: false, // 직접 [수집 시작]한 수집도 알림
+  kakaoRestKey: "",
+  kakaoSecret: "",
   // 분석
   apiKey: "",
   model: "claude-opus-5-5",

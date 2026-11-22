@@ -441,3 +441,8 @@ button.getbtn.finalbtn.ready { font-size: 19px; padding: 16px 34px; background: 
 .login-alarm .la-status { margin: 12px 0 0; font-size: 13px; font-weight: 700; color: #c5221f; min-height: 18px; }
 .login-alarm.ok .la-status { color: #11753d; }
 @media (prefers-reduced-motion: reduce) { .login-alarm, .login-alarm .la-card, .login-alarm .la-icon { animation: none; } .login-alarm { background: rgba(180, 0, 0, 0.9); } }
+
+/* 카카오톡 알림 */
+.kakao-badge { display: inline-flex; align-items: center; gap: 6px; background: #FEE500; color: #191919; border-radius: 8px; padding: 3px 10px; font-weight: 700; }
+.kakao-badge svg { width: 16px; height: 16px; color: #191919; }
+#kakaoRedirect { user-select: all; word-break: break-all; }
