@@ -1905,7 +1905,7 @@ def test_kakao_notify(tmp_path: Path):
         assert len(sent) == 1, sent
         from urllib.parse import parse_qs
         tpl = json.loads(parse_qs(sent[0])["template_object"][0])
-        assert tpl["text"] == "[💺 LX3 전동 시트 관련 💺]\n🚀 자동 수집 시작\n11:30 시작\n기간 11/13 11:30 ~ 11/16 11:30", tpl
+        assert tpl["text"] == "[💺 LX3 전동 시트 관련 💺]\n\n🚀 자동 수집 시작\n11:30 시작\n기간 11/13 11:30 ~ 11/16 11:30", tpl
         page.evaluate("chrome.storage.local.set({ kakaoManual: true })")
         page.evaluate("kakaoNotify(['직접 찾기'], { auto: false })")
         assert len(sent) == 2
@@ -1917,5 +1917,5 @@ def test_kakao_notify(tmp_path: Path):
         page.click("#kakaoTest")
         page.locator("#kakaoInfo", has_text="테스트 알림을 보냈습니다").wait_for()
         tpl = json.loads(parse_qs(sent[-1])["template_object"][0])
-        assert tpl["text"].startswith("[💺 LX3 전동 시트 관련 💺]\n📨 테스트 알림 ("), tpl
+        assert tpl["text"].startswith("[💺 LX3 전동 시트 관련 💺]\n\n📨 테스트 알림 ("), tpl
         ctx.close()
