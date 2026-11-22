@@ -817,7 +817,7 @@ def test_gv90_kakao_settings(ext, tmp_path: Path):
         return out;
       }"""
     )
-    assert sent == ["[🚙 GV90 관련 일일동향 🚙]\n✅ 수집 끝\n10:00 끝 · 3분"], sent
+    assert sent == ["[🚙 GV90 관련 일일동향 🚙]\n\n✅ 수집 끝\n10:00 끝 · 3분"], sent
     page.fill("#kakaoRestKey", "abc")
     page.check("#kakaoOn")
     page.click("#saveSettings")
