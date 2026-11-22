@@ -5,6 +5,7 @@ cafe.naver.com · search.naver.com 을 로컬 HTTPS 서버로 돌려
 확장 로딩에는 일반 Chromium 이 필요하므로 CHROMIUM_PATH 가 없으면 건너뛴다.
 """
 import filecmp
+import json
 import os
 import shutil
 import ssl
@@ -180,6 +181,16 @@ def test_bluehands(tmp_path: Path):
         )
         api_calls = []
         ctx.route("https://apis.naver.com/**", lambda route: (api_calls.append(route.request.url), route.fulfill(status=500, body="")))
+        # 카카오톡 '나에게 보내기' 대신 가짜 응답 - 보낸 글만 모은다
+        kakao_msgs = []
+
+        def kakao(route):
+            from urllib.parse import parse_qs as _pq
+            body = _pq(route.request.post_data or "")
+            kakao_msgs.append(json.loads(body["template_object"][0])["text"])
+            route.fulfill(status=200, content_type="application/json", body='{"result_code":0}')
+
+        ctx.route("https://kapi.kakao.com/**", kakao)
         sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
         ext = f"chrome-extension://{sw.url.split('/')[2]}"
         dialogs, leave_prompts = [], []
@@ -242,6 +253,22 @@ def test_bluehands(tmp_path: Path):
         assert "이미 보고서에 있음" in rows.nth(1).inner_text()  # 날짜순: 블로그(07:00) → 이미 보고한 글(08:00) → …
         assert "네이버 카페 글 주소가 아님" in rows.nth(0).inner_text()
 
+        # 카카오톡 알림 켜기 (연결된 상태로)
+        page.click("#kakaoBox > summary")
+        page.evaluate("""async () => {
+            await chrome.storage.local.set({ kakaoAuth: { access: 'A', accessExp: Date.now() + 3600e3, refresh: 'R', refreshExp: Date.now() + 60 * 86400e3, at: Date.now() } });
+            document.querySelector('#kakaoOn').checked = true;
+            document.querySelector('#kakaoRestKey').value = 'KEY';
+            await saveKakaoSettings(); await renderKakaoStatus();
+        }""")
+        assert "✓ 연결됨" in page.inner_text("#kakaoStatus")
+        assert page.inner_text("#kakaoRedirect").endswith("chromiumapp.org/kakao")
+        page.click("#kakaoTest")
+        try:
+            page.locator("#kakaoStatus", has_text="테스트 알림을 보냈습니다").wait_for(timeout=10000)
+        except Exception:
+            raise AssertionError(page.inner_text("#kakaoStatus"))
+        assert kakao_msgs[-1].startswith("[🧑🏻‍🔧 블루핸즈 정비 예약 🛠️]\n📨 테스트 알림 (")
         pages_before = len(ctx.pages)
         # [필수] 네이버 로그인이 풀려 있으면 시작하지 않는다: 빨간 경고·사이렌, 로그인되면 몇 초 안에 시작
         page.evaluate("""() => { window.__sirens = 0; const orig = sirenOnce; sirenOnce = () => { window.__sirens++; orig(); }; }""")
@@ -275,6 +302,13 @@ def test_bluehands(tmp_path: Path):
         assert rows.nth(2).locator("td").nth(6).inner_text() == "✔ 확인"
         page.click("#resume")
         page.locator("#summary", has_text="작성자 확인을 마쳤습니다").wait_for(timeout=300000)
+        # 카카오톡 알림: 로그인 풀림 → 시작 → (새로고침 뒤 이어서) 시작 → 끝, 모두 머리말 다음 줄부터 내용
+        heads = [m.split("\n")[1] for m in kakao_msgs]
+        assert all(m.startswith("[🧑🏻‍🔧 블루핸즈 정비 예약 🛠️]\n") for m in kakao_msgs), kakao_msgs
+        assert heads[1].startswith("🚨 네이버 로그인이 풀려 작성자 확인을 시작하지 못했습니다"), heads
+        assert heads[2] == "🚀 작성자 확인 시작" and heads[-1] == "✅ 작성자 확인 끝", heads
+        assert "확인 2 · 패스 1 · 삭제 2" in kakao_msgs[-1] and "[엑셀 받기]를 눌러 저장하세요" in kakao_msgs[-1]
+        assert all(len(m) <= 200 for m in kakao_msgs)
         assert page.locator("#busy").is_hidden() and not page.title().startswith("⏳")
         # 끝나면 받기 버튼 축하 효과(무지개·커졌다 작아짐·'✔ 완료!') - 받으면 멈춤
         assert "celebrate" in page.get_attribute("#save", "class")

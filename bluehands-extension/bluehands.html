@@ -59,6 +59,35 @@
           <textarea id="extraHolidays" rows="2" spellcheck="false"></textarea>
           <div class="buttons"><button id="resetSettings" class="small">설정 처음 값으로</button></div>
         </details>
+
+        <details id="kakaoBox" class="kakao">
+          <summary><span class="kakao-badge"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3C6.48 3 2 6.54 2 10.9c0 2.8 1.86 5.27 4.66 6.67-.2.74-.74 2.7-.85 3.12-.13.52.19.51.4.37.17-.11 2.62-1.78 3.68-2.5.69.1 1.39.15 2.11.15 5.52 0 10-3.54 10-7.9S17.52 3 12 3z"/></svg>카카오톡 알림</span> <span id="kakaoSummary" class="hint"></span></summary>
+          <label class="check"><input type="checkbox" id="kakaoOn"> 작성자 확인이 시작·끝나면 카카오톡 '나와의 채팅'으로 알림 <span class="hint">— 오류로 멈추거나 네이버 로그인이 풀려 시작 못 할 때도 알림 (이 PC 크롬에만 저장)</span></label>
+          <div class="row">
+            <label class="inline">REST API 키 <input type="password" id="kakaoRestKey" autocomplete="off" spellcheck="false"></label>
+            <label class="inline">클라이언트 시크릿 <input type="password" id="kakaoSecret" autocomplete="off" spellcheck="false"></label>
+          </div>
+          <div class="row">
+            <span class="hint">리다이렉트 URI</span> <code id="kakaoRedirect"></code> <button id="kakaoCopy" class="small">복사</button>
+            <span class="hint">— 카카오 개발자 사이트에 이 주소를 그대로 등록</span>
+          </div>
+          <div class="buttons">
+            <button id="kakaoConnect" class="small">🔗 카카오톡 연결</button>
+            <button id="kakaoTest" class="small">📨 테스트 알림 보내기</button>
+            <button id="kakaoDisconnect" class="small">연결 끊기</button>
+            <span id="kakaoStatus" class="hint"></span>
+          </div>
+          <details class="kakao-guide">
+            <summary>처음 한 번 준비</summary>
+            <ol>
+              <li><a href="https://developers.kakao.com" target="_blank" rel="noopener">developers.kakao.com</a> → 내 애플리케이션 (이미 만든 '일일동향 알림' 앱을 그대로 써도 됩니다)</li>
+              <li>[앱] → [플랫폼 키] → [REST API 키]: 키를 복사하고, 위 <b>리다이렉트 URI</b>를 등록(이미 다른 주소가 있으면 <b>추가</b> 등록), 카카오 로그인 줄의 클라이언트 시크릿 복사</li>
+              <li>[카카오 로그인] 사용 설정 <b>ON</b></li>
+              <li>[카카오 로그인] → [동의항목] → 접근권한 '카카오톡 메시지 전송'을 <b>선택 동의</b>로</li>
+              <li>위에 키·시크릿을 넣고 [🔗 카카오톡 연결] → [📨 테스트 알림 보내기]</li>
+            </ol>
+          </details>
+        </details>
       </section>
 
       <section id="itemsBox" hidden>
@@ -120,6 +149,7 @@
   <script src="template.js"></script>
   <script src="cafe-common.js"></script>
   <script src="schedule.js"></script>
+  <script src="kakao.js"></script>
   <script src="bluehands.js"></script>
 </body>
 </html>

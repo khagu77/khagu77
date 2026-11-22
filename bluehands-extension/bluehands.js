@@ -977,6 +977,98 @@ async function learnSlug(x, hints) {
 }
 
 // ---------------------------------------------------------------------------
+// 카카오톡 '나에게 보내기' 알림 (kakao.js). 실패해도 작업은 그대로, 기록만 남긴다.
+// 이 프로그램에는 자동 수집이 없으므로 직접 시작한 작성자 확인을 기준으로 알린다.
+// ---------------------------------------------------------------------------
+
+const KAKAO_HEAD = "[🧑🏻‍🔧 블루핸즈 정비 예약 🛠️]";
+const hhmm = (d = new Date()) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+function kakaoSettings() {
+  return { kakaoOn: $("#kakaoOn").checked, kakaoRestKey: $("#kakaoRestKey").value.trim(), kakaoSecret: $("#kakaoSecret").value.trim() };
+}
+
+async function saveKakaoSettings() {
+  await chrome.storage.local.set(kakaoSettings()).catch(() => {});
+}
+
+// 머리말 다음 줄부터 내용 (카카오 글자 수 200자 안)
+function kakaoText(text) {
+  return `${KAKAO_HEAD}\n${text}`;
+}
+
+async function kakaoNotify(text) {
+  const s = kakaoSettings();
+  if (!s.kakaoOn || !s.kakaoRestKey || typeof Kakao === "undefined") return;
+  try {
+    await Kakao.send(kakaoText(text), s);
+  } catch (e) {
+    log(`  카카오톡 알림을 보내지 못했습니다: ${e.message || e}`);
+  }
+}
+
+async function renderKakaoStatus() {
+  const st = typeof Kakao !== "undefined" ? await Kakao.status().catch(() => null) : null;
+  const el = $("#kakaoStatus");
+  if (st) {
+    const until = st.refreshExp ? ymd(new Date(st.refreshExp)) : "";
+    el.className = "hint ok";
+    el.textContent = `✓ 연결됨${until ? ` (연결 유효 ~${until}, 알림을 보내면 자동 연장)` : ""}`;
+  } else {
+    el.className = "hint";
+    el.textContent = "연결 안 됨";
+  }
+  $("#kakaoSummary").textContent = $("#kakaoOn").checked ? (st ? "켜짐 · 연결됨" : "켜짐 · 연결 안 됨") : "꺼짐";
+}
+
+async function initKakao() {
+  const s = await chrome.storage.local.get(["kakaoOn", "kakaoRestKey", "kakaoSecret"]).catch(() => ({}));
+  $("#kakaoOn").checked = !!s.kakaoOn;
+  $("#kakaoRestKey").value = s.kakaoRestKey || "";
+  $("#kakaoSecret").value = s.kakaoSecret || "";
+  $("#kakaoRedirect").textContent = typeof Kakao !== "undefined" ? Kakao.redirectUri() : "";
+  for (const id of ["kakaoOn", "kakaoRestKey", "kakaoSecret"])
+    $(`#${id}`).addEventListener("change", async () => {
+      await saveKakaoSettings();
+      renderKakaoStatus();
+    });
+  $("#kakaoCopy").addEventListener("click", async () => {
+    await navigator.clipboard.writeText($("#kakaoRedirect").textContent).catch(() => {});
+    $("#kakaoCopy").textContent = "복사됨 ✔";
+    setTimeout(() => ($("#kakaoCopy").textContent = "복사"), 1500);
+  });
+  $("#kakaoConnect").addEventListener("click", async () => {
+    await saveKakaoSettings(); // 누를 때 키를 바로 저장
+    const s2 = kakaoSettings();
+    $("#kakaoStatus").textContent = "카카오 로그인 창을 여는 중…";
+    try {
+      await Kakao.connect(s2.kakaoRestKey, s2.kakaoSecret);
+      await renderKakaoStatus();
+      $("#kakaoStatus").textContent += " · [📨 테스트 알림 보내기]로 확인해 보세요";
+    } catch (e) {
+      $("#kakaoStatus").className = "hint err";
+      $("#kakaoStatus").textContent = `연결하지 못했습니다: ${e.message || e}`;
+    }
+  });
+  $("#kakaoTest").addEventListener("click", async () => {
+    await saveKakaoSettings();
+    try {
+      await Kakao.send(kakaoText(`📨 테스트 알림 (${hhmm()})\n작성자 확인이 시작·끝나면 이렇게 알려 드립니다.`), kakaoSettings());
+      await renderKakaoStatus();
+      $("#kakaoStatus").textContent += " · 테스트 알림을 보냈습니다 (카카오톡 '나와의 채팅' 확인)";
+    } catch (e) {
+      $("#kakaoStatus").className = "hint err";
+      $("#kakaoStatus").textContent = `보내지 못했습니다: ${e.message || e}`;
+    }
+  });
+  $("#kakaoDisconnect").addEventListener("click", async () => {
+    await Kakao.disconnect();
+    renderKakaoStatus();
+  });
+  renderKakaoStatus();
+}
+
+// ---------------------------------------------------------------------------
 // [필수] 네이버 로그인 확인: 로그인이 풀려 있으면 수집을 시작하지 않고,
 // 빨간 전체 화면 경고 + 긴급 사이렌으로 로그인을 먼저 하라고 알린다. 로그인되면 바로 이어서 시작.
 // ---------------------------------------------------------------------------
@@ -1260,9 +1352,13 @@ async function run() {
   // [필수] 네이버 로그인이 풀려 있으면 시작하지 않는다 - 경고·사이렌, 로그인되면 바로 시작
   if (!(await naverLoggedIn())) {
     $("#start").disabled = true;
+    kakaoNotify(`🚨 네이버 로그인이 풀려 작성자 확인을 시작하지 못했습니다 (${hhmm()})\n크롬에서 네이버에 로그인하면 바로 시작합니다.`);
     const ok = await naverLoginGate();
     updateCounts();
-    if (!ok) return setSummary("네이버 로그인이 풀려 있어 작성자 확인을 시작하지 않았습니다. 로그인한 뒤 다시 눌러 주세요.", "err");
+    if (!ok) {
+      kakaoNotify(`🚨 네이버 로그인을 하지 않아 작성자 확인을 취소했습니다 (${hhmm()})`);
+      return setSummary("네이버 로그인이 풀려 있어 작성자 확인을 시작하지 않았습니다. 로그인한 뒤 다시 눌러 주세요.", "err");
+    }
   }
   const fresh = items.filter((x) => x.state === "new");
   const before = fresh.length - targets.length;
@@ -1278,12 +1374,19 @@ async function run() {
   let pass = 0;
   let removed = 0;
   let errors = 0;
+  const startedAt = new Date();
+  kakaoNotify(
+    `🚀 작성자 확인 시작\n${hhmm(startedAt)} 시작 · 새 글 ${fresh.length}개${before ? ` (이어서 · 남은 ${targets.length}개)` : ""}` +
+      (listName ? `\n${listName.replace(/^[0-9a-f]{8}-/, "")}` : ""),
+  );
+  let crashed = null;
   try {
     for (let i = 0; i < targets.length; i++) {
       if (stopRequested) break;
       // 도중에 로그인이 풀리면 멈추고 같은 경고 - 로그인되면 이 글부터 이어서
       if (!(await naverLoggedIn())) {
         log("  네이버 로그인이 풀려 멈췄습니다 - 로그인하면 이어서 확인합니다");
+        kakaoNotify(`🚨 작성자 확인 도중 네이버 로그인이 풀려 멈췄습니다 (${hhmm()})\n${before + i}/${fresh.length}개 확인 · 로그인하면 이어서 확인합니다.`);
         if (!(await naverLoginGate({ reason: "작성자 확인 도중 네이버 로그인이 풀렸습니다." }))) {
           stopRequested = true;
           break;
@@ -1339,6 +1442,9 @@ async function run() {
       setBusy(before + i + 1, fresh.length, `${x.cafe} · ${x.title}`);
       if (i < targets.length - 1 && !stopRequested) await sleep(randomBetween(CAFE_ARTICLE_DELAY));
     }
+  } catch (e) {
+    crashed = e;
+    log(`오류로 멈췄습니다: ${e.message || e}`);
   } finally {
     for (const x of items) if (x.status === "run") x.status = "";
     running = false;
@@ -1350,6 +1456,18 @@ async function run() {
     persist();
   }
   const left = pendingItems().length;
+  const mins = Math.max(1, Math.round((Date.now() - startedAt.getTime()) / 60000));
+  const counts = `확인 ${ok} · 패스 ${pass} · 삭제 ${removed}` + (errors ? ` · 오류 ${errors}` : "");
+  if (crashed) {
+    kakaoNotify(`❌ 작성자 확인이 오류로 멈췄습니다 (${hhmm()})\n${String(crashed.message || crashed).slice(0, 100)}\n남은 ${left}개는 '이어서 진행'으로 확인`);
+    setSummary(`오류로 멈췄습니다: ${crashed.message || crashed}. 남은 ${left}개는 '이어서 진행'을 누르면 거기서부터 확인합니다.`, "err");
+    return;
+  }
+  kakaoNotify(
+    stopRequested
+      ? `⏹ 작성자 확인 중지됨\n${hhmm()} 중지 · ${mins}분\n${counts}\n남은 ${left}개는 '이어서 진행'으로 확인`
+      : `✅ 작성자 확인 끝\n${hhmm()} 끝 · ${mins}분\n${counts}` + (left ? `\n남은 ${left}개` : "\n[엑셀 받기]를 눌러 저장하세요"),
+  );
   // 중지하지 않고 끝까지 마쳤으면: 받기 버튼 축하 효과 + 딩동댕
   if (!stopRequested) {
     celebrate();
@@ -1840,6 +1958,7 @@ async function init() {
   $("#pickSaveFolder").addEventListener("click", pickSaveFolder);
   $("#clearSaveFolder").addEventListener("click", () => setSaveFolder(null));
   await loadSaveFolder();
+  await initKakao();
   for (const id of ["dbQuery", "dbFrom", "dbTo"]) $(`#${id}`).addEventListener("input", renderDb);
   $("#dbExport").addEventListener("click", async () => {
     await prepareSave();
