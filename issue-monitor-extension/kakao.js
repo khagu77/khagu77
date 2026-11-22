@@ -27,7 +27,9 @@ const Kakao = (() => {
   // 로그인 주소를 먼저 불러 보아 카카오 설정 오류(KOE…)면 그 이유를 돌려준다 (정상이면 "")
   async function precheck(url) {
     try {
-      const r = await fetch(url, { credentials: "omit" });
+      // 정상이면 카카오가 로그인 화면으로 넘기므로 따라가지 않는다 (따라가면 크롬 '오류'에 CORS 경고가 남음)
+      const r = await fetch(url, { credentials: "omit", redirect: "manual" });
+      if (r.type === "opaqueredirect" || (r.status >= 300 && r.status < 400)) return "";
       const t = await r.text();
       const m = t.match(/KOE\d{3}/);
       if (m) return `카카오 설정 오류 ${m[0]}: ${KOE[m[0]] || "카카오 개발자 사이트 설정을 확인해 주세요"}`;
