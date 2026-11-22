@@ -967,6 +967,8 @@ async function start(resume = null) {
 async function run(state) {
   const { urls } = state;
   stopRequested = false;
+  const kakaoStarted = Date.now();
+  kakaoNotify([`🚀 ${AUTO_MODE ? "자동 " : ""}댓글 수집 시작`, `${kakaoHM()} 시작`, `글·영상 ${urls.length - (state.done || 0)}개`], { auto: AUTO_MODE });
   markRunning(true);
   readyButton($("#download"), false); // 새로 수집하는 동안은 받기 효과를 끔
   $("#start").disabled = true;
@@ -1089,6 +1091,16 @@ async function run(state) {
     $("#summary").textContent = $("#summary").textContent.replace(" '📥 댓글 엑셀 받기'를 눌러 받으세요.", " 바로 저장했습니다.");
   } else if (lastWorkbook && !stopRequested) readyButton($("#download"), true);
   playChime();
+  {
+    const failedN = results.filter((r) => r.error).length;
+    const sum = $("#summary").textContent;
+    kakaoNotify([
+      stopRequested ? `⏹ ${AUTO_MODE ? "자동 " : ""}댓글 수집 중지됨` : `✅ ${AUTO_MODE ? "자동 " : ""}댓글 수집 끝`,
+      `${kakaoHM()} 끝 · ${Math.max(1, Math.round((Date.now() - kakaoStarted) / 60000))}분`,
+      `글·영상 ${results.length}개${failedN ? ` · 실패 ${failedN}개` : ""}`,
+      /엑셀 저장 실패/.test(sum) ? "⚠ 엑셀 저장 실패 — PC 확인" : savedTo ? "엑셀 저장 완료" : "엑셀 준비 완료 — [댓글 엑셀 받기]를 눌러 주세요",
+    ], { auto: AUTO_MODE });
+  }
   if (AUTO_MODE) {
     const failedN = results.filter((r) => r.error).length;
     autoDone(!stopRequested && !failedN, `${await autoPostsText()} · ${$("#summary").textContent}${failedN ? " · 실패한 글은 화면의 '다시 수집'으로" : ""}`);

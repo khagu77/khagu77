@@ -642,6 +642,13 @@ async function search(resume = null) {
   running = true;
   markRunning(true);
   stopRequested = false;
+  const kakaoStarted = Date.now();
+  const kakaoLabel = AUTO_MODE ? "자동 수집" : "게시물 찾기";
+  if (!resume?.retry)
+    kakaoNotify([
+      `🚀 ${kakaoLabel} 시작`, `${kakaoHM()} 시작`, `기간 ${kakaoMD(win.from)} ~ ${kakaoMD(win.to)}`,
+      `동호회 ${ids.length}곳 · 언론 검색어 ${queries.length}개 · 커뮤니티 ${boards.length}곳`,
+    ], { auto: AUTO_MODE });
   $("#search").disabled = true;
   $("#stop").disabled = false;
   $("#log").innerHTML = "";
@@ -983,6 +990,13 @@ async function search(resume = null) {
       `. 필요 없는 글을 지운 뒤 '엑셀 받기'를 누르세요.`,
     loginNeeded ? "err" : "ok",
   );
+  kakaoNotify([
+    stopRequested ? `⏹ ${kakaoLabel} 중지됨` : `✅ ${kakaoLabel} 끝 (게시물 찾기)`,
+    `${kakaoHM()} 끝 · ${Math.max(1, Math.round((Date.now() - kakaoStarted) / 60000))}분`,
+    `찾은 글 ${items.length}건 · 관련 글 체크 ${checked}건`,
+    loginNeeded ? "⚠ 로그인이 필요한 카페가 있음 — PC 확인" : "",
+    "결과 확인 후 엑셀 저장·댓글 수집을 해 주세요",
+  ], { auto: AUTO_MODE });
   running = false;
   markRunning(false);
   hideBusy();
@@ -1666,6 +1680,7 @@ async function init() {
   });
   setupSaveSettings();
   setupDaily();
+  setupKakao();
   $("#toComments").addEventListener("click", () => toComments()); // 클릭 정보가 '자동 수집' 자리에 들어가지 않게
   $("#withYoutube").addEventListener("change", updateCounts);
   $("#ytAdd").addEventListener("click", addYoutube);
@@ -1771,6 +1786,7 @@ async function runAuto(resume) {
       await search();
     }
   } catch (e) {
+    kakaoNotify([`❌ 자동 수집이 오류로 멈췄습니다 (${kakaoHM()})`, String(e.message || e).slice(0, 100)], { auto: true });
     return fail(`게시물 찾기 중 오류가 났습니다 (${e.message})`);
   }
   if (loginCancelled) return fail("네이버 로그인이 안 돼 게시물 찾기를 시작하지 못했습니다. 로그인한 뒤 '찾기'를 눌러 주세요.");

@@ -241,3 +241,10 @@ h2.dbtitle .dbsub { font-size: 14px; font-weight: 600; opacity: 0.85; }
 .login-alarm .la-status { margin: 12px 0 0; font-size: 13px; font-weight: 700; color: #c5221f; min-height: 18px; }
 .login-alarm.ok .la-status { color: #11753d; }
 @media (prefers-reduced-motion: reduce) { .login-alarm, .login-alarm .la-card, .login-alarm .la-icon { animation: none; } .login-alarm { background: rgba(180, 0, 0, 0.9); } }
+
+/* 카카오톡 알림 설정 */
+.kakao-box { margin: 10px 0; padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 10px; }
+.kakao-badge { display: inline-flex; align-items: center; gap: 6px; background: #FEE500; color: #000; font-weight: 800; border-radius: 8px; padding: 3px 10px; }
+.kakao-badge svg { width: 18px; height: 18px; }
+#kakaoRedirect { font-size: 12px; background: #f3f4f6; padding: 2px 6px; border-radius: 4px; word-break: break-all; }
+.kakao-help ol { margin: 6px 0 0 18px; padding: 0; }

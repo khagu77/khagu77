@@ -508,10 +508,10 @@ def test_lx3(tmp_path: Path):
         assert page.input_value("#from").endswith("T09:00")
         assert page.evaluate("toLocalInput(defaultRange(new Date('2026-10-19T09:00')).from)") == "2026-10-16T09:00"
         assert "직전 근무일 오전 9시 ~ 오늘 오전 10:15" in page.inner_text("#baseText")
-        page.locator("#settings summary").click()
+        page.locator("#settings > summary").click()
         page.click("#resetSettings")  # 설정 처음 값으로 → 기본 시각도 오전 11:30
         assert page.input_value("#to") == now.strftime("%Y-%m-%dT11:30")
-        page.locator("#settings summary").click()
+        page.locator("#settings > summary").click()
         assert len(page.input_value("#cafeList").split("\n")) == 12 and "16624720" in page.input_value("#cafeList")
 
         # 유튜브 목록: 기본 21개 · 추가 · 삭제 · 기본으로 되돌리기
@@ -527,7 +527,7 @@ def test_lx3(tmp_path: Path):
         assert page.locator("#ytList li a").all_inner_texts() == ["https://www.youtube.com/watch?v=abcdefghijk"]
 
         # 테스트용 동호회 두 곳, 기간 2026-10-11 12:00 ~ 2026-10-12 12:00
-        page.locator("#settings summary").click()
+        page.locator("#settings > summary").click()
         page.fill("#cafeList", "https://cafe.naver.com/f-e/cafes/111/menus/0\nhttps://cafe.naver.com/f-e/cafes/222/menus/0")
         page.locator("#cafeList").dispatch_event("change")
         page.fill("#from", "2026-10-11T12:00")
@@ -617,7 +617,7 @@ def test_lx3(tmp_path: Path):
         page.locator("#listFileInfo", has_text="✔").wait_for()
         assert "이미 파일에 있음" in rows.nth(3).inner_text() and not rows.nth(3).locator("input").is_checked()
         rows.nth(0).locator("button.del").click()  # 필요 없는 글 삭제
-        page.locator("#settings summary").click()
+        page.locator("#settings > summary").click()
         page.fill("#saveFolder", "팰리세이드 모니터링/../일일보고")
         page.locator("#saveFolder").dispatch_event("change")
         assert page.input_value("#saveFolder") == "팰리세이드 모니터링/일일보고"
@@ -1232,7 +1232,7 @@ def test_lx3_news_community(tmp_path: Path):
         assert not page.evaluate("matchesCombo('팰리세이드 타이어', '팰리세이드', '시트, 결함')")
 
         # 언론·커뮤니티만, 검색어는 짧게 (메인 1 × 서브 2)
-        page.locator("#settings summary").click()
+        page.locator("#settings > summary").click()
         page.uncheck("#chCafe")
         page.fill("#mainKw", "팰리세이드, 펠리세이드, 싼타페")
         page.locator("#mainKw").dispatch_event("change")
@@ -1428,7 +1428,7 @@ def test_lx3_auto(tmp_path: Path):
         page0.goto(f"{ext}/lx3.html")
         page0.evaluate("lx3Init")
         assert [page0.is_checked(f"#autoDays input[data-day='{d}']") for d in range(7)] == [False, True, True, True, True, True, False]
-        page0.locator("#settings summary").click()
+        page0.locator("#settings > summary").click()
         page0.check("#autoDays input[data-day='6']")
         page0.check("#autoHolidays")
         page0.wait_for_function("chrome.storage.local.get('lx3Auto').then((s) => s.lx3Auto && s.lx3Auto.holidays)")
@@ -1873,4 +1873,49 @@ def test_naver_login_gate(tmp_path: Path):
         page.click("#loginAlarm .la-cancel")
         page.locator("#summary", has_text="시작하지 않았습니다").wait_for()
         assert page.evaluate("typeof naverLoginGate") == "function"
+        ctx.close()
+
+
+def test_kakao_notify(tmp_path: Path):
+    """카카오톡 알림: 머리말 '[💺 LX3 전동 시트 관련 💺]' 다음 줄부터 내용이 한 줄씩. 켜야만 보내고,
+    직접 시작한 수집은 '직접 … 알림'을 켰을 때만. 설정 화면에 리다이렉트 URI · 연결 상태."""
+    sent = []
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True, timezone_id="Asia/Seoul",
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}"])
+        ctx.route("https://kapi.kakao.com/**", lambda route: (sent.append(route.request.post_data or ""), route.fulfill(
+            status=200, content_type="application/json", body='{"result_code":0}')))
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        ext = f"chrome-extension://{sw.url.split('/')[2]}"
+        page = ctx.new_page()
+        page.goto(f"{ext}/lx3.html")
+        page.evaluate("lx3Init")
+        page.locator("#settings > summary").click()
+        page.locator("#kakaoStatus", has_text="연결 안 됨").wait_for()
+        assert "chromiumapp.org/kakao" in page.inner_text("#kakaoRedirect")
+        # 연결된 상태로 (토큰 유효)
+        page.evaluate("""chrome.storage.local.set({ kakaoRestKey: 'k', kakaoSecret: 's',
+          kakaoAuth: { access: 'tok', accessExp: Date.now() + 3600000, refresh: 'r', refreshExp: Date.now() + 30 * 86400000, at: Date.now() } })""")
+        page.evaluate("kakaoNotify(['🚀 자동 수집 시작', '11:30 시작'], { auto: true })")
+        assert sent == []  # 알림을 켜지 않으면 보내지 않음
+        page.evaluate("chrome.storage.local.set({ kakaoOn: true })")
+        page.evaluate("kakaoNotify(['🚀 자동 수집 시작', '11:30 시작', '', '기간 11/13 11:30 ~ 11/16 11:30'], { auto: true })")
+        page.evaluate("kakaoNotify(['직접 찾기'], { auto: false })")  # 직접 시작한 수집은 따로 켜야
+        assert len(sent) == 1, sent
+        from urllib.parse import parse_qs
+        tpl = json.loads(parse_qs(sent[0])["template_object"][0])
+        assert tpl["text"] == "[💺 LX3 전동 시트 관련 💺]\n🚀 자동 수집 시작\n11:30 시작\n기간 11/13 11:30 ~ 11/16 11:30", tpl
+        page.evaluate("chrome.storage.local.set({ kakaoManual: true })")
+        page.evaluate("kakaoNotify(['직접 찾기'], { auto: false })")
+        assert len(sent) == 2
+        # 테스트 알림 버튼
+        page.reload()
+        page.evaluate("lx3Init")
+        page.locator("#settings > summary").click()
+        page.locator("#kakaoStatus", has_text="✓ 연결됨").wait_for()
+        page.click("#kakaoTest")
+        page.locator("#kakaoInfo", has_text="테스트 알림을 보냈습니다").wait_for()
+        tpl = json.loads(parse_qs(sent[-1])["template_object"][0])
+        assert tpl["text"].startswith("[💺 LX3 전동 시트 관련 💺]\n📨 테스트 알림 ("), tpl
         ctx.close()

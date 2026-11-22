@@ -86,6 +86,9 @@ function naverLoginGate({ auto = false, reason = "" } = {}) {
     document.body.append(box);
     const status = box.querySelector(".la-status");
     sirenStart();
+    const kakao = (lines) => (typeof kakaoNotify === "function" ? kakaoNotify(lines, { auto }) : null);
+    const hm = () => new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false });
+    kakao(["🚨 네이버 로그인이 풀려 있습니다", `${hm()} 수집을 시작하지 못하고 기다리는 중`, "PC에서 네이버에 로그인해 주세요", "(로그인되면 바로 시작)"]);
     if (auto) {
       chrome.notifications
         .create(`naverLogin-${Date.now()}`, {
@@ -104,7 +107,10 @@ function naverLoginGate({ auto = false, reason = "" } = {}) {
         status.textContent = "✅ 네이버 로그인 확인! 수집을 시작합니다.";
         box.classList.add("ok");
         setTimeout(() => box.remove(), 1200);
-      } else box.remove();
+      } else {
+        box.remove();
+        kakao(["🚨 네이버 로그인이 안 돼 수집하지 않았습니다", `${hm()} ${auto && Date.now() - started > 3 * 3600000 ? "3시간 기다리다 포기" : "수집 취소"}`]);
+      }
       refreshLoginBadge();
       resolve(ok);
     };
