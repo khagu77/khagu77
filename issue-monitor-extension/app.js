@@ -78,6 +78,83 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// 카카오톡 알림 (담당자 요청 2026-11-22): 자동 수집 시작·끝·오류·네이버 로그인 풀림을 '나와의 채팅'으로
+// 실패해도 수집은 그대로 (로그만 남김)
+// ---------------------------------------------------------------------------
+async function kakaoNotify(text) {
+  const s = state.settings || {};
+  if (!s.kakaoOn || !s.kakaoRestKey || typeof Kakao === "undefined") return;
+  if (!AUTO && !s.kakaoManual) return;
+  try {
+    await Kakao.send(`[오전 일일동향] ${text}`, s);
+  } catch (e) {
+    log(`카카오톡 알림을 보내지 못했습니다: ${e.message || e}`, "err");
+  }
+}
+const kakaoHm = (d = new Date()) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+async function renderKakaoStatus() {
+  if (typeof Kakao === "undefined") return;
+  $("#kakaoRedirect").textContent = Kakao.redirectUri() || "(확장 프로그램을 새로고침해 주세요)";
+  const a = await Kakao.status().catch(() => null);
+  const el2 = $("#kakaoStatus");
+  if (!a) {
+    el2.textContent = "연결 안 됨";
+    el2.className = "hint err";
+  } else {
+    const exp = a.refreshExp ? new Date(a.refreshExp) : null;
+    el2.textContent = `✓ 연결됨${exp ? ` (연결 유효 ~${exp.getFullYear()}-${pad2(exp.getMonth() + 1)}-${pad2(exp.getDate())}, 알림을 보내면 자동 연장)` : ""}`;
+    el2.className = "hint ok";
+  }
+}
+async function kakaoSaveKeys() {
+  const key = $("#kakaoRestKey").value.trim();
+  const secret = $("#kakaoSecret").value.trim();
+  // 연결·테스트에 쓴 키는 바로 저장 (다른 설정은 [설정 저장] 전까지 그대로)
+  const s = await loadSettings();
+  s.kakaoRestKey = key;
+  s.kakaoSecret = secret;
+  await saveSettings(s);
+  for (const t of [state.settings, draft]) if (t) Object.assign(t, { kakaoRestKey: key, kakaoSecret: secret });
+  return { key, secret };
+}
+$("#kakaoCopy")?.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText($("#kakaoRedirect").textContent);
+    $("#kakaoStatus").textContent = "리다이렉트 URI 를 복사했습니다";
+  } catch {}
+});
+$("#kakaoConnect")?.addEventListener("click", async () => {
+  const st = $("#kakaoStatus");
+  try {
+    const { key, secret } = await kakaoSaveKeys();
+    st.textContent = "카카오 로그인 창에서 로그인·동의해 주세요…";
+    st.className = "hint";
+    await Kakao.connect(key, secret);
+    await renderKakaoStatus();
+  } catch (e) {
+    st.textContent = e.message || String(e);
+    st.className = "hint err";
+  }
+});
+$("#kakaoTest")?.addEventListener("click", async () => {
+  const st = $("#kakaoStatus");
+  try {
+    const { key, secret } = await kakaoSaveKeys();
+    st.textContent = "보내는 중…";
+    await Kakao.send(`[오전 일일동향] 📨 테스트 알림 (${kakaoHm()})\n자동 수집이 시작·끝나면 이렇게 알려 드립니다.`, { kakaoRestKey: key, kakaoSecret: secret });
+    await renderKakaoStatus();
+    st.textContent = `${st.textContent} · 📨 테스트 알림을 보냈습니다. 카카오톡 '나와의 채팅'을 확인해 주세요`;
+  } catch (e) {
+    st.textContent = e.message || String(e);
+    st.className = "hint err";
+  }
+});
+$("#kakaoDisconnect")?.addEventListener("click", async () => {
+  await Kakao.disconnect();
+  await renderKakaoStatus();
+});
+
 async function runGuard(on) {
   try {
     if (on) chrome.power && chrome.power.requestKeepAwake("system");
@@ -338,6 +415,7 @@ function naverLoginGate({ auto = false, reason = "" } = {}) {
       chrome.notifications
         .create(`naverLogin-${Date.now()}`, { type: "basic", iconUrl: "icons/icon128.png", title: "🚨 네이버 로그인이 풀려 있습니다", message: "자동 수집을 시작하지 못했습니다. 크롬에서 네이버에 로그인해 주세요. 로그인되면 바로 수집합니다.", priority: 2, requireInteraction: true })
         .catch(() => {});
+      kakaoNotify(`🚨 네이버 로그인이 풀려 있어 자동 수집을 시작하지 못했습니다 (${kakaoHm()})\nPC 크롬에서 네이버에 로그인하면 바로 수집합니다 (최대 3시간 대기)`);
     }
     const started = Date.now();
     let poll = null;
@@ -357,6 +435,7 @@ function naverLoginGate({ auto = false, reason = "" } = {}) {
       if (byUser) status.textContent = `아직 로그인되지 않았습니다 (${new Date().toLocaleTimeString("ko-KR")} 확인). 로그인 창에서 로그인한 뒤 다시 눌러 주세요.`;
       if (auto && Date.now() - started > 3 * 3600000) {
         log("네이버 로그인을 3시간 기다렸지만 로그인되지 않아 자동 수집을 시작하지 않았습니다", "err");
+        kakaoNotify("❌ 네이버 로그인을 3시간 기다렸지만 로그인되지 않아 오늘 자동 수집을 하지 않았습니다");
         finish(false);
       }
     };
@@ -3279,6 +3358,7 @@ async function runCollection() {
   log(`v${chrome.runtime.getManifest().version} 수집 시작: ${fmtDateTime(range.start)} ~ ${fmtDateTime(range.end)}, 카페 ${cafes.length}곳, 커뮤니티 ${communities.length}곳, ${useAi ? `AI(${settings.model})` : "키워드 모드"}`);
   if (baseMsg) log(baseMsg);
   setSummary("수집 중…");
+  kakaoNotify(`🚀 ${AUTO ? "자동 " : ""}수집 시작${resume ? " (멈춘 곳부터 이어서)" : ""}\n${kakaoHm(new Date(startedAt))} 시작 · 기간 ${fmtDateTime(range.start)} ~ ${fmtDateTime(range.end)}\n카페 ${cafes.length}곳 · 커뮤니티 ${communities.length}곳${settings.collectMode === "solo" ? " · 1인용" : ""}`);
 
   const delays = DELAYS[settings.speed] || DELAYS.normal;
   const ai = useAi ? new AiClassifier(settings, log) : null;
@@ -3459,6 +3539,7 @@ async function runCollection() {
       // 휴일: 수집만 해 두고 다음 근무일 아침 보고서에 합친다
       log(`오늘은 ${off} → 엑셀은 받지 않고 데일리 DB 에 저장했습니다. 다음 근무일 아침 보고서에 합쳐집니다.`);
       chrome.runtime.sendMessage({ type: "autoRunDone", count: state.rows.length, holiday: off }).catch(() => {});
+      kakaoNotify(`${state.stopRequested ? "⏹ 휴일 수집 중지됨" : "✅ 휴일 수집 끝"} (${off})\n${kakaoHm(new Date(finishedAt))} 끝 · ${mins}분 · 부정 이슈 ${state.rows.length}건\n다음 근무일 아침 보고서에 합쳐집니다${state.naverBlocked ? `\n⚠ ${state.naverBlocked}` : ""}`);
     } else {
       let where = "";
       try {
@@ -3472,8 +3553,11 @@ async function runCollection() {
         log(`엑셀 저장 실패: ${e.message}`, "err");
       }
       chrome.runtime.sendMessage({ type: "autoRunDone", count: state.rows.length, blocked: state.naverBlocked, where }).catch(() => {});
+      kakaoNotify(`${state.stopRequested ? "⏹ 자동 수집 중지됨" : "✅ 자동 수집 끝"}\n${kakaoHm(new Date(finishedAt))} 끝 · ${mins}분\n부정 이슈 ${state.rows.length}건 · 보고 필요 ${state.rows.filter((r) => r.report).length}건\n${where ? "엑셀 저장 완료" : "⚠ 엑셀 저장 실패 — PC 확인"}${state.naverBlocked ? `\n⚠ ${state.naverBlocked}` : ""}`);
       if (where) savedAlert(where, true);
     }
+  } else {
+    kakaoNotify(`${state.stopRequested ? "⏹ 수집 중지됨" : "✅ 수집 끝"}\n${kakaoHm(new Date(finishedAt))} 끝 · ${mins}분\n부정 이슈 ${state.rows.length}건 · 보고 필요 ${state.rows.filter((r) => r.report).length}건${state.naverBlocked ? `\n⚠ ${state.naverBlocked}` : ""}`);
   }
 }
 
@@ -3481,6 +3565,7 @@ $("#resumeRun").addEventListener("click", () => {
   $("#resumeBox").hidden = true;
   resumeCollection().catch((e) => {
     log(`오류: ${e.message}`, "err");
+    kakaoNotify(`❌ 수집이 오류로 멈췄습니다 (${kakaoHm()})\n${String(e.message || e).slice(0, 100)}\nPC 에서 [이어서 수집] 해 주세요`);
     state.running = false;
     runGuard(false);
     $("#start").disabled = false;
@@ -3501,6 +3586,7 @@ $("#start").addEventListener("click", () => {
   }
   runCollection().catch((e) => {
     log(`오류: ${e.message}`, "err");
+    kakaoNotify(`❌ 수집이 오류로 멈췄습니다 (${kakaoHm()})\n${String(e.message || e).slice(0, 100)}\nPC 에서 [이어서 수집] 해 주세요`);
     state.running = false;
     runGuard(false);
     $("#start").disabled = false;
@@ -3727,6 +3813,11 @@ function renderSettings() {
   for (const m of MODELS) sel.append(el("option", { value: m.id, text: `${m.label} — 100만 토큰당 입력 $${m.price[0]} / 출력 $${m.price[1]}`, selected: m.id === s.model }));
   $("#autoRun").checked = !!s.autoRun;
   $("#autoRunTime").value = s.autoRunTime || "06:00";
+  $("#kakaoOn").checked = !!s.kakaoOn;
+  $("#kakaoManual").checked = !!s.kakaoManual;
+  $("#kakaoRestKey").value = s.kakaoRestKey || "";
+  $("#kakaoSecret").value = s.kakaoSecret || "";
+  renderKakaoStatus();
   $("#cutoffTime").value = s.cutoffTime || "07:30";
   $("#rangeStartTime").value = s.rangeStartTime || s.cutoffTime || "07:30";
   $("#workdayReport").checked = s.workdayReport !== false;
@@ -3875,6 +3966,10 @@ function readSettingsForm() {
   draft.model = $("#model").value;
   draft.autoRun = $("#autoRun").checked;
   draft.autoRunTime = $("#autoRunTime").value || "06:00";
+  draft.kakaoOn = $("#kakaoOn").checked;
+  draft.kakaoManual = $("#kakaoManual").checked;
+  draft.kakaoRestKey = $("#kakaoRestKey").value.trim();
+  draft.kakaoSecret = $("#kakaoSecret").value.trim();
   draft.cutoffTime = $("#cutoffTime").value || "07:30";
   draft.rangeStartTime = $("#rangeStartTime").value || draft.cutoffTime;
   draft.workdayReport = $("#workdayReport").checked;
@@ -4117,7 +4212,10 @@ setInterval(() => markMonthlyDue(), 10 * 60 * 1000); // 날짜가 바뀌어도 �
     // 자동 수집이 중간에 멈췄던 경우: 처음부터 다시 하지 않고 남은 곳만 이어서
     log("지난 자동 수집이 중간에 멈춰서, 끝난 곳은 건너뛰고 남은 곳만 이어서 수집합니다");
     await sleep(3000);
-    resumeCollection().catch((e) => log(`오류: ${e.message}`, "err"));
+    resumeCollection().catch((e) => {
+      log(`오류: ${e.message}`, "err");
+      kakaoNotify(`❌ 자동 수집(이어하기)이 오류로 멈췄습니다 (${kakaoHm()})\n${String(e.message || e).slice(0, 100)}`);
+    });
   } else if (AUTO) {
     // 끝: 오늘 기준 시각(07:30)이 지났으면 그 시각, 아니면 지금 (기간을 07:30 ~ 07:30 으로 맞춤)
     const now = new Date();

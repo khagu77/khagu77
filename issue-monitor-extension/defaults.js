@@ -353,6 +353,10 @@ const DEFAULT_SETTINGS = {
   model: "claude-opus-5-5",
   autoRun: true,
   autoRunTime: "06:00",
+  kakaoOn: false, // 카카오톡 '나에게 보내기' 알림 (자동 수집 시작·끝·오류·네이버 로그인 풀림)
+  kakaoManual: false, // 직접 [수집 시작]한 수집도 알림
+  kakaoRestKey: "", // 담당자 카카오 개발자 앱 REST API 키 (이 PC 크롬에만 저장)
+  kakaoSecret: "", // 클라이언트 시크릿
   rangeStartTime: "07:30", // 수집 기간 기본값: 전일 이 시각부터
   cutoffTime: "07:30", // 금일 이 시각까지
   speed: "normal", // normal | slow
