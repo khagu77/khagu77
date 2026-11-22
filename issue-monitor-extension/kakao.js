@@ -17,6 +17,24 @@ const Kakao = (() => {
       : "";
     return `카카오 오류 ${code}${msg ? `: ${msg}` : ""}${hint}`;
   };
+  const KOE = {
+    KOE006: "리다이렉트 URI 가 등록되지 않았습니다. 설정 화면의 리다이렉트 URI 를 [복사]해 카카오 [플랫폼 키] → [REST API 키] → 리다이렉트 URI 에 그대로 등록해 주세요 (끝에 /kakao 까지)",
+    KOE101: "REST API 키가 맞지 않습니다. [플랫폼 키] → [REST API 키]의 키를 다시 복사해 넣어 주세요 (JavaScript 키·네이티브 앱 키가 아님)",
+    KOE004: "카카오 로그인이 꺼져 있습니다. [카카오 로그인] → 사용 설정을 ON 으로 바꿔 주세요",
+    KOE205: "'카카오톡 메시지 전송' 동의항목이 설정되지 않았습니다. [카카오 로그인] → [동의항목]에서 카카오톡 메시지 전송을 '선택 동의'로 바꾸고 저장해 주세요",
+    KOE007: "앱 정보가 맞지 않습니다. REST API 키를 다시 확인해 주세요",
+  };
+  // 로그인 주소를 먼저 불러 보아 카카오 설정 오류(KOE…)면 그 이유를 돌려준다 (정상이면 "")
+  async function precheck(url) {
+    try {
+      const r = await fetch(url, { credentials: "omit" });
+      const t = await r.text();
+      const m = t.match(/KOE\d{3}/);
+      if (m) return `카카오 설정 오류 ${m[0]}: ${KOE[m[0]] || "카카오 개발자 사이트 설정을 확인해 주세요"}`;
+      if (!r.ok) return `카카오 로그인 화면을 불러오지 못했습니다 (HTTP ${r.status}). 리다이렉트 URI 등록·REST API 키·동의항목을 확인해 주세요`;
+    } catch {}
+    return "";
+  }
   async function tokenReq(params) {
     const r = await fetch("https://kauth.kakao.com/oauth/token", {
       method: "POST",
@@ -43,11 +61,18 @@ const Kakao = (() => {
     if (!key) throw new Error("REST API 키를 넣어 주세요");
     if (!chrome.identity) throw new Error("확장 프로그램을 새로고침한 뒤 다시 해 주세요 (카카오 로그인 권한)");
     const url = `https://kauth.kakao.com/oauth/authorize?${new URLSearchParams({ client_id: key, redirect_uri: redirectUri(), response_type: "code", scope: "talk_message" })}`;
+    // 먼저 카카오가 설정 오류 화면(KOE…)을 주는지 확인 (그러면 크롬이 로그인 창을 못 띄워 이유가 가려짐)
+    const pre = await precheck(url);
+    if (pre) throw new Error(pre);
     let back;
     try {
       back = await chrome.identity.launchWebAuthFlow({ url, interactive: true });
     } catch (e) {
-      throw new Error(`카카오 로그인 창이 닫혔거나 열리지 않았습니다 (${e.message || e}). 리다이렉트 URI 등록·REST API 키를 확인해 주세요.`);
+      // 카카오 화면을 새 탭으로 열어 실제 오류(KOE 번호)를 눈으로 볼 수 있게
+      try {
+        chrome.tabs.create({ url });
+      } catch {}
+      throw new Error(`카카오 로그인 창이 열리지 않았습니다 (${e.message || e}). 새 탭에 카카오 화면을 열었으니 오류 번호(KOE…)를 확인해 주세요. 흔한 원인: 리다이렉트 URI 미등록(KOE006) · 카카오톡 메시지 전송 동의항목 미설정(KOE205) · 카카오 로그인 OFF(KOE004) · REST API 키 오류(KOE101)`);
     }
     const u = new URL(back);
     const code = u.searchParams.get("code");
