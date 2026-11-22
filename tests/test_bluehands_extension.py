@@ -268,7 +268,7 @@ def test_bluehands(tmp_path: Path):
             page.locator("#kakaoStatus", has_text="테스트 알림을 보냈습니다").wait_for(timeout=10000)
         except Exception:
             raise AssertionError(page.inner_text("#kakaoStatus"))
-        assert kakao_msgs[-1].startswith("[🧑🏻‍🔧 블루핸즈 정비 예약 🛠️]\n📨 테스트 알림 (")
+        assert kakao_msgs[-1].startswith("[🧑🏻‍🔧 블루핸즈 정비 예약 🛠️]\n\n📨 테스트 알림 (")
         pages_before = len(ctx.pages)
         # [필수] 네이버 로그인이 풀려 있으면 시작하지 않는다: 빨간 경고·사이렌, 로그인되면 몇 초 안에 시작
         page.evaluate("""() => { window.__sirens = 0; const orig = sirenOnce; sirenOnce = () => { window.__sirens++; orig(); }; }""")
@@ -302,9 +302,9 @@ def test_bluehands(tmp_path: Path):
         assert rows.nth(2).locator("td").nth(6).inner_text() == "✔ 확인"
         page.click("#resume")
         page.locator("#summary", has_text="작성자 확인을 마쳤습니다").wait_for(timeout=300000)
-        # 카카오톡 알림: 로그인 풀림 → 시작 → (새로고침 뒤 이어서) 시작 → 끝, 모두 머리말 다음 줄부터 내용
-        heads = [m.split("\n")[1] for m in kakao_msgs]
-        assert all(m.startswith("[🧑🏻‍🔧 블루핸즈 정비 예약 🛠️]\n") for m in kakao_msgs), kakao_msgs
+        # 카카오톡 알림: 로그인 풀림 → 시작 → (새로고침 뒤 이어서) 시작 → 끝, 모두 머리말 아래 한 줄 띄우고 내용
+        heads = [m.split("\n")[2] for m in kakao_msgs]
+        assert all(m.startswith("[🧑🏻‍🔧 블루핸즈 정비 예약 🛠️]\n\n") for m in kakao_msgs), kakao_msgs
         assert heads[1].startswith("🚨 네이버 로그인이 풀려 작성자 확인을 시작하지 못했습니다"), heads
         assert heads[2] == "🚀 작성자 확인 시작" and heads[-1] == "✅ 작성자 확인 끝", heads
         assert "확인 2 · 패스 1 · 삭제 2" in kakao_msgs[-1] and "[엑셀 받기]를 눌러 저장하세요" in kakao_msgs[-1]

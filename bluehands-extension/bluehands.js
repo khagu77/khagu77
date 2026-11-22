@@ -992,9 +992,9 @@ async function saveKakaoSettings() {
   await chrome.storage.local.set(kakaoSettings()).catch(() => {});
 }
 
-// 머리말 다음 줄부터 내용 (카카오 글자 수 200자 안)
+// 머리말 아래 한 줄 띄우고 내용 (카카오 글자 수 200자 안)
 function kakaoText(text) {
-  return `${KAKAO_HEAD}\n${text}`;
+  return `${KAKAO_HEAD}\n\n${text}`;
 }
 
 async function kakaoNotify(text) {
