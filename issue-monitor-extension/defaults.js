@@ -341,11 +341,13 @@ const DEFAULT_TERMS = `크락션 > 클랙슨
 const DEFAULT_SOLO_CAFES = ["allfm01", "cafeclip", "ioniq9owners", "optimusex119", "nexocafe", "nexoguarantee", "fmsn98", "steamgunz", "hmckorea", "truckerking"];
 
 // '주요 내용' 칸을 노란색으로 칠할 집중 관리 항목
+// 노란색(집중 관리): 2열·3열 전동 시트의 리콜·기능 삭제·리콜 후 작동 불량·작동 중 사고/위험만 (담당자 지시 2026-11-23)
+const SEAT_HL_TOPIC = "2열·3열 전동 시트만: ①전동 시트 리콜(리콜 통지·일정·입고·조치 후기·대상 여부 문의·내용 공유, 해외 리콜 포함) ②리콜·업데이트로 시트 기능 삭제·제한 ③리콜 정비 후 작동 불량 ④작동 중 끼임 등 사고 발생 또는 사고 날 뻔한 위험 인지. 제외: 1열(운전석·조수석) 시트, 2열·3열이라도 단순·일시적 작동 불량, 시트 손상·오염·소음·열선·통풍 등";
 const DEFAULT_HIGHLIGHTS = [
-  { car: "LX3", topic: "전동 시트(2열·3열 포함) 관련 불만·고장·작동 오류·끼임 사고, 전동 시트 리콜 불만, 시트 관련 업데이트 의견" },
-  { car: "ME1", topic: "2열·3열 전동 시트 끼임, 시트가 멈추지 않음(끼임 방지 미작동), 전동 시트 관련 리콜(해외 리콜 포함) 불만·문의" },
-  { car: "MX5", topic: "2열·3열 전동 시트 끼임, 시트가 멈추지 않음(끼임 방지 미작동), 전동 시트 관련 리콜(해외 리콜 포함) 불만·문의" },
-  { car: "JX", topic: "2열·3열 전동 시트 끼임, 시트가 멈추지 않음(끼임 방지 미작동), 전동 시트 관련 리콜(해외 리콜 포함) 불만·문의 (JX PE 포함)" },
+  { car: "LX3", topic: SEAT_HL_TOPIC },
+  { car: "ME1", topic: SEAT_HL_TOPIC },
+  { car: "MX5", topic: SEAT_HL_TOPIC },
+  { car: "JX", topic: `${SEAT_HL_TOPIC} (JX PE 포함)` },
 ];
 
 const DEFAULT_SETTINGS = {
@@ -388,7 +390,7 @@ const MODELS = [
 ];
 
 // 예전 버전에서 저장한 설정에 새 기본값을 보태 준다
-const SETTINGS_VERSION = 17;
+const SETTINGS_VERSION = 18;
 function migrateSettings(s) {
   if ((s.settingsVersion || 1) < 2 && typeof s.keywords === "string") {
     const add = "출고 대기, 출고대기, 출고 기다, 검수 업체, 검수업체, 검수 대행, 검수대행, 광고, 홍보, 오일교환, 오일 교환".split(", ");
@@ -408,6 +410,13 @@ function migrateSettings(s) {
         const missing = add.filter((w) => !line.includes(w));
         return missing.length ? `${line}, ${missing.join(", ")}` : line;
       });
+    }
+  }
+  if ((s.settingsVersion || 1) < 18) {
+    // 노란색 기준 좁힘 (담당자 지시 2026-11-23): 저장된 '시트' 노란색 항목을 새 기준으로 바꿈 (다른 항목은 그대로)
+    for (const h of s.highlights || []) {
+      if (!/시트/.test(h.topic || "")) continue;
+      h.topic = String(h.car || "").startsWith("JX") ? `${SEAT_HL_TOPIC} (JX PE 포함)` : SEAT_HL_TOPIC;
     }
   }
   if ((s.settingsVersion || 1) < 11) {

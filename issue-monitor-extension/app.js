@@ -2632,8 +2632,8 @@ function keywordHighlight(car, text, highlights) {
   const generic = new Set(["관련", "불만", "고장", "의견", "포함", "작동", "오류", "문의", "이상", "전체"]);
   for (const h of highlights || []) {
     if (h.car && !String(car).startsWith(h.car)) continue;
-    // 시트 항목은 글에 시트·좌석이 있어야 (전동 테일게이트·도어 끼임 등을 시트로 오인하지 않게)
-    if (/시트/.test(h.topic || "") && !/시트|좌석/.test(text)) continue;
+    // 시트 항목은 단어 맞추기로 판단하지 않고 seatHighlight(2열·3열 리콜·기능 삭제·리콜 후 불량·끼임 사고/위험)로만 (담당자 지시 2026-11-23)
+    if (/시트/.test(h.topic || "")) continue;
     const words = String(h.topic || "")
       .split(/[^가-힣A-Za-z0-9]+/)
       .map((w) => w.replace(/(관련|등|의)$/, ""))
@@ -2706,13 +2706,18 @@ function finalizeRow(row, it, src) {
 // 노란색(집중 관리) 보강: 설정의 노란색 항목 중 '시트' 항목 차종(ME1·LX3·MX5·JX 등, PE 포함)에서
 // 제목·주요 내용에 시트와 리콜·끼임·멈춤·오작동·고장 등이 함께 나오면 AI 판정과 별개로 노란색
 // (담당자 지적 2026-11-04: 아이오닉9 오너스 ioniq9owners/49343·49312 전동 시트 리콜 글이 노란색에서 빠짐)
-const SEAT_HL_RE = /(시트|좌석)[^,.·]{0,14}(리콜|끼임|끼이|멈추지|안\s?멈|멈춤|무상\s?수리|시정\s?조치)|(리콜|무상\s?수리|시정\s?조치)[^,.·]{0,14}(시트|좌석)|전동\s?시트[^,.·]{0,14}(오작동|작동\s?(오류|불량|안)|고장|불량|업데이트)/;
+// (담당자 지시 2026-11-23: 2열·3열 전동 시트의 리콜·기능 삭제·리콜 후 작동 불량·작동 중 끼임 사고/위험만. 1열·단순 작동 불량·손상 제외)
+const SEAT_HL_RE = /(시트|좌석)[^,.·]{0,14}(리콜|끼임|끼이|끼여|끼일|멈추지|안\s?멈|무상\s?수리|시정\s?조치|기능\s?(삭제|제한|없어|사라))|(리콜|무상\s?수리|시정\s?조치)[^,.·]{0,14}(시트|좌석)|리콜[^,.·]{0,20}(후|이후|받고|조치)[^,.·]{0,14}(작동\s?(불량|오류|안)|오작동|고장|재발|기능\s?(삭제|제한|없어|사라))/;
+const SEAT_FRONT_RE = /1\s?열|운전석|조수석|앞\s?좌석|앞\s?시트|동승석/;
+const SEAT_REAR_RE = /[23]\s?열|뒷\s?좌석|뒷\s?시트|뒷줄|릴렉션|폴딩/;
 function seatHighlight(r) {
   const base = String(r.car || "").split(" ")[0];
   if (!base || base === "-") return false;
   const cars = ((state.settings && state.settings.highlights) || []).filter((h) => /시트/.test(h.topic || "")).map((h) => String(h.car || "").split(" ")[0]);
   if (!cars.includes(base)) return false;
-  return SEAT_HL_RE.test(`${r.title || ""}\n${r.summary || ""}`);
+  const t = `${r.title || ""}\n${r.summary || ""}`;
+  if (SEAT_FRONT_RE.test(t) && !SEAT_REAR_RE.test(t)) return false; // 1열(운전석·조수석)만 나오는 글은 노란색 아님
+  return SEAT_HL_RE.test(t);
 }
 
 // 차종을 모르거나("-") PE 여부 등이 애매한 카페 글: 작성자 닉네임 → '게시글 보기'(작성자의 다른 글)를 열어 차종 코드를 다시 정한다.
