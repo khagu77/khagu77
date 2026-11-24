@@ -364,8 +364,8 @@ function renderComments() {
     frag.append(
       el("tr", {},
         el("td", {}, chChip(c.channel)),
-        el("td", { class: "nowrap", text: c.media }),
-        el("td", {}, el("a", { href: c.url, target: "_blank", text: (p?.summary || p?.title || c.postTitle || "").slice(0, 30) })),
+        el("td", { class: "clip", text: c.media, title: c.media }),
+        el("td", { class: "clip" }, el("a", { href: c.url, target: "_blank", text: p?.title || p?.summary || c.postTitle || c.url, title: `${p?.title || c.postTitle || ""}${p?.summary ? `\n${p.summary}` : ""}` })),
         el("td", { class: "nowrap hint", text: c.writtenAt || (c.date ? fmtDateTime(c.date) : "") }),
         el("td", {}, c.isReply ? el("span", { class: "hint", text: "↳ " }) : null, c.text, c.by === "ai" ? el("span", { class: "badge ai", text: " AI" }) : null),
         el("td", {}, cat),
