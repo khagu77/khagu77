@@ -114,6 +114,14 @@ async function runInFrames(where, func, args = []) {
   }
 }
 
+// 카페 주소가 네이버 내부 카페 번호(clubid)인지 — 'cafe.naver.com/01088157554' 처럼 숫자로만 된 영문 주소도 있음
+//  (내부 번호는 0 으로 시작하지 않고 9자리 이하)
+function isClubNo(slug) {
+  return /^[1-9]\d{0,8}$/.test(String(slug || ""));
+}
+
+// (화면 안 함수들은 네이버 '잠시 후 다시 확인해주세요 · 지금 이 서비스와 연결할 수 없습니다' 화면을 busy 로 알려 줌)
+
 // 틀에서 못 읽으면 뒤쪽 탭으로 한 번 더
 async function readPage(url, reader, isDone) {
   let res = await withTab(url, reader).catch(() => null);
@@ -146,6 +154,7 @@ function scanSearchInFrame() {
   const top = window === window.top || window.parent === window.top;
   if (!body) return { items: [], noResult: false, href: location.href, top, title: top ? document.title : "" };
   const pageText = body.innerText || "";
+  const busy = /지금 이 서비스와 연결할 수 없습니다|잠시 후 다시 확인해\s*주세요/.test(pageText);
   const noResult = /검색\s*결과가\s*없|검색된\s*(?:게시물|게시글|글)이\s*없|등록된\s*(?:게시물|게시글)이\s*없/.test(pageText);
   const idOf = (href) => {
     href = String(href || "");
@@ -221,13 +230,14 @@ function scanSearchInFrame() {
       views: vm ? +vm[1].replace(/,/g, "") : null,
     });
   }
-  return { items, noResult, href: location.href, top, title: top ? document.title : "" };
+  return { items, noResult, busy, href: location.href, top, title: top ? document.title : "" };
 }
 
 // 게시글 화면: 제목·작성 시각·본문 앞부분·댓글 전체 (댓글 페이지 버튼을 사람처럼 천천히 눌러 가며)
 async function readArticleInFrame(pageDelay) {
   const pageText = (document.body ? document.body.innerText : "").slice(0, 4000);
   if (/보호조치|비정상적인 (접근|활동)|자동입력 방지|자동 입력 방지|로봇이 아닙니다/.test(pageText)) return { found: false, blocked: true, href: location.href };
+  if (/지금 이 서비스와 연결할 수 없습니다|잠시 후 다시 확인해\s*주세요/.test(pageText)) return { found: false, busy: true, href: location.href };
   if (!document.querySelector(".ArticleContentBox, .article_container, li.CommentItem, .CommentBox, .title_text")) return { found: false, href: location.href };
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const pick = (sels) => {
@@ -380,7 +390,7 @@ class CafeCollector {
 
   // 카페 주소(영문) → 숫자 번호. 한 번 알아낸 번호는 기억해 둔다
   async clubId(cafe) {
-    if (/^\d+$/.test(cafe.slug)) return cafe.slug;
+    if (isClubNo(cafe.slug)) return cafe.slug;
     const { imrClubIds = {} } = await chrome.storage.local.get("imrClubIds").catch(() => ({}));
     if (imrClubIds[cafe.slug]) return imrClubIds[cafe.slug];
     const res = await readPage(
@@ -420,16 +430,17 @@ class CafeCollector {
             items: frames.flatMap((f) => f.items || []),
             noResult: frames.some((f) => f.noResult),
             login: frames.some((f) => /nid\.naver\.com/.test(f.href || "")),
+            busy: frames.some((f) => f.busy),
             title: frames.find((f) => f.top)?.title || "",
           };
-          if (last.items.length || last.login) break;
+          if (last.items.length || last.login || last.busy) break;
           emptyInRow = last.noResult ? emptyInRow + 1 : 0;
           if (emptyInRow >= 4) break;
           await sleep(1500);
         }
         return last;
       },
-      (r) => r && (r.items.length || r.noResult || r.login),
+      (r) => r && (r.items.length || r.noResult || r.login || r.busy),
     );
   }
 
@@ -450,6 +461,7 @@ class CafeCollector {
           break;
         }
         if (res.login) throw new Error("네이버 로그인이 필요합니다");
+        if (res.busy) throw new Error("네이버 '잠시 후 다시 확인해주세요' 화면 — 이 카페를 넘어갑니다 (카페 주소가 바뀌었거나 네이버 일시 오류)");
         const full = cafeTitle(res.title);
         if (full) cafe.fullName = full;
         const items = res.items.filter((x) => !x.cafeId || x.cafeId === clubId);
@@ -480,7 +492,7 @@ class CafeCollector {
             cafeSlug: cafe.slug,
             clubId,
             articleId: x.articleId,
-            url: `https://cafe.naver.com/${/^\d+$/.test(cafe.slug) ? `f-e/cafes/${clubId}/articles` : cafe.slug}/${x.articleId}`,
+            url: `https://cafe.naver.com/${isClubNo(cafe.slug) ? `f-e/cafes/${clubId}/articles` : cafe.slug}/${x.articleId}`,
             title: x.title,
             date: parsed ? parsed.date.getTime() : null,
             exact: !!parsed?.exact,
@@ -517,6 +529,7 @@ class CafeCollector {
       }
       if (answers.some((r) => /nid\.naver\.com/.test(r.href || ""))) return { found: false, login: true };
       if (answers.some((r) => r.blocked)) throw new Error("네이버 보호조치·자동입력 방지 화면이 보여 카페 수집을 멈췄습니다");
+      if (answers.some((r) => r.busy)) return { found: false, busy: true };
       if (hit && i >= 3) return { ...hit, visible: false }; // 제목만 보이고 본문은 안 보임 (권한 제한 등)
       await sleep(1500);
     }
