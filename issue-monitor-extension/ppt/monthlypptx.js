@@ -345,6 +345,28 @@
     }
   }
 
+  // 슬라이드 아래 날짜 필드(예: "October 23, 2026")를 보고일로 (담당자 화면 2026-11-25: 11월 보고서에 10월 날짜)
+  const EN_MON = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  function editDateFields(doc, date) {
+    if (!(date instanceof Date)) return;
+    const y = date.getFullYear();
+    const m = date.getMonth() + 1;
+    const dd = date.getDate();
+    const p2 = (n) => String(n).padStart(2, "0");
+    for (const fld of doc.getElementsByTagNameNS(A, "fld")) {
+      if (!/^datetime/.test(fld.getAttribute("type") || "")) continue;
+      const t = fld.getElementsByTagNameNS(A, "t")[0];
+      if (!t) continue;
+      const old = t.textContent || "";
+      let v = null;
+      if (/^[A-Za-z]+ \d{1,2}, \d{4}$/.test(old)) v = `${EN_MON[m - 1]} ${dd}, ${y}`;
+      else if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(old)) v = `${y}-${p2(m)}-${p2(dd)}`;
+      else if (/^\d{4}\.\s?\d{1,2}\.\s?\d{1,2}\.?$/.test(old)) v = old.replace(/^\d{4}(\.\s?)\d{1,2}(\.\s?)\d{1,2}/, `${y}$1${m}$2${dd}`);
+      else if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(old)) v = `${m}/${dd}/${old.split("/")[2].length === 2 ? String(y).slice(2) : y}`;
+      else if (/^\d{4}년\s?\d{1,2}월\s?\d{1,2}일/.test(old)) v = old.replace(/^\d{4}년(\s?)\d{1,2}월(\s?)\d{1,2}일/, `${y}년$1${m}월$2${dd}일`);
+      if (v) t.textContent = v;
+    }
+  }
   async function build(templateBytes, d) {
     const files = await Zip.read(templateBytes);
     const paths = slidePaths(files);
@@ -353,6 +375,7 @@
     paths.forEach((path, i) => {
       const doc = parse(dec.decode(files.get(path)));
       editTitle(doc, d);
+      editDateFields(doc, d.end);
       if (i === 0) {
         editOverview(doc, d.overview1);
         editSlide1(doc, d);

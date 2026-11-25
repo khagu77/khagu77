@@ -103,8 +103,19 @@ function periodEndOf(info) {
 // ---------------------------------------------------------------------------
 // 보관함
 // ---------------------------------------------------------------------------
+// 보관 이름 바로잡기 (담당자 지적 2026-11-25): 맥 자모(NFD) 이름 → NFC, 버그로 생긴 "261125_11월 10월_…" → "261125_11월_…"
+const fixName = (n) => String(n || "").normalize("NFC").replace(/^(\d{6,8}_\d{1,2}월) \d{1,2}월(?=[_ ])/, "$1");
 async function histList() {
   const list = (await kvGet("moHistory")) || [];
+  let fixed = false;
+  for (const h of list) {
+    const n = fixName(h.name);
+    if (n !== h.name) {
+      h.name = n;
+      fixed = true;
+    }
+  }
+  if (fixed) await kvSet("moHistory", list);
   return list.sort((a, b) => (b.ym || "").localeCompare(a.ym || "") || b.at - a.at);
 }
 async function histAdd(meta, bytes) {
@@ -164,10 +175,14 @@ async function saveFile(fileName, bytes, reportDate) {
 }
 async function removeOldDownloads(fileName, folder) {
   try {
-    const stem = fileName.replace(/\.pptx$/i, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const items = await chrome.downloads.search({ filenameRegex: `${folder ? `[\\\\/]${folder}[\\\\/]` : "(^|[\\\\/])"}${stem}( \\(\\d+\\))?\\.pptx$`, exists: true });
+    const nfc = (x) => String(x || "").normalize("NFC");
+    const stem = nfc(fileName).replace(/\.pptx$/i, "");
+    const items = await chrome.downloads.search({ filenameRegex: "\\.pptx$", exists: true, limit: 500 });
     for (const it of items) {
       if (it.state === "in_progress") continue;
+      const parts = nfc(it.filename).split(/[\\/]/);
+      const base = parts.pop().replace(/ \(\d+\)(?=\.pptx$)/i, "").replace(/\.pptx$/i, "");
+      if (base !== stem || (folder && parts.pop() !== folder)) continue;
       await chrome.downloads.removeFile(it.id).catch(() => {});
       await chrome.downloads.erase({ id: it.id }).catch(() => {});
     }
@@ -214,6 +229,7 @@ async function renderHist() {
     tr.innerHTML = `<td><b>${h.ym ? `${y}년 ${+m}월` : "-"}</b></td><td>${esc(h.date || "-")}</td><td>${h.uploaded ? '<span class="badge-edit">넣은 지난 보고서</span> ' : ""}${h.edited ? `<span class="badge-edit" title="${esc(new Date(h.edited).toLocaleString("ko-KR"))} 수정 파일 올림">수정본</span> ` : ""}${esc(h.name)}</td><td>${new Date(h.at).toLocaleString("ko-KR")}</td><td class="actions"><div class="acts"><button data-a="get" class="btn-get" type="button">⬇ 받기</button><label class="filebtn small" title="PPT 에서 직접 고친 파일로 이 달 보고서를 바꿉니다 (다음 달 틀·데일리 DB 도 이 파일로)">수정 파일 올리기<input type="file" data-a="up" accept=".pptx" hidden></label><button data-a="del" class="danger" type="button">삭제</button></div></td>`;
     tr.querySelector('[data-a="get"]').addEventListener("click", async (ev) => {
       const btn = ev.currentTarget;
+      await ensureSaveDir();
       const bytes = await kvGet(`moFile:${h.id}`);
       if (!bytes) return alert("파일 내용을 찾지 못했습니다");
       const where = await saveFile(h.name, bytes, h.date);
@@ -250,11 +266,15 @@ async function replaceWithEdited(h, f) {
     const before = { page1: cur.overview1, page2: cur.overview2 && [cur.overview2.join(" ")], issues: cur.issues };
     const after = { page1: info.overview1, page2: info.overview2 && [info.overview2.join(" ")], issues: info.s1 && info.s1.issues };
     await kvSet(`moFile:${h.id}`, bytes);
-    Object.assign(cur, { overview1: info.overview1, overview2: info.overview2, issues: (info.s1 && info.s1.issues) || cur.issues, edited: Date.now(), editedFrom: f.name });
+    // 올린 파일 이름이 이 달 보고일(YYMMDD/YYYYMMDD)로 시작하면 그 이름으로 (" (1)" 은 뗌), 아니면 보관 이름 그대로
+    const upName = fixName(f.name).replace(/ \(\d+\)(?=\.pptx$)/i, "");
+    const d8 = String(cur.date || "").replace(/-/g, "");
+    const newName = d8 && (upName.startsWith(d8) || upName.startsWith(d8.slice(2))) ? upName : fixName(cur.name);
+    Object.assign(cur, { name: newName, overview1: info.overview1, overview2: info.overview2, issues: (info.s1 && info.s1.issues) || cur.issues, edited: Date.now(), editedFrom: f.name });
     await kvSet("moHistory", list);
     chrome.storage.local.set({ moUpdatedAt: Date.now() }).catch(() => {});
     const learned = cur.uploaded ? 0 : await recordEdits(h.ym, before, after, "받은 뒤 PPT 에서 직접 고침");
-    setSummary(`✅ ${h.ym} 보고서를 수정 파일로 바꿨습니다 (${f.name} → 보관 이름 ${h.name})${learned ? ` · 고친 개요·이슈 ${learned}곳을 기억해 다음 AI 작성 때 참고합니다` : ""}`, "ok");
+    setSummary(`✅ ${h.ym} 보고서를 수정 파일로 바꿨습니다 (${f.name} → 보관 이름 ${newName})${learned ? ` · 고친 개요·이슈 ${learned}곳을 기억해 다음 AI 작성 때 참고합니다` : ""}`, "ok");
     Celebrate.ding();
     await renderHist();
     await refresh();
@@ -274,7 +294,7 @@ async function uploadReports(files) {
       if (!info.year || !info.month) throw new Error("제목에서 ‘YY.M월 을 찾지 못했습니다");
       const end = periodEndOf(info);
       const date = DailyPpt.dateFromName(f.name) || (end ? dkey(end) : "");
-      await histAdd({ id: `mo-${Date.now()}-${ok.length}`, at: Date.now(), ym: ymKey(info.year, info.month), date, name: f.name, uploaded: true, overview1: info.overview1, overview2: info.overview2 }, bytes);
+      await histAdd({ id: `mo-${Date.now()}-${ok.length}`, at: Date.now(), ym: ymKey(info.year, info.month), date, name: f.name.normalize("NFC"), uploaded: true, overview1: info.overview1, overview2: info.overview2 }, bytes);
       ok.push(`${info.year}년 ${info.month}월`);
     } catch (e) {
       bad.push(`${f.name}: ${e.message || e}`);
@@ -857,7 +877,8 @@ function fileName() {
   if (!ctx || !ctx.tpl) return "";
   const d = ctx.date;
   const ymd8 = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
-  let name = String(ctx.tpl.entry.name || "").replace(/\.pptx$/i, "");
+  // 맥 파일 이름은 한글이 자모로 풀려(NFD) 있어 '월'을 못 찾음 → 먼저 합친다(NFC) (담당자 지적 2026-11-25: "261125_11월 10월_실적정리")
+  let name = String(ctx.tpl.entry.name || "").normalize("NFC").replace(/\.pptx$/i, "");
   if (/^\d{8}/.test(name)) name = name.replace(/^\d{8}/, ymd8);
   else if (/^\d{6}/.test(name)) name = name.replace(/^\d{6}/, ymd8.slice(2));
   else name = `${ymd8.slice(2)}_${name}`;
@@ -877,7 +898,20 @@ function fileName() {
   return `${name}.pptx`;
 }
 
+// 맥 파일 정보의 '출처(chrome-extension://…)'는 크롬 다운로드로 받을 때만 붙는다 (담당자 요청 2026-11-25: 출처 안 나오게)
+// → 저장 폴더를 골라 두면 그 폴더에 직접 써서 출처가 남지 않음. 폴더가 없으면 버튼 누른 순간 한 번 고르게 한다
+async function ensureSaveDir() {
+  if ((await kvGet("moSaveDir")) || (await kvGet("saveDir"))) return;
+  if (!window.showDirectoryPicker) return;
+  try {
+    setSummary("📁 저장할 폴더를 한 번 골라 주세요 (고르면 파일 정보에 '출처'가 남지 않고, 다음부터는 묻지 않습니다)");
+    const h = await window.showDirectoryPicker({ id: "monthly-out", mode: "readwrite", startIn: "desktop" });
+    await kvSet("moSaveDir", h);
+    showWhere();
+  } catch {}
+}
 async function build() {
+  await ensureSaveDir(); // 버튼 누른 직후에 (늦으면 브라우저가 폴더 창을 막음)
   const t0 = Date.now(); // 데일리 DB 월간 '소요' 칸 (PPT 만들기 시간)
   if (!ctx || !ctx.tpl) return setSummary("지난달 월간 실적 보고 PPT 를 먼저 넣어 주세요", "err");
   if (!stats) await loadStats();
