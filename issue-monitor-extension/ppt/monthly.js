@@ -124,27 +124,33 @@ async function templateFor(y, m) {
   return null;
 }
 
-async function saveFile(fileName, bytes) {
+// 보고일 폴더 (담당자 요청 2026-11-25): 저장 폴더 안에 보고일 이름(예: 261125) 폴더를 만들어 그 안에 저장
+const dateFolder = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || "") ? d.slice(2).replace(/-/g, "") : "");
+async function saveFile(fileName, bytes, reportDate) {
+  const folder = dateFolder(reportDate);
   const h = (await kvGet("moSaveDir")) || (await kvGet("saveDir"));
   if (h) {
     try {
       let p = await h.queryPermission({ mode: "readwrite" });
       if (p !== "granted") p = await h.requestPermission({ mode: "readwrite" });
       if (p === "granted") {
-        const fh = await h.getFileHandle(fileName, { create: true });
+        const dir = folder ? await h.getDirectoryHandle(folder, { create: true }) : h;
+        const fh = await dir.getFileHandle(fileName, { create: true });
         const w = await fh.createWritable();
         await w.write(bytes);
         await w.close();
-        return `📁 ${h.name}/${fileName}`;
+        return `📁 ${h.name}/${folder ? `${folder}/` : ""}${fileName}`;
       }
     } catch (e) {
       setSummary(`고른 폴더에 저장하지 못해 다운로드 폴더로 받습니다 (${e.message || e})`, "err");
     }
   }
   // 다운로드 폴더: 크롬 다운로드로 받아 한글 파일 이름이 그대로 붙게 (같은 이름이면 덮어씀)
+  // 크롬이 overwrite 를 무시하고 "(1)" 을 붙이는 경우가 있어, 전에 받은 같은 이름 파일(과 (1)(2) 사본)을 먼저 지운다 (담당자 요청 2026-11-25)
+  await removeOldDownloads(fileName, folder);
   const url = URL.createObjectURL(new Blob([bytes], { type: PPTX_MIME }));
   try {
-    await chrome.downloads.download({ url, filename: fileName, conflictAction: "overwrite", saveAs: false });
+    await chrome.downloads.download({ url, filename: folder ? `${folder}/${fileName}` : fileName, conflictAction: "overwrite", saveAs: false });
   } catch {
     const a = document.createElement("a");
     a.href = url;
@@ -154,7 +160,18 @@ async function saveFile(fileName, bytes) {
     a.remove();
   }
   setTimeout(() => URL.revokeObjectURL(url), 60000);
-  return `다운로드 폴더/${fileName}`;
+  return `다운로드 폴더/${folder ? `${folder}/` : ""}${fileName}`;
+}
+async function removeOldDownloads(fileName, folder) {
+  try {
+    const stem = fileName.replace(/\.pptx$/i, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const items = await chrome.downloads.search({ filenameRegex: `${folder ? `[\\\\/]${folder}[\\\\/]` : "(^|[\\\\/])"}${stem}( \\(\\d+\\))?\\.pptx$`, exists: true });
+    for (const it of items) {
+      if (it.state === "in_progress") continue;
+      await chrome.downloads.removeFile(it.id).catch(() => {});
+      await chrome.downloads.erase({ id: it.id }).catch(() => {});
+    }
+  } catch {}
 }
 async function showWhere() {
   const own = await kvGet("moSaveDir");
@@ -194,15 +211,20 @@ async function renderHist() {
   for (const h of hist.slice((histPage - 1) * 10, histPage * 10)) {
     const tr = document.createElement("tr");
     const [y, m] = (h.ym || "-").split("-");
-    tr.innerHTML = `<td><b>${h.ym ? `${y}년 ${+m}월` : "-"}</b></td><td>${esc(h.date || "-")}</td><td>${h.uploaded ? '<span class="badge-edit">넣은 지난 보고서</span> ' : ""}${esc(h.name)}</td><td>${new Date(h.at).toLocaleString("ko-KR")}</td><td class="actions"><div class="acts"><button data-a="get" class="btn-get" type="button">⬇ 받기</button><button data-a="del" class="danger" type="button">삭제</button></div></td>`;
+    tr.innerHTML = `<td><b>${h.ym ? `${y}년 ${+m}월` : "-"}</b></td><td>${esc(h.date || "-")}</td><td>${h.uploaded ? '<span class="badge-edit">넣은 지난 보고서</span> ' : ""}${h.edited ? `<span class="badge-edit" title="${esc(new Date(h.edited).toLocaleString("ko-KR"))} 수정 파일 올림">수정본</span> ` : ""}${esc(h.name)}</td><td>${new Date(h.at).toLocaleString("ko-KR")}</td><td class="actions"><div class="acts"><button data-a="get" class="btn-get" type="button">⬇ 받기</button><label class="filebtn small" title="PPT 에서 직접 고친 파일로 이 달 보고서를 바꿉니다 (다음 달 틀·데일리 DB 도 이 파일로)">수정 파일 올리기<input type="file" data-a="up" accept=".pptx" hidden></label><button data-a="del" class="danger" type="button">삭제</button></div></td>`;
     tr.querySelector('[data-a="get"]').addEventListener("click", async (ev) => {
       const btn = ev.currentTarget;
       const bytes = await kvGet(`moFile:${h.id}`);
       if (!bytes) return alert("파일 내용을 찾지 못했습니다");
-      const where = await saveFile(h.name, bytes);
+      const where = await saveFile(h.name, bytes, h.date);
       Celebrate.done(btn);
       await Celebrate.after();
       alert(`✅ 월간 실적 보고 저장 완료\n\n저장 위치: ${where}`);
+    });
+    tr.querySelector('[data-a="up"]').addEventListener("change", async (ev) => {
+      const f = ev.target.files && ev.target.files[0];
+      ev.target.value = "";
+      if (f) await replaceWithEdited(h, f);
     });
     tr.querySelector('[data-a="del"]').addEventListener("click", async () => {
       if (!confirm(`보관함에서 지울까요?\n${h.name}\n(저장 폴더의 파일은 그대로입니다)`)) return;
@@ -212,6 +234,32 @@ async function renderHist() {
       refresh();
     });
     tbody.append(tr);
+  }
+}
+
+// 보관함의 그 달 보고서를 담당자가 PPT 에서 직접 고친 파일로 바꾼다 (담당자 요청 2026-11-25)
+// 파일 이름은 보관함 이름 그대로 (받으면 같은 이름으로 덮어씀). 고친 개요·주요 이슈는 다음 AI 작성 때 참고(학습)
+async function replaceWithEdited(h, f) {
+  try {
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    const info = await MonthlyPptx.read(bytes);
+    if (h.ym && info.year && info.month && ymKey(info.year, info.month) !== h.ym && !confirm(`올린 파일의 제목은 ${info.year}년 ${info.month}월 보고서입니다. ${h.ym} 보고서를 이 파일로 바꿀까요?`)) return;
+    const list = await histList();
+    const cur = list.find((x) => x.id === h.id);
+    if (!cur) return;
+    const before = { page1: cur.overview1, page2: cur.overview2 && [cur.overview2.join(" ")], issues: cur.issues };
+    const after = { page1: info.overview1, page2: info.overview2 && [info.overview2.join(" ")], issues: info.s1 && info.s1.issues };
+    await kvSet(`moFile:${h.id}`, bytes);
+    Object.assign(cur, { overview1: info.overview1, overview2: info.overview2, issues: (info.s1 && info.s1.issues) || cur.issues, edited: Date.now(), editedFrom: f.name });
+    await kvSet("moHistory", list);
+    chrome.storage.local.set({ moUpdatedAt: Date.now() }).catch(() => {});
+    const learned = cur.uploaded ? 0 : await recordEdits(h.ym, before, after, "받은 뒤 PPT 에서 직접 고침");
+    setSummary(`✅ ${h.ym} 보고서를 수정 파일로 바꿨습니다 (${f.name} → 보관 이름 ${h.name})${learned ? ` · 고친 개요·이슈 ${learned}곳을 기억해 다음 AI 작성 때 참고합니다` : ""}`, "ok");
+    Celebrate.ding();
+    await renderHist();
+    await refresh();
+  } catch (e) {
+    setSummary(`수정 파일을 올리지 못했습니다: ${e.message || e}`, "err");
   }
 }
 
@@ -449,6 +497,7 @@ async function loadDraft() {
   $("#ov1").value = d ? d.ov1 || "" : "";
   $("#ov2").value = d ? d.ov2 || "" : "";
   $("#issues").value = d ? d.issues || "" : "";
+  aiOut = (d && d.aiOut) || null;
   applyAutoCounts();
   renderExtras();
   updateLens();
@@ -569,6 +618,21 @@ function bindPreviewFocus() {
   window.addEventListener("blur", () => apply(""));
 }
 
+// 담당자 수정 학습 (담당자 요청 2026-11-25): AI 가 쓴 문구와 담당자가 최종으로 고친 문구를 "moEdits" 에 모아
+// 다음 달 AI 작성 때 '이렇게 고쳤다' 사례로 넘긴다 (최근 12건)
+let aiOut = null;
+async function recordEdits(ym, before, after, how) {
+  const norm = (a) => (a || []).map((x) => String(x).trim()).filter(Boolean).join("\n");
+  const add = [];
+  for (const k of ["page1", "page2", "issues"]) {
+    if (!before || !before[k] || !after || !after[k]) continue;
+    if (norm(before[k]) && norm(after[k]) && norm(before[k]) !== norm(after[k])) add.push({ ym, at: Date.now(), part: k, how, before: before[k], after: after[k] });
+  }
+  if (!add.length) return 0;
+  const list = ((await kvGet("moEdits")) || []).filter((e) => !(e.ym === ym && add.some((a) => a.part === e.part)));
+  await kvSet("moEdits", [...add, ...list].slice(0, 12));
+  return add.length;
+}
 async function saveDraft() {
   renderPreview();
   renderPreview2();
@@ -576,6 +640,7 @@ async function saveDraft() {
   const d = { extras, ov1: $("#ov1").value, ov2: $("#ov2").value, issues: $("#issues").value };
   for (const [id, k] of NUMS) d[k] = $(`#${id}`).value;
   d.onlineAuto = onlineAuto;
+  d.aiOut = aiOut;
   await kvSet(draftKey(), d);
 }
 // 번외 보고 건수 합계 → '번외 추가 요청 보고 (회)' 자동 입력 (담당자 요청 2026-11-13)
@@ -715,6 +780,7 @@ async function aiWrite() {
       excelRowsIfNoPpt: fallback.slice(0, 400),
       current: { page1: lines($("#ov1").value), page2: lines($("#ov2").value), issues: lines($("#issues").value) },
       request: $("#aiRequest").value.trim(),
+      editorCorrections: ((await kvGet("moEdits")) || []).slice(0, 12).map((e) => ({ month: e.ym, part: e.part, ai_or_before: e.before, editor_final: e.after })),
     };
     $("#aiInfo").textContent = `일일 PPT ${days}일치 · 게시글 ${posts.length || fallback.length}건으로 쓰는 중… (1분 가량)`;
     const system = `당신은 현대자동차 온라인 여론 모니터링 담당자로서, 경영진에게 올리는 '월간 온라인 여론 동향 정리(월간 실적 보고)' 2장짜리 PPT 의 핵심 문구를 씁니다.
@@ -730,6 +796,7 @@ async function aiWrite() {
   예) 'NX5 가격 공개 후 CN8 관련 이슈 보고', ''GV90' 관련 전 채널 일일 모니터링' 처럼 이번 달 특별히 요청받은 차종·이슈는 그 달의 중점 사항이므로 개요에 녹여 쓸 수 있습니다.
   단 이 달 일일 동향의 핵심 품질 이슈를 가리지 않게 하고, 제목을 그대로 나열하기보다 개요 문장에 자연스럽게 담습니다. raw data 일일 보고, 일일동향 엑셀화 일일 전달, 주간 품질 모니터링(온라인 부분), LX3 북미 시트 사고 관련 일일 동향 모니터링, '블루핸즈 정비 예약' 관련 주간 모니터링 같은 매달 하는 고정 업무는 개요·주요 이슈 어디에도 쓰지 않습니다 (담당자 지정 2026-11-14).
 - lastMonthReport, pastExamples: 지난 보고서들의 개요 — 문체·길이·구성을 그대로 본받습니다 (내용은 이번 달 것으로)
+- editorCorrections: 지난 보고서에서 AI 가 쓴(또는 시스템이 만든) 문구(ai_or_before)를 담당자가 최종으로 고친 문구(editor_final). 담당자가 고친 방향(표현, 길이, 강조점, 넣고 뺀 내용, 순서)을 규칙처럼 따라 처음부터 그렇게 씁니다 (담당자 지정 2026-11-25). part: page1=1페이지 개요, page2=2페이지 개요, issues=주요 이슈
 - current / request: 담당자가 고쳐 둔 문구와 다시 쓰기 요청. request 가 있으면 그 요청을 최우선으로 반영하고, 요청과 관계없는 부분은 current 를 존중합니다
 
 [판단 기준 — 무엇이 중요한가]
@@ -768,6 +835,7 @@ async function aiWrite() {
     $("#ov1").value = clean(out.overview1).slice(0, 2).join("\n");
     $("#ov2").value = clean(out.overview2).join(" ");
     $("#issues").value = clean(out.issues).join("\n");
+    aiOut = { page1: clean(out.overview1).slice(0, 2), page2: [clean(out.overview2).join(" ")], issues: clean(out.issues) };
     updateLens();
     await saveDraft();
     $("#aiInfo").textContent = `✅ 작성 완료 — ${out.note || ""}`;
@@ -825,8 +893,10 @@ async function build() {
       chans: stats.chans,
     });
     const name = fileName();
-    const where = await saveFile(name, bytes);
-    await histAdd({ id: `mo-${Date.now()}`, at: Date.now(), ym: ymKey(ctx.y, ctx.m), date: dkey(ctx.date), name, overview1: ov1, overview2: ov2 }, bytes);
+    const where = await saveFile(name, bytes, dkey(ctx.date));
+    await histAdd({ id: `mo-${Date.now()}`, at: Date.now(), ym: ymKey(ctx.y, ctx.m), date: dkey(ctx.date), name, overview1: ov1, overview2: ov2, issues }, bytes);
+    const learned = await recordEdits(ymKey(ctx.y, ctx.m), aiOut, { page1: ov1, page2: [ov2.join(" ")], issues }, "AI 작성 후 화면에서 고침");
+    if (learned) setSummary(`✎ AI 문구를 고친 부분 ${learned}곳을 기억했습니다 — 다음 AI 작성부터 같은 방향으로 씁니다`, "ok");
     await renderHist();
     await renderDateLabel(); // 밀린 보고(D+N) 경고 끄고 다음 보고일 D-N 으로
     if (typeof CostLog !== "undefined") CostLog.addTime("monthly", ymKey(ctx.y, ctx.m), Date.now() - t0);
