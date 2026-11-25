@@ -124,8 +124,8 @@ async function templateFor(y, m) {
   return null;
 }
 
-// 보고일 폴더 (담당자 요청 2026-11-25): 저장 폴더 안에 보고일 이름(예: 261125) 폴더를 만들어 그 안에 저장
-const dateFolder = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || "") ? d.slice(2).replace(/-/g, "") : "");
+// 보고일 폴더 (담당자 요청 2026-11-25): 저장 폴더 안에 보고일 이름(예: 20261125) 폴더를 만들어 그 안에 저장
+const dateFolder = (d) => (/^\d{4}-\d{2}-\d{2}$/.test(d || "") ? d.replace(/-/g, "") : ""); // 예: 20261125 (담당자 정정 2026-11-25)
 async function saveFile(fileName, bytes, reportDate) {
   const folder = dateFolder(reportDate);
   const h = (await kvGet("moSaveDir")) || (await kvGet("saveDir"));
@@ -851,14 +851,30 @@ async function aiWrite() {
 // ---------------------------------------------------------------------------
 // 만들기
 // ---------------------------------------------------------------------------
+// 파일 이름: 틀(지난달) 보고서 이름에서 앞 날짜 → 보고일, 'N월' → 이번 보고 월 (담당자 지적 2026-11-25: 이번 달 파일이 10월로 만들어짐
+//  → 이름에 'N월'이 여러 번 있거나 숫자에 붙어 있어도 틀 보고서의 월을 모두 바꾼다. 해가 바뀌면 'YYYY년'도)
 function fileName() {
   if (!ctx || !ctx.tpl) return "";
-  const ymd = `${String(ctx.date.getFullYear()).slice(2)}${pad(ctx.date.getMonth() + 1)}${pad(ctx.date.getDate())}`;
-  let name = ctx.tpl.entry.name;
-  if (/^\d{6}/.test(name)) name = name.replace(/^\d{6}/, ymd);
-  else name = `${ymd}_${name}`;
-  name = name.replace(/(\d{1,2})(\s*월)/, `${ctx.m}$2`);
-  return name.toLowerCase().endsWith(".pptx") ? name : `${name}.pptx`;
+  const d = ctx.date;
+  const ymd8 = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+  let name = String(ctx.tpl.entry.name || "").replace(/\.pptx$/i, "");
+  if (/^\d{8}/.test(name)) name = name.replace(/^\d{8}/, ymd8);
+  else if (/^\d{6}/.test(name)) name = name.replace(/^\d{6}/, ymd8.slice(2));
+  else name = `${ymd8.slice(2)}_${name}`;
+  const info = ctx.tpl.info || {};
+  const tm = Number(info.month) || 0;
+  let hit = false;
+  const sub = (re) => {
+    name = name.replace(re, (_, a, b) => {
+      hit = true;
+      return `${a}${ctx.m}${b}`;
+    });
+  };
+  if (tm) sub(new RegExp(`(^|[^0-9])0?${tm}(\\s*월)`, "g"));
+  if (!hit) sub(/(^|[^0-9])\d{1,2}(\s*월)/g);
+  if (!hit) name = name.replace(/^(\d{6,8})_?/, `$1_${ctx.m}월 `);
+  if (info.year && Number(info.year) !== ctx.y) name = name.replace(new RegExp(`${info.year}(\\s*년)`, "g"), `${ctx.y}$1`);
+  return `${name}.pptx`;
 }
 
 async function build() {
