@@ -444,7 +444,7 @@ async function loadStats() {
   }
   $("#moOnline").classList.toggle("auto", onlineAuto);
   // 차량 화재 / 급발진: 일일동향 엑셀 '내용'에 화재·급발진이 있는 글 수 (직접 고쳤으면 그대로)
-  const fires = sel.filter((r) => FIRE_RE.test(fireBody(r)));
+  const fires = sel.filter(isFireRow);
   stats.fires = fires;
   if (fireAuto || $("#moFire").value === "") {
     $("#moFire").value = String(fires.length);
@@ -525,6 +525,11 @@ const fireBody = (r) => String(r.content || "").split(/댓글\s*반응/)[0].repl
 // 진짜 화재가 난 글인지 (아니면 '화재 의심') — 담당자 지시 2026-11-25: 진짜 화재만 "화재 발생", 의심 글은 반드시 "의심"
 const FIRE_REAL_RE = /진화|진압|소화기|(?<!충)전소(됐|되|된|해)|불이\s?(났|붙)|불길|화재\s?(가|이)?\s?발생|발화(가|됐|되었)/;
 const FIRE_DOUBT_RE = /화재\s?(가|로)?\s?의심|의심|우려|날\s?뻔|위험|추정만|가능성/;
+// 본문에 '화재' 말은 없어도 불이 날 뻔한 흔적(합선·녹음·그을음·탄 냄새·연기·스파크)이 있으면 '화재 의심'으로 센다
+// (담당자 지적 2026-11-25: RG3 C필러 코일 캐패시터 합선으로 배선이 녹은 글 = 화재 의심. 배기·머플러 흰 연기는 제외)
+const FIRE_SIGN_RE = /합선|녹아|녹고|녹았|녹은|그을|탄\s?냄새|타는\s?냄새|탄내|스파크|불꽃|(?<!(배기|머플러|흰|하얀|매)\s?)연기\s?(가\s?)?(발생|나|피어)/;
+// 냉각수 누수로 보닛에서 연기(수증기)가 난 글 등은 화재 흔적이 아님 (2026-11-25)
+const isFireRow = (r) => FIRE_RE.test(fireBody(r)) || (FIRE_SIGN_RE.test(fireBody(r)) && !/냉각수|수증기|부동액|스팀|김이\s?(나|모락)/.test(fireBody(r)));
 const isRealFire = (r) => FIRE_REAL_RE.test(fireBody(r)) && !/화재\s?(가|로)?\s?의심|날\s?뻔/.test(fireBody(r));
 // 화재 부위 (앞에 있을수록 우선: 구체 부품 → 넓은 부위)
 const FIRE_PARTS = ["코일", "캐패시터", "커패시터", "배선", "퓨즈", "커넥터", "ICCU", "인버터", "충전구", "충전기", "배터리", "헤드램프", "모터", "열선", "블랙박스", "머플러", "브레이크", "타이어", "엔진룸", "엔진", "트렁크", "내장재", "필러", "하부", "시트"];
@@ -540,7 +545,7 @@ const withDay = (line, r) => (r && serialMD(r.serial) && !/\(\d{1,2}\/\d{1,2}\)\
 function shortFire(r) {
   const t = fireBody(r);
   const m = t.match(FIRE_RE);
-  if (!m) return withDay(`${r.code} ${t.slice(0, 25)}`, r);
+  if (!m) return withDay(`${r.code} ${firePart(t) ? `${firePart(t)} 관련 ` : ""}화재 의심`, r); // 흔적만 있는 글
   const pw = t.slice(0, m.index).trim().split(" ").pop() || "";
   const prevWord = /^[가-힣A-Za-z0-9]+$/.test(pw) ? pw : ""; // 문장부호가 붙은 말은 쓰지 않음
   const lead = prevWord && !/(및|과|와|고|며|서|께|후|중|시|에|도|은|는)$/.test(prevWord) && prevWord.length <= 8 ? `${prevWord.replace(/(의|에서)$/, "")} ` : "";
@@ -907,6 +912,7 @@ async function aiWrite() {
 - 가운뎃점(·) 대신 쉼표. 차종은 코드로(예: NX5, GN7 PE). 앞에 "○", "●" 기호는 붙이지 않습니다.
 [fire_notes — 1페이지 '차량 화재 / 급발진' 행 내용 칸]
 - fireRows(이 기간 일일동향 엑셀에서 화재·급발진 단어가 있는 글) 한 건마다 한 줄: "차종코드 짧은 내용 (보고일)" — 내용은 20자 안팎 명사형, 끝에 그 글의 day 를 괄호로. 예) "RG3 PE 엔진룸 화재 발생 (10/25)", "AX 정차 중 급발진 의심 증상 (11/3)"
+- fireRows 에는 '화재' 말은 없어도 합선·녹음·그을음·탄 냄새·연기 같은 흔적이 있는 글도 들어 있습니다. 이런 글은 "~ 관련 화재 의심"으로 씁니다.
 - 실제로 불이 난 글만 "화재 발생"이라고 씁니다. 화재가 의심되거나 우려되는 글(연기·탄 냄새·합선·과열·화재 의심 신고 등)은 반드시 "의심"을 붙입니다. 예) "RG3 C필러 코일 관련 화재 의심 (11/10)". real_fire=false 인 글은 "화재 발생"이라고 쓰지 않습니다 (담당자 지시 2026-11-25).
 - 급발진은 운전자 주장이므로 "급발진 의심 증상", 사고가 났으면 "급발진 의심 사고".
 - 실제 화재·급발진 이슈가 아닌 글(예: 화재 보험, 화재 아님 확인)은 뺍니다. fireRows 가 없으면 빈 배열.
