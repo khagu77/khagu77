@@ -3,7 +3,7 @@
 // - 지난달 보고서 PPT 를 틀로 그대로 써서 글자만 바꾼다 (MonthlyPptx). 지난달 값은 '전월' 칸으로 옮긴다
 // - 2페이지 표(차종·카테고리·채널)는 보고일의 일일동향 엑셀에서 기간 안 게시글을 세어 채운다
 //   차종은 이번 달 순위순, 전월은 같은 차종의 지난 보고서 건수, 두 달 모두 0건인 차종은 뺀다
-// - 1페이지 화재/급발진·시스템 수집·동호회·유튜브·번외 횟수·번외 내용(제목+날짜)은 담당자가 직접 입력
+// - 1페이지 화재/급발진은 일일동향 엑셀 '내용'에서 자동(직접 고치면 유지, 2026-11-25) · 시스템 수집·동호회·유튜브·번외 횟수·번외 내용(제목+날짜)은 담당자가 직접 입력
 // - 개요(1·2페이지, 서로 겹치지 않게)와 주요 이슈 목록은 이 기간 데일리 DB 의 일일 PPT 를 근거로 AI 가 쓰고 담당자가 고친다
 // 보관 (IndexedDB report-extension / kv, 영구): 목록 "moHistory" [{id, at, ym, date, name, uploaded, overview1, overview2}],
 //   파일 "moFile:<id>", 입력 초안 "moDraft:<YYYY-MM>", 저장 폴더 "moSaveDir"
@@ -443,8 +443,17 @@ async function loadStats() {
     onlineAuto = true;
   }
   $("#moOnline").classList.toggle("auto", onlineAuto);
+  // 차량 화재 / 급발진: 일일동향 엑셀 '내용'에 화재·급발진이 있는 글 수 (직접 고쳤으면 그대로)
+  const fires = sel.filter((r) => FIRE_RE.test(r.content));
+  stats.fires = fires;
+  if (fireAuto || $("#moFire").value === "") {
+    $("#moFire").value = String(fires.length);
+    fireAuto = true;
+  }
+  $("#moFire").classList.toggle("auto", fireAuto);
+  $("#moFire").title = fires.length ? `일일동향 엑셀에서 찾은 화재·급발진 글 ${fires.length}건:\n${fires.map((r) => `- ${r.code} ${r.content.split(/\r?\n/)[0]}`).join("\n")}` : "일일동향 엑셀에서 화재·급발진 글을 찾지 못했습니다 (0건)";
   saveDraft();
-  setSummary(`✅ ${dkey(ctx.start)} ~ ${dkey(ctx.end)} 게시글 ${sel.length}건을 집계했습니다${lost ? ` · ⚠ 카테고리 표에 없는 불만구분 ${lost}건` : ""}`, lost ? "err" : "ok");
+  setSummary(`✅ ${dkey(ctx.start)} ~ ${dkey(ctx.end)} 게시글 ${sel.length}건을 집계했습니다 · 차량 화재/급발진 ${fires.length}건${lost ? ` · ⚠ 카테고리 표에 없는 불만구분 ${lost}건` : ""}`, lost ? "err" : "ok");
 }
 
 function renderStats() {
@@ -503,6 +512,9 @@ const NUMS = [
 ];
 let extras = [];
 let onlineAuto = true; // 온라인 상시 모니터링 건수가 집계 자동 값인지 (직접 고치면 false)
+let fireAuto = true; // 차량 화재 / 급발진 건수가 일일동향 엑셀 자동 값인지 (직접 고치면 false)
+// 차량 화재·급발진 글 (담당자 요청 2026-11-25: 일일동향 엑셀 '내용'에서 화재·급발진 이슈를 세어 자동 기입)
+const FIRE_RE = /화재|발화|전소|불이\s?(났|나|붙)|불\s?붙|차량\s?불|급발진/;
 const draftKey = () => (ctx ? `moDraft:${ymKey(ctx.y, ctx.m)}` : "");
 async function loadDraft() {
   const d = (draftKey() && (await kvGet(draftKey()))) || null;
@@ -512,6 +524,8 @@ async function loadDraft() {
     $(`#${pv}`).textContent = prev[k] != null ? `지난달 ${Number(prev[k]).toLocaleString()}` : "";
   }
   onlineAuto = !d || d.onlineAuto !== false;
+  fireAuto = !d || d.fireAuto !== false;
+  $("#moFire").classList.toggle("auto", fireAuto && $("#moFire").value !== "");
   $("#moOnline").classList.toggle("auto", onlineAuto && $("#moOnline").value !== "");
   extras = d && d.extras ? d.extras : (prev.extras || []).map((x) => ({ title: x.title, date: x.date, count: "" })); // 지난달 목록은 건수 비우고
   $("#ov1").value = d ? d.ov1 || "" : "";
@@ -660,6 +674,7 @@ async function saveDraft() {
   const d = { extras, ov1: $("#ov1").value, ov2: $("#ov2").value, issues: $("#issues").value };
   for (const [id, k] of NUMS) d[k] = $(`#${id}`).value;
   d.onlineAuto = onlineAuto;
+  d.fireAuto = fireAuto;
   d.aiOut = aiOut;
   await kvSet(draftKey(), d);
 }
@@ -1042,6 +1057,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   for (const id of ["ov1", "ov2", "issues"]) $(`#${id}`).addEventListener("input", () => { updateLens(); saveDraft(); });
   for (const [id] of NUMS) $(`#${id}`).addEventListener("input", saveDraft);
+  $("#moFire").addEventListener("input", () => {
+    fireAuto = false; // 직접 고친 값은 다시 집계해도 유지
+    $("#moFire").classList.remove("auto");
+    saveDraft();
+  });
   $("#moOnline").addEventListener("input", () => {
     onlineAuto = false; // 직접 고친 값은 다시 집계해도 유지
     $("#moOnline").classList.remove("auto");
