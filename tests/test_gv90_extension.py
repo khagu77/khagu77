@@ -208,6 +208,10 @@ def ext(tmp_path: Path):
             url = route.request.url
             requests.append(url)
             if "comment.php" in url:
+                # 실제 뽐뿌처럼: 글 화면에서 온 요청(Referer 가 뽐뿌)만 댓글 목록을 줌 · 확장에서 바로 온 요청은 403
+                if "ppomppu.co.kr" not in (route.request.headers.get("referer") or ""):
+                    route.fulfill(status=403, body="Forbidden")
+                    return
                 q = parse_qs(urlparse(url).query)
                 assert q.get("cmd") == ["get_comment_json"] and q.get("comment_mode") == ["sort_asc"]
                 route.fulfill(status=200, content_type="application/json; charset=utf-8", body=json.dumps(PPOM_JSON[q["c_page"][0]], ensure_ascii=False))

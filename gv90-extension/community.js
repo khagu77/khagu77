@@ -294,11 +294,7 @@ class CommunityCollector {
     }
     // 이 글의 댓글 수 (작성자 정보 줄의 '댓글 N' 은 빼고 · 조회수보다 큰 수는 버림)
     let expected = articleCommentCount(doc, ad, { listCount: post.listCcount ?? post.ccount ?? null, views, title: post.title }) || 0;
-    // 뽐뿌: 글 화면 글자(한 쪽 30개 등) 대신 댓글 목록의 총 댓글 수
-    if (ad.domain === "ppomppu.co.kr") {
-      const t = await ppomppuCommentTotal(post.url);
-      if (t != null) expected = t;
-    }
+    // 뽐뿌: 총 댓글 수는 바로 아래 댓글 목록(total_comment)에서 받음 (탭을 두 번 열지 않게)
     // 뽐뿌: 댓글을 처음 화면에 다 넣지 않고 '다음 코멘트 더 보기'·쪽 번호를 누를 때 JSON 으로 받아 그린다 → 그 목록을 직접 1쪽부터 끝까지 받는다
     if (ad.domain === "ppomppu.co.kr") {
       const api = await readPpomppuCommentsApi(post.url, { isStopped: this.isStopped }).catch(() => null);
@@ -345,8 +341,10 @@ class CommunityCollector {
     const seen = new Set();
     for (const c of comments) {
       const t = String(c.text || "").replace(/\s+/g, " ").trim();
-      if (!t || /^(삭제된 댓글|삭제 된 댓글|블라인드)/.test(t) || seen.has(t)) continue;
-      seen.add(t);
+      // 같은 글자라도 다른 사람이 다른 때 쓴 댓글은 따로 셈 ('ㅋㅋ' 같은 짧은 댓글이 빠지지 않게)
+      const dupKey = `${t}|${c.dateText || ""}`;
+      if (!t || /^(삭제된 댓글|삭제 된 댓글|블라인드)/.test(t) || seen.has(dupKey)) continue;
+      seen.add(dupKey);
       const d = parseKoreanDate(c.dateText);
       out.push({ text: t, writtenAt: d ? fmtDateTime(d.date) : c.dateText || "", date: d ? d.date.getTime() : null, isReply: !!c.isReply, author: "" });
     }
@@ -436,7 +434,13 @@ async function ppomppuCommentTotal(url) {
     if (!id || !no) return null;
     const q = new URL("https://www.ppomppu.co.kr/zboard/comment.php");
     for (const [k, v] of Object.entries({ id, no, c_page: 1, comment_mode: "sort_asc", cmd: "get_comment_json" })) q.searchParams.set(k, v);
-    const j = JSON.parse(await fetchText(q.toString(), { credentials: "include" }));
+    let j = null;
+    try {
+      j = JSON.parse(await fetchText(q.toString(), { credentials: "include" }));
+    } catch {
+      // 뽐뿌가 확장에서 바로 온 요청을 막으면: 글을 뒤쪽 탭으로 열어 그 화면 안에서 1쪽만 받아 총 댓글 수 확인
+      j = (await ppomppuPagesInTab(u.toString(), id, no, { firstOnly: true }).catch(() => []))[0] || {};
+    }
     const n = +String(j.total_comment ?? j.totalComment ?? j.total ?? "").replace(/,/g, "");
     return isFinite(n) && String(j.total_comment ?? j.totalComment ?? j.total ?? "") !== "" ? n : null;
   } catch {
@@ -552,18 +556,70 @@ async function readPpomppuCommentsApi(url, { isStopped = () => false } = {}) {
     }
     return out;
   };
-  const first = await get(1);
-  if (!first || !Array.isArray(first.comments)) return null;
-  const totalPage = Math.min(100, parseInt(first.total_page, 10) || 1);
-  const comments = flat(first.comments, []);
-  for (let p = 2; p <= totalPage && !isStopped(); p++) {
-    await sleep(randomBetween([500, 1000]));
-    const res = await get(p).catch(() => null);
-    if (res && Array.isArray(res.comments)) flat(res.comments, comments);
+  // 1) 확장에서 바로 받기 → 2) 안 되면(뽐뿌가 확장 요청을 막거나 일부만 줄 때) 글을 뒤쪽 탭으로 열어 그 화면 안에서 받기
+  let pages = [];
+  try {
+    const first = await get(1);
+    if (first && Array.isArray(first.comments)) {
+      pages.push(first);
+      const totalPage = Math.min(100, parseInt(first.total_page, 10) || 1);
+      for (let p = 2; p <= totalPage && !isStopped(); p++) {
+        await sleep(randomBetween([500, 1000]));
+        const res = await get(p).catch(() => null);
+        if (!res || !Array.isArray(res.comments)) throw new Error(`${p}쪽을 받지 못함`);
+        pages.push(res);
+      }
+    }
+  } catch {
+    pages = [];
   }
+  if (!pages.length && !isStopped()) pages = await ppomppuPagesInTab(u.toString(), id, no).catch(() => []);
+  const first = pages[0];
+  if (!first || !Array.isArray(first.comments)) return null;
+  const comments = [];
+  for (const pg of pages) if (Array.isArray(pg.comments)) flat(pg.comments, comments);
   // 원인 확인용: 받은 항목 수와 칸 이름 (일부만 읽혔을 때 기록에 남김)
   const sample = first.comments.find((o) => o && typeof o === "object");
   return { comments: comments.filter((c) => c.text), total: parseInt(first.total_comment, 10) || 0, raw: comments.length, fields: sample ? Object.keys(sample).slice(0, 20).join(",") : "" };
+}
+
+// 뽐뿌 글을 뒤쪽 탭으로 열어 그 화면 안에서 댓글 목록(JSON) 1쪽~끝쪽을 받음 (사람이 글을 열고 댓글 쪽을 넘길 때와 같은 요청)
+async function ppomppuPagesInTab(url, id, no, { firstOnly = false } = {}) {
+  const tab = await chrome.tabs.create({ url, active: false });
+  try {
+    await new Promise((resolve) => {
+      const timer = setTimeout(done, 30000);
+      function done() {
+        clearTimeout(timer);
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+      function listener(tid, info) {
+        if (tid === tab.id && info.status === "complete") done();
+      }
+      chrome.tabs.onUpdated.addListener(listener);
+    });
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      args: [id, no, firstOnly],
+      func: async (id, no, firstOnly) => {
+        const get = async (p) => {
+          const r = await fetch(`/zboard/comment.php?id=${encodeURIComponent(id)}&no=${encodeURIComponent(no)}&c_page=${p}&comment_mode=sort_asc&cmd=get_comment_json`, { credentials: "include" });
+          return JSON.parse(await r.text());
+        };
+        const out = [await get(1)];
+        const total = firstOnly ? 1 : Math.min(100, parseInt(out[0].total_page, 10) || 1);
+        for (let p = 2; p <= total; p++) {
+          await new Promise((r) => setTimeout(r, 400 + Math.random() * 400));
+          out.push(await get(p));
+        }
+        return out;
+      },
+    });
+    return Array.isArray(res?.result) ? res.result : [];
+  } finally {
+    chrome.tabs.remove(tab.id).catch(() => {});
+  }
 }
 
 // 작성자 정보 줄('작성글: 게시글 16,067 | 댓글 55,929' = 작성자가 지금까지 쓴 글·댓글 수)을 지운다
