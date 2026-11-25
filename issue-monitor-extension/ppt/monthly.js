@@ -451,6 +451,11 @@ async function loadStats() {
     fireAuto = true;
   }
   $("#moFire").classList.toggle("auto", fireAuto);
+  if (fireNotesAuto || !$("#fireNotes").value.trim()) {
+    $("#fireNotes").value = fires.map(shortFire).join("\n");
+    fireNotesAuto = true;
+  }
+  $("#fireNotes").classList.toggle("auto", fireNotesAuto && !!fires.length);
   $("#moFire").title = fires.length ? `일일동향 엑셀에서 찾은 화재·급발진 글 ${fires.length}건:\n${fires.map((r) => `- ${r.code} ${r.content.split(/\r?\n/)[0]}`).join("\n")}` : "일일동향 엑셀에서 화재·급발진 글을 찾지 못했습니다 (0건)";
   saveDraft();
   setSummary(`✅ ${dkey(ctx.start)} ~ ${dkey(ctx.end)} 게시글 ${sel.length}건을 집계했습니다 · 차량 화재/급발진 ${fires.length}건${lost ? ` · ⚠ 카테고리 표에 없는 불만구분 ${lost}건` : ""}`, lost ? "err" : "ok");
@@ -515,6 +520,27 @@ let onlineAuto = true; // 온라인 상시 모니터링 건수가 집계 자동 
 let fireAuto = true; // 차량 화재 / 급발진 건수가 일일동향 엑셀 자동 값인지 (직접 고치면 false)
 // 차량 화재·급발진 글 (담당자 요청 2026-11-25: 일일동향 엑셀 '내용'에서 화재·급발진 이슈를 세어 자동 기입)
 const FIRE_RE = /화재|발화|전소|불이\s?(났|나|붙)|불\s?붙|차량\s?불|급발진/;
+let fireNotesAuto = true; // PPT '내용' 칸의 화재·급발진 내용이 자동 값인지 (직접 고치면 false)
+// 화재·급발진 글 → PPT 내용 칸 한 줄 "차종 짧은 내용" (담당자 요청 2026-11-25). AI 개요 쓰기 때 AI 가 더 다듬는다
+// 일일동향 엑셀 날짜(엑셀 일련번호) → "10/25" (담당자 요청 2026-11-25: 화재·급발진 내용 끝에 보고일)
+const serialMD = (n) => {
+  const d = new Date(Date.UTC(1899, 11, 30) + Number(n) * 86400000);
+  return Number.isFinite(d.getTime()) && n ? `${d.getUTCMonth() + 1}/${d.getUTCDate()}` : "";
+};
+const withDay = (line, r) => (r && serialMD(r.serial) && !/\(\d{1,2}\/\d{1,2}\)\s*$/.test(line) ? `${line} (${serialMD(r.serial)})` : line);
+function shortFire(r) {
+  const t = String(r.content || "").replace(/\s+/g, " ").trim();
+  const m = t.match(FIRE_RE);
+  if (!m) return withDay(`${r.code} ${t.slice(0, 25)}`, r);
+  const pw = t.slice(0, m.index).trim().split(" ").pop() || "";
+  const prevWord = /^[가-힣A-Za-z0-9]+$/.test(pw) ? pw : ""; // 문장부호가 붙은 말은 쓰지 않음
+  const lead = prevWord && !/(및|과|와|고|며|서|께|후|중|시|에|도|은|는)$/.test(prevWord) && prevWord.length <= 8 ? `${prevWord.replace(/(의|에서)$/, "")} ` : "";
+  const kw = t.slice(m.index).split(" ")[0].replace(/(이|가|을|를|로|으로|의|에|에서|와|과|이나|도)$/, "");
+  let s = `${lead}${kw}`;
+  if (/급발진$/.test(s)) s += " 의심 증상";
+  else if (/(화재|발화|전소)$/.test(s)) s += " 발생";
+  return withDay(`${r.code} ${s}`.trim(), r);
+}
 const draftKey = () => (ctx ? `moDraft:${ymKey(ctx.y, ctx.m)}` : "");
 async function loadDraft() {
   const d = (draftKey() && (await kvGet(draftKey()))) || null;
@@ -525,6 +551,9 @@ async function loadDraft() {
   }
   onlineAuto = !d || d.onlineAuto !== false;
   fireAuto = !d || d.fireAuto !== false;
+  $("#fireNotes").value = d && d.fireNotes != null ? d.fireNotes : "";
+  fireNotesAuto = !d || d.fireNotesAuto !== false;
+  $("#fireNotes").classList.toggle("auto", fireNotesAuto && $("#fireNotes").value.trim() !== "");
   $("#moFire").classList.toggle("auto", fireAuto && $("#moFire").value !== "");
   $("#moOnline").classList.toggle("auto", onlineAuto && $("#moOnline").value !== "");
   extras = d && d.extras ? d.extras : (prev.extras || []).map((x) => ({ title: x.title, date: x.date, count: "" })); // 지난달 목록은 건수 비우고
@@ -597,7 +626,7 @@ function applyAutoCounts() {
 // 1페이지 미리보기 (담당자 요청 2026-11-13): PPT 1페이지 모양을 줄여 그리고, 입력값을 그 자리에 바로 채운다
 // 입력칸을 누르면 그 값이 들어가는 자리가 노랗게 강조된다 (data-k 로 연결)
 // ---------------------------------------------------------------------------
-const PV_FOR = { ov2: "ov2", moOnline: "online", moFire: "fire", moCollect: "collect", moCafes: "cafes", moYoutube: "youtube", moExtraCount: "extraCount", ov1: "ov1", issues: "issues", extraList: "extras" };
+const PV_FOR = { ov2: "ov2", moOnline: "online", moFire: "fire", fireNotes: "fire", moCollect: "collect", moCafes: "cafes", moYoutube: "youtube", moExtraCount: "extraCount", ov1: "ov1", issues: "issues", extraList: "extras" };
 let pvFocus = "";
 function renderPreview() {
   const box = $("#pv1");
@@ -626,7 +655,7 @@ function renderPreview() {
       <colgroup><col style="width:24%"><col style="width:15%"><col style="width:15%"><col></colgroup>
       <tr><th>항 목</th><th>${ctx.y}년 ${ctx.m}월</th><th>${pm}월</th><th>내 용</th></tr>
       <tr><td>온라인 상시 모니터링 (오전)</td><td class="cur" ${k("online")}>${num("moOnline", "건")}</td><td class="prv">${pnum("online", "건")}</td><td class="txt" ${k("issues")}>${issues.length ? list(issues) : '<div class="plain pv-empty">④ 주요 이슈</div>'}</td></tr>
-      <tr><td>차량 화재 / 급발진</td><td class="cur" ${k("fire")}>${num("moFire", "건")}</td><td class="prv">${pnum("fire", "건")}</td><td class="txt">${list(notes.fire || [], true)}</td></tr>
+      <tr><td>차량 화재 / 급발진</td><td class="cur" ${k("fire")}>${num("moFire", "건")}</td><td class="prv">${pnum("fire", "건")}</td><td class="txt" ${k("fire")}>${list(lines($("#fireNotes").value))}</td></tr>
       <tr><td>모니터링 시스템 수집</td><td class="cur" ${k("collect")}>${num("moCollect", "건")}</td><td class="prv">${pnum("collect", "건")}</td><td class="txt">${list(notes.collect || [], true)}</td></tr>
       <tr><td>모니터링 동호회</td><td class="cur" ${k("cafes")}>${num("moCafes", "개")}</td><td class="prv">${pnum("cafes", "개")}</td><td class="txt" ${k("cafes")}>${cafesNote ? list([cafesNote]) : list([])}</td></tr>
       <tr><td>유튜브 채널</td><td class="cur" ${k("youtube")}>${num("moYoutube", "건")}</td><td class="prv">${pnum("youtube", "건")}</td><td class="txt">${list(notes.youtube || [])}</td></tr>
@@ -675,6 +704,8 @@ async function saveDraft() {
   for (const [id, k] of NUMS) d[k] = $(`#${id}`).value;
   d.onlineAuto = onlineAuto;
   d.fireAuto = fireAuto;
+  d.fireNotes = $("#fireNotes").value;
+  d.fireNotesAuto = fireNotesAuto;
   d.aiOut = aiOut;
   await kvSet(draftKey(), d);
 }
@@ -779,9 +810,10 @@ const AI_SCHEMA = {
     overview1: { type: "array", items: { type: "string" } },
     overview2: { type: "array", items: { type: "string" } },
     issues: { type: "array", items: { type: "string" } },
+    fire_notes: { type: "array", items: { type: "string" } },
     note: { type: "string" },
   },
-  required: ["overview1", "overview2", "issues", "note"],
+  required: ["overview1", "overview2", "issues", "fire_notes", "note"],
   additionalProperties: false,
 };
 
@@ -815,6 +847,7 @@ async function aiWrite() {
       excelRowsIfNoPpt: fallback.slice(0, 400),
       current: { page1: lines($("#ov1").value), page2: lines($("#ov2").value), issues: lines($("#issues").value) },
       request: $("#aiRequest").value.trim(),
+      fireRows: (stats.fires || []).map((r) => ({ code: r.code, day: serialMD(r.serial), content: String(r.content || "").replace(/\s+/g, " ").slice(0, 300) })),
       editorCorrections: ((await kvGet("moEdits")) || []).slice(0, 12).map((e) => ({ month: e.ym, part: e.part, ai_or_before: e.before, editor_final: e.after })),
     };
     $("#aiInfo").textContent = `일일 PPT ${days}일치 · 게시글 ${posts.length || fallback.length}건으로 쓰는 중… (1분 가량)`;
@@ -858,6 +891,9 @@ async function aiWrite() {
 [표현]
 - 보고체, 명사형/"~ 중" 끝맺음. 과장·추측 금지, dailyPosts 에 있는 사실만. "에러", "결함" 대신 "오류", "불량", "증상". "계기판" 대신 "계기반", "내비" 대신 "내비게이션".
 - 가운뎃점(·) 대신 쉼표. 차종은 코드로(예: NX5, GN7 PE). 앞에 "○", "●" 기호는 붙이지 않습니다.
+[fire_notes — 1페이지 '차량 화재 / 급발진' 행 내용 칸]
+- fireRows(이 기간 일일동향 엑셀에서 화재·급발진 단어가 있는 글) 한 건마다 한 줄: "차종코드 짧은 내용 (보고일)" — 내용은 20자 안팎 명사형, 끝에 그 글의 day 를 괄호로. 예) "RG3 PE 엔진룸 화재 발생 (10/25)", "AX 정차 중 급발진 의심 증상 (11/3)"
+- 실제 화재·급발진 이슈가 아닌 글(예: 화재 보험, 화재 아님 확인)은 뺍니다. fireRows 가 없으면 빈 배열.
 - note: 담당자에게 무엇을 근거로 어떤 이슈를 골랐는지 2~3문장으로 알립니다.`;
     const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 4 });
     const params = { model, max_tokens: 12000, system, output_config: { effort: "high", format: { type: "json_schema", schema: AI_SCHEMA } }, messages: [{ role: "user", content: JSON.stringify(input) }] };
@@ -870,6 +906,14 @@ async function aiWrite() {
     $("#ov1").value = clean(out.overview1).slice(0, 2).join("\n");
     $("#ov2").value = clean(out.overview2).join(" ");
     $("#issues").value = clean(out.issues).join("\n");
+    if (fireNotesAuto && Array.isArray(out.fire_notes) && (stats.fires || []).length) {
+      // AI 가 보고일을 빠뜨리면 같은 차종 글이 하나뿐일 때 그 날짜를 붙임
+      $("#fireNotes").value = clean(out.fire_notes).map((l) => {
+        const same = stats.fires.filter((r) => l.startsWith(`${r.code} `));
+        return same.length === 1 ? withDay(l, same[0]) : l;
+      }).join("\n");
+      fireNotesAuto = true; // AI 가 다듬은 자동 값 (직접 고치기 전까지)
+    }
     aiOut = { page1: clean(out.overview1).slice(0, 2), page2: [clean(out.overview2).join(" ")], issues: clean(out.issues) };
     updateLens();
     await saveDraft();
@@ -952,7 +996,7 @@ async function build() {
       end: ctx.end,
       overview1: ov1,
       overview2: ov2,
-      s1: { online: num("moOnline"), fire: num("moFire"), collect: num("moCollect"), cafes: num("moCafes"), youtube: num("moYoutube"), extraCount: num("moExtraCount"), issues, extras },
+      s1: { online: num("moOnline"), fire: num("moFire"), collect: num("moCollect"), cafes: num("moCafes"), youtube: num("moYoutube"), extraCount: num("moExtraCount"), issues, extras, fireNotes: lines($("#fireNotes").value) },
       cars: stats.cars,
       cats: stats.cats,
       chans: stats.chans,
@@ -1057,6 +1101,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   for (const id of ["ov1", "ov2", "issues"]) $(`#${id}`).addEventListener("input", () => { updateLens(); saveDraft(); });
   for (const [id] of NUMS) $(`#${id}`).addEventListener("input", saveDraft);
+  $("#fireNotes").addEventListener("input", () => {
+    fireNotesAuto = false; // 직접 고친 내용은 다시 집계해도 유지
+    $("#fireNotes").classList.remove("auto");
+    saveDraft();
+  });
   $("#moFire").addEventListener("input", () => {
     fireAuto = false; // 직접 고친 값은 다시 집계해도 유지
     $("#moFire").classList.remove("auto");

@@ -244,6 +244,17 @@
     num(/번외/, d.s1.extraCount);
     const issues = findRow(rows, /온라인\s*상시/);
     if (issues && issues[3] && d.s1.issues && d.s1.issues.length) setLines(issues[3], d.s1.issues);
+    // 차량 화재 / 급발진 내용 칸 (담당자 요청 2026-11-25): 건이 있으면 "차종 내용" 줄들 (주요 이슈 칸과 같은 모양), 없으면 "-"
+    const fire = findRow(rows, /화재|급발진/);
+    if (fire && fire[3] && Array.isArray(d.s1.fireNotes)) {
+      const ln = d.s1.fireNotes.map((x) => String(x).trim()).filter(Boolean);
+      if (ln.length && issues && issues[3]) {
+        const src = all(issues[3], A, "txBody")[0];
+        const dst = all(fire[3], A, "txBody")[0];
+        if (src && dst) fire[3].replaceChild(src.cloneNode(true), dst);
+      }
+      setLines(fire[3], ln.length ? ln : ["-"]);
+    }
     const cafes = findRow(rows, /모니터링\s*동호회/);
     if (cafes && cafes[3]) {
       replaceInShape(cafes[3], /\d{2}(?=\s*년)/, () => yy(d.year));

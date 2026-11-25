@@ -35,8 +35,8 @@
     .auto-note.on { color: #11753d; }
     .auto-tip { display: block; margin: 10px 0 4px; padding: 8px 12px; border-radius: 10px; background: #e8f3ff; color: #0b3d75; font-size: 12.5px; font-weight: 600; }
     .auto-tip b { color: #002c5f; }
-    #moExtraCount.auto, #moOnline.auto, #moFire.auto { background: #e7f6ec !important; border-color: #8fd3a8 !important; font-weight: 800; }
-    @media (prefers-color-scheme: dark) { .auto-tip { background: #1c2b40; color: #b9d3ff; } .auto-tip b { color: #fff; } #moExtraCount.auto, #moOnline.auto, #moFire.auto { background: #163323 !important; border-color: #23573a !important; } .auto-note { color: #8ab4f8; } .auto-note.on { color: #7ee2a8; } }
+    #moExtraCount.auto, #moOnline.auto, #moFire.auto, #fireNotes.auto { background: #e7f6ec !important; border-color: #8fd3a8 !important; font-weight: 800; }
+    @media (prefers-color-scheme: dark) { .auto-tip { background: #1c2b40; color: #b9d3ff; } .auto-tip b { color: #fff; } #moExtraCount.auto, #moOnline.auto, #moFire.auto, #fireNotes.auto { background: #163323 !important; border-color: #23573a !important; } .auto-note { color: #8ab4f8; } .auto-note.on { color: #7ee2a8; } }
     #extraList input { width: 100%; box-sizing: border-box; }
     label.mo-early { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 0 10px; padding-left: 14px; border-left: 1px solid var(--line); font-weight: 600; }
     label.mo-early input:not(:invalid)[value=""], label.mo-early input:placeholder-shown { color: var(--muted); }
@@ -126,6 +126,8 @@
         <label>유튜브 채널 (건) <input type="number" id="moYoutube" min="0"><span class="prev" id="pvYoutube"></span></label>
         <label>번외 추가 요청 보고 (회) <input type="number" id="moExtraCount" min="0"><span class="prev" id="pvExtraCount"></span><span class="auto-note" id="exSumNote">↓ 아래 번외 보고 내용에 건수를 넣으면 자동 합계가 입력됩니다</span></label>
       </div>
+      <p class="sub-title">차량 화재 / 급발진 내용 <span class="hint">PPT '내용' 칸에 한 줄에 하나 "차종 내용 (보고일)" · 일일동향 엑셀에서 자동 (AI 개요 쓰기 때 다듬음, 직접 고쳐도 됨) · 비우면 "-"</span></p>
+      <textarea id="fireNotes" rows="3" spellcheck="false" placeholder="예) RG3 PE 엔진룸 화재 발생 (10/25)"></textarea>
       <p class="sub-title">번외 추가 요청 보고 내용</p>
       <div class="auto-tip">💡 각 줄에 <b>건수</b>를 넣으면 모두 더한 값이 위 <b>'번외 추가 요청 보고 (회)'</b> 칸에 자동으로 입력됩니다.<br><span style="font-weight:500">🔁 정기 업무(raw data 일일 보고·LX3 북미 시트 일일 동향·일일동향 엑셀화 = 근무일 수, 주간 품질 모니터링·블루핸즈 주간 모니터링 = 주 수)는 건수가 자동으로 들어갑니다 (초록 칸).</span><br><span id="autoCountInfo" style="font-weight:500;font-size:12px"></span></div>
       <p class="hint">제목과 날짜는 PPT 오른쪽 '내용' 칸에 "● 제목 (날짜)" 로 들어갑니다 (건수는 합계에만 쓰고 PPT 내용 칸에는 넣지 않음). 날짜는 "11/20" 또는 계속하는 업무면 "9/10~" 처럼, 날짜 없이 제목만 써도 됩니다. ↑↓ 로 순서 바꾸기.</p>
