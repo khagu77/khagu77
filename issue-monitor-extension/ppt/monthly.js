@@ -444,7 +444,7 @@ async function loadStats() {
   }
   $("#moOnline").classList.toggle("auto", onlineAuto);
   // 차량 화재 / 급발진: 일일동향 엑셀 '내용'에 화재·급발진이 있는 글 수 (직접 고쳤으면 그대로)
-  const fires = sel.filter((r) => FIRE_RE.test(r.content));
+  const fires = sel.filter((r) => FIRE_RE.test(fireBody(r)));
   stats.fires = fires;
   if (fireAuto || $("#moFire").value === "") {
     $("#moFire").value = String(fires.length);
@@ -456,7 +456,7 @@ async function loadStats() {
     fireNotesAuto = true;
   }
   $("#fireNotes").classList.toggle("auto", fireNotesAuto && !!fires.length);
-  $("#moFire").title = fires.length ? `일일동향 엑셀에서 찾은 화재·급발진 글 ${fires.length}건:\n${fires.map((r) => `- ${r.code} ${r.content.split(/\r?\n/)[0]}`).join("\n")}` : "일일동향 엑셀에서 화재·급발진 글을 찾지 못했습니다 (0건)";
+  $("#moFire").title = fires.length ? `일일동향 엑셀에서 찾은 화재·급발진 글 ${fires.length}건 (댓글 반응 제외):\n${fires.map((r) => `- ${r.code} ${fireBody(r)}`).join("\n")}` : "일일동향 엑셀에서 화재·급발진 글을 찾지 못했습니다 (0건)";
   saveDraft();
   setSummary(`✅ ${dkey(ctx.start)} ~ ${dkey(ctx.end)} 게시글 ${sel.length}건을 집계했습니다 · 차량 화재/급발진 ${fires.length}건${lost ? ` · ⚠ 카테고리 표에 없는 불만구분 ${lost}건` : ""}`, lost ? "err" : "ok");
 }
@@ -519,7 +519,16 @@ let extras = [];
 let onlineAuto = true; // 온라인 상시 모니터링 건수가 집계 자동 값인지 (직접 고치면 false)
 let fireAuto = true; // 차량 화재 / 급발진 건수가 일일동향 엑셀 자동 값인지 (직접 고치면 false)
 // 차량 화재·급발진 글 (담당자 요청 2026-11-25: 일일동향 엑셀 '내용'에서 화재·급발진 이슈를 세어 자동 기입)
-const FIRE_RE = /화재|발화|전소|불이\s?(났|나|붙)|불\s?붙|차량\s?불|급발진/;
+// (담당자 지적 2026-11-25: '충전소'의 '전소' 제외, 댓글 반응에만 나온 화재·급발진은 세지 않음)
+const FIRE_RE = /화재|발화|(?<!충)전소|불이\s?(났|나|붙)|불\s?붙|차량\s?불|급발진/;
+const fireBody = (r) => String(r.content || "").split(/댓글\s*반응/)[0].replace(/\s+/g, " ").trim(); // 본문 요약만 (댓글 반응 빼고)
+// 진짜 화재가 난 글인지 (아니면 '화재 의심') — 담당자 지시 2026-11-25: 진짜 화재만 "화재 발생", 의심 글은 반드시 "의심"
+const FIRE_REAL_RE = /진화|진압|소화기|(?<!충)전소(됐|되|된|해)|불이\s?(났|붙)|불길|화재\s?(가|이)?\s?발생|발화(가|됐|되었)/;
+const FIRE_DOUBT_RE = /화재\s?(가|로)?\s?의심|의심|우려|날\s?뻔|위험|추정만|가능성/;
+const isRealFire = (r) => FIRE_REAL_RE.test(fireBody(r)) && !/화재\s?(가|로)?\s?의심|날\s?뻔/.test(fireBody(r));
+// 화재 부위 (앞에 있을수록 우선: 구체 부품 → 넓은 부위)
+const FIRE_PARTS = ["코일", "캐패시터", "커패시터", "배선", "퓨즈", "커넥터", "ICCU", "인버터", "충전구", "충전기", "배터리", "헤드램프", "모터", "열선", "블랙박스", "머플러", "브레이크", "타이어", "엔진룸", "엔진", "트렁크", "내장재", "필러", "하부", "시트"];
+const firePart = (t) => FIRE_PARTS.find((p) => t.includes(p)) || "";
 let fireNotesAuto = true; // PPT '내용' 칸의 화재·급발진 내용이 자동 값인지 (직접 고치면 false)
 // 화재·급발진 글 → PPT 내용 칸 한 줄 "차종 짧은 내용" (담당자 요청 2026-11-25). AI 개요 쓰기 때 AI 가 더 다듬는다
 // 일일동향 엑셀 날짜(엑셀 일련번호) → "10/25" (담당자 요청 2026-11-25: 화재·급발진 내용 끝에 보고일)
@@ -529,7 +538,7 @@ const serialMD = (n) => {
 };
 const withDay = (line, r) => (r && serialMD(r.serial) && !/\(\d{1,2}\/\d{1,2}\)\s*$/.test(line) ? `${line} (${serialMD(r.serial)})` : line);
 function shortFire(r) {
-  const t = String(r.content || "").replace(/\s+/g, " ").trim();
+  const t = fireBody(r);
   const m = t.match(FIRE_RE);
   if (!m) return withDay(`${r.code} ${t.slice(0, 25)}`, r);
   const pw = t.slice(0, m.index).trim().split(" ").pop() || "";
@@ -537,8 +546,13 @@ function shortFire(r) {
   const lead = prevWord && !/(및|과|와|고|며|서|께|후|중|시|에|도|은|는)$/.test(prevWord) && prevWord.length <= 8 ? `${prevWord.replace(/(의|에서)$/, "")} ` : "";
   const kw = t.slice(m.index).split(" ")[0].replace(/(이|가|을|를|로|으로|의|에|에서|와|과|이나|도)$/, "");
   let s = `${lead}${kw}`;
-  if (/급발진$/.test(s)) s += " 의심 증상";
-  else if (/(화재|발화|전소)$/.test(s)) s += " 발생";
+  if (/급발진/.test(kw)) s = `${lead}급발진 의심 ${/사고|충돌|전복|추돌/.test(t) ? "사고" : "증상"}`;
+  else if (isRealFire(r)) s = `${firePart(t) || lead.trim()} 화재 발생`.trim();
+  else {
+    // 진짜 화재가 아니면 반드시 '의심' (예: "RG3 코일 관련 화재 의심")
+    const part = firePart(t);
+    s = part ? `${part} 관련 화재 의심` : "화재 의심";
+  }
   return withDay(`${r.code} ${s}`.trim(), r);
 }
 const draftKey = () => (ctx ? `moDraft:${ymKey(ctx.y, ctx.m)}` : "");
@@ -847,7 +861,7 @@ async function aiWrite() {
       excelRowsIfNoPpt: fallback.slice(0, 400),
       current: { page1: lines($("#ov1").value), page2: lines($("#ov2").value), issues: lines($("#issues").value) },
       request: $("#aiRequest").value.trim(),
-      fireRows: (stats.fires || []).map((r) => ({ code: r.code, day: serialMD(r.serial), content: String(r.content || "").replace(/\s+/g, " ").slice(0, 300) })),
+      fireRows: (stats.fires || []).map((r) => ({ code: r.code, day: serialMD(r.serial), real_fire: isRealFire(r), content: fireBody(r).slice(0, 300) })),
       editorCorrections: ((await kvGet("moEdits")) || []).slice(0, 12).map((e) => ({ month: e.ym, part: e.part, ai_or_before: e.before, editor_final: e.after })),
     };
     $("#aiInfo").textContent = `일일 PPT ${days}일치 · 게시글 ${posts.length || fallback.length}건으로 쓰는 중… (1분 가량)`;
@@ -893,6 +907,8 @@ async function aiWrite() {
 - 가운뎃점(·) 대신 쉼표. 차종은 코드로(예: NX5, GN7 PE). 앞에 "○", "●" 기호는 붙이지 않습니다.
 [fire_notes — 1페이지 '차량 화재 / 급발진' 행 내용 칸]
 - fireRows(이 기간 일일동향 엑셀에서 화재·급발진 단어가 있는 글) 한 건마다 한 줄: "차종코드 짧은 내용 (보고일)" — 내용은 20자 안팎 명사형, 끝에 그 글의 day 를 괄호로. 예) "RG3 PE 엔진룸 화재 발생 (10/25)", "AX 정차 중 급발진 의심 증상 (11/3)"
+- 실제로 불이 난 글만 "화재 발생"이라고 씁니다. 화재가 의심되거나 우려되는 글(연기·탄 냄새·합선·과열·화재 의심 신고 등)은 반드시 "의심"을 붙입니다. 예) "RG3 C필러 코일 관련 화재 의심 (11/10)". real_fire=false 인 글은 "화재 발생"이라고 쓰지 않습니다 (담당자 지시 2026-11-25).
+- 급발진은 운전자 주장이므로 "급발진 의심 증상", 사고가 났으면 "급발진 의심 사고".
 - 실제 화재·급발진 이슈가 아닌 글(예: 화재 보험, 화재 아님 확인)은 뺍니다. fireRows 가 없으면 빈 배열.
 - note: 담당자에게 무엇을 근거로 어떤 이슈를 골랐는지 2~3문장으로 알립니다.`;
     const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 4 });
@@ -910,7 +926,10 @@ async function aiWrite() {
       // AI 가 보고일을 빠뜨리면 같은 차종 글이 하나뿐일 때 그 날짜를 붙임
       $("#fireNotes").value = clean(out.fire_notes).map((l) => {
         const same = stats.fires.filter((r) => l.startsWith(`${r.code} `));
-        return same.length === 1 ? withDay(l, same[0]) : l;
+        if (same.length !== 1) return l;
+        // 진짜 화재가 아닌 글에 '화재 발생'이라고 쓰면 '화재 의심'으로 바로잡음
+        const fixed = !isRealFire(same[0]) && /화재\s?발생/.test(l) ? l.replace(/(관련\s?)?화재\s?발생/, "관련 화재 의심").replace(/\s+관련 관련/, " 관련") : l;
+        return withDay(fixed, same[0]);
       }).join("\n");
       fireNotesAuto = true; // AI 가 다듬은 자동 값 (직접 고치기 전까지)
     }
