@@ -89,7 +89,7 @@ async function weeklyDirIfAllowed(ask = true) {
 async function showWhere() {
   const own = await kvGet("weeklySaveDir");
   const h = own || (await weeklyDirHandle());
-  $("#wkWhere").textContent = h ? `📁 ${h.name}${own ? "" : " (PPT 저장 폴더와 같음)"}` : "다운로드 폴더";
+  $("#wkWhere").textContent = h ? `📁 ${h.name}${own ? "" : " (PPT 저장 폴더와 같음)"} / 보고일 폴더(예: 20261127)` : "다운로드 폴더";
 }
 async function freeName(dir, fileName) {
   if (!dir) return fileName;
@@ -106,6 +106,18 @@ async function freeName(dir, fileName) {
   }
   return `${base} (${Date.now()})${ext}`;
 }
+// 저장 폴더 안에 보고일 폴더(예: 20261127)를 만들어 그 안에 저장 (담당자 요청 2026-11-26)
+async function dateDir(dir, endKey) {
+  if (!dir || !endKey) return dir;
+  try {
+    const d = await dir.getDirectoryHandle(String(endKey).replace(/-/g, ""), { create: true });
+    d._label = `${dir.name}/${d.name}`;
+    return d;
+  } catch (e) {
+    setSummary(`보고일 폴더를 만들지 못해 저장 폴더에 바로 저장합니다 (${e.message || e})`, "err");
+    return dir;
+  }
+}
 async function saveFile(dir, fileName, bytes) {
   if (dir) {
     try {
@@ -113,7 +125,7 @@ async function saveFile(dir, fileName, bytes) {
       const w = await fh.createWritable();
       await w.write(bytes);
       await w.close();
-      return `📁 ${dir.name}/${fileName}`;
+      return `📁 ${dir._label || dir.name}/${fileName}`;
     } catch (e) {
       setSummary(`고른 폴더에 저장하지 못해 다운로드 폴더로 받습니다 (${e.message || e})`, "err");
     }
@@ -396,8 +408,9 @@ async function buildWeekly({ auto = false } = {}) {
     const endKey = DailyPpt.dateKey(week.end);
     const ymd = endKey.slice(2).replace(/-/g, "");
     const name = `${($("#wkName").value.trim() || "{날짜}_주간 모니터링 보고서").replace("{날짜}", ymd).replace(/[<>:"/\\|?*]/g, "_")}.pptx`;
-    const fileName = await freeName(dir, name);
-    const where = await saveFile(dir, fileName, bytes);
+    const sub = await dateDir(dir, endKey);
+    const fileName = await freeName(sub, name);
+    const where = await saveFile(sub, fileName, bytes);
     const hist = (await kvGet("weeklyHistory")) || [];
     hist.unshift({ at: Date.now(), start: DailyPpt.dateKey(week.start), end: endKey, name: fileName, bytes, count: picked.length, where });
     await kvSet("weeklyHistory", hist); // 영구 보관
@@ -510,7 +523,7 @@ async function renderHistory() {
     };
     tr.innerHTML = `<td>${short(h.at)}</td><td>${esc(h.start)} ~ ${esc(h.end)}</td><td><b>${f ? "담당자 수정본" : h.uploaded ? "올린 파일" : "시스템 작성본"}</b>${f ? `<div class="hint">${short(f.at)} 올림</div>` : ""}</td><td>${esc(f ? f.name : h.name)}</td><td class="count-red">${f ? f.count : h.count}건</td><td class="actions"><div class="acts"><button data-a="get" class="btn-get" title="${f ? "담당자 수정본(최종본) 받기" : "받기"}">⬇ ${f ? "최종본 받기" : "받기"}</button>${f && !h.uploaded ? '<button data-a="sys" class="btn-sys" title="시스템이 처음 만든 파일 받기">시스템본 받기</button>' : ""}<button data-a="up">수정본 올리기</button>${f ? '<button data-a="delf" class="btn-warn" title="올린 수정본만 지우고 시스템 작성본을 최종본으로">수정본 지우기</button>' : ""}<button data-a="del" class="danger">삭제</button></div></td>`;
     const save = async (name, bytes, btn) => {
-      const dir = await weeklyDirIfAllowed(true);
+      const dir = await dateDir(await weeklyDirIfAllowed(true), h.end);
       const where = await saveFile(dir, await freeName(dir, name), bytes);
       Celebrate.done(btn);
       await Celebrate.after();
