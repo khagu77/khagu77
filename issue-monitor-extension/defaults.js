@@ -116,6 +116,7 @@ PD: i30 (3세대, 2016~2020 국내 판매)
 GD: i30 (2세대, 2011~2016)
 FD: i30 (1세대, 2007~2011)
 # 현대 벨로스터
+JS N: 벨로스터 (고성능, 2018~2022)
 JS: 벨로스터 (2세대, 2018~2022)
 FS: 벨로스터 (1세대, 2011~2018)
 # 현대 아슬란
@@ -127,6 +128,7 @@ AX: 캐스퍼 (1세대, 2021~)
 # 현대 베뉴
 QX: 베뉴 (1세대, 2019~현재)
 # 현대 코나
+OS N: 코나 (고성능, 2021~2023)
 SX2 EV: 코나 (2세대 전기차, 2023~현재)
 SX2: 코나 (2세대, 2023~현재)
 OS PE: 코나 (1세대 F/L, 2020~2023)
@@ -390,7 +392,7 @@ const MODELS = [
 ];
 
 // 예전 버전에서 저장한 설정에 새 기본값을 보태 준다
-const SETTINGS_VERSION = 18;
+const SETTINGS_VERSION = 19;
 function migrateSettings(s) {
   if ((s.settingsVersion || 1) < 2 && typeof s.keywords === "string") {
     const add = "출고 대기, 출고대기, 출고 기다, 검수 업체, 검수업체, 검수 대행, 검수대행, 광고, 홍보, 오일교환, 오일 교환".split(", ");
@@ -410,6 +412,17 @@ function migrateSettings(s) {
         const missing = add.filter((w) => !line.includes(w));
         return missing.length ? `${line}, ${missing.join(", ")}` : line;
       });
+    }
+  }
+  if ((s.settingsVersion || 1) < 19) {
+    // 고성능 N 코드 보강 (담당자 지적 2026-11-26: N 과 N라인 구분을 모든 차종에) — 코나 N(OS N), 벨로스터 N(JS N)
+    if (typeof s.carCodes === "string") {
+      const addAfter = (head, line, code) => {
+        if (new RegExp(`^${code}:`, "m").test(s.carCodes)) return;
+        s.carCodes = new RegExp(`^${head}$`, "m").test(s.carCodes) ? s.carCodes.replace(new RegExp(`^(${head})$`, "m"), `$1\n${line}`) : `${s.carCodes.replace(/\s+$/, "")}\n${line}`;
+      };
+      addAfter("# 현대 코나", "OS N: 코나 (고성능, 2021~2023)", "OS N");
+      addAfter("# 현대 벨로스터", "JS N: 벨로스터 (고성능, 2018~2022)", "JS N");
     }
   }
   if ((s.settingsVersion || 1) < 18) {

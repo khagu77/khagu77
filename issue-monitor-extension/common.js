@@ -367,9 +367,11 @@ function titleCarCodes(title, carCodes) {
   const found = new Map(); // 기본 코드 → 가장 긴 이름의 코드
   for (const { code, names } of carCodes) {
     // 고성능 N 코드(NE N, CN7 N 등)는 글에 "아이오닉5 N"·"아반떼N"처럼 차명 바로 뒤에 N 이 있을 때만 (담당자 재지적 2026-11-14: "아이오닉5" 글이 NE N 으로 잡힘)
+    // 단 "아이오닉5 N라인 / N-line" 은 고성능 N 이 아니라 일반 모델(NE·NE PE) (담당자 지적 2026-11-26: cafeclip/1326653 N라인을 NE N 으로 씀)
     if (/ N$/.test(code) && !names.some((n) => {
       const nn = n.replace(/\s+/g, "").toUpperCase();
-      return t.toUpperCase().includes(/N$/.test(nn) ? nn : `${nn}N`);
+      const key = (/N$/.test(nn) ? nn : `${nn}N`).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`${key}(?![-_]?(라인|LINE))`).test(t.toUpperCase());
     })) continue;
     for (const n of [code, ...names]) {
       const nn = n.replace(/\s+/g, "");
@@ -414,7 +416,8 @@ function guessCarCode(text, carCodes) {
   let bestLen = 0;
   const variantOk = (code) => {
     if (/ (EV|FC|FCEV)$/.test(code)) return /EV|일렉트릭|전기|수소|FCEV/i.test(t);
-    if (/ N$/.test(code)) return /N라인|[^A-Za-z]N(?![A-Za-z])|고성능/.test(` ${t}`);
+    // 고성능 N 만 (N라인·N-line 은 일반 모델이라 N 아님, 담당자 지적 2026-11-26)
+    if (/ N$/.test(code)) return /[^A-Za-z]N(?![A-Za-z])|고성능/.test(` ${t}`.replace(/N[-_]?(라인|line)/gi, ""));
     return true;
   };
   for (const { code, names } of carCodes) {
