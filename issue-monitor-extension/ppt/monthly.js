@@ -309,6 +309,15 @@ async function uploadReports(files) {
 // ---------------------------------------------------------------------------
 // 일일동향 엑셀 (보고일의 파일) → 집계
 // ---------------------------------------------------------------------------
+// 그 날짜에 저장된 일일동향 엑셀 (직접 고른 파일과 관계없이, 그 날 파일이 있을 때만)
+async function excelOn(date) {
+  const list = ((await kvGet("dtHistory")) || []).filter((h) => h.date === dkey(date)).sort((x, y) => y.at - x.at);
+  for (const h of list) {
+    const bytes = await kvGet(`dtFile:${h.id}`);
+    if (bytes) return { name: h.name, bytes, date: h.date };
+  }
+  return null;
+}
 async function excelFor(date) {
   if (xlOverride) return xlOverride;
   const list = ((await kvGet("dtHistory")) || []).filter((h) => h.date && h.date <= dkey(date)).sort((a, b) => b.date.localeCompare(a.date) || b.at - a.at);
@@ -410,7 +419,23 @@ async function loadStats() {
   const rows = await DailyTrend.readRows(ctx.xl.bytes);
   const a = serialOf(ctx.start);
   const b = serialOf(ctx.end);
-  const sel = rows.filter((r) => r.serial >= a && r.serial <= b);
+  // 기간은 '보고된 날(일일동향 날짜)' 기준 (담당자 지적 2026-11-26: 엑셀 F열은 게시일이라, 보고일 다음 날 아침 일일동향에 실린
+  //  전날 게시 글이 이번 달에도 지난달에도 안 잡혔음 → 12월 첫 일일동향 0건)
+  //  ① 지난 보고일의 일일동향 엑셀이 있으면: 그 파일에 이미 있던 글 = 지난달 보고분, 그 뒤로 새로 실린 글 = 이번 달
+  //  ② 없으면: 게시일 다음 근무일을 보고된 날로 보고 기간 안인지 판단
+  const repSerial = nextWorkSerial;
+  const prevDay = new Date(ctx.start.getFullYear(), ctx.start.getMonth(), ctx.start.getDate() - 1);
+  const prevXl = await excelOn(prevDay);
+  const prevKeys = prevXl && prevXl.name !== ctx.xl.name ? new Set((await DailyTrend.readRows(prevXl.bytes)).map((r) => DailyTrend.urlKey(r.url)).filter(Boolean)) : null;
+  const capEnd = !ctx.xl.date || ctx.xl.date > dkey(ctx.end); // 보고일보다 나중 파일이면 보고일 뒤에 실린 글은 뺌
+  const sel = rows.filter((r) => {
+    const rd = repSerial(r.serial);
+    if (capEnd && rd > b) return false;
+    const k = DailyTrend.urlKey(r.url);
+    if (prevKeys && k) return !prevKeys.has(k);
+    return rd >= a && rd <= b;
+  });
+  ctx.basis = prevKeys ? `지난 보고일(${dkey(prevDay)}) 일일동향 엑셀 이후 새로 실린 글` : "게시일 다음 근무일(보고된 날) 기준";
   const prev = ctx.tpl.info.prev;
   const labels = await MonthlyPptx.labels(ctx.tpl.bytes);
   const cnt = new Map();
@@ -445,6 +470,7 @@ async function loadStats() {
   $("#moOnline").classList.toggle("auto", onlineAuto);
   // 차량 화재 / 급발진: 일일동향 엑셀 '내용'에 화재·급발진이 있는 글 수 (직접 고쳤으면 그대로)
   const fires = sel.filter(isFireRow);
+  await markReportDays(fires); // 화재·급발진 줄 끝 (보고일)
   stats.fires = fires;
   if (fireAuto || $("#moFire").value === "") {
     $("#moFire").value = String(fires.length);
@@ -458,7 +484,7 @@ async function loadStats() {
   $("#fireNotes").classList.toggle("auto", fireNotesAuto && !!fires.length);
   $("#moFire").title = fires.length ? `일일동향 엑셀에서 찾은 화재·급발진 글 ${fires.length}건 (댓글 반응 제외):\n${fires.map((r) => `- ${r.code} ${fireBody(r)}`).join("\n")}` : "일일동향 엑셀에서 화재·급발진 글을 찾지 못했습니다 (0건)";
   saveDraft();
-  setSummary(`✅ ${dkey(ctx.start)} ~ ${dkey(ctx.end)} 게시글 ${sel.length}건을 집계했습니다 · 차량 화재/급발진 ${fires.length}건${lost ? ` · ⚠ 카테고리 표에 없는 불만구분 ${lost}건` : ""}`, lost ? "err" : "ok");
+  setSummary(`✅ ${dkey(ctx.start)} ~ ${dkey(ctx.end)} 게시글 ${sel.length}건을 집계했습니다 (${ctx.basis}) · 차량 화재/급발진 ${fires.length}건${lost ? ` · ⚠ 카테고리 표에 없는 불만구분 ${lost}건` : ""}`, lost ? "err" : "ok");
 }
 
 function renderStats() {
@@ -541,7 +567,39 @@ const serialMD = (n) => {
   const d = new Date(Date.UTC(1899, 11, 30) + Number(n) * 86400000);
   return Number.isFinite(d.getTime()) && n ? `${d.getUTCMonth() + 1}/${d.getUTCDate()}` : "";
 };
-const withDay = (line, r) => (r && serialMD(r.serial) && !/\(\d{1,2}\/\d{1,2}\)\s*$/.test(line) ? `${line} (${serialMD(r.serial)})` : line);
+// 보고된 날: 그 글이 처음 실린 일일동향 엑셀 날짜(r.reportDay), 모르면 게시일 다음 근무일 (담당자 정정 2026-11-26: 게시일이 아니라 보고일)
+function nextWorkSerial(serial) {
+  const d = new Date(Date.UTC(1899, 11, 30) + serial * 86400000);
+  const x = new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1);
+  for (let i = 0; i < 15 && dayOffReason(x, settings); i++) x.setDate(x.getDate() + 1);
+  return serialOf(x);
+}
+const dayOf = (r) => r.reportDay || (r.serial ? serialMD(nextWorkSerial(r.serial)) : "");
+const withDay = (line, r) => (r && dayOf(r) && !/\(\d{1,2}\/\d{1,2}\)\s*$/.test(line) ? `${line} (${dayOf(r)})` : line);
+// 화재·급발진 글이 처음 실린 일일동향 엑셀 날짜 찾기 (기간 안 엑셀만 날짜순으로 읽음)
+async function markReportDays(list) {
+  if (!list.length) return;
+  const want = new Map(list.map((r) => [DailyTrend.urlKey(r.url), r]).filter(([k]) => k));
+  const hist = ((await kvGet("dtHistory")) || []).filter((h) => h.date && h.date >= dkey(ctx.start) && h.date <= dkey(ctx.end)).sort((x, y) => x.date.localeCompare(y.date) || x.at - y.at);
+  for (const h of hist) {
+    if (!want.size) break;
+    const bytes = await kvGet(`dtFile:${h.id}`);
+    if (!bytes) continue;
+    for (const row of await DailyTrend.readRows(bytes)) {
+      const k = DailyTrend.urlKey(row.url);
+      const r = want.get(k);
+      if (!r) continue;
+      const [yy, mm, dd] = h.date.split("-");
+      // 게시일보다 5일 넘게 뒤 파일이면 (누적 엑셀을 늦게 넣은 경우 등) 보고일로 믿지 않고 '게시일 다음 근무일'로
+      if (r.serial && serialOf(new Date(+yy, +mm - 1, +dd)) - r.serial > 5) {
+        want.delete(k);
+        continue;
+      }
+      r.reportDay = `${+mm}/${+dd}`;
+      want.delete(k);
+    }
+  }
+}
 function shortFire(r) {
   const t = fireBody(r);
   const m = t.match(FIRE_RE);
@@ -866,7 +924,7 @@ async function aiWrite() {
       excelRowsIfNoPpt: fallback.slice(0, 400),
       current: { page1: lines($("#ov1").value), page2: lines($("#ov2").value), issues: lines($("#issues").value) },
       request: $("#aiRequest").value.trim(),
-      fireRows: (stats.fires || []).map((r) => ({ code: r.code, day: serialMD(r.serial), real_fire: isRealFire(r), content: fireBody(r).slice(0, 300) })),
+      fireRows: (stats.fires || []).map((r) => ({ code: r.code, day: dayOf(r), real_fire: isRealFire(r), content: fireBody(r).slice(0, 300) })),
       editorCorrections: ((await kvGet("moEdits")) || []).slice(0, 12).map((e) => ({ month: e.ym, part: e.part, ai_or_before: e.before, editor_final: e.after })),
     };
     $("#aiInfo").textContent = `일일 PPT ${days}일치 · 게시글 ${posts.length || fallback.length}건으로 쓰는 중… (1분 가량)`;
