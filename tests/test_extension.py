@@ -1983,3 +1983,40 @@ def test_youtube_page_failure_retry(tmp_path: Path):
         err = page.evaluate(run)
         assert "일부만 읽고 끊김" in err and "다시 수집" in err, err
         ctx.close()
+
+
+def test_youtube_newest_sort(tmp_path: Path):
+    """유튜브 댓글은 '최신순'으로 받는다: 인기순 목록은 일부 댓글을 빼고 보여 주므로(화면 345 · 인기순 328 · 최신순 345)."""
+    pages = {
+        "TOP1": {"onResponseReceivedEndpoints": [{"reloadContinuationItemsCommand": {"continuationItems": [
+            {"commentsHeaderRenderer": {"countText": {"runs": [{"text": "댓글 "}, {"text": "3"}, {"text": "개"}]},
+             "sortMenu": {"sortFilterSubMenuRenderer": {"subMenuItems": [
+                 {"title": "인기순", "serviceEndpoint": {"continuationCommand": {"token": "TOP1"}}},
+                 {"title": "최신순", "serviceEndpoint": {"continuationCommand": {"token": "NEW1"}}}]}}}}]}}],
+            "frameworkUpdates": {"entityBatchUpdate": {"mutations": [yt_payload("A", "앨리스", "인기 댓글")]}}},
+        "NEW1": {"frameworkUpdates": {"entityBatchUpdate": {"mutations": [
+            yt_payload("A", "앨리스", "인기 댓글"), yt_payload("B", "밥", "숨겨졌던 댓글"), yt_payload("C", "칼", "새 댓글")]}}},
+    }
+    seen = []
+
+    def yt(route):
+        if "/youtubei/" in route.request.url:
+            tok = json.loads(route.request.post_data or "{}").get("continuation")
+            seen.append(tok)
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps(pages.get(tok, {})))
+        return route.fulfill(status=200, content_type="text/html", body=YT_HTML)
+
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True, timezone_id="Asia/Seoul",
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}"])
+        ctx.route("https://www.youtube.com/**", yt)
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        ext = f"chrome-extension://{sw.url.split('/')[2]}"
+        page = ctx.new_page()
+        page.goto(f"{ext}/app.html")
+        got = page.evaluate("""async () => { const r = { url: 'https://youtu.be/zzzzzzzzzzz' }; await collectYoutube(r, () => false);
+          return r.comments.map((c) => c.content); }""")
+        assert sorted(got) == ["새 댓글", "숨겨졌던 댓글", "인기 댓글"], got
+        assert seen == ["TOP1", "NEW1"], seen
+        ctx.close()

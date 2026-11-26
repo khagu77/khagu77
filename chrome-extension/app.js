@@ -244,6 +244,21 @@ function findCommentsToken(initialData) {
   return token;
 }
 
+// 댓글 정렬 메뉴(인기 댓글 / 최신순)에서 '최신순' 토큰 (이름을 못 알아보면 두 번째 항목)
+function newestSortToken(data) {
+  let items = null;
+  walk(data, (k, v) => {
+    if (!items && k === "sortFilterSubMenuRenderer") {
+      items = v.subMenuItems || [];
+      return false;
+    }
+  });
+  if (!items || !items.length) return null;
+  const tok = (it) => it?.serviceEndpoint?.continuationCommand?.token || it?.continuation?.reloadContinuationData?.continuation || null;
+  const named = items.find((it) => /최신|newest/i.test(ytText(it.title) || it.title || ""));
+  return tok(named || items[1]) || null;
+}
+
 function ytText(t) {
   if (!t) return "";
   if (typeof t === "string") return t;
@@ -396,6 +411,7 @@ async function collectYoutube(result, isStopped, onProgress) {
   const queue = [firstToken];
   const usedTokens = new Set(queue);
   let requests = 0;
+  let sortSwitched = false;
   while (queue.length && !isStopped() && requests < MAX_PAGES * 5) {
     const token = queue.shift();
     requests++;
@@ -430,6 +446,17 @@ async function collectYoutube(result, isStopped, onProgress) {
       );
     }
     if (expected === null) readCount(data);
+    // 인기순 목록은 유튜브가 일부 댓글을 빼고 보여 줌(예: 화면 345개 · 인기순 328개 · 최신순 345개) → 첫 쪽에서 '최신순'으로 바꿔 처음부터
+    if (!sortSwitched) {
+      sortSwitched = true;
+      const newest = newestSortToken(data);
+      if (newest && !usedTokens.has(newest)) {
+        usedTokens.add(newest);
+        queue.length = 0;
+        queue.push(newest);
+        continue;
+      }
+    }
     const { comments, tokens } = parseYoutubeResponse(data);
     for (const c of comments) if (!byId.has(c.commentId)) byId.set(c.commentId, c);
     for (const t of tokens) {
