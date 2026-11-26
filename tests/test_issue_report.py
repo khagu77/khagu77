@@ -962,3 +962,89 @@ def test_community_comments_must_collect(tmp_path: Path):
         assert not errors, errors
         ctx.close()
         server.shutdown()
+
+
+# ---------------------------------------------------------------- 유튜브 댓글: 최신순으로 받기 · 빈 응답 0건은 실패 · 쪽 요청 실패는 다시 받고 끊기면 실패
+def yt_watch(token):
+    return YT_WATCH.replace('"T1"', json.dumps(token))
+
+
+def yt_header(count_text, popular, newest):
+    sub = [{"title": "인기 댓글", "serviceEndpoint": {"continuationCommand": {"token": popular}}},
+           {"title": "최신순", "serviceEndpoint": {"continuationCommand": {"token": newest}}}]
+    return {"onResponseReceivedEndpoints": [{"reloadContinuationItemsCommand": {"continuationItems": [{"commentsHeaderRenderer": {
+        "countText": {"runs": [{"text": "댓글 "}, {"text": count_text}, {"text": "개"}]},
+        "sortMenu": {"sortFilterSubMenuRenderer": {"subMenuItems": sub}}}}]}}]}
+
+
+def test_youtube_comments_newest_and_failures(tmp_path: Path):
+    calls = {}
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True, timezone_id="Asia/Seoul",
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}", "--no-proxy-server"],
+        )
+
+        def youtube(route):
+            url = route.request.url
+            if "/watch" in url:
+                vid = parse_qs(urlparse(url).query)["v"][0]
+                return route.fulfill(status=200, content_type="text/html", body=yt_watch(f"FIRST_{vid}"))
+            tok = json.loads(route.request.post_data)["continuation"]
+            calls[tok] = calls.get(tok, 0) + 1
+            def ok(obj):
+                route.fulfill(status=200, content_type="application/json", body=json.dumps(obj))
+            # A: 인기순 첫 쪽엔 일부만(그리고 그 댓글은 버림) → 최신순 토큰으로 처음부터, 2쪽까지
+            if tok == "FIRST_vidAAAAAAAA":
+                h = yt_header("3", "POP_A", "NEW_A")
+                h["frameworkUpdates"] = {"entityBatchUpdate": {"mutations": [yt_comment("P1", "인기순에만 보인 댓글 가격 비싸")]}}
+                return ok(h)
+            if tok == "NEW_A":
+                return ok({"frameworkUpdates": {"entityBatchUpdate": {"mutations": [yt_comment("N1", "최신 댓글 하나"), yt_comment("N2", "최신 댓글 둘")]}},
+                           "onResponseReceivedEndpoints": [{"appendContinuationItemsAction": {"continuationItems": [{"continuationItemRenderer": {"continuationEndpoint": {"continuationCommand": {"token": "NEW_A2"}}}}]}}]})
+            if tok == "NEW_A2":
+                if calls[tok] == 1:  # 한 번 실패 → 2초 뒤 다시 받으면 성공
+                    return route.fulfill(status=503, body="busy")
+                return ok({"frameworkUpdates": {"entityBatchUpdate": {"mutations": [yt_comment("N3", "최신 댓글 셋")]}}})
+            # B: 댓글 1,554개라면서 계속 빈 응답 → 5초 뒤 한 번 더 → 그래도 0개면 실패
+            if tok in ("FIRST_vidBBBBBBBB",):
+                return ok(yt_header("1,554", "POP_B", "NEW_B"))
+            if tok == "NEW_B":
+                return ok({})
+            # C: 2쪽 요청이 계속 실패 → 3번 시도 후 끊김(일부만 정상으로 두지 않음)
+            if tok == "FIRST_vidCCCCCCCC":
+                return ok({"frameworkUpdates": {"entityBatchUpdate": {"mutations": [yt_comment("C1", "첫 쪽 댓글")]}},
+                           "onResponseReceivedEndpoints": [{"appendContinuationItemsAction": {"continuationItems": [{"continuationItemRenderer": {"continuationEndpoint": {"continuationCommand": {"token": "C2"}}}}]}}]})
+            if tok == "C2":
+                return route.fulfill(status=500, body="err")
+            # D: '댓글 0개' 영상은 0건 정상
+            if tok == "FIRST_vidDDDDDDDD":
+                return ok(yt_header("0", "POP_D", "NEW_D"))
+            if tok == "NEW_D":
+                return ok({})
+            route.fulfill(status=404, body="")
+
+        ctx.route("https://www.youtube.com/**", youtube)
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        page = ctx.new_page()
+        errors = []
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.goto(f"chrome-extension://{sw.url.split('/')[2]}/app.html")
+        wait_js(page, "typeof YoutubeCollector === 'function'")
+        res = page.evaluate("""async () => {
+          const yc = new YoutubeCollector({ log: () => {}, isStopped: () => false });
+          const out = {};
+          for (const v of ["vidAAAAAAAA", "vidBBBBBBBB", "vidCCCCCCCC", "vidDDDDDDDD"]) {
+            try { out[v] = (await yc.readComments(v)).comments.map((c) => c.text); } catch (e) { out[v] = "ERR " + e.message; }
+          }
+          return out;
+        }""")
+        ctx.close()
+    assert errors == [], errors
+    assert res["vidAAAAAAAA"] == ["최신 댓글 하나", "최신 댓글 둘", "최신 댓글 셋"], res  # 인기순 첫 쪽 댓글은 버리고 최신순으로
+    assert calls["NEW_A2"] == 2 and "POP_A" not in calls
+    assert res["vidBBBBBBBB"].startswith("ERR 댓글을 하나도 읽지 못함 (유튜브가 빈 응답 · 영상 댓글 1,554개)"), res
+    assert calls["FIRST_vidBBBBBBBB"] == 2 and calls["NEW_B"] == 2  # 5초 뒤 처음부터 한 번 더
+    assert res["vidCCCCCCCC"].startswith("ERR 댓글 일부만 읽고 끊김 (1개까지 읽은 뒤 유튜브 응답 실패: HTTP 500)"), res
+    assert calls["C2"] == 3
+    assert res["vidDDDDDDDD"] == [], res
