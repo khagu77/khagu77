@@ -378,9 +378,23 @@ async function collectYoutube(result, isStopped, onProgress) {
   if (visitorData) context.client.visitorData = visitorData;
   const endpoint = `https://www.youtube.com/youtubei/v1/next?prettyPrint=false${apiKey ? `&key=${apiKey}` : ""}`;
 
+  // 영상 아래 '댓글 1,554개' (첫 응답의 머리글) — 0건이 진짜인지 일시적인 빈 응답인지 가리려고
+  let expected = null;
+  const readCount = (data) =>
+    walk(data, (k, v) => {
+      if (expected === null && k === "commentsHeaderRenderer") {
+        const t = ytText(v.countText) || ytText(v.commentsCount);
+        const n = Number(String(t).replace(/[^\d]/g, ""));
+        if (t && Number.isFinite(n)) expected = n;
+        return false;
+      }
+    });
+  const byId = new Map();
+  // 유튜브가 가끔 댓글 없이 빈 응답을 줌 → 0건이면 잠시 쉬고 처음부터 한 번 더 (2026-11-26 YK_4bdxc4qM 댓글 1,554개인데 0건)
+  for (let round = 0; round < 2 && !byId.size && !isStopped(); round++) {
+    if (round) await sleep(5000);
   const queue = [firstToken];
   const usedTokens = new Set(queue);
-  const byId = new Map();
   let requests = 0;
   while (queue.length && !isStopped() && requests < MAX_PAGES * 5) {
     const token = queue.shift();
@@ -400,7 +414,9 @@ async function collectYoutube(result, isStopped, onProgress) {
       if (byId.size) break; // 이미 모은 것은 살린다
       throw new CollectError(`유튜브 댓글 요청 실패(HTTP ${resp.status})`);
     }
-    const { comments, tokens } = parseYoutubeResponse(await resp.json());
+    const data = await resp.json();
+    if (expected === null) readCount(data);
+    const { comments, tokens } = parseYoutubeResponse(data);
     for (const c of comments) if (!byId.has(c.commentId)) byId.set(c.commentId, c);
     for (const t of tokens) {
       if (!usedTokens.has(t)) {
@@ -410,6 +426,11 @@ async function collectYoutube(result, isStopped, onProgress) {
     }
     onProgress?.(byId.size);
     await sleep(300);
+  }
+  }
+  // 댓글이 있는 영상인데 0건 → 실패로 (오늘 파일의 그 영상 기존 댓글은 그대로 두고, '다시 수집' 목록에 올림)
+  if (!byId.size && !isStopped() && expected !== 0) {
+    throw new CollectError(`댓글을 하나도 읽지 못함 (유튜브가 빈 응답${expected ? ` · 영상 댓글 ${expected.toLocaleString()}개` : ""}) — 잠시 뒤 다시 수집`);
   }
   result.comments = orderThreads([...byId.values()]);
   result.method = "유튜브";

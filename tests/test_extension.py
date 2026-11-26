@@ -1919,3 +1919,34 @@ def test_kakao_notify(tmp_path: Path):
         tpl = json.loads(parse_qs(sent[-1])["template_object"][0])
         assert tpl["text"].startswith("[💺 LX3 전동 시트 관련 💺]\n\n📨 테스트 알림 ("), tpl
         ctx.close()
+
+
+def test_youtube_empty_response_is_failure(tmp_path: Path):
+    """유튜브가 댓글 없이 빈 응답을 주면 잠시 뒤 한 번 더 받고, 그래도 0건이면 '0건 정상'이 아니라 실패로
+    (오늘 파일의 그 영상 기존 댓글은 그대로 두고 '다시 수집' 목록에 오름). 댓글이 정말 0개인 영상(댓글 0개)은 0건 정상."""
+    calls = {"n": 0, "zero": False}
+
+    def yt(route):
+        if "/youtubei/" in route.request.url:
+            calls["n"] += 1
+            body = {"onResponseReceivedEndpoints": [{"reloadContinuationItemsCommand": {"continuationItems": [
+                {"commentsHeaderRenderer": {"countText": {"runs": [{"text": "댓글 "}, {"text": "0"}, {"text": "개"}]}}}]}}]} if calls["zero"] else {}
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+        return route.fulfill(status=200, content_type="text/html", body=YT_HTML)
+
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True, timezone_id="Asia/Seoul",
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}"])
+        ctx.route("https://www.youtube.com/**", yt)
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        ext = f"chrome-extension://{sw.url.split('/')[2]}"
+        page = ctx.new_page()
+        page.goto(f"{ext}/app.html")
+        err = page.evaluate("""() => collectYoutube({ url: 'https://youtu.be/YK_4bdxc4qM' }, () => false).then(() => 'ok', (e) => e.message)""")
+        assert "댓글을 하나도 읽지 못함" in err and "다시 수집" in err, err
+        assert calls["n"] == 2, calls  # 한 번 더 받아 봄
+        calls["zero"] = True
+        res = page.evaluate("""async () => { const r = { url: 'https://youtu.be/YK_4bdxc4qM' }; await collectYoutube(r, () => false); return r.comments.length; }""")
+        assert res == 0  # 댓글 0개 영상은 정상
+        ctx.close()
