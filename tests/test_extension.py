@@ -894,6 +894,16 @@ def test_final_db(tmp_path: Path):
         assert "게시물 수" in dash and "댓글 수" in dash and "오늘의 신규" in dash, dash
         assert page.locator("#dashBody img").count() == 1
         assert page.is_enabled("#dashCopy")
+        # 이름을 누르면 그 곳의 게시물(영상) 주소와 게시물별 댓글 수 · 짧은 이름 정하기 버튼
+        names = page.locator("#dashBody a[data-alias]")
+        assert names.count() >= 1
+        names.first.click()
+        page.locator("#dashLinks").wait_for()
+        pop = page.inner_text("#dashLinks")
+        assert "댓글" in pop and "http" in pop and "짧은 이름 정하기" in pop, pop
+        assert page.locator("#dashLinks td a").count() >= 1
+        page.click("#dashLinks .dl-close")
+        page.locator("#dashLinks").wait_for(state="detached")
         ctx.close()
     assert not any("첨부하지 않았고" in m or "고르지 않았고" in m for m in dialogs), dialogs
 

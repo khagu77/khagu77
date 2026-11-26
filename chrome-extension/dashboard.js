@@ -130,11 +130,18 @@ async function dashYtGone(recs) {
 
 async function dashDetail(buzzRec, rawRec, prevRaw = null, gone = null) {
   const out = Object.fromEntries(DASH_CH.map(({ label }) => [label, new Map()]));
-  const bump = (ch, name, field, n = 1) => {
+  // url: 그 글·영상 (이름을 누르면 보이는 게시물별 목록 · 게시물별 댓글 수)
+  const bump = (ch, name, field, n = 1, url = "") => {
     if (!out[ch]) return;
     const k = String(name || "기타").trim() || "기타";
-    const v = out[ch].get(k) || { posts: 0, comments: 0, vids: new Set() };
+    const v = out[ch].get(k) || { posts: 0, comments: 0, vids: new Set(), links: new Map() };
     if (field) v[field] += n;
+    if (url) {
+      const key = dashUrlKey(url);
+      const l = v.links.get(key) || { url: String(url).trim(), title: where.get(key)?.title || "", posts: 0, comments: 0, prev: null };
+      if (field) l[field] += n;
+      v.links.set(key, l);
+    }
     out[ch].set(k, v);
     return v;
   };
@@ -146,7 +153,7 @@ async function dashDetail(buzzRec, rawRec, prevRaw = null, gone = null) {
     const names = wb.sheetNames();
     const sheet = names.includes("채널별 버즈량 현황") ? "채널별 버즈량 현황" : names[0];
     const rows = (await wb.readRows(sheet)).filter((r) => r.r > 3 && r.cells.G);
-    for (const r of rows) where.set(dashUrlKey(r.cells.G), { ch: String(r.cells.C || "동호회").trim(), name: r.cells.D });
+    for (const r of rows) where.set(dashUrlKey(r.cells.G), { ch: String(r.cells.C || "동호회").trim(), name: r.cells.D, title: String(r.cells.F || "").trim() });
     // 월별 채널별 게시글 수 (게시일 기준, DASH_TREND_FROM 부터 그날이 속한 달까지)
     const endYm = String(buzzRec.date || "").slice(0, 6);
     if (endYm) {
@@ -170,7 +177,7 @@ async function dashDetail(buzzRec, rawRec, prevRaw = null, gone = null) {
       const serials = rows.map((r) => Number(r.cells.B)).filter(Number.isFinite);
       const last = Math.max(0, ...serials);
       for (const r of rows) if (Number(r.cells.B) > last - posts) {
-        const v = bump(String(r.cells.C || "동호회").trim(), r.cells.D, "posts");
+        const v = bump(String(r.cells.C || "동호회").trim(), r.cells.D, "posts", 1, r.cells.G);
         if (v && String(r.cells.C || "").trim() === "유튜브") v.vids.add(dashUrlKey(r.cells.G));
       }
     }
@@ -186,23 +193,27 @@ async function dashDetail(buzzRec, rawRec, prevRaw = null, gone = null) {
       if (!n || !names.includes(ch)) continue;
       hasComments = true;
       const rows = (await wb.readRows(ch)).filter((r) => r.r > 1 && has(r)).sort((a, b) => a.r - b.r).slice(-n);
-      for (const r of rows) bump(ch, nameOf(r.cells.E, ch === "자동차 커뮤니티" ? r.cells.B : "기타"), "comments");
+      for (const r of rows) bump(ch, nameOf(r.cells.E, ch === "자동차 커뮤니티" ? r.cells.B : "기타"), "comments", 1, r.cells.E);
     }
     if (names.includes("유튜브")) {
       const rows = (await wb.readRows("유튜브")).filter((r) => r.r > 1 && has(r));
       if (rows.length) hasComments = true;
       // 유튜브: 지켜보는 영상(시트에 있는 영상 전체) 수도 채널별로
-      for (const r of rows) bump("유튜브", nameOf(r.cells.E, "기타 영상"), "comments").vids.add(dashUrlKey(r.cells.E));
+      for (const r of rows) bump("유튜브", nameOf(r.cells.E, "기타 영상"), "comments", 1, r.cells.E).vids.add(dashUrlKey(r.cells.E));
     }
     // 유튜브 채널별 전일 대비: 전날 파일의 유튜브 시트를 채널별로 세어 둠
     if (prevRaw?.bytes && names.includes("유튜브")) {
       const pwb = await XlsxTemplate.Workbook.open(prevRaw.bytes);
       if (pwb.sheetNames().includes("유튜브")) {
         const prevCount = new Map();
+        const prevByVideo = new Map(); // 영상별 전날 댓글 수
         for (const r of (await pwb.readRows("유튜브")).filter((r) => r.r > 1 && has(r))) {
           const k = String(nameOf(r.cells.E, "기타 영상") || "기타").trim() || "기타";
           prevCount.set(k, (prevCount.get(k) || 0) + 1);
+          const vk = dashUrlKey(r.cells.E);
+          prevByVideo.set(vk, (prevByVideo.get(vk) || 0) + 1);
         }
+        for (const [, v] of out["유튜브"]) for (const [vk, l] of v.links || []) l.prev = prevByVideo.get(vk) || 0;
         for (const [k, c] of prevCount) bump("유튜브", k, null); // 전날에만 있던 채널도 (오늘 0건)
         for (const [k, v] of out["유튜브"]) v.prevComments = prevCount.get(k) || 0;
       }
@@ -225,7 +236,7 @@ async function dashDetail(buzzRec, rawRec, prevRaw = null, gone = null) {
   }
   if (!hasPosts && !hasComments) return null;
   const res = Object.fromEntries(
-    Object.entries(out).map(([ch, m]) => [ch, [...m.entries()].map(([name, { vids, ...v }]) => ({ name, ...v, videos: vids.size })).sort((a, b) => b.posts + b.comments - (a.posts + a.comments) || a.name.localeCompare(b.name))]),
+    Object.entries(out).map(([ch, m]) => [ch, [...m.entries()].map(([name, { vids, links, ...v }]) => ({ name, ...v, videos: vids.size, links: [...(links || new Map()).values()].sort((a, b) => b.comments - a.comments || b.posts - a.posts) })).sort((a, b) => b.posts + b.comments - (a.posts + a.comments) || a.name.localeCompare(b.name))]),
   );
   res._monthly = monthly;
   res._ytGone = gone;
@@ -356,7 +367,7 @@ function dashChannelCell({ label, color }, data, fluid = false) {
     return `<span style="font-size:8px;font-weight:700;color:${c};letter-spacing:-0.3px;">(${t})</span>`;
   };
   const row = (x) =>
-    `<tr><td style="${cellStyle}color:#1b1d21;white-space:nowrap;overflow:hidden;line-height:1.3;letter-spacing:-0.5px;">${fluid ? `<a data-alias="${esc(x.name)}" style="color:inherit;text-decoration:none;cursor:pointer;">` : ""}${esc(dashClip(dashShort(x.name), nameEm))}${fluid ? "</a>" : ""}` +
+    `<tr><td style="${cellStyle}color:#1b1d21;white-space:nowrap;overflow:hidden;line-height:1.3;letter-spacing:-0.5px;">${fluid ? `<a data-alias="${esc(x.name)}" data-ch="${esc(label)}" style="color:inherit;text-decoration:none;cursor:pointer;">` : ""}${esc(dashClip(dashShort(x.name), nameEm))}${fluid ? "</a>" : ""}` +
     `</td>` +
     `<td width="${W1}" style="${cellStyle}${numPad}width:${W1}px;text-align:right;font-weight:700;color:#1b1d21;white-space:nowrap;">${first(x)}</td>` +
     `<td width="${W2}" style="${cellStyle}${numPad}width:${W2}px;text-align:right;font-weight:700;color:${color};white-space:nowrap;">${n0(x.comments)}</td>` +
@@ -519,10 +530,54 @@ function dashShort(name) {
   return t || full;
 }
 
-$("#dashBody")?.addEventListener("click", async (e) => {
+// 이름을 누르면: 그 동호회·채널의 게시물(영상) 주소와 게시물별 댓글 수 + [짧은 이름 정하기]
+$("#dashBody")?.addEventListener("click", (e) => {
   const a = e.target.closest("[data-alias]");
   if (!a) return;
-  const full = a.dataset.alias;
+  dashShowLinks(a.dataset.alias, a.dataset.ch || "");
+});
+
+function dashShowLinks(full, ch) {
+  const lists = dashCache?.detail || {};
+  const chs = ch ? [ch] : Object.keys(lists).filter((k) => !k.startsWith("_"));
+  const entry = chs.map((c) => (lists[c] || []).find((x) => x.name === full)).find(Boolean);
+  const links = entry?.links || [];
+  const yt = ch === "유튜브";
+  const esc = (t) => String(t ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const diff = (l) => {
+    if (!yt || l.prev == null) return "";
+    const d = l.comments - l.prev;
+    return d > 0 ? ` <span class="dl-up">(▲${d.toLocaleString()})</span>` : d < 0 ? ` <span class="dl-down">(▼${(-d).toLocaleString()})</span>` : ` <span class="dl-same">( - )</span>`;
+  };
+  document.getElementById("dashLinks")?.remove();
+  const box = document.createElement("div");
+  box.id = "dashLinks";
+  box.className = "dash-links";
+  box.innerHTML = `
+    <div class="dl-card" role="dialog" aria-label="${esc(full)} 게시물">
+      <div class="dl-head"><b>${esc(full)}</b> <span class="hint">${esc(ch)} · ${yt ? "영상" : "게시물"} ${links.length}개 · 댓글 ${links.reduce((n, l) => n + l.comments, 0).toLocaleString()}개${yt ? " (전일 대비)" : ""}</span>
+        <button type="button" class="small dl-close">닫기</button></div>
+      <div class="dl-list">${
+        links.length
+          ? `<table><thead><tr><th>${yt ? "영상" : "게시물"}</th><th class="num">${yt ? "댓글(전체)" : "새게시물·댓글"}</th></tr></thead><tbody>${links
+              .map((l) => `<tr><td>${l.title ? `<div class="dl-title">${esc(l.title)}</div>` : ""}<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.url)}</a></td>` +
+                `<td class="num">${yt ? `${l.comments.toLocaleString()}${diff(l)}` : `${l.posts ? `새게시물 ${l.posts} · ` : ""}댓글 ${l.comments.toLocaleString()}`}</td></tr>`)
+              .join("")}</tbody></table>`
+          : `<div class="hint">그날 이 ${yt ? "채널의 영상" : "곳의 게시물"} 주소가 없습니다.</div>`
+      }</div>
+      <div class="dl-foot"><button type="button" class="small dl-alias">✏️ 대시보드에 보일 짧은 이름 정하기</button></div>
+    </div>`;
+  document.body.append(box);
+  const close = () => box.remove();
+  box.addEventListener("click", (ev) => ev.target === box && close());
+  box.querySelector(".dl-close").addEventListener("click", close);
+  box.querySelector(".dl-alias").addEventListener("click", () => {
+    close();
+    dashSetAlias(full);
+  });
+}
+
+async function dashSetAlias(full) {
   const v = prompt(`'${full}'\n대시보드에 보일 짧은 이름 (비우면 자동으로 줄임):`, dashShort(full));
   if (v === null) return;
   const st = await chrome.storage.local.get("lx3NameAlias").catch(() => ({}));
@@ -531,7 +586,7 @@ $("#dashBody")?.addEventListener("click", async (e) => {
   else delete map[full];
   await chrome.storage.local.set({ lx3NameAlias: map });
   renderDash();
-});
+}
 
 async function renderDash() {
   const box = $("#dash");
