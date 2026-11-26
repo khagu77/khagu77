@@ -828,3 +828,54 @@ def test_gv90_kakao_settings(ext, tmp_path: Path):
     s = page.evaluate("loadSettings()")
     assert s["kakaoRestKey"] == "abc" and s["kakaoOn"] is True and s["kakaoManual"] is False
     page.screenshot(path=str(tmp_path / "kakao.png"))
+
+
+def test_gv90_youtube_comments_newest_retry(ext, tmp_path: Path):
+    """유튜브 댓글: 최신순으로 바꿔 받기 · 빈 응답 0건은 다시 받고 실패 · 쪽 요청 실패는 다시 받고 끊기면 실패"""
+    ctx, sw, ext_id, requests = ext
+    page = ctx.new_page()
+    page.goto(f"chrome-extension://{ext_id}/comments.html")
+    res = page.evaluate(
+        """async () => {
+        window.sleep = async () => {};
+        const cm = (id, t) => ({ commentRenderer: { commentId: id, contentText: { simpleText: t }, publishedTimeText: { simpleText: '1일 전' } } });
+        const header = (n, sort) => ({ commentsHeaderRenderer: { countText: { runs: [{ text: '댓글 ' }, { text: n }, { text: '개' }] },
+          sortMenu: sort ? { sortFilterSubMenuRenderer: { subMenuItems: [
+            { title: '인기 댓글', serviceEndpoint: { continuationCommand: { token: 'POP' } } },
+            { title: '최신순', serviceEndpoint: { continuationCommand: { token: 'NEW' } } }] } } : undefined } });
+        const more = (t) => ({ continuationItemRenderer: { continuationEndpoint: { continuationCommand: { token: t } } } });
+        const page = { html: '', initialData: { itemSectionRenderer: { sectionIdentifier: 'comment-item-section', contents: [more('FIRST')] } } };
+        const run = async (answers) => {
+          const asked = [];
+          window.fetch = async (u, o) => {
+            const tok = JSON.parse(o.body).continuation;
+            asked.push(tok);
+            const a = answers[tok];
+            if (a === 500) return new Response('x', { status: 500 });
+            return new Response(JSON.stringify(a || {}), { status: 200 });
+          };
+          const yc = new YoutubeCollector({ log: () => {}, isStopped: () => false });
+          try {
+            const r = await yc.readComments('v', null, { page });
+            return { texts: r.comments.map((c) => c.text), expected: r.expected, asked };
+          } catch (e) {
+            return { error: e.message, asked };
+          }
+        };
+        return [
+          // 1) 인기순 첫 쪽(P1)은 버리고 최신순 NEW → NEW2 로 끝까지
+          await run({ FIRST: { a: [header('3', true), cm('P1', '인기순 댓글')] }, NEW: { a: [cm('N1', '첫째'), cm('N2', '둘째'), more('NEW2')] }, NEW2: { a: [cm('N3', '셋째')] } }),
+          // 2) 빈 응답만: 한 번 더 받은 뒤 실패 (영상 댓글 1,554개)
+          await run({ FIRST: { a: [header('1,554', false)] } }),
+          // 3) 둘째 쪽이 계속 실패: 3번 시도 후 '일부만 읽고 끊김'
+          await run({ FIRST: { a: [header('3', true)] }, NEW: { a: [cm('N1', '첫째'), cm('N2', '둘째'), more('NEW2')] }, NEW2: 500 }),
+          // 4) 유튜브가 '댓글 0개'라고 알려 주는 영상만 0건 정상
+          await run({ FIRST: { a: [header('0', false)] } }),
+        ];
+      }"""
+    )
+    ok, empty, broken, zero = res
+    assert ok["texts"] == ["첫째", "둘째", "셋째"] and ok["expected"] == 3 and "POP" not in ok["asked"], ok
+    assert "댓글을 하나도 읽지 못함" in empty["error"] and "1,554" in empty["error"] and empty["asked"].count("FIRST") == 2, empty
+    assert "일부만 읽고 끊김 (2개" in broken["error"] and broken["asked"].count("NEW2") == 3, broken
+    assert zero.get("texts") == [], zero

@@ -97,6 +97,21 @@ function ytCountFromText(t) {
   return "";
 }
 
+// 댓글 정렬 메뉴(인기 댓글 / 최신순)에서 '최신순' 토큰 (이름을 못 알아보면 두 번째 항목)
+function newestSortToken(data) {
+  let items = null;
+  walk(data, (k, v) => {
+    if (!items && k === "sortFilterSubMenuRenderer") {
+      items = v.subMenuItems || [];
+      return false;
+    }
+  });
+  if (!items || !items.length) return null;
+  const tok = (it) => it?.serviceEndpoint?.continuationCommand?.token || it?.continuation?.reloadContinuationData?.continuation || null;
+  const named = items.find((it) => /최신|newest/i.test(ytText(it.title) || it.title || ""));
+  return tok(named || items[1]) || null;
+}
+
 function findCommentsToken(initialData) {
   let token = null;
   walk(initialData, (k, v) => {
@@ -298,34 +313,82 @@ class YoutubeCollector {
     const context = { client: { clientName: "WEB", clientVersion, hl: "ko", gl: "KR" } };
     if (visitorData) context.client.visitorData = visitorData;
     const endpoint = `https://www.youtube.com/youtubei/v1/next?prettyPrint=false${apiKey ? `&key=${apiKey}` : ""}`;
-    const queue = [first];
-    const used = new Set(queue);
-    const byId = new Map();
     const maxReq = opts.maxRequests || 3000;
-    for (let n = 0; queue.length && n < maxReq; n++) {
-      if (this.isStopped()) throw new StopError("중지됨");
-      const token = queue.shift();
-      let resp;
-      try {
-        resp = await fetch(endpoint, { method: "POST", credentials: "omit", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ context, continuation: token }) });
-      } catch (e) {
-        if (byId.size) break;
-        throw e;
-      }
-      if (!resp.ok) {
-        if (byId.size) break;
-        throw new Error(`유튜브 댓글 요청 실패(HTTP ${resp.status})`);
-      }
-      const { comments, tokens } = parseYoutubeComments(await resp.json());
-      for (const c of comments) if (!byId.has(c.id)) byId.set(c.id, c);
-      for (const t of tokens) {
-        if (!used.has(t)) {
-          used.add(t);
-          queue.push(t);
+    // 한 쪽(continuation) 요청: 네트워크·HTTP 오류면 2초·5초 쉬고 다시 (최대 3번)
+    const fetchPage = async (token) => {
+      let last = null;
+      for (const wait of [0, 2000, 5000]) {
+        if (wait) await sleep(wait);
+        if (this.isStopped()) throw new StopError("중지됨");
+        try {
+          const resp = await fetch(endpoint, { method: "POST", credentials: "omit", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ context, continuation: token }) });
+          if (resp.ok) return await resp.json();
+          last = `HTTP ${resp.status}`;
+        } catch (e) {
+          last = e.message || String(e);
         }
       }
-      onProgress?.(byId.size);
-      await sleep(300);
+      throw new Error(last || "응답 없음");
+    };
+    let expected = null; // 유튜브가 알려 주는 영상 댓글 수 ('댓글 1,554개')
+    // 처음부터 끝까지 한 번 모으기 · 인기순은 유튜브가 일부 댓글을 빼고 보여 줘서 첫 응답에서 '최신순'으로 바꿔 처음부터
+    const collectAll = async () => {
+      const queue = [first];
+      const used = new Set(queue);
+      const byId = new Map();
+      let sortSwitched = false;
+      let n = 0;
+      for (; queue.length && n < maxReq; n++) {
+        if (this.isStopped()) throw new StopError("중지됨");
+        const token = queue.shift();
+        let data;
+        try {
+          data = await fetchPage(token);
+        } catch (e) {
+          if (e instanceof StopError) throw e;
+          if (opts.maxRequests) return { byId, complete: false }; // 댓글 수 세기용: 실패면 '모름'
+          throw new Error(byId.size ? `댓글 일부만 읽고 끊김 (${byId.size}개까지 읽은 뒤 유튜브 응답 실패: ${e.message}) — 잠시 뒤 다시 수집` : `유튜브 댓글 요청 실패 (${e.message}) — 잠시 뒤 다시 수집`);
+        }
+        if (expected == null) {
+          let t = "";
+          walk(data, (k, v) => {
+            if (!t && k === "commentsHeaderRenderer") t = ytText(v.countText || v.commentsCount);
+            if (t) return false;
+          });
+          if (!/\d/.test(t)) t = ytCountFromText(JSON.stringify(data));
+          if (/\d/.test(t)) expected = typeof parseCount === "function" ? parseCount(t) : +String(t).replace(/[^\d]/g, "");
+        }
+        if (!sortSwitched) {
+          sortSwitched = true;
+          const newest = newestSortToken(data);
+          if (newest && !used.has(newest)) {
+            used.add(newest);
+            queue.length = 0;
+            queue.push(newest);
+            continue; // 인기순 첫 쪽 댓글은 버리고 최신순으로 처음부터
+          }
+        }
+        const { comments, tokens } = parseYoutubeComments(data);
+        for (const c of comments) if (!byId.has(c.id)) byId.set(c.id, c);
+        for (const t of tokens) {
+          if (!used.has(t)) {
+            used.add(t);
+            queue.push(t);
+          }
+        }
+        onProgress?.(byId.size);
+        await sleep(300);
+      }
+      return { byId, complete: !queue.length };
+    };
+    let { byId, complete } = await collectAll();
+    // 다 돌았는데 0건: 유튜브가 가끔 댓글 없이 빈 응답을 줌 → 5초 쉬고 처음부터 한 번 더
+    if (!byId.size && !opts.maxRequests) {
+      await sleep(5000);
+      ({ byId, complete } = await collectAll());
+      // 유튜브가 '댓글 0개'라고 알려 주는 영상만 0건 정상
+      if (!byId.size && expected !== 0)
+        throw new Error(`댓글을 하나도 읽지 못함 (유튜브가 빈 응답 · 영상 댓글 ${expected != null ? `${expected.toLocaleString()}개` : "수 모름"}) — 잠시 뒤 다시 수집`);
     }
     const now = new Date();
     const comments = [...byId.values()]
@@ -334,6 +397,6 @@ class YoutubeCollector {
         const d = parseKoreanDate(c.writtenAt, now);
         return { text: c.text, writtenAt: c.writtenAt, date: d ? d.date.getTime() : null, isReply: c.id.includes("."), author: c.author };
       });
-    return { page, comments, complete: !queue.length };
+    return { page, comments, complete, expected };
   }
 }

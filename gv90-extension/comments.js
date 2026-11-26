@@ -189,7 +189,7 @@ async function collectOne(p, tools) {
   if (p.channel === "유튜브") {
     const id = p.src?.videoId || parseYoutubeId(p.url) || String(p.key).replace(/^yt:/, "");
     const r = await yc.readComments(id, (n) => showWork(`유튜브 댓글 읽는 중 · ${n}개`, 0, 0));
-    return { list: r.comments || [], how: "유튜브 댓글" };
+    return { list: r.comments || [], how: "유튜브 댓글 (최신순)", ccount: r.expected ?? null };
   }
   if (p.channel === "동호회") {
     const { post, cafe } = cafePost(p);
