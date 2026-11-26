@@ -1950,3 +1950,36 @@ def test_youtube_empty_response_is_failure(tmp_path: Path):
         res = page.evaluate("""async () => { const r = { url: 'https://youtu.be/YK_4bdxc4qM' }; await collectYoutube(r, () => false); return r.comments.length; }""")
         assert res == 0  # 댓글 0개 영상은 정상
         ctx.close()
+
+
+def test_youtube_page_failure_retry(tmp_path: Path):
+    """유튜브 댓글 한 쪽이 실패하면 잠시 뒤 다시 받고(성공하면 전부), 계속 실패하면 일부만 '정상'으로 두지 않고 실패로
+    (기존 댓글 유지 · 다시 수집 목록) — 하루 사이 댓글 수가 크게 줄어 보이던 문제."""
+    state = {"fail": 0}
+
+    def yt(route):
+        if "/youtubei/" in route.request.url:
+            tok = json.loads(route.request.post_data or "{}").get("continuation")
+            if tok == "TOP2" and state["fail"] > 0:
+                state["fail"] -= 1
+                return route.fulfill(status=500, body="")
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps(YT_PAGES.get(tok, {})))
+        return route.fulfill(status=200, content_type="text/html", body=YT_HTML)
+
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            str(tmp_path / "profile"), executable_path=CHROMIUM, headless=True, timezone_id="Asia/Seoul",
+            args=[f"--disable-extensions-except={EXT_DIR}", f"--load-extension={EXT_DIR}"])
+        ctx.route("https://www.youtube.com/**", yt)
+        sw = ctx.service_workers[0] if ctx.service_workers else ctx.wait_for_event("serviceworker")
+        ext = f"chrome-extension://{sw.url.split('/')[2]}"
+        page = ctx.new_page()
+        page.goto(f"{ext}/app.html")
+        run = """() => { const r = { url: 'https://youtu.be/zzzzzzzzzzz' };
+          return collectYoutube(r, () => false).then(() => 'ok ' + r.comments.length, (e) => e.message); }"""
+        state["fail"] = 1  # 한 번 실패 → 다시 받아 전부
+        assert page.evaluate(run) == "ok 4"
+        state["fail"] = 99  # 계속 실패 → 일부만 읽고 끊김 = 실패
+        err = page.evaluate(run)
+        assert "일부만 읽고 끊김" in err and "다시 수집" in err, err
+        ctx.close()

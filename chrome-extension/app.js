@@ -399,22 +399,36 @@ async function collectYoutube(result, isStopped, onProgress) {
   while (queue.length && !isStopped() && requests < MAX_PAGES * 5) {
     const token = queue.shift();
     requests++;
-    let resp;
-    try {
-      resp = await fetch(endpoint, {
-        method: "POST",
-        credentials: "omit",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ context, continuation: token }),
-      });
-    } catch (e) {
-      throw new CollectError(`네트워크 오류: ${e.message}`);
+    // 한 쪽 받기: 실패하면 2초·5초 쉬고 다시 (최대 3번). 그래도 안 되면 중간에 끊긴 것 →
+    // 그때까지 모은 일부를 '정상'으로 저장하면 댓글 수가 줄어 보이므로 실패로 (오늘 파일의 그 영상 기존 댓글 유지·다시 수집 목록)
+    let data = null;
+    let lastErr = "";
+    for (let t = 0; t < 3 && !data && !isStopped(); t++) {
+      if (t) await sleep(t === 1 ? 2000 : 5000);
+      try {
+        const resp = await fetch(endpoint, {
+          method: "POST",
+          credentials: "omit",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ context, continuation: token }),
+        });
+        if (!resp.ok) {
+          lastErr = `HTTP ${resp.status}`;
+          continue;
+        }
+        data = await resp.json();
+      } catch (e) {
+        lastErr = e.message || String(e);
+      }
     }
-    if (!resp.ok) {
-      if (byId.size) break; // 이미 모은 것은 살린다
-      throw new CollectError(`유튜브 댓글 요청 실패(HTTP ${resp.status})`);
+    if (!data) {
+      if (isStopped()) break;
+      throw new CollectError(
+        byId.size
+          ? `댓글 일부만 읽고 끊김 (${byId.size.toLocaleString()}개까지 읽은 뒤 유튜브 응답 실패: ${lastErr}) — 잠시 뒤 다시 수집 (오늘 파일의 이 영상 기존 댓글은 그대로)`
+          : `유튜브 댓글 요청 실패 (${lastErr})`,
+      );
     }
-    const data = await resp.json();
     if (expected === null) readCount(data);
     const { comments, tokens } = parseYoutubeResponse(data);
     for (const c of comments) if (!byId.has(c.commentId)) byId.set(c.commentId, c);
