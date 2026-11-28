@@ -205,6 +205,7 @@ export async function render(root, store) {
 
   const onEv = (ev) => {
     if (ev.type === "live") { drawFeed(true); load(false); }
+    if (ev.type === "liveEdit") { drawFeed(false); load(false); }
     if (ev.type === "status") drawStatus();
     if (ev.type === "theme") { root.classList.add("calm"); draw(); }
   };

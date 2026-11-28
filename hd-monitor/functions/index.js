@@ -11,6 +11,8 @@ import { DEFAULT_SETTINGS } from "./src/defaults.js";
 import { runCollection } from "./src/collect.js";
 import { cleanupOldGarbage } from "./src/cleanup.js";
 import { analyzePosts } from "./src/ai.js";
+import { applySentiment } from "./src/sentimentApply.js";
+const SENT_LABELS = ["pos", "neu", "neg", "abuse"];
 import { kakaoExchange, kakaoSend, kakaoDisconnect } from "./src/kakao.js";
 import { buildContext, classify } from "./src/classify.js";
 import { statsDelta } from "./src/store.js";
@@ -182,10 +184,19 @@ export const analyze = onCall({ timeoutSeconds: 300 }, wrap(async (req) => {
   const posts = snaps.filter((s) => s.exists).map((s) => ({ id: s.id, ...s.data() }));
   const log = [];
   const res = await analyzePosts(posts, await getSettings(), await getSecrets(), log);
-  const batch = db.batch();
-  for (const r of res) batch.update(db.doc(`posts/${r.id}`), { sentiment: r.sentiment, sentimentBy: r.by, sentimentReason: r.reason, analyzedAt: FieldValue.serverTimestamp() });
-  await batch.commit();
+  await applySentiment(res, new Map(posts.map((p) => [p.id, p])));
   return { results: res, log };
+}));
+
+// 담당자가 성향 지정: 게시물 + 통계 + 실시간 피드를 함께 바꿈
+export const setSentiment = onCall(wrap(async (req) => {
+  const u = await requireUser(req, "editor");
+  const ids = [...new Set((req.data?.ids || []).map(String))].slice(0, 300);
+  const sentiment = String(req.data?.sentiment || "");
+  if (!ids.length || !SENT_LABELS.includes(sentiment)) throw new HttpsError("invalid-argument", "게시물과 성향을 고르세요");
+  const reason = `${u?.name || "담당자"} 지정`;
+  const n = await applySentiment(ids.map((id) => ({ id, sentiment, by: "manual", reason })), new Map(), { editedBy: req.auth.uid, editedAt: FieldValue.serverTimestamp() });
+  return { updated: n, reason };
 }));
 
 // ── 키워드·카테고리를 바꾼 뒤 최근 글 다시 분류 + 통계 다시 계산 ─────────

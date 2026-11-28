@@ -108,8 +108,6 @@ export async function autoAnalyze(created, settings, secrets, log) {
   const chans = new Set(settings.ai?.autoChannels || ["ppomppu"]);
   const targets = created.filter((p) => chans.has(p.channel) && p.sentimentBy === "rule").slice(0, 50);
   if (!targets.length || !secrets.geminiKey) return;
-  const { db, FieldValue } = await import("./db.js");
-  const { kstParts } = await import("./util.js");
   let res;
   try {
     res = await analyzePosts(targets, settings, secrets, [], { geminiOnly: true });
@@ -117,27 +115,8 @@ export async function autoAnalyze(created, settings, secrets, log) {
     log.push(`자동 AI 분석 건너뜀: ${String(e.message).slice(0, 80)}`);
     return;
   }
-  const byId = new Map(targets.map((p) => [p.id, p]));
-  const batch = db.batch();
-  const inc = {};
-  const bump = (day, f, k, n) => { ((inc[day] ||= {})[f] ||= {})[k] = (inc[day][f][k] || 0) + n; };
-  for (const r of res) {
-    const p = byId.get(r.id);
-    if (!p) continue;
-    batch.update(db.doc(`posts/${r.id}`), { sentiment: r.sentiment, sentimentBy: r.by, sentimentReason: r.reason, analyzedAt: FieldValue.serverTimestamp() });
-    if (r.sentiment !== p.sentiment) {
-      // 일별 통계의 성향 건수도 옮김
-      const day = kstParts(p.collectedAt.toDate()).day;
-      bump(day, "sent", p.sentiment, -1); bump(day, "sent", r.sentiment, 1);
-      if (p.isIssue || p.must) { bump(day, "sentIssue", p.sentiment, -1); bump(day, "sentIssue", r.sentiment, 1); }
-    }
-    Object.assign(p, { sentiment: r.sentiment, sentimentBy: r.by, sentimentReason: r.reason });
-  }
-  for (const [day, fields] of Object.entries(inc)) {
-    const data = {};
-    for (const [f, m] of Object.entries(fields)) { data[f] = {}; for (const [k, n] of Object.entries(m)) data[f][k] = FieldValue.increment(n); }
-    batch.set(db.doc(`stats/${day}`), data, { merge: true });
-  }
-  await batch.commit();
+  const { applySentiment } = await import("./sentimentApply.js");
+  // 게시물 · 통계 · 실시간 피드를 함께 (created 객체도 함께 바뀌어 알림에 새 성향이 쓰임)
+  await applySentiment(res, new Map(targets.map((p) => [p.id, p])));
   log.push(`자동 AI 성향 분석: ${res.length}건`);
 }

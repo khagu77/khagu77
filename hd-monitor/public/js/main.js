@@ -100,8 +100,11 @@ async function startShell() {
   shellSubs.push(store.be.watchSettings((s) => { if (s) { store.settings = s; setCafeNames(s.favCafes); buildNav(); store.emit({ type: "settings" }); } }));
   shellSubs.push(store.be.watchLive((l) => {
     const prevTop = store.live.items?.[0]?.id;
+    const sig = (x) => (x.items || []).map((p) => `${p.id}:${p.sentiment}:${p.isIssue ? 1 : 0}`).join("|");
+    const prevSig = sig(store.live);
     store.live = l;
     if (prevTop && l.items?.[0]?.id !== prevTop) { refreshToday(true); store.emit({ type: "live", live: l }); }
+    else if (prevTop && sig(l) !== prevSig) store.emit({ type: "liveEdit", live: l }); // 성향만 바뀜 → 피드 배지만 다시 그림
   }));
   shellSubs.push(store.be.watchStatus((s) => { store.status = s; updateLiveDot(); store.emit({ type: "status" }); }));
   const dotTimer = setInterval(updateLiveDot, 30000);

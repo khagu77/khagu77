@@ -66,6 +66,7 @@ export async function createBackend() {
     },
     getRuns: async () => (await getDoc(doc(db, "state/runs"))).data()?.items || [],
     analyze: (ids) => call("analyze", { ids }),
+    setSentiment: (ids, sentiment) => call("setSentiment", { ids, sentiment }),
     runNow: (parts) => call("runNow", { parts }),
     reclassify: (days) => call("reclassify", { days }),
 

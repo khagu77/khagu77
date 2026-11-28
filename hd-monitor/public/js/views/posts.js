@@ -28,7 +28,8 @@ export async function render(root, store, { arg, qs }) {
     period: PERIODS.some(([v]) => v === qs.get("period")) ? qs.get("period") : qs.get("q") ? "30d" : "3d", from: "", to: "", sort: "time", q: qs.get("q") || "", alertedOnly: false,
     issueOnly: qs.get("issue") === "1",
     src: qs.get("src") || "",
-    noShorts: (() => { try { return localStorage.getItem("hdmon-noshorts") === "1"; } catch { return false; } })(),
+    // 숏츠 보기: all 전체 · no 숏츠 제외 · only 숏츠만 (예전 '숏츠 제외' 켬 값도 이어받음)
+    shorts: (() => { try { const v = localStorage.getItem("hdmon-shorts"); return v || (localStorage.getItem("hdmon-noshorts") === "1" ? "no" : "all"); } catch { return "all"; } })(),
     ch: new Set(), sent: new Set((qs.get("sent") || "").split(",").filter((s) => SENT[s])), grp: "", dedupe: catId === "news" || catId === "all", star: false, showHidden: false,
   };
   let all = [];
@@ -59,7 +60,7 @@ export async function render(root, store, { arg, qs }) {
         <input class="input" id="q" style="flex:1;min-width:200px" placeholder="제목·내용·매체명 (여러 단어는 모두 포함, -단어 는 제외)" value="${esc(st.q)}">
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="dedupe" ${st.dedupe ? "checked" : ""}><span></span></span>유사 기사 묶기</label>
         ${st.src ? `<button class="chip on" id="srcChip" title="눌러서 매체 조건 지우기">${esc(st.src)} ✕</button>` : ""}
-        ${hasYt ? `<label class="toggle-row"><span class="switch"><input type="checkbox" id="noShorts" ${st.noShorts ? "checked" : ""}><span></span></span>숏츠 제외</label>` : ""}
+        ${hasYt ? `<div class="seg" id="shortsSeg">${[["all", "전체"], ["no", "숏츠 제외"], ["only", "숏츠만"]].map(([v, l]) => `<button data-v="${v}" class="${st.shorts === v ? "on" : ""}">${l}</button>`).join("")}</div>` : ""}
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="issueOnly" ${st.issueOnly ? "checked" : ""}><span></span></span>이슈 글만</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="alertedOnly"><span></span></span>💬 카톡 발송만</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="star"><span></span></span>중요만</label>
@@ -113,7 +114,7 @@ export async function render(root, store, { arg, qs }) {
   $q("#grp").onchange = (e) => { st.grp = e.target.value; apply(); };
   let qt;
   $q("#q").oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => { st.q = e.target.value; apply(); ensureEnough(); }, 220); };
-  $q("#noShorts")?.addEventListener("change", (e) => { st.noShorts = e.target.checked; try { localStorage.setItem("hdmon-noshorts", st.noShorts ? "1" : "0"); } catch {} apply(); });
+  if ($q("#shortsSeg")) segmented($q("#shortsSeg"), (v) => { st.shorts = v; try { localStorage.setItem("hdmon-shorts", v); } catch {} apply(); });
   $q("#srcChip")?.addEventListener("click", () => { location.hash = `#/posts/${cat.id}`; });
   for (const k of ["dedupe", "star", "showHidden", "alertedOnly", "issueOnly"]) $q(`#${k}`).onchange = (e) => { st[k] = e.target.checked; apply(); };
 
@@ -162,7 +163,8 @@ export async function render(root, store, { arg, qs }) {
       if (!st.showHidden && p.hidden) return false;
       if (st.star && !p.star) return false;
       if (st.issueOnly && !(p.isIssue || p.must)) return false;
-      if (st.noShorts && isShorts(p)) return false;
+      if (st.shorts === "no" && isShorts(p)) return false;
+      if (st.shorts === "only" && !isShorts(p)) return false;
       if (st.src && (sourceName(p) || p.source) !== st.src && p.source !== st.src) return false;
       if (st.alertedOnly && !p.alerted) return false;
       if (st.dedupe && p.dupOf) return false;
@@ -264,6 +266,11 @@ export async function render(root, store, { arg, qs }) {
     } else box.innerHTML = "";
   }
 
+  // 성향 지정: 서버가 게시물 · 통계 · 실시간 피드를 함께 바꿈
+  async function setSent(ids, sentiment) {
+    const r = await store.be.setSentiment(ids, sentiment);
+    for (const id of ids) Object.assign(byId(id) || {}, { sentiment, sentimentBy: "manual", sentimentReason: r?.reason || `${store.me.name || "담당자"} 지정` });
+  }
   async function patch(ids, data) {
     for (const id of ids) {
       await store.be.updatePost(id, data);
@@ -304,7 +311,7 @@ export async function render(root, store, { arg, qs }) {
   $q("#list").addEventListener("change", async (e) => {
     const row = e.target.closest(".post");
     if (row && e.target.matches("[data-sent]")) {
-      await patch([row.dataset.id], { sentiment: e.target.value, sentimentBy: "manual", sentimentReason: `${store.me.name || "담당자"} 지정` });
+      await setSent([row.dataset.id], e.target.value);
       toast("성향을 바꿨습니다");
       refreshRow(row.dataset.id);
     }
@@ -347,7 +354,7 @@ export async function render(root, store, { arg, qs }) {
   });
   bulk.querySelector("select[data-a]")?.addEventListener("change", async (e) => {
     if (!e.target.value) return;
-    await patch([...sel], { sentiment: e.target.value, sentimentBy: "manual", sentimentReason: `${store.me.name || "담당자"} 지정` });
+    await setSent([...sel], e.target.value);
     toast(`${sel.size}건 성향을 '${SENT[e.target.value].name}'(으)로 바꿨습니다`);
     e.target.value = "";
     apply();

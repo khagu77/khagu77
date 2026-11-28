@@ -131,6 +131,12 @@ export function createDemoBackend() {
       return { items, cursor: start + pageSize, done: start + pageSize >= list.length };
     },
     updatePost: async (id, patch) => { Object.assign(posts.find((p) => p.id === id) || {}, patch); },
+    async setSentiment(ids, sentiment) {
+      for (const id of ids) Object.assign(posts.find((p) => p.id === id) || {}, { sentiment, sentimentBy: "manual", sentimentReason: "관리자 지정" });
+      live.items = (live.items || []).map((p) => (ids.includes(p.id) ? { ...p, sentiment } : p));
+      liveSubs.forEach((f) => f({ ...live }));
+      return { updated: ids.length, reason: "관리자 지정" };
+    },
     watchLive: (cb) => { liveSubs.add(cb); cb(live); return () => liveSubs.delete(cb); },
     watchStatus: (cb) => { cb({ lastRun: { at: new Date(Date.now() - 90e3), ms: 21400, fetched: 812, created: 37, log: ["네이버: 검색 83회 (전체 405개 중 83개 차례), 받은 글 690건", "유튜브 관심 채널 48곳 확인, 새 영상 3건", "커뮤니티 게시판 7곳, 새 글 41건", "저장: 후보 455건 중 새 글 37건", "알림: 2건 (메시지 6통)"] }, queries: 135 }); return () => {}; },
     async getStats(fromDay, toDay) { await delay(300); return Object.values(stats()).filter((s) => s.day >= fromDay && s.day <= toDay); },
