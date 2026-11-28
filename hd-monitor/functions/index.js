@@ -249,7 +249,7 @@ export const moveToGarbage = onCall({ timeoutSeconds: 120 }, wrap(async (req) =>
       next = { isIssue: false, must: false, alert: false, manualGarbage: true };
     } else {
       if (!p.manualGarbage) continue;
-      const cls = classify({ ...p, requireMatch: false }, ctx);
+      const cls = classify({ ...p, desc: p.descFull || p.desc, requireMatch: false }, ctx);
       next = { isIssue: !!cls?.isIssue, must: !!cls?.must, alert: !!cls?.alert, manualGarbage: false };
     }
     next.cats = categoriesFor({ ...p, ...next }, ctx.categories);
@@ -353,7 +353,7 @@ export const reclassify = onCall({ timeoutSeconds: 540, memory: "1GiB" }, wrap(a
   let changed = 0;
   for (const d of snap.docs) {
     const p = d.data();
-    const cls = p.manualGarbage ? null : classify({ ...p, requireMatch: false }, ctx);
+    const cls = p.manualGarbage ? null : classify({ ...p, desc: p.descFull || p.desc, requireMatch: false }, ctx);
     const next = p.manualGarbage ? { ...p } : cls
       ? { ...p, targets: cls.targets, kw: cls.kw, kwGroups: cls.kwGroups, isIssue: cls.isIssue, alert: cls.alert, fav: cls.fav, must: cls.must, cats: cls.cats,
           sentiment: p.sentimentBy === "rule" ? cls.sentiment : p.sentiment }

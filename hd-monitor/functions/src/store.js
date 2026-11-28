@@ -18,6 +18,8 @@ export function buildPost(item, cls, now) {
     channel: item.channel,
     title: String(item.title || "").slice(0, 300),
     desc: String(item.desc || "").slice(0, 400),
+    // 유튜브는 설명 뒤쪽에 키워드가 있는 경우가 많아, 다시 분류할 때 쓰도록 설명 전체를 따로 보관
+    ...(item.channel === "youtube" && String(item.desc || "").length > 400 ? { descFull: String(item.desc).slice(0, 3000) } : {}),
     url: item.channel === "youtube" && item.short && item.vid ? `https://www.youtube.com/shorts/${item.vid}` : item.url,
     source: String(item.source || "").slice(0, 80),
     sourceId: String(item.sourceId || "").slice(0, 120),
@@ -86,6 +88,7 @@ export async function ingest(items, ctx, log) {
         if (old && !(old.isIssue || old.must) && !old.manualGarbage) {
           const patch = { targets: data.targets, kw: data.kw, kwGroups: data.kwGroups, isIssue: data.isIssue, must: data.must, alert: data.alert, fav: data.fav, cats: data.cats };
           if (String(data.desc || "").length > String(old.desc || "").length) patch.desc = data.desc;
+          if (data.descFull) patch.descFull = data.descFull;
           if (old.sentimentBy === "rule") patch.sentiment = data.sentiment;
           await ref.update(patch);
           upgraded.push({ old, next: { ...old, ...patch } });
