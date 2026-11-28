@@ -242,6 +242,8 @@ export const DEFAULT_SETTINGS = {
     daumBlog: true,                // 블로그: 다음(카카오) 블로그 검색 API (카카오 REST 키)
     daumBlogPerTick: 20,
     ppomppuRss: true,              // 뽐뿌: 게시판 RSS
+    naverServerCafe: true,         // 네이버 카페는 서버도 아주 천천히 검색 (설치 없이)
+    naverServerCafePerTick: 6,     // 5분마다 6번, 하나씩 4~7초 간격
     naverByExtension: true,        // 네이버 검색은 크롬 수집 도우미가 (서버는 네이버가 막음)
     extNaverPerRun: 12,            // 수집 도우미가 5분마다 하는 네이버 검색 수 (사람이 검색하는 정도)
     naverWebPerTick: 36,           // (API 키가 없을 때) 5분마다 읽는 네이버 검색 결과 화면 수

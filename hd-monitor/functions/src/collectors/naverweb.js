@@ -155,15 +155,16 @@ export function isBlockedPage(html, status) {
 }
 
 // 이번 5분 차례의 검색만 실행
-export async function collectNaverWeb({ queries, settings, log, force = false }) {
-  const kinds = ["news", "blog", "cafe"].filter((k) => settings.collect.naver?.[k]);
+// kinds·perTick 을 주면 그것만, slow 면 하나씩 4~7초 간격 (네이버는 짧은 시간에 많이 검색하면 403)
+export async function collectNaverWeb({ queries, settings, log, force = false, kinds: onlyKinds = null, perTick: fixedPerTick = 0, slow = false }) {
+  const kinds = (onlyKinds || ["news", "blog", "cafe"]).filter((k) => settings.collect.naver?.[k] !== false);
   if (!kinds.length || !queries.length) return [];
   const st = await getState("naverweb");
   const now = Date.now();
   if (st.blockedUntil > now && !force) { log.push(`네이버 검색 화면: 잠시 쉬는 중 (${Math.ceil((st.blockedUntil - now) / 60000)}분 뒤 다시)`); return []; }
   const calls = [];
   for (const q of queries) for (const k of kinds) calls.push({ q, k });
-  const perTick = Math.max(6, Number(settings.collect.naverWebPerTick) || 36);
+  const perTick = fixedPerTick || Math.max(6, Number(settings.collect.naverWebPerTick) || 36);
   let i = (st.i || 0) % calls.length;
   const todo = [];
   for (let n = 0; n < Math.min(perTick, calls.length); n++) { todo.push(calls[i]); i = (i + 1) % calls.length; }
@@ -215,9 +216,10 @@ export async function collectNaverWeb({ queries, settings, log, force = false })
     if (first.length) seenDoc[sk] = first.slice(0, 60);
   };
   // 동시에 3개씩 · 사이사이 쉬어 가며 (사람이 보는 속도에 가깝게)
-  for (let n = 0; n < todo.length && !blocked; n += 3) {
-    await Promise.all(todo.slice(n, n + 3).map(work));
-    await sleep(400 + Math.random() * 800);
+  const step = slow ? 1 : 3;
+  for (let n = 0; n < todo.length && !blocked; n += step) {
+    await Promise.all(todo.slice(n, n + step).map(work));
+    await sleep(slow ? 4000 + Math.random() * 3000 : 400 + Math.random() * 800);
   }
   if (blocked) {
     st.blocks = (st.blocks || 0) + 1;

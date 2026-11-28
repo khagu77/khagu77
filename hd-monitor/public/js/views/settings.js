@@ -242,6 +242,7 @@ export async function render(root, store, { arg }) {
         <div class="field">설치 없이 서버만으로 (네이버·뽐뿌가 서버 접속을 막아 공식 경로로 대신)</div>
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="googleNews" ${c.googleNews !== false ? "checked" : ""}><span></span></span>언론: Google 뉴스 RSS (5분마다 검색어 ${c.googleNewsPerTick ?? 20}개씩)</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="daumBlog" ${c.daumBlog !== false ? "checked" : ""}><span></span></span>블로그: 다음(카카오) 블로그 검색 (카카오 REST API 키 사용)</label>
+        <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="naverServerCafe" ${c.naverServerCafe !== false ? "checked" : ""}><span></span></span>네이버 카페: 서버가 아주 천천히 검색 (5분마다 ${c.naverServerCafePerTick ?? 6}번 · 막히면 자동으로 쉼)</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="ppomppuRss" ${c.ppomppuRss !== false ? "checked" : ""}><span></span></span>뽐뿌: 게시판 RSS (10분마다)</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="naverByExtension" ${c.naverByExtension !== false ? "checked" : ""}><span></span></span><b>네이버 검색(카페 포함)은 크롬 수집 도우미가</b> — 선택 사항, 설치한 PC가 있을 때만 (끄면 서버가 시도하지만 네이버가 막음)</label>
         <label class="field">수집 도우미가 5분마다 하는 네이버 검색 수 (12 = 시간당 144회 · 너무 크면 네이버가 잠시 막을 수 있음)<input class="input" type="number" min="3" max="30" data-c="extNaverPerRun" value="${c.extNaverPerRun ?? 12}"></label>

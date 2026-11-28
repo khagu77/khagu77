@@ -28,8 +28,12 @@ export async function runCollection({ force = false, parts = null } = {}) {
   // 네이버가 Google 서버의 검색을 막아(403) 기본은 크롬 수집 도우미가 담당
   if (want("naver")) {
     if (parseKeys(secrets.naverKeys).length) jobs.push(collectNaver({ queries, settings, secrets, log }));
-    else if (settings.collect.naverByExtension !== false) log.push("네이버 검색: 서버 접속은 네이버가 막음 → 언론은 Google 뉴스, 블로그는 다음 검색으로 수집 (네이버 카페는 수집 도우미가 있을 때만)");
-    else jobs.push(collectNaverWeb({ queries, settings, log, force }));
+    else if (settings.collect.naverByExtension !== false) {
+      // 언론은 Google 뉴스, 블로그는 다음 검색이 맡고, 네이버 카페만 서버가 아주 천천히 검색 (많이 하면 네이버가 403)
+      if (settings.collect.naverServerCafe !== false && settings.collect.naver?.cafe !== false) {
+        jobs.push(collectNaverWeb({ queries, settings, log, force, kinds: ["cafe"], perTick: Number(settings.collect.naverServerCafePerTick) || 6, slow: true }));
+      }
+    } else jobs.push(collectNaverWeb({ queries, settings, log, force }));
   }
   if (want("rss") && settings.collect.youtubeRss && (force || tick % 2 === 0)) jobs.push(collectYoutubeRss({ settings, log }));
   if (want("ytsearch") && settings.collect.youtubeSearch) jobs.push(collectYoutubeSearch({ queries: targetQueries, settings, secrets, log }));
