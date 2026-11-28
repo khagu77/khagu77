@@ -95,7 +95,7 @@ setInterval(() => {
   posts.unshift(p);
   live.items = [toLive(p), ...live.items].slice(0, 40);
   live.at = new Date();
-  liveSubs.forEach((cb) => cb(live));
+  liveSubs.forEach((cb) => cb({ ...live }));
 }, 7000);
 
 const users = [

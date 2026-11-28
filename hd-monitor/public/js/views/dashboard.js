@@ -35,14 +35,22 @@ export async function render(root, store) {
   let data = null;
   const hiddenSeries = new Set();
 
+  let loadSeq = 0;
+  let lastSig = "";
   async function load(first = true) {
+    const seq = ++loadSeq;
     const n = Math.max(period, 7);
     const cur = days(n);
     const prevEnd = new Date(Date.now() - period * 86400e3);
     const prev = days(period, prevEnd);
     const all = await store.be.getStats(prev[0], cur[cur.length - 1]);
+    if (seq !== loadSeq) return; // 더 나중 요청이 있으면 그걸로
+    const sig = `${period}|${JSON.stringify(all.map((s) => [s.day, s.total, s.issue, s.garbage, s.cat]).sort())}`;
+    if (!first && sig === lastSig) return; // 숫자가 그대로면 다시 그리지 않음
+    lastSig = sig;
     const by = Object.fromEntries(all.map((s) => [s.day, s]));
     data = { by, cur, prev, inPeriod: cur.slice(-period) };
+    root.classList.toggle("calm", !first); // 처음·기간 바꿀 때만 그려지는 애니메이션
     draw(first);
   }
 
@@ -165,11 +173,11 @@ export async function render(root, store) {
   const onEv = (ev) => {
     if (ev.type === "live") { drawFeed(true); load(false); }
     if (ev.type === "status") drawStatus();
-    if (ev.type === "theme") draw();
+    if (ev.type === "theme") { root.classList.add("calm"); draw(); }
   };
   store.listeners.add(onEv);
   let rt;
-  const onResize = () => { clearTimeout(rt); rt = setTimeout(() => draw(), 200); };
+  const onResize = () => { clearTimeout(rt); rt = setTimeout(() => { root.classList.add("calm"); draw(); }, 200); };
   window.addEventListener("resize", onResize);
   const tick = setInterval(() => drawFeed(false), 60000);
   await load();

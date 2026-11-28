@@ -32,6 +32,13 @@ export function h(html) {
   return t.content.firstElementChild;
 }
 
+// 로고 그림 확인: Google 은 로고를 못 찾으면 16px 지구본을 줌 → DuckDuckGo 로 한 번 더 → 그래도 없으면 글자 아이콘
+window.__logoFail = (img) => {
+  if (!img.dataset.alt) { img.dataset.alt = "1"; img.src = `https://icons.duckduckgo.com/ip3/${img.dataset.site}.ico`; } else img.remove();
+};
+window.__logoCheck = (img) => {
+  if (!img.dataset.alt && img.naturalWidth > 0 && img.naturalWidth <= 16) window.__logoFail(img);
+};
 // 채널 아이콘: 언론은 언론사 로고, 보배드림·클리앙·뽐뿌는 사이트 로고 (못 불러오면 글자 아이콘)
 const SITE_LOGO = { bobae: "bobaedream.co.kr", clien: "clien.net", ppomppu: "ppomppu.co.kr" };
 export const logoSite = (ch, p) => SITE_LOGO[ch] || (ch === "news" && p ? p.site || siteOf({ channel: "news", url: p.url, extUrl: p.extUrl }) : null);
@@ -40,7 +47,7 @@ export const chIcon = (ch, small = false, p = null) => {
   const size = small ? ' style="width:22px;height:22px;font-size:10px;border-radius:6px"' : "";
   const title = esc(ch === "news" && p?.source ? p.source : CH[ch]?.name || ch);
   if (!site) return `<span class="ch-ico ch-${esc(ch)}"${size} title="${title}">${esc(CH[ch]?.short || "?")}</span>`;
-  return `<span class="ch-ico ch-${esc(ch)} logo"${size} title="${title}">${esc(CH[ch]?.short || "?")}<img alt="" loading="lazy" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(site)}&sz=64" onerror="this.remove()"></span>`;
+  return `<span class="ch-ico ch-${esc(ch)} logo"${size} title="${title}">${esc(CH[ch]?.short || "?")}<img alt="" loading="lazy" data-site="${esc(site)}" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(site)}&sz=64" onload="window.__logoCheck(this)" onerror="window.__logoFail(this)"></span>`;
 };
 // 제목 앞 매체명 상자 (언론·동호회·유튜브·자동차 커뮤니티)
 const PILL_CH = new Set(["news", "cafe", "youtube", "bobae", "clien", "ppomppu"]);
