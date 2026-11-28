@@ -1,0 +1,79 @@
+# 현대차 온라인 이슈 모니터링 — Firebase 자동 배포
+# hd-monitor 폴더가 바뀌어 올라오면 linesquare--monitor 프로젝트의 이 시스템 것만 배포
+# (사이트 hd-issue-monitor · Firestore 데이터베이스 hdmon · Functions 묶음 hdmon — 기존 유튜브 시스템은 건드리지 않음)
+# 필요: 저장소 Settings → Secrets and variables → Actions → FIREBASE_SERVICE_ACCOUNT (서비스 계정 JSON 키 전체)
+name: Deploy hd-monitor
+
+on:
+  push:
+    branches: [claude/determined-pascal-9tkcwj, main]
+    paths: ["hd-monitor/**", ".github/workflows/hd-monitor-deploy.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: hd-monitor-deploy
+  cancel-in-progress: false
+
+env:
+  PROJECT: linesquare--monitor
+  SITE: hd-issue-monitor
+  DB: hdmon
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: hd-monitor
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: hd-monitor/functions/package-lock.json
+
+      - name: 서비스 계정 키 확인
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SA" ]; then
+            echo "::error::FIREBASE_SERVICE_ACCOUNT 시크릿이 없습니다. 저장소 Settings → Secrets and variables → Actions 에 서비스 계정 JSON 키를 넣어 주세요 (hd-monitor/README.md 참고)"
+            exit 1
+          fi
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
+
+      - name: 서버 패키지 설치 · 테스트
+        working-directory: hd-monitor/functions
+        run: |
+          npm ci
+          npm test
+
+      - name: Firebase CLI 설치
+        run: npm i -g firebase-tools
+
+      - name: 호스팅 사이트 준비 (없으면 만들기)
+        run: |
+          if firebase hosting:sites:get "$SITE" --project "$PROJECT" >/dev/null 2>&1; then
+            echo "사이트 $SITE 있음"
+          else
+            firebase hosting:sites:create "$SITE" --project "$PROJECT" --non-interactive
+          fi
+
+      - name: Firestore 데이터베이스 준비 (없으면 서울에 만들기)
+        run: |
+          if firebase firestore:databases:get "$DB" --project "$PROJECT" >/dev/null 2>&1; then
+            echo "데이터베이스 $DB 있음"
+          else
+            firebase firestore:databases:create "$DB" --location=asia-northeast3 --project "$PROJECT" --non-interactive
+          fi
+
+      - name: 배포 (이 시스템 것만)
+        run: firebase deploy --only "hosting:hdmon,functions:hdmon,firestore" --project "$PROJECT" --force --non-interactive
+
+      - name: 키 파일 지우기
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sa.json"

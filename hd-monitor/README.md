@@ -19,7 +19,22 @@
 
 > 사용자 삭제는 기본적으로 **이 시스템에서만** 지웁니다. 로그인 계정까지 지우면 기존 시스템에도 로그인할 수 없으니 주의하세요.
 
-## 처음 배포하기 (PC에서 1회)
+## 자동 배포 (GitHub Actions · 추천)
+
+`hd-monitor` 폴더가 바뀌어 저장소에 올라오면 `.github/workflows/hd-monitor-deploy.yml` 이 자동으로 배포합니다.
+처음 실행할 때 호스팅 사이트(`hd-issue-monitor`)와 데이터베이스(`hdmon`)가 없으면 자동으로 만듭니다. 필요한 것은 서비스 계정 키 하나입니다.
+
+1. Google Cloud 콘솔(프로젝트 `linesquare--monitor`) → IAM 및 관리자 → 서비스 계정 → **서비스 계정 만들기** (이름 예: `github-deploy`)
+2. 역할 3개: **Firebase 관리자** · **편집자** · **서비스 계정 사용자**
+3. 만든 서비스 계정 → 키 → 키 추가 → 새 키 만들기 → **JSON** (파일이 내려받아짐)
+4. GitHub 저장소 → Settings → Secrets and variables → Actions → **New repository secret**
+   - Name: `FIREBASE_SERVICE_ACCOUNT`
+   - Secret: 내려받은 JSON 파일 내용 전체를 붙여넣기
+5. Actions 탭 → 'Deploy hd-monitor' → 실패한 실행의 **Re-run jobs** (또는 다음 변경이 올라오면 자동 실행)
+
+> 키 파일은 시크릿에 넣은 뒤 PC에서 지워 두세요. 조직 정책으로 키 만들기가 막혀 있으면 아래 수동 배포를 쓰세요.
+
+## 처음 배포하기 (수동 · PC에서 1회)
 
 준비: Node.js 22, Firebase CLI (`npm i -g firebase-tools`), `firebase login` (linesquare--monitor 접근 가능한 계정)
 
