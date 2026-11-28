@@ -759,3 +759,12 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 /* 부정 KPI 비율: 빨간 둥근 상자 · 흰 글자 */
 .kpi .k-val small.kpi-pct { display: inline-block; vertical-align: baseline; position: relative; top: -3px; padding: 2px 9px; border-radius: 99px; background: linear-gradient(135deg, #ff4d4f, #d9262b); color: #fff; font-weight: 800; font-size: 13px; line-height: 18px; box-shadow: 0 2px 8px rgba(217, 38, 43, .35); }
 @media (max-width: 900px) { .kpi .k-val small.kpi-pct { font-size: 11px; padding: 1px 7px; } }
+/* KPI 옆 숫자(부정 % · 숏츠 제외): 큰 숫자가 떨어진 뒤 톡 튀어나옴 */
+.kpi .k-val small.k-suf { display: inline-block; }
+.kpi .k-val small.k-suf:empty { display: none; }
+.kpi .k-suf em { font-style: normal; font-variant-numeric: tabular-nums; }
+.kpi .k-suf.in { animation: sufIn .6s cubic-bezier(.2, 1.5, .4, 1) both; animation-delay: var(--sd, 0ms); }
+.kpi .k-suf.kpi-pct.in { animation: sufIn .6s cubic-bezier(.2, 1.5, .4, 1) both, pctGlow 1.4s ease-out both; animation-delay: var(--sd, 0ms), calc(var(--sd, 0ms) + 500ms); }
+@keyframes sufIn { from { opacity: 0; transform: translateY(10px) scale(.5); } }
+@keyframes pctGlow { 0% { box-shadow: 0 0 0 0 rgba(239, 74, 74, .7), 0 2px 8px rgba(217, 38, 43, .35); } 100% { box-shadow: 0 0 0 10px rgba(239, 74, 74, 0), 0 2px 8px rgba(217, 38, 43, .35); } }
+@media (prefers-reduced-motion: reduce) { .kpi .k-suf.in { animation: none; } }

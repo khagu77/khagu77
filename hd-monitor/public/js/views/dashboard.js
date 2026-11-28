@@ -195,15 +195,15 @@ export async function render(root, store) {
     const kpis = [
       { label: "전체 수집", icon: "🗂", v: A.total, p: P.total, sp: series((s) => s.total || 0), color: "--s1", href: "#/posts/all" },
       { label: "이슈 게시물", icon: "🚨", v: A.issue, p: P.issue, sp: series((s) => s.issue || 0), color: "--s2", href: "#/posts/news" },
-      { label: "부정·단순비난", icon: "😠", v: neg(A), p: neg(P), sp: series(neg), color: "--s8", href: sentHref("neg,abuse"), suffix: A.issue ? `<small class="kpi-ns kpi-pct">${Math.round((neg(A) / A.issue) * 100)}%</small>` : "" },
+      { label: "부정·단순비난", icon: "😠", v: neg(A), p: neg(P), sp: series(neg), color: "--s8", href: sentHref("neg,abuse"), suffix: A.issue ? { cls: "kpi-ns kpi-pct", n: Math.round((neg(A) / A.issue) * 100), post: "%" } : null },
       { label: "가비지", icon: "🗑", v: A.garbage, p: P.garbage, sp: series((s) => s.garbage || 0), color: "--s7", href: "#/posts/garbage", good: true },
       { label: "관심 동호회 이슈", icon: "⭐", v: A.cat.cafe_fav || 0, p: P.cat.cafe_fav || 0, sp: series((s) => s.cat?.cafe_fav || 0), color: "--s6", href: "#/posts/cafe_fav" },
-      { label: "관심 유튜브", icon: "▶️", suffix: `<small class="kpi-ns">숏츠 제외 ${fmtNum(Math.max(0, (A.cat.youtube_fav || 0) - (A.shortCat?.youtube_fav || 0)))}</small>`, v: A.cat.youtube_fav || 0, p: P.cat.youtube_fav || 0, sp: series((s) => s.cat?.youtube_fav || 0), color: "--s5", href: "#/posts/youtube_fav" },
+      { label: "관심 유튜브", icon: "▶️", suffix: { cls: "kpi-ns", pre: "숏츠 제외 ", n: Math.max(0, (A.cat.youtube_fav || 0) - (A.shortCat?.youtube_fav || 0)) }, v: A.cat.youtube_fav || 0, p: P.cat.youtube_fav || 0, sp: series((s) => s.cat?.youtube_fav || 0), color: "--s5", href: "#/posts/youtube_fav" },
     ];
     const kEl = $q("#kpis");
     if (first || kEl.children.length !== kpis.length || kEl.querySelector(".skeleton")) {
       kEl.innerHTML = kpis.map((k, i) => `<a class="card kpi hover" style="--i:${i};--accent:var(${k.color})" href="${k.href || "#/dashboard"}">
-        <div class="k-label">${k.icon} ${esc(k.label)}<small class="k-basis">${period === 1 ? "오늘" : `최근 ${period}일`} 수집</small></div><div class="k-val"><span data-k="${i}">0</span>${k.suffix || ""}</div>
+        <div class="k-label">${k.icon} ${esc(k.label)}<small class="k-basis">${period === 1 ? "오늘" : `최근 ${period}일`} 수집</small></div><div class="k-val"><span data-k="${i}">0</span><small class="k-suf" data-s="${i}"></small></div>
         <div class="k-delta" data-d="${i}"></div>${sparkline(k.sp.slice(-Math.max(period, 7)), k.color)}</a>`).join("");
     }
     // 카드마다 무작위 순서로 차례차례 (동시에 떨어지지 않게)
@@ -211,6 +211,19 @@ export async function render(root, store) {
     const cardDelay = new Map(cardOrder.map((ci, n) => [ci, n * 230 + Math.random() * 120]));
     kpis.forEach((k, i) => {
       dropDigits(kEl.querySelector(`[data-k="${i}"]`), k.v, cardDelay.get(i));
+      // 옆 숫자(부정 % · 숏츠 제외): 큰 숫자가 떨어진 뒤 톡 튀어나오며 숫자가 올라감 (값이 바뀔 때마다)
+      const sf = kEl.querySelector(`[data-s="${i}"]`);
+      if (sf && k.suffix && sf.dataset.n !== String(k.suffix.n)) {
+        const em0 = sf.querySelector("em");
+        const from = em0 ? +em0.dataset.v || 0 : 0;
+        sf.dataset.n = k.suffix.n;
+        sf.className = `k-suf ${k.suffix.cls}`;
+        sf.innerHTML = `${k.suffix.pre || ""}<em data-v="${from}">${fmtNum(from)}</em>${k.suffix.post || ""}`;
+        const wait = cardDelay.get(i) + 650;
+        sf.style.setProperty("--sd", `${wait}ms`);
+        sf.classList.remove("in"); void sf.offsetWidth; sf.classList.add("in");
+        setTimeout(() => countUp(sf.querySelector("em"), k.suffix.n, { dur: 900 }), wait);
+      } else if (sf && !k.suffix) { sf.className = "k-suf"; sf.innerHTML = ""; delete sf.dataset.n; }
       const d = kEl.querySelector(`[data-d="${i}"]`);
       const diff = k.v - k.p;
       const pct = k.p ? Math.round((diff / k.p) * 100) : null;
