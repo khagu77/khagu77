@@ -21,6 +21,11 @@ export async function getSettings(fresh = false) {
     cache = DEFAULT_SETTINGS;
   } else {
     const d = snap.data();
+    // 예전 기본값(9,000)은 같은 프로젝트의 유튜브 모니터링 시스템 할당량을 거의 다 써 버려 3,000 으로 낮춤 (1회)
+    if (d.collect?.youtubeDailyUnits === 9000 && !d.collect?.ytUnitsFixed) {
+      d.collect = { ...d.collect, youtubeDailyUnits: 3000, ytUnitsFixed: true };
+      await SETTINGS_REF().set({ collect: d.collect }, { merge: true });
+    }
     // 새 버전에서 추가된 설정 항목은 기본값으로 채움
     cache = {
       ...DEFAULT_SETTINGS,

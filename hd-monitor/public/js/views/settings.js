@@ -243,7 +243,7 @@ export async function render(root, store, { arg }) {
         <label class="field">(API 키를 넣은 경우) 네이버 API 하루 사용량 (앱 1개당, 최대 25,000)<input class="input" type="number" data-c="naverDailyBudget" value="${c.naverDailyBudget}"></label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="youtubeRss" ${c.youtubeRss ? "checked" : ""}><span></span></span>관심 유튜브 새 영상 (RSS · 무료 · 10분마다)</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="youtubeSearch" ${c.youtubeSearch ? "checked" : ""}><span></span></span>유튜브 전체 검색 (YouTube API)</label>
-        <label class="field">YouTube API 하루 단위 (키 1개당, 최대 10,000 · 검색 1회 = 100)<input class="input" type="number" data-c="youtubeDailyUnits" value="${c.youtubeDailyUnits}"></label>
+        <label class="field">YouTube API 하루 사용 단위 (검색 1회 = 100 · 프로젝트 전체 10,000단위를 기존 유튜브 모니터링 시스템과 나눠 씀 → 기본 3,000)<input class="input" type="number" data-c="youtubeDailyUnits" value="${c.youtubeDailyUnits}"></label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="community" ${c.community ? "checked" : ""}><span></span></span>자동차 커뮤니티 게시판</label>
         <label class="field">언론 유사 기사 묶기 기준 (0.8 = 80%)<input class="input" type="number" step="0.05" min="0.5" max="1" data-c="newsDupThreshold" value="${c.newsDupThreshold}"></label>
         <label class="field">🗑 가비지 보관 기간 (이 기간이 지난 가비지 글은 매일 새벽 자동 삭제 · 일별 가비지 건수 통계는 남음)
@@ -288,7 +288,7 @@ export async function render(root, store, { arg }) {
       <div class="dash-grid">
         <div class="card span-6"><h3>네이버 검색 API <span class="badge b-info">선택</span></h3><p class="hint"><b>넣지 않아도 됩니다.</b> 키가 없으면 네이버 검색 결과 화면(뉴스·블로그·카페)을 직접 읽어 모읍니다. 예전에 만든 앱에 '검색' API 가 있는 경우에만 넣으세요. developers.naver.com → Application → 애플리케이션 등록 → 사용 API '검색' → Client ID · Client Secret. <b>앱을 여러 개</b> 만들어 줄마다 넣으면 수집이 그만큼 빨라집니다 (앱당 하루 25,000회 무료).</p>
           <textarea class="input" id="naverKeys" rows="4" style="width:100%" placeholder="ClientID:ClientSecret&#10;ClientID2:ClientSecret2"></textarea></div>
-        <div class="card span-6"><h3>YouTube Data API</h3><p class="hint">Google Cloud 콘솔(linesquare--monitor 프로젝트) → API 및 서비스 → 'YouTube Data API v3' 사용 설정 → 사용자 인증 정보 → API 키. 여러 개면 띄어쓰기로 구분.</p>
+        <div class="card span-6"><h3>YouTube Data API</h3><p class="hint">Google Cloud 콘솔(linesquare--monitor) → API 및 서비스 → 사용자 인증 정보 → API 키 만들기 → API 제한사항 'YouTube Data API v3'. 하루 할당량은 키가 아니라 프로젝트 단위라 기존 유튜브 모니터링 시스템과 나눠 씁니다.</p>
           <textarea class="input" id="youtubeKeys" rows="2" style="width:100%" placeholder="AIza..."></textarea></div>
         <div class="card span-6"><h3>Google Gemini (AI 1순위)</h3><p class="hint">aistudio.google.com → Get API key</p><input class="input" id="geminiKey" style="width:100%" placeholder="AIza..."></div>
         <div class="card span-6"><h3>Claude API (AI 2순위)</h3><p class="hint">platform.claude.com → API Keys</p><input class="input" id="claudeKey" style="width:100%" placeholder="sk-ant-..."></div>

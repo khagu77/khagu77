@@ -57,8 +57,9 @@ export async function collectYoutubeSearch({ queries, settings, secrets, log }) 
   const { day } = kstParts();
   const st = await getState("yt_search");
   if (st.day !== day) { st.day = day; st.used = {}; st.dead = {}; }
-  const unitsPerKey = Math.max(100, Number(settings.collect.youtubeDailyUnits) || 9000);
-  const perDay = Math.floor(unitsPerKey / 100) * keys.length;
+  // 할당량은 키가 아니라 Google Cloud 프로젝트 단위 (같은 프로젝트의 유튜브 모니터링 시스템과 하루 10,000단위를 나눠 씀)
+  const unitsPerKey = Math.max(100, Number(settings.collect.youtubeDailyUnits) || 3000);
+  const perDay = Math.floor(unitsPerKey / 100);
   st.credit = (st.credit || 0) + perDay / TICKS_PER_DAY;
   const n = Math.min(Math.floor(st.credit), 5);
   if (n < 1) { await setState("yt_search", st); return []; }

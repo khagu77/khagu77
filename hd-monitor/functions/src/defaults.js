@@ -240,7 +240,7 @@ export const DEFAULT_SETTINGS = {
     naverWebPerTick: 36,           // (API 키가 없을 때) 5분마다 읽는 네이버 검색 결과 화면 수
     youtubeRss: true,              // 관심 유튜브 새 영상 (무료·무제한)
     youtubeSearch: true,           // 유튜브 전체 검색 (YouTube Data API: 검색 1회 100단위)
-    youtubeDailyUnits: 9000,       // API 키 1개당 하루 10,000단위
+    youtubeDailyUnits: 3000,       // 하루 사용 단위 (프로젝트 전체 10,000단위를 기존 유튜브 모니터링 시스템과 나눠 씀 · 검색 1회 100)
     community: true,
     newsDupThreshold: 0.8,         // 언론 제목 유사도 80% 이상 → 중복 묶음
     garbageRetentionDays: 90,      // 가비지 글 보관 기간(일) · 0 이면 지우지 않음 (중요 표시·메모 달린 글은 항상 보관)
