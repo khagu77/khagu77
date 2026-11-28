@@ -127,7 +127,7 @@ export function lineChart(el, { labels, series, height = 220, unit = "", max: fo
 }
 
 // 도넛 (성향 비율) — 시계 방향으로 채워지는 애니메이션
-export function donut(el, { parts, center, sub }) {
+export function donut(el, { parts, center, sub, onClick }) {
   const total = parts.reduce((a, p) => a + p.value, 0) || 1;
   const R = 62;
   const C = 2 * Math.PI * R;
@@ -150,6 +150,7 @@ export function donut(el, { parts, center, sub }) {
     const p = parts[+c.dataset.i];
     c.addEventListener("mousemove", (e) => showTip(e, `<b>${esc(p.name)}</b><div class="row"><span>${fmtNum(p.value)}건</span><b>${((p.value / total) * 100).toFixed(1)}%</b></div>`));
     c.addEventListener("mouseleave", hideTip);
+    if (onClick) c.addEventListener("click", () => { hideTip(); onClick(+c.dataset.i); });
   });
 }
 

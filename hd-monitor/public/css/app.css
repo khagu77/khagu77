@@ -340,6 +340,8 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 .donut-center { font-size: 26px; font-weight: 800; fill: var(--text); }
 .donut-sub { font-size: 11px; fill: var(--text-3); }
 .dlegend { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.dl-link { display: block; border-radius: 8px; padding: 2px 4px; margin: -2px -4px; transition: background .2s; }
+.dl-link:hover { background: rgba(127, 150, 220, .08); }
 .dlegend .r { display: flex; align-items: center; gap: 8px; font-size: 13px; }
 .dlegend .r b { margin-left: auto; font-variant-numeric: tabular-nums; }
 .dlegend .bar-bg { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; margin-top: 3px; }

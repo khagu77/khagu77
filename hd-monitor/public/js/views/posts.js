@@ -24,8 +24,9 @@ export async function render(root, store, { arg, qs }) {
   const chList = cat.channels?.includes("*") ? CH_ORDER : CH_ORDER.filter((c) => cat.channels.includes(c));
   const groups = (store.settings.keywordGroups || []).filter((g) => g.role === "issue");
   const st = {
-    period: qs.get("q") ? "30d" : "3d", from: "", to: "", sort: "time", q: qs.get("q") || "", alertedOnly: false,
-    ch: new Set(), sent: new Set(), grp: "", dedupe: catId === "news" || catId === "all", star: false, showHidden: false,
+    period: PERIODS.some(([v]) => v === qs.get("period")) ? qs.get("period") : qs.get("q") ? "30d" : "3d", from: "", to: "", sort: "time", q: qs.get("q") || "", alertedOnly: false,
+    issueOnly: qs.get("issue") === "1",
+    ch: new Set(), sent: new Set((qs.get("sent") || "").split(",").filter((s) => SENT[s])), grp: "", dedupe: catId === "news" || catId === "all", star: false, showHidden: false,
   };
   let all = [];
   let cursor = null;
@@ -38,7 +39,7 @@ export async function render(root, store, { arg, qs }) {
 
   root.innerHTML = `
     <div class="page-head">
-      <div><h1>${esc(cat.name)}</h1><p>${cat.filter === "garbage" ? "현대차 관련 글 중 설정된 이슈 키워드에 걸리지 않은 글" : cat.filter === "issue" ? "품질·안전 등 이슈 키워드가 걸린 게시물" + (cat.fav ? " · 관심 목록만" : "") : "수집된 현대차 관련 게시물 전체 (가비지 포함)"}</p></div>
+      <div><h1>${esc(cat.name)}${st.sent.size ? ` <span class="grad">· ${[...st.sent].map((s) => SENT[s].name).join("·")}</span>` : ""}</h1><p>${cat.filter === "garbage" ? "현대차 관련 글 중 설정된 이슈 키워드에 걸리지 않은 글" : cat.filter === "issue" ? "품질·안전 등 이슈 키워드가 걸린 게시물" + (cat.fav ? " · 관심 목록만" : "") : "수집된 현대차 관련 게시물 전체 (가비지 포함)"}</p></div>
       <div class="actions"><button class="btn" id="xlsAll">📥 보이는 목록 엑셀</button></div>
     </div>
     <div class="card filters">
@@ -48,12 +49,13 @@ export async function render(root, store, { arg, qs }) {
         <div class="seg" id="sort" style="margin-left:auto"><button data-v="time" class="on">작성일 기준</button><button data-v="collectedAt">수집일 기준</button></div>
       </div>
       ${chList.length > 1 ? `<div class="frow"><span class="lbl">채널</span><div class="chips" id="chs">${chList.map((c) => `<button class="chip" data-v="${c}">${chIcon(c, true)} ${CH[c].name}</button>`).join("")}</div></div>` : ""}
-      <div class="frow"><span class="lbl">성향</span><div class="chips" id="sents"><button class="chip on" data-all>전체</button>${SENT_ORDER.map((s) => `<button class="chip" data-v="${s}">${SENT[s].name}</button>`).join("")}</div>
+      <div class="frow"><span class="lbl">성향</span><div class="chips" id="sents"><button class="chip ${st.sent.size ? "" : "on"}" data-all>전체</button>${SENT_ORDER.map((s) => `<button class="chip ${st.sent.has(s) ? "on" : ""}" data-v="${s}">${SENT[s].name}</button>`).join("")}</div>
         <select class="input" id="grp" style="margin-left:8px"><option value="">키워드 그룹 전체</option>${groups.map((g) => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join("")}</select>
       </div>
       <div class="frow"><span class="lbl">검색</span>
         <input class="input" id="q" style="flex:1;min-width:200px" placeholder="제목·내용·매체명 (여러 단어는 모두 포함, -단어 는 제외)" value="${esc(st.q)}">
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="dedupe" ${st.dedupe ? "checked" : ""}><span></span></span>유사 기사 묶기</label>
+        <label class="toggle-row"><span class="switch"><input type="checkbox" id="issueOnly" ${st.issueOnly ? "checked" : ""}><span></span></span>이슈 글만</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="alertedOnly"><span></span></span>💬 카톡 발송만</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="star"><span></span></span>중요만</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="showHidden"><span></span></span>숨긴 글</label>
@@ -106,7 +108,7 @@ export async function render(root, store, { arg, qs }) {
   $q("#grp").onchange = (e) => { st.grp = e.target.value; apply(); };
   let qt;
   $q("#q").oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => { st.q = e.target.value; apply(); ensureEnough(); }, 220); };
-  for (const k of ["dedupe", "star", "showHidden", "alertedOnly"]) $q(`#${k}`).onchange = (e) => { st[k] = e.target.checked; apply(); };
+  for (const k of ["dedupe", "star", "showHidden", "alertedOnly", "issueOnly"]) $q(`#${k}`).onchange = (e) => { st[k] = e.target.checked; apply(); };
 
   async function reload() {
     all = []; cursor = null; done = false; sel.clear(); newestMs = 0;
@@ -148,6 +150,7 @@ export async function render(root, store, { arg, qs }) {
     view = all.filter((p) => {
       if (!st.showHidden && p.hidden) return false;
       if (st.star && !p.star) return false;
+      if (st.issueOnly && !(p.isIssue || p.must)) return false;
       if (st.alertedOnly && !p.alerted) return false;
       if (st.dedupe && p.dupOf) return false;
       if (st.ch.size && !st.ch.has(p.channel)) return false;

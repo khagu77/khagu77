@@ -65,6 +65,9 @@ export async function render(root, store) {
     return a;
   }
 
+  // 성향별 목록으로 (대시보드에서 보던 기간 그대로, 이슈 게시물 기준)
+  const sentHref = (sent) => `#/posts/all?sent=${sent}&issue=1&period=${period === 1 ? "today" : period === 30 ? "30d" : "7d"}`;
+
   function draw(first = false) {
     if (!data) return;
     const A = agg(data.inPeriod);
@@ -74,7 +77,7 @@ export async function render(root, store) {
     const kpis = [
       { label: "전체 수집", icon: "🗂", v: A.total, p: P.total, sp: series((s) => s.total || 0), color: "--s1", href: "#/posts/all" },
       { label: "이슈 게시물", icon: "🚨", v: A.issue, p: P.issue, sp: series((s) => s.issue || 0), color: "--s2", href: "#/posts/news" },
-      { label: "부정·단순비난", icon: "😠", v: neg(A), p: neg(P), sp: series(neg), color: "--s8", suffix: A.issue ? `<small>${Math.round((neg(A) / A.issue) * 100)}%</small>` : "" },
+      { label: "부정·단순비난", icon: "😠", v: neg(A), p: neg(P), sp: series(neg), color: "--s8", href: sentHref("neg,abuse"), suffix: A.issue ? `<small>${Math.round((neg(A) / A.issue) * 100)}%</small>` : "" },
       { label: "가비지", icon: "🗑", v: A.garbage, p: P.garbage, sp: series((s) => s.garbage || 0), color: "--s7", href: "#/posts/garbage", good: true },
       { label: "관심 동호회 이슈", icon: "⭐", v: A.cat.cafe_fav || 0, p: P.cat.cafe_fav || 0, sp: series((s) => s.cat?.cafe_fav || 0), color: "--s6", href: "#/posts/cafe_fav" },
       { label: "관심 유튜브", icon: "▶️", v: A.cat.youtube_fav || 0, p: P.cat.youtube_fav || 0, sp: series((s) => s.cat?.youtube_fav || 0), color: "--s5", href: "#/posts/youtube_fav" },
@@ -113,9 +116,9 @@ export async function render(root, store) {
     // 도넛
     const parts = SENT_ORDER.map((k) => ({ name: SENT[k].name, value: A.sentIssue[k] || 0, color: SENT[k].color }));
     const tot = parts.reduce((a, p) => a + p.value, 0);
-    donut($q("#donut"), { parts, center: fmtNum(tot), sub: "이슈 게시물" });
-    $q("#dlegend").innerHTML = parts.map((p, i) => `<div><div class="r"><span class="badge ${SENT[SENT_ORDER[i]].cls}">${p.name}</span><b>${fmtNum(p.value)}</b><span class="hint">${tot ? Math.round((p.value / tot) * 100) : 0}%</span></div>
-      <div class="bar-bg"><div style="width:${tot ? (p.value / tot) * 100 : 0}%;background:var(${p.color});animation-delay:${i * 120}ms"></div></div></div>`).join("");
+    donut($q("#donut"), { parts, center: fmtNum(tot), sub: "이슈 게시물", onClick: (i) => (location.hash = sentHref(SENT_ORDER[i])) });
+    $q("#dlegend").innerHTML = parts.map((p, i) => `<a class="dl-link" href="${sentHref(SENT_ORDER[i])}" title="${p.name} 게시물 보기"><div class="r"><span class="badge ${SENT[SENT_ORDER[i]].cls}">${p.name}</span><b>${fmtNum(p.value)}</b><span class="hint">${tot ? Math.round((p.value / tot) * 100) : 0}%</span></div>
+      <div class="bar-bg"><div style="width:${tot ? (p.value / tot) * 100 : 0}%;background:var(${p.color});animation-delay:${i * 120}ms"></div></div></a>`).join("");
 
     // 키워드
     const kws = Object.entries(A.kw).sort((a, b) => b[1] - a[1]).slice(0, 8);
