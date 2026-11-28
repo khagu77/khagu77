@@ -38,7 +38,23 @@ export function categoriesFor(p, categories) {
 export function classify(item, ctx) {
   const text = norm(`${item.title} ${item.desc || ""}`);
   const { compiled } = ctx;
-  if (matchRules(text, compiled.exclude).length) return null;
+  let fav = false;
+  let must = false;
+  if (item.channel === "cafe") {
+    const byId = ctx.favCafes.get(String(item.sourceId || "").toLowerCase());
+    const byName = !byId && item.source ? ctx.favCafeNames?.get(norm(item.source)) : null;
+    fav = !!(byId || byName);
+    // 이름으로 찾았으면 통계(관심 동호회 TOP)가 모이도록 카페 주소 ID 로 맞춤
+    if (byName && (!item.sourceId || String(item.sourceId).startsWith("#") || !ctx.favCafes.has(String(item.sourceId).toLowerCase()))) item.sourceId = byName.id;
+  }
+  if (item.channel === "youtube") {
+    const y = ctx.favYoutube.get(item.sourceId);
+    fav = !!y;
+    must = !!(y && y.must);
+  }
+  // 제외어: 카페·블로그 잡글 거르기용 — 뉴스와 관심 유튜브 채널·관심 동호회 글에는 적용하지 않음
+  const exempt = fav || item.channel === "news";
+  if (!exempt && matchRules(text, compiled.exclude).length) return null;
 
   const targets = matchRules(text, compiled.target);
   const kw = [];
@@ -56,20 +72,6 @@ export function classify(item, ctx) {
     if (g.alert) alert = true;
   }
 
-  let fav = false;
-  let must = false;
-  if (item.channel === "cafe") {
-    const byId = ctx.favCafes.get(String(item.sourceId || "").toLowerCase());
-    const byName = !byId && item.source ? ctx.favCafeNames?.get(norm(item.source)) : null;
-    fav = !!(byId || byName);
-    // 이름으로 찾았으면 통계(관심 동호회 TOP)가 모이도록 카페 주소 ID 로 맞춤
-    if (byName && (!item.sourceId || String(item.sourceId).startsWith("#") || !ctx.favCafes.has(String(item.sourceId).toLowerCase()))) item.sourceId = byName.id;
-  }
-  if (item.channel === "youtube") {
-    const y = ctx.favYoutube.get(item.sourceId);
-    fav = !!y;
-    must = !!(y && y.must);
-  }
   // 관심 채널·동호회 이름이 나오는 글 (예: '모트라인이랑 오토기어 영상들…')
   const favMentions = (ctx.favNames || []).filter((x) => text.includes(x.n)).map((x) => x.raw).slice(0, 5);
   // 게시판 목록·관심 유튜브처럼 검색어 없이 가져온 글은 현대차 관련어·이슈어·관심 이름이 있어야 저장
