@@ -321,3 +321,12 @@ test("유튜브 RSS: 숏츠 링크 구분", () => {
   assert.equal(a.short, true);
   assert.equal(b.short, false);
 });
+
+test("관심 유튜브 채널·관심 동호회 이름이 나오는 게시판 글도 수집", () => {
+  const s = { ...DEFAULT_SETTINGS, favYoutube: [{ id: "UC1", name: "모트라인" }, { id: "UC2", name: "오토기어" }], favCafes: [{ id: "abc", name: "LX3 클럽" }] };
+  const ctx = buildContext(s);
+  const r = classify({ channel: "ppomppu", title: "모트라인이랑 오토기어 영상들 제미나이한테 분석하라 했더니", requireMatch: true }, ctx);
+  assert.ok(r, "저장돼야 함");
+  assert.ok(r.targets.includes("관심: 모트라인"));
+  assert.equal(classify({ channel: "ppomppu", title: "오늘 점심 뭐 먹지", requireMatch: true }, ctx), null);
+});
