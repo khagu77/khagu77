@@ -370,9 +370,27 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 .feed::-webkit-scrollbar-track { background: transparent; }
 .feed-item { display: flex; gap: 10px; align-items: flex-start; padding: 9px 8px; border-radius: 10px; transition: background .2s; }
 .feed-item:hover { background: rgba(127, 150, 220, .08); }
-.feed-item.new { animation: slideIn .7s var(--spring) both, flash 2.2s ease-out; }
-@keyframes slideIn { from { opacity: 0; transform: translateX(-24px) scale(.96); } }
-@keyframes flash { 0%, 30% { background: color-mix(in srgb, var(--brand) 22%, transparent); } }
+/* 새 글: 위에서부터 차례로 왼쪽 바깥에서 날아와 살짝 튕기며 붙고, 빛줄기가 훑고 지나감 */
+.feed-item { position: relative; overflow: hidden; flex: none; }
+.feed-item.new {
+  animation: flyIn .85s cubic-bezier(.18, .9, .22, 1.25) both, flash 2.6s ease-out;
+  animation-delay: calc(var(--k, 0) * 110ms), calc(var(--k, 0) * 110ms);
+}
+.feed-item.new::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(100deg, transparent 0%, rgba(0, 170, 210, .0) 30%, rgba(120, 200, 255, .45) 50%, rgba(0, 170, 210, 0) 70%, transparent 100%);
+  transform: translateX(-120%); animation: streak 1.1s ease-out both; animation-delay: calc(var(--k, 0) * 110ms + .45s);
+}
+.feed-item.new .ch-ico { animation: iconPop .6s var(--spring) both; animation-delay: calc(var(--k, 0) * 110ms + .35s); }
+@keyframes flyIn {
+  0% { opacity: 0; transform: translateX(-110%) skewX(12deg) scale(.92); filter: blur(6px); }
+  55% { opacity: 1; filter: blur(0); }
+  75% { transform: translateX(10px) skewX(-3deg) scale(1.01); }
+  100% { opacity: 1; transform: none; }
+}
+@keyframes streak { to { transform: translateX(120%); } }
+@keyframes iconPop { 0% { transform: scale(.4) rotate(-25deg); } 60% { transform: scale(1.18) rotate(6deg); } 100% { transform: none; } }
+@keyframes flash { 0%, 35% { background: color-mix(in srgb, var(--brand) 24%, transparent); box-shadow: inset 3px 0 0 var(--brand); } }
 .feed-item .t { font-size: 13px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .feed-item .m { font-size: 11px; color: var(--text-3); margin-top: 2px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 

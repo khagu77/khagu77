@@ -188,7 +188,8 @@ export async function render(root, store) {
   const shown = new Set();
   function drawFeed(animateNew) {
     const items = store.live?.items || [];
-    $q("#feed").innerHTML = items.length ? items.slice(0, 30).map((p) => `<a class="feed-item ${animateNew && !shown.has(p.id) ? "new" : ""}" href="${esc(p.url)}" target="_blank" rel="noopener">
+    let k = 0; // 새 글 순서: 위에서부터 차례로 날아오게
+    $q("#feed").innerHTML = items.length ? items.slice(0, 30).map((p) => `<a class="feed-item ${animateNew && !shown.has(p.id) ? "new" : ""}" style="--k:${animateNew && !shown.has(p.id) ? k++ : 0}" href="${esc(p.url)}" target="_blank" rel="noopener">
       ${chIcon(p.channel, false, p)}<div style="min-width:0"><div class="t">${srcPill(p)}${esc(p.title)}</div><div class="m">${sentBadge(p.sentiment)}${p.isIssue ? `<span class="badge b-warn">이슈</span>` : ""}<span>${esc(p.source || "")}</span><span>· ${ago(p.time)}</span></div></div></a>`).join("")
       : `<div class="empty"><div class="big">📡</div>수집을 기다리는 중…</div>`;
     items.forEach((p) => shown.add(p.id));
