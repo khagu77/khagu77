@@ -2,7 +2,7 @@ const KEYS = ["on", "endpoint", "token", "boards", "every"];
 const DEF = { on: true, endpoint: "https://hd-issue-monitor.web.app/api/ingest", token: "", boards: "car | 뽐뿌 자동차포럼\nfreeboard | 뽐뿌 자유게시판", every: 5 };
 const $ = (id) => document.getElementById(id);
 const t = (ms) => (ms ? new Date(ms).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "-");
-const line = (s) => (s.error ? `<span class="err">✕ ${s.error}</span>` : `<span class="ok">✓ 보냄 ${s.sent}건 · 새로 저장 ${s.created}건</span>`) + (s.naver ? `<br><span class="hint">${s.naver}</span>` : "");
+const line = (s) => (s.error ? `<span class="err">✕ ${s.error}</span>` : `<span class="ok">✓ 보냄 ${s.sent}건 · 새로 저장 ${s.created}건</span>`) + (s.naver ? `<br><span class="hint">${s.naver}</span>` : "") + (s.ppomppu ? `<br><span class="hint">${s.ppomppu}</span>` : "");
 
 async function load() {
   const c = { ...DEF, ...(await chrome.storage.local.get(KEYS)) };

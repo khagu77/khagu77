@@ -134,7 +134,7 @@ let running = false;
 async function run() {
   if (running) return { skipped: true };
   running = true;
-  const status = { at: Date.now(), sent: 0, created: 0, error: "", naver: "" };
+  const status = { at: Date.now(), sent: 0, created: 0, error: "", naver: "", ppomppu: "" };
   try {
     const c = await getCfg();
     if (!c.on) return status;
@@ -146,7 +146,10 @@ async function run() {
     } catch (e) {
       status.naver = `네이버 오류: ${e.message || e}`;
     }
+    const before = items.length;
+    let boardsRead = 0;
     for (const b of boardsOf(c.boards)) {
+      boardsRead++;
       const prev = new Set(seen[b.id] || []);
       const first = !seen[b.id];
       const top = [];
@@ -166,6 +169,7 @@ async function run() {
       if (top.length) seen[b.id] = [...new Set([...top, ...(seen[b.id] || [])])].slice(0, 300);
       await sleep(1000 + Math.random() * 1500);
     }
+    status.ppomppu = `뽐뿌 게시판 ${boardsRead}곳, 새 글 ${items.length - before}건`;
     if (items.length) {
       const r = await fetch(c.endpoint, {
         method: "POST",
