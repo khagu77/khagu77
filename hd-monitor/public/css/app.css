@@ -588,3 +588,5 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 .qline { display: flex; align-items: flex-start; gap: 10px; flex: 1 1 100%; min-width: 0; flex-wrap: nowrap; }
 .qline > .lbl { flex: none; min-width: 46px !important; line-height: 36px; }
 .qline > .qsteps { flex: 1 1 auto; }
+/* 이어 붙는 글은 등장 효과 없이 (번쩍임 방지) */
+.post.quiet { animation: none !important; }

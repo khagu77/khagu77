@@ -148,7 +148,7 @@ export async function render(root, store, { arg, qs }) {
     totalCount = null;
     const [cf, ct] = rangeOf(st.period, st.from, st.to);
     store.be.countPosts?.({ cat: cat.id, from: cf, to: ct, sort: st.sort }).then((n) => { totalCount = n; apply(); }).catch(() => {});
-    all = []; cursor = null; done = false; sel.clear(); newestMs = 0;
+    all = []; cursor = null; done = false; sel.clear(); newestMs = 0; drawn = []; shown = 0;
     $q("#banner").innerHTML = "";
     $q("#list").innerHTML = Array.from({ length: 8 }, () => `<div class="post"><span></span><div class="skeleton" style="width:30px;height:30px"></div><div><div class="skeleton" style="height:14px;width:70%"></div><div class="skeleton" style="height:10px;width:40%;margin-top:8px"></div></div><div class="skeleton" style="height:12px"></div><div class="skeleton" style="height:12px"></div></div>`).join("");
     await fetchMore();
@@ -157,7 +157,7 @@ export async function render(root, store, { arg, qs }) {
   async function fetchMore() {
     if (loading || done) return;
     loading = true;
-    $q("#more").innerHTML = `<span class="hint">불러오는 중…</span>`;
+    if (!searching) $q("#more").innerHTML = `<span class="hint">불러오는 중…</span>`;
     try {
       const [from, to] = rangeOf(st.period, st.from, st.to);
       const r = await store.be.listPosts({ cat: cat.id, from, to, sort: st.sort, pageSize: 300, cursor });
@@ -170,11 +170,15 @@ export async function render(root, store, { arg, qs }) {
     } finally {
       loading = false;
     }
-    apply();
+    apply({ keep: true });
   }
   // 검색·필터로 보이는 글이 적으면 기간 안의 글을 더 불러옴 (최대 3,000건)
+  let searching = false;
   async function ensureEnough() {
-    while (!done && view.length < 60 && all.length < 3000) await fetchMore();
+    if (searching) return;
+    searching = true;
+    try { while (!done && view.length < 60 && all.length < 3000) await fetchMore(); }
+    finally { searching = false; if (!view.length) apply({ keep: true }); }
   }
 
   // 검색어: 쉼표(,)로 나누면 '하나라도 포함'(OR) · 띄어쓰기는 '모두 포함'(AND) · -단어 는 제외
@@ -196,7 +200,8 @@ export async function render(root, store, { arg, qs }) {
     const t = norm(`${p.title} ${p.desc} ${p.source}`);
     return (!groups.length || groups.some((g) => g.every((w) => t.includes(w)))) && !exc.some((w) => t.includes(w));
   };
-  function apply() {
+  let drawn = []; // 지금 화면에 그려진 글 id (순서대로)
+  function apply({ keep = false } = {}) {
     view = all.filter((p) => {
       if (!st.showHidden && p.hidden) return false;
       if (st.star && !p.star) return false;
@@ -218,9 +223,17 @@ export async function render(root, store, { arg, qs }) {
       const c = $q(`[data-qc="${i}"]`);
       if (c) c.textContent = q.trim() ? `${fmtNum(view.length)}건` : "";
     });
-    shown = 0;
-    $q("#list").innerHTML = "";
-    renderMore();
+    // keep: 새로 불러온 글만 반영 — 앞부분이 그대로면 다시 그리지 않고 모자란 만큼만 효과 없이 이어 붙임
+    const same = keep && drawn.length && view.length >= drawn.length && drawn.every((id, i) => view[i]?.id === id);
+    if (same) {
+      if (shown < 80) renderMore(true);
+      else updateMoreBtn();
+    } else {
+      shown = 0;
+      drawn = [];
+      $q("#list").innerHTML = "";
+      renderMore(keep && !!all.length);
+    }
     // 왼쪽: 기간 안 전체 건수(서버 집계) · 조건으로 거른 경우 그 건수 / 오른쪽: 불러온 글 수
     const total = totalCount ?? (done ? all.length : null);
     const filtered = view.length !== all.length;
@@ -259,14 +272,24 @@ export async function render(root, store, { arg, qs }) {
       <div class="more"></div>
     </div>`;
   }
-  function renderMore() {
-    const next = view.slice(shown, shown + 80);
+  function renderMore(quiet = false) {
+    const next = view.slice(shown, shown + Math.max(1, 80 - (quiet ? shown % 80 : 0)));
     if (!next.length && !shown) {
-      $q("#list").innerHTML = `<div class="empty"><div class="big">🔭</div>${loading ? "불러오는 중…" : "조건에 맞는 게시물이 없습니다"}</div>`;
+      const msg = loading || searching ? "찾는 중…" : "조건에 맞는 게시물이 없습니다";
+      const empty = $q("#list .empty");
+      if (empty) empty.innerHTML = `<div class="big">🔭</div>${msg}`; // 같은 자리에서 글자만 바꿈
+      else $q("#list").innerHTML = `<div class="empty"><div class="big">🔭</div>${msg}</div>`;
     } else {
-      $q("#list").insertAdjacentHTML("beforeend", next.map((p, i) => rowHtml(p, i)).join(""));
+      $q("#list .empty")?.remove();
+      const html = next.map((p, i) => rowHtml(p, i)).join("");
+      $q("#list").insertAdjacentHTML("beforeend", quiet ? html.replace(/class="post /g, 'class="post quiet ') : html);
+      drawn.push(...next.map((p) => p.id));
     }
     shown += next.length;
+    updateMoreBtn();
+  }
+  function updateMoreBtn() {
+    if (searching && !done) { $q("#more").innerHTML = `<span class="hint">찾는 중… 불러온 글 ${fmtNum(all.length)}건</span>`; return; }
     $q("#more").innerHTML = shown < view.length || !done ? `<button class="btn" id="moreBtn">더 보기 ↓</button>` : `<span class="hint">끝 · ${fmtNum(view.length)}건</span>`;
     $q("#moreBtn")?.addEventListener("click", more);
   }
