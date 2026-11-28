@@ -147,6 +147,11 @@ export function parseSearchPage(html, kind) {
   return out;
 }
 
+export function isEmptyPage(html) {
+  const visible = String(html).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ");
+  return /에\s*대한\s*검색결과가\s*없습니다/.test(visible);
+}
+
 export function isBlockedPage(html, status) {
   if (status === 403 || status === 429) return true;
   // 스크립트 속 'captcha' 같은 글자에 속지 않도록 화면에 보이는 글자만 본다
@@ -196,6 +201,8 @@ export async function collectNaverWeb({ queries, settings, log, force = false, k
       }
       if (status >= 400) { fail++; return; }
       const rows = parseSearchPage(html, k);
+      // 최근 1일 안에 글이 없으면 네이버가 '검색결과가 없습니다' 화면을 줌 — 정상(0건)이라 경고로 남기지 않음
+      if (!rows.length && isEmptyPage(html)) break;
       if (!rows.length && page === 1 && ++parsedZero === 1) {
         const title = (String(html).match(/<title[^>]*>([^<]*)/i) || [])[1] || "";
         log.push(`네이버 ${k} "${q}": 결과를 못 읽음 (HTTP ${status} · ${String(html).length}자 · 제목 "${decodeHtml(title).slice(0, 40)}")`);
