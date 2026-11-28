@@ -67,12 +67,13 @@ export const sourceName = (p) => {
   const club = (p.sourceId && !String(p.sourceId).startsWith("#") ? p.sourceId : "") || clubFromUrl(p.url);
   // 이름 대신 카페 주소 ID 가 저장된 글도 장부의 카페 이름으로
   if (p.source && (!club || p.source.toLowerCase() !== club.toLowerCase())) return p.source;
-  return (club && (cafeNameOf(club) || club)) || p.source || "";
+  // 이름을 아직 모르는 카페는 아이디 대신 '네이버 카페' (이름을 알게 되면 자동으로 바뀜)
+  return (club && cafeNameOf(club)) || p.source || (club ? "네이버 카페" : "");
 };
 export const srcPill = (p) => {
   if (!PILL_CH.has(p.channel)) return "";
   const name = String(sourceName(p) || CH[p.channel]?.name || "").replace(/\s*(국산차|자동차당|자동차포럼|자유게시판|새로운소식|모두의공원)$/, "") || CH[p.channel]?.name;
-  return `<span class="src-pill ch-${esc(p.channel)}" title="${esc(p.source || "")}">${esc(name)}</span>`;
+  return `<span class="src-pill ch-${esc(p.channel)}" title="${esc(p.source || (p.channel === "cafe" ? `카페 주소 ID: ${p.sourceId || ""} (이름 확인 중)` : ""))}">${esc(name)}</span>`;
 };
 // 숏츠: 저장할 때 표시했거나 주소에 /shorts/ 가 있으면
 export const isShorts = (p) => p.channel === "youtube" && (p.short === true || /\/shorts\//.test(String(p.url || "")));

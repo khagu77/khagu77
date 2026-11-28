@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "현대차 이슈 모니터링 수집 도우미",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "서버 접속을 막는 곳(네이버 검색·뽐뿌)을 이 PC의 크롬이 사람이 보는 속도로 읽어 현대차 온라인 이슈 모니터링 시스템으로 보냅니다.",
   "permissions": [
     "storage",

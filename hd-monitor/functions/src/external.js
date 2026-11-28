@@ -74,7 +74,7 @@ export async function extensionConfig(secrets) {
       perRun: Number(settings.collect.extNaverPerRun) || 12,
     },
     favCafes: (settings.favCafes || []).map((c) => ({ id: c.id, name: c.name })),
-    cafeLookup: await (await import("./cafeNames.js")).unknownCafes(8), // 이름을 알아 와 줄 카페
+    cafeLookup: await (await import("./cafeNames.js")).unknownCafes(15), // 이름을 알아 와 줄 카페
     newsComments: await (await import("./newsComments.js")).dueNews(30), // 댓글 수를 알아 와 줄 네이버 뉴스
   };
 }

@@ -137,9 +137,9 @@ async function collectNaver(cfg, items, status, names) {
   // 이름 모르는 카페 · 번호 모르는 관심 동호회를 몇 곳씩 알아 둠 (다음 수집부터 이름 표시·관심 동호회 확인)
   const favNoNum = (cfg.favCafes || []).map((c) => c.id).filter((id) => !dict[String(id).toLowerCase()]?.num);
   const ask = (cfg.cafeLookup || []).filter((club) => !dict[String(club).toLowerCase()]?.name);
-  for (const club of [...new Set([...unknown].slice(0, 4).concat(ask.slice(0, 6), favNoNum.slice(0, 3)))]) {
+  for (const club of [...new Set([...unknown].slice(0, 5).concat(ask.slice(0, 15), favNoNum.slice(0, 3)))]) {
     try { await lookupCafe(dict, club); } catch {}
-    await sleep(1200 + Math.random() * 1500);
+    await sleep(800 + Math.random() * 900);
   }
   // 시스템이 물어본 카페 · 이번에 이름을 안 카페 → 시스템의 카페 이름 장부로 (이미 저장된 글의 이름도 채워짐)
   const sentNames = (await chrome.storage.local.get("cafeNamesSent")).cafeNamesSent || {};
