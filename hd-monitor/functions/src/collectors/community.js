@@ -76,13 +76,16 @@ export function parseBoardList(html, ad) {
   $("a[href]").each((_, a) => {
     const id = ad.articleId($(a).attr("href") || "");
     if (!id) return;
-    const title = decodeHtml($(a).attr("title") || $(a).text()).replace(/\s*\[\d+\]\s*$/, "").trim();
+    const raw = decodeHtml($(a).attr("title") || $(a).text());
+    const title = raw.replace(/\s*\[\d+\]\s*$/, "").trim();
     if (!title || /^\d+$/.test(title)) return;
     const prev = best.get(id);
     if (prev && prev.title.length >= title.length) return;
     const row = $(a).closest("tr, li, .list_item, .symph_row, .bbs_list_item");
     const rowText = (row.length ? row : $(a).parent().parent()).text().replace(/\s+/g, " ");
-    best.set(id, { id, title, date: rowDate(rowText) });
+    // 댓글 수: 제목 끝 [12] 또는 제목 옆 댓글 표시 (게시판마다 달라 못 찾으면 비움)
+    const cm = raw.match(/\[(\d{1,5})\]\s*$/) || $(a).text().match(/\[(\d{1,5})\]\s*$/) || $(a).parent().find(".rSymph05, .reply, .list_comment, .baseList-c, .comment_count, .totreply").first().text().match(/(\d{1,5})/);
+    best.set(id, { id, title, date: rowDate(rowText), comments: cm ? +cm[1] : null });
   });
   return [...best.values()];
 }
@@ -104,7 +107,7 @@ export async function collectCommunity({ settings, log }) {
       for (const r of fresh) {
         out.push({
           channel: b.ad.channel, title: r.title, desc: "", url: b.ad.articleUrl(r.id), source: b.name || b.ad.site,
-          sourceId: b.ad.key, postedAt: r.date, requireMatch: true, via: "community",
+          sourceId: b.ad.key, postedAt: r.date, requireMatch: true, via: "community", comments: r.comments,
         });
       }
       if (first || fresh.length < rows.length || !rows.length) break;

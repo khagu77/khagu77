@@ -79,6 +79,7 @@ export async function collectInstagram({ settings, secrets, log }) {
         out.push({
           channel: "instagram", title: (cap.split(/(?<=[.!?…])\s|#/)[0] || cap).slice(0, 100) || `#${tag} 게시물`, desc: cap.slice(0, 400),
           url: m.permalink, source: `#${tag}`, sourceId: tag, postedAt: isNaN(d) ? null : d, via: "instagram", query: tag,
+          comments: m.comments_count ?? null, likes: m.like_count ?? null,
         });
       }
       st.seen[tag] = (r.data || []).map((m) => m.id).slice(0, 100);

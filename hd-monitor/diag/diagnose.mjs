@@ -1,30 +1,27 @@
-// 점검(읽기 전용): 유튜브 숏츠 판별 상태
+// 점검(읽기 전용): 오늘 통계의 숏츠 수 · 유튜브 카테고리 건수 비교
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
+import { kstParts } from "./src/util.js";
 const db = getFirestore(initializeApp(), "hdmon");
-const since = new Date(Date.now() - 2 * 86400e3);
-const snap = await db.collection("posts").where("channel", "==", "youtube").get();
-let total = 0, recent = 0, sTrue = 0, sFalse = 0, sNone = 0, urlShorts = 0;
-const samples = [];
+const { day } = kstParts(new Date());
+const st = (await db.doc(`stats/${day}`).get()).data() || {};
+const show = (o) => JSON.stringify(o || null).replace(/[{}]/g, " ");
+console.log("오늘 문서:", day, "있음:", !!st.day);
+console.log("cat:", show(st.cat));
+console.log("shortCat:", show(st.shortCat));
+const kst0 = new Date(`${day}T00:00:00+09:00`);
+const snap = await db.collection("posts").where("collectedAt", ">=", kst0).get();
+const byCat = {}, shortByCat = {}, oldPosted = {};
 for (const d of snap.docs) {
-  const p = d.data(); total++;
-  if (p.collectedAt?.toDate() >= since) recent++;
-  if (p.short === true) sTrue++; else if (p.short === false) sFalse++; else sNone++;
-  if (/\/shorts\//.test(p.url)) urlShorts++;
-  if (samples.length < 6 && p.collectedAt?.toDate() >= since) samples.push(`${p.via} | short=${p.short} | ${p.url}`);
+  const p = d.data();
+  if (p.channel !== "youtube") continue;
+  for (const c of p.cats || []) {
+    byCat[c] = (byCat[c] || 0) + 1;
+    if (p.short) shortByCat[c] = (shortByCat[c] || 0) + 1;
+    if (p.time && p.time.toDate() < new Date(Date.now() - 3 * 86400e3)) oldPosted[c] = (oldPosted[c] || 0) + 1;
+  }
 }
-console.log({ total, recent, sTrue, sFalse, sNone, urlShorts });
-samples.forEach((s) => console.log("예:", s));
-console.log("backfill:", JSON.stringify((await db.doc("state/shorts_backfill").get()).data()));
-const day = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
-console.log("오늘 shortCat:", JSON.stringify((await db.doc(`stats/${day}`).get()).data()?.shortCat));
-// 숏츠 주소 응답 확인 (서버에서 HEAD)
-for (const s of samples.slice(0, 3)) {
-  const vid = (s.match(/v=([\w-]+)/) || s.match(/shorts\/([\w-]+)/) || [])[1];
-  if (!vid) continue;
-  const r = await fetch(`https://www.youtube.com/shorts/${vid}`, { method: "HEAD", redirect: "manual" });
-  console.log("HEAD", vid, r.status, r.headers.get("location"));
-}
-const run = (await db.doc("status/main").get()).data()?.lastRun;
-console.log("마지막 수집:", (run?.log || []).join(" / "));
-// 2026-11-28T04:59:44Z 재점검
+console.log("오늘 수집 유튜브 글 카테고리별:", show(byCat));
+console.log("그중 숏츠:", show(shortByCat));
+console.log("그중 작성 3일 넘은 글:", show(oldPosted));
+console.log("backfill:", show((await db.doc("state/shorts_backfill").get()).data()));

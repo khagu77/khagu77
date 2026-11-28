@@ -131,6 +131,11 @@ export function createDemoBackend() {
       return { items, cursor: start + pageSize, done: start + pageSize >= list.length };
     },
     updatePost: async (id, patch) => { Object.assign(posts.find((p) => p.id === id) || {}, patch); },
+    async kakaoShare(ids, to) {
+      await delay(900);
+      for (const id of ids) Object.assign(posts.find((p) => p.id === id) || {}, { alerted: true, alertedAt: new Date(), alertedTo: ["관리자"] });
+      return { sent: ids.length * (to === "all" ? 3 : 1), people: to === "all" ? ["관리자", "담당자1", "담당자2"] : ["관리자"], fails: [] };
+    },
     async setSentiment(ids, sentiment) {
       for (const id of ids) Object.assign(posts.find((p) => p.id === id) || {}, { sentiment, sentimentBy: "manual", sentimentReason: "관리자 지정" });
       live.items = (live.items || []).map((p) => (ids.includes(p.id) ? { ...p, sentiment } : p));

@@ -28,6 +28,8 @@ export function parseRss(xml, fallbackChannelId) {
       vid,
       // RSS 는 쇼츠(릴스) 영상의 링크를 /shorts/ 주소로 줌
       short: /\/shorts\//.test(el.find("link").attr("href") || ""),
+      views: el.find("media\\:statistics").attr("views") ?? null,
+      likes: el.find("media\\:starRating").attr("count") ?? null,
     });
   });
   return out;

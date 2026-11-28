@@ -7,6 +7,7 @@ import { canonicalUrl, hash, kstParts, pool } from "./util.js";
 import { siteOf } from "./site.js";
 export { siteOf };
 
+const num = (k, v) => (v !== null && v !== undefined && v !== "" && Number.isFinite(+v) && +v >= 0 ? { [k]: Math.round(+v) } : {});
 const toTs = (d) => (d instanceof Date && !isNaN(d) ? Timestamp.fromDate(d) : null);
 
 export function buildPost(item, cls, now) {
@@ -25,6 +26,8 @@ export function buildPost(item, cls, now) {
     collectedAt: Timestamp.fromDate(now),
     time: Timestamp.fromDate(posted || now),
     thumb: item.thumb || null,
+    // 조회수 · 댓글수 · 좋아요 (수집할 때 보이는 곳만: 유튜브 관심 채널 · 인스타그램 · 게시판 댓글 수)
+    ...num("views", item.views), ...num("comments", item.comments), ...num("likes", item.likes),
     ...(item.channel === "youtube" && typeof item.short === "boolean" ? { short: item.short } : {}),
     site: item.site || siteOf(item),
     via: item.via || "",

@@ -17,7 +17,7 @@ import { kakaoExchange, kakaoSend, kakaoDisconnect } from "./src/kakao.js";
 import { buildContext, classify } from "./src/classify.js";
 import { statsDelta } from "./src/store.js";
 import { kstParts } from "./src/util.js";
-import { SITE_URL } from "./src/alerts.js";
+import { SITE_URL, formatAlert } from "./src/alerts.js";
 
 setGlobalOptions({ region: "asia-northeast3", maxInstances: 5 });
 
@@ -168,6 +168,44 @@ export const kakaoTest = onCall(wrap(async (req) => {
   const s = await getSettings();
   await kakaoSend(u.uid, `🔔 [테스트] 현대차 온라인 이슈 모니터링\n\n알림이 잘 연결되었습니다.\n이슈 게시물이 수집되면 이렇게 알려 드립니다.`, `${s.siteUrl || SITE_URL}/#/posts`, await getSecrets(), "시스템 열기");
   return { ok: true };
+}));
+// 담당자가 고른 글을 카톡으로 바로 보내기 (나에게 · 알림 받는 모든 담당자)
+export const kakaoShare = onCall({ timeoutSeconds: 120 }, wrap(async (req) => {
+  const u = await requireUser(req, "editor");
+  const ids = [...new Set((req.data?.ids || []).map(String))];
+  if (!ids.length) throw new HttpsError("invalid-argument", "보낼 게시물을 고르세요");
+  if (ids.length > 20) throw new HttpsError("invalid-argument", "카톡 발송은 한 번에 20건까지 고를 수 있습니다");
+  const secrets = await getSecrets();
+  if (!secrets.kakaoRestKey) throw new HttpsError("failed-precondition", "카카오 키가 없습니다 (설정 → API 키)");
+  const snaps = await db.getAll(...ids.map((id) => db.doc(`posts/${id}`)));
+  const posts = snaps.filter((s) => s.exists).map((s) => ({ id: s.id, ...s.data() }));
+  let people;
+  if (req.data?.to === "all") {
+    const q = await db.collection("users").where("status", "==", "active").where("alertOn", "==", true).get();
+    people = q.docs.map((d) => ({ uid: d.id, ...d.data() })).filter((p) => p.kakaoConnected);
+  } else people = [u];
+  if (!people.some((p) => p.kakaoConnected)) throw new HttpsError("failed-precondition", req.data?.to === "all" ? "카톡을 연결하고 알림을 켠 담당자가 없습니다" : "먼저 '내 알림 · 정보'에서 카카오톡을 연결해 주세요");
+  const s = await getSettings();
+  const site = s.siteUrl || SITE_URL;
+  const who = u.name || u.email || "담당자";
+  let sent = 0;
+  const fails = [];
+  const got = [];
+  for (const p of people.filter((x) => x.kakaoConnected)) {
+    try {
+      for (const post of posts) {
+        await kakaoSend(p.uid, `📢 ${who} 공유\n${formatAlert(post)}`.slice(0, 200), `${site}/go.html?u=${encodeURIComponent(post.url)}`, secrets);
+        sent++;
+      }
+      got.push(p.name || p.email || p.uid);
+    } catch (e) { fails.push(`${p.name || p.email}: ${e.message}`); }
+  }
+  if (got.length) {
+    const batch = db.batch();
+    for (const post of posts) batch.update(db.doc(`posts/${post.id}`), { alerted: true, alertedAt: new Date(), alertedTo: FieldValue.arrayUnion(...got.slice(0, 20)) });
+    await batch.commit();
+  }
+  return { sent, people: got, fails };
 }));
 export const kakaoUnlink = onCall(wrap(async (req) => {
   const u = await requireUser(req);

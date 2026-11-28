@@ -57,7 +57,7 @@ export async function render(root, store, { arg, qs }) {
         <select class="input" id="grp" style="margin-left:8px"><option value="">키워드 그룹 전체</option>${groups.map((g) => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join("")}</select>
       </div>
       <div class="frow"><span class="lbl">검색</span>
-        <input class="input" id="q" style="flex:1;min-width:200px" placeholder="제목·내용·매체명 (여러 단어는 모두 포함, -단어 는 제외)" value="${esc(st.q)}">
+        <div class="qsteps" id="qsteps"></div>
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="dedupe" ${st.dedupe ? "checked" : ""}><span></span></span>유사 기사 묶기</label>
         ${st.src ? `<button class="chip on" id="srcChip" title="눌러서 매체 조건 지우기">${esc(st.src)} ✕</button>` : ""}
         ${hasYt ? `<div class="seg" id="shortsSeg">${[["all", "전체"], ["no", "숏츠 제외"], ["only", "숏츠만"]].map(([v, l]) => `<button data-v="${v}" class="${st.shorts === v ? "on" : ""}">${l}</button>`).join("")}</div>` : ""}
@@ -75,6 +75,7 @@ export async function render(root, store, { arg, qs }) {
     </div>
     <div class="bulkbar" id="bulk"><span class="n" id="bn">0개 선택</span>
       <button class="btn sm primary" data-a="xls">📥 엑셀</button>
+      ${store.isEditor() ? `<button class="btn sm kakao" data-a="kakao">💬 카톡 발송</button>` : ""}
       ${store.isEditor() ? `<button class="btn sm" data-a="ai">🤖 AI 성향 재분석</button>
       <select class="input" data-a="sent" style="height:30px"><option value="">성향 지정…</option>${SENT_ORDER.map((s) => `<option value="${s}">${SENT[s].name}</option>`).join("")}</select>
       <button class="btn sm" data-a="star">⭐ 중요</button><button class="btn sm" data-a="hide">🙈 숨김/해제</button>` : ""}
@@ -113,7 +114,27 @@ export async function render(root, store, { arg, qs }) {
   });
   $q("#grp").onchange = (e) => { st.grp = e.target.value; apply(); };
   let qt;
-  $q("#q").oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => { st.q = e.target.value; apply(); ensureEnough(); }, 220); };
+  // 3단계 검색: 1차 검색 → 그 결과 안에서 2차 → 다시 그 안에서 3차
+  st.qs = [st.q || ""];
+  const Q_PH = ["제목·내용·매체명 (여러 단어는 모두 포함, -단어 는 제외)", "1차 결과 안에서 다시 검색", "2차 결과 안에서 다시 검색"];
+  function drawQ() {
+    $q("#qsteps").innerHTML = st.qs.map((v, i) => `${i ? `<span class="qarrow">›</span>` : ""}<div class="qstep" data-lv="${i}"><span class="qlv">${i + 1}차</span><input class="input" data-q="${i}" placeholder="${Q_PH[i]}" value="${esc(v)}">${i ? `<button type="button" class="qx" data-qx="${i}" title="이 단계 지우기">✕</button>` : ""}<span class="qcnt" data-qc="${i}"></span></div>`).join("")
+      + (st.qs.length < 3 ? `<button type="button" class="btn sm" id="qAdd" ${st.qs[st.qs.length - 1].trim() ? "" : "disabled"} title="지금 결과 안에서 한 번 더 검색">＋ 결과 내 검색</button>` : "");
+  }
+  drawQ();
+  $q("#qsteps").addEventListener("input", (e) => {
+    const lv = e.target.dataset.q;
+    if (lv == null) return;
+    st.qs[+lv] = e.target.value;
+    const add = $q("#qAdd");
+    if (add) add.disabled = !st.qs[st.qs.length - 1].trim();
+    clearTimeout(qt); qt = setTimeout(() => { apply(); ensureEnough(); }, 220);
+  });
+  $q("#qsteps").addEventListener("click", (e) => {
+    if (e.target.closest("#qAdd")) { st.qs.push(""); drawQ(); $q(`[data-q="${st.qs.length - 1}"]`).focus(); apply(); return; }
+    const x = e.target.closest("[data-qx]");
+    if (x) { st.qs.splice(+x.dataset.qx); drawQ(); apply(); ensureEnough(); }
+  });
   if ($q("#shortsSeg")) segmented($q("#shortsSeg"), (v) => { st.shorts = v; try { localStorage.setItem("hdmon-shorts", v); } catch {} apply(); });
   $q("#srcChip")?.addEventListener("click", () => { location.hash = `#/posts/${cat.id}`; });
   for (const k of ["dedupe", "star", "showHidden", "alertedOnly", "issueOnly"]) $q(`#${k}`).onchange = (e) => { st[k] = e.target.checked; apply(); };
@@ -157,8 +178,11 @@ export async function render(root, store, { arg, qs }) {
     for (const w of String(q).trim().split(/\s+/).filter(Boolean)) (w.startsWith("-") && w.length > 1 ? exc : inc).push(norm(w.slice(w.startsWith("-") ? 1 : 0)));
     return { inc, exc };
   }
+  const hit = (p, { inc, exc }) => {
+    const t = norm(`${p.title} ${p.desc} ${p.source}`);
+    return inc.every((w) => t.includes(w)) && !exc.some((w) => t.includes(w));
+  };
   function apply() {
-    const { inc, exc } = parseQ(st.q);
     view = all.filter((p) => {
       if (!st.showHidden && p.hidden) return false;
       if (st.star && !p.star) return false;
@@ -171,11 +195,14 @@ export async function render(root, store, { arg, qs }) {
       if (st.ch.size && !st.ch.has(p.channel)) return false;
       if (st.sent.size && !st.sent.has(p.sentiment)) return false;
       if (st.grp && !(p.kwGroups || []).includes(st.grp)) return false;
-      if (inc.length || exc.length) {
-        const t = norm(`${p.title} ${p.desc} ${p.source}`);
-        if (!inc.every((w) => t.includes(w)) || exc.some((w) => t.includes(w))) return false;
-      }
       return true;
+    });
+    // 검색 단계마다 앞 단계 결과 안에서 다시 거름 · 단계별 남은 건수 표시
+    st.qs.forEach((q, i) => {
+      const pq = parseQ(q);
+      if (pq.inc.length || pq.exc.length) view = view.filter((p) => hit(p, pq));
+      const c = $q(`[data-qc="${i}"]`);
+      if (c) c.textContent = q.trim() ? `${fmtNum(view.length)}건` : "";
     });
     shown = 0;
     $q("#list").innerHTML = "";
@@ -189,7 +216,7 @@ export async function render(root, store, { arg, qs }) {
   }
 
   function words(p) {
-    const { inc } = parseQ(st.q);
+    const inc = st.qs.flatMap((q) => parseQ(q).inc);
     return [...(p.kw || []).flatMap((k) => k.split("*")), ...inc];
   }
   function rowHtml(p, i) {
@@ -341,8 +368,22 @@ export async function render(root, store, { arg, qs }) {
     if (!b) return;
     const ids = [...sel];
     try {
-      if (b.dataset.a === "xls") return exportExcel(selected(), cat.name, store.settings);
+      if (b.dataset.a === "xls") return exportExcel(selected(), cat.name, store);
       if (b.dataset.a === "clear") { sel.clear(); apply(); return; }
+      if (b.dataset.a === "kakao") {
+        if (ids.length > 20) return toast("카톡 발송은 한 번에 20건까지 고를 수 있습니다", "err");
+        const body = await modal(`카톡 발송 · ${ids.length}건`, `<div style="display:flex;flex-direction:column;gap:10px">
+          <label class="toggle-row"><input type="radio" name="kto" value="me" checked> 나에게만 보내기</label>
+          <label class="toggle-row"><input type="radio" name="kto" value="all"> 알림 받는 모든 담당자에게 보내기 (카톡 연결 + 알림 켠 사람)</label>
+          <p class="hint" style="margin:0">고른 글마다 한 통씩 보냅니다. 받은 글에는 '💬 카톡 발송' 표시가 붙습니다.</p></div>`, { ok: "보내기" });
+        if (!body) return;
+        const to = body.querySelector("input[name=kto]:checked").value;
+        await busy(b, async () => {
+          const r = await store.be.kakaoShare(ids, to);
+          for (const p of selected()) Object.assign(p, { alerted: true, alertedAt: new Date(), alertedTo: [...new Set([...(p.alertedTo || []), ...r.people])] });
+          toast(`카톡 ${r.sent}통 보냈습니다 (${r.people.join(", ")})${r.fails.length ? ` · 실패 ${r.fails.length}명` : ""}`, r.fails.length ? "err" : "ok", 6000);
+        });
+      }
       if (b.dataset.a === "ai") {
         if (ids.length > 100) return toast("AI 분석은 한 번에 100건까지 고를 수 있습니다", "err");
         await busy(b, () => runAi(ids));
@@ -361,7 +402,7 @@ export async function render(root, store, { arg, qs }) {
   });
   $q("#xlsAll").onclick = () => {
     if (!view.length) return toast("내려받을 글이 없습니다", "err");
-    exportExcel(view, cat.name, store.settings);
+    exportExcel(view, cat.name, store);
   };
 
   // 새 글 알림 띠
