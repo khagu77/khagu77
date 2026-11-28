@@ -331,7 +331,7 @@ export async function render(root, store, { arg }) {
           <li>Meta 앱 → 이용 사례 → 'Facebook 로그인이 포함된 API 설정' → 리디렉션 URI 에 <code>${esc(origin)}/instagram.html</code> 등록</li>
           <li><b>Instagram 연결</b> → 인스타그램 비즈니스 계정이 연결된 페이스북으로 로그인 → 페이지 선택·허용</li>
         </ol>
-        <div class="frow"><input class="input" id="metaAppId" style="flex:1" placeholder="Meta 앱 ID"><input class="input" id="metaAppSecret" style="flex:1" placeholder="앱 시크릿 코드"><button class="btn" id="igConnect">📷 Instagram 연결</button></div>
+        <div class="frow"><input class="input" id="metaAppId" style="flex:1" placeholder="Meta 앱 ID"><input class="input" id="metaAppSecret" style="flex:1" placeholder="앱 시크릿 코드"><input class="input" id="metaConfigId" style="flex:1" placeholder="(있으면) 로그인 구성 ID" value="${esc(store.settings.metaConfigId || "")}"><button class="btn" id="igConnect">📷 Instagram 연결</button></div>
         <label class="toggle-row" style="margin-top:12px"><span class="switch"><input type="checkbox" id="igOn" ${draft.instagram?.on !== false ? "checked" : ""}><span></span></span>인스타그램 수집 (5분마다 해시태그 ${draft.instagram?.perTick ?? 4}개씩 돌아가며)</label>
         <label class="field" style="margin-top:8px">해시태그 (띄어쓰기로 구분 · <b>7일에 서로 다른 해시태그 30개까지</b> — 자주 바꾸면 한도에 걸림)<textarea class="input" id="igTags" rows="3">${esc(draft.instagram?.hashtags || "")}</textarea></label>
       </div>
@@ -355,7 +355,12 @@ export async function render(root, store, { arg }) {
     v.querySelector("#igConnect").onclick = () => {
       const appId = store.settings.metaAppId;
       if (!appId) return toast("Meta 앱 ID 를 먼저 넣고 '입력한 키 저장'을 눌러 주세요", "err", 5000);
-      location.href = `https://www.facebook.com/dialog/oauth?${new URLSearchParams({ client_id: appId, redirect_uri: `${origin}/instagram.html`, response_type: "code", scope: "instagram_basic,pages_show_list,pages_read_engagement,business_management" })}`;
+      // 비즈니스용 Facebook 로그인은 '구성 ID'(config_id)로, 없으면 권한 목록(scope)으로
+      const cfg = (v.querySelector("#metaConfigId").value || store.settings.metaConfigId || "").trim();
+      if (cfg && cfg !== store.settings.metaConfigId) store.be.saveSettings({ metaConfigId: cfg }).catch(() => {});
+      const p = { client_id: appId, redirect_uri: `${origin}/instagram.html`, response_type: "code" };
+      if (cfg) p.config_id = cfg; else p.scope = "instagram_basic,pages_show_list,pages_read_engagement,business_management";
+      location.href = `https://www.facebook.com/dialog/oauth?${new URLSearchParams(p)}`;
     };
     v.querySelector("#igOn").onchange = (e) => { draft.instagram = { ...(draft.instagram || {}), on: e.target.checked }; mark("instagram"); };
     v.querySelector("#igTags").oninput = (e) => { draft.instagram = { ...(draft.instagram || {}), hashtags: e.target.value }; mark("instagram"); };
