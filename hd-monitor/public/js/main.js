@@ -1,6 +1,6 @@
 // 앱 뼈대: 로그인 확인 → 사이드바·상단바 → 화면 전환(#/주소)
 import { createBackend, IS_DEMO } from "./backend.js";
-import { $, $$, h, esc, toast, dayKey, ROLE, setCafeNames, chIcon, CH_IMG } from "./ui.js";
+import { $, $$, h, esc, toast, dayKey, ROLE, setCafeNames, setCafeBook, chIcon, CH_IMG } from "./ui.js";
 import { renderLogin, renderPending } from "./views/login.js";
 
 const store = { be: null, me: null, settings: null, live: { items: [] }, status: {}, today: null, listeners: new Set() };
@@ -57,6 +57,7 @@ function cleanupShell() {
 async function startShell() {
   store.settings = await store.be.getSettings();
   setCafeNames(store.settings.favCafes);
+  await store.be.getCafeBook?.().then(setCafeBook).catch(() => {});
   const app = h(`<div class="app">
     <aside class="sidebar">
       <div class="brand"><img class="brand-logo" src="/img/hyundai-logo-white.png" alt="HYUNDAI"><div class="brand-text"><b>온라인 이슈 모니터링</b><span>HYUNDAI · GENESIS</span></div></div>
@@ -126,11 +127,26 @@ function updateLiveDot() {
   $("#liveText").textContent = d ? `실시간 수집 중 · ${Math.max(0, Math.round(min))}분 전 수집` : "수집 기록 없음";
 }
 
+// 사이드바 숫자: 오늘 '작성된' 글 수 (목록 기본값 '작성일 기준 · 오늘'과 같은 기준) — 서버에서 개수만 셈
+let todaySeq = 0;
 async function refreshToday(bump = false) {
+  const seq = ++todaySeq;
+  if (bump) store.be.getCafeBook?.().then(setCafeBook).catch(() => {}); // 새로 알게 된 카페 이름
   const k = dayKey();
   const [s] = await store.be.getStats(k, k);
   const prev = store.today?.cat || {};
-  store.today = s || { cat: {} };
+  const t = s || { cat: {} };
+  const from = new Date(new Date().setHours(0, 0, 0, 0));
+  const cats = store.settings.categories || [];
+  const cat = {}, shortCat = {};
+  await Promise.all(cats.map(async (c) => {
+    try { cat[c.id] = await store.be.countPosts({ cat: c.id, from, sort: "time" }); } catch { cat[c.id] = t.cat?.[c.id] || 0; }
+    if (ytCat(c)) {
+      try { shortCat[c.id] = await store.be.countPosts({ cat: c.id, from, sort: "time", short: true }); } catch { shortCat[c.id] = t.shortCat?.[c.id] || 0; }
+    }
+  }));
+  if (seq !== todaySeq) return;
+  store.today = { ...t, cat, shortCat };
   for (const a of $$("#nav a[data-cat]")) {
     const c = a.querySelector(".cnt");
     const v = store.today.cat?.[a.dataset.cat] || 0;
@@ -159,11 +175,11 @@ function buildNav() {
   if (!nav) return;
   const cats = store.settings.categories || [];
   const top = cats.filter((c) => !c.parent);
-  let html = `<span class="nav-indicator"></span><div class="nav-sec">메뉴</div><a href="#/dashboard" data-route="dashboard"><span class="ico">◎</span>대시보드</a><div class="nav-sec">카테고리 <span style="float:right;text-transform:none;letter-spacing:0" title="오늘 수집된 글 수 (누르면 같은 기준의 목록)">오늘 수집</span></div>`;
+  let html = `<span class="nav-indicator"></span><div class="nav-sec">메뉴</div><a href="#/dashboard" data-route="dashboard"><span class="ico">◎</span>대시보드</a><div class="nav-sec">카테고리 <span style="float:right;text-transform:none;letter-spacing:0" title="오늘 작성된 글 수 (누르면 같은 기준의 목록)">오늘</span></div>`;
   for (const c of top) {
-    html += `<a href="#/posts/${esc(c.id)}?period=today&sort=collectedAt" data-cat="${esc(c.id)}"><span class="ico">${catIcon(c)}</span>${esc(c.name)}${ytCat(c) ? nsBadge(c.id) : ""}<span class="cnt">${store.today?.cat?.[c.id] || 0}</span></a>`;
+    html += `<a href="#/posts/${esc(c.id)}?period=today" data-cat="${esc(c.id)}"><span class="ico">${catIcon(c)}</span>${esc(c.name)}${ytCat(c) ? nsBadge(c.id) : ""}<span class="cnt">${store.today?.cat?.[c.id] || 0}</span></a>`;
     for (const ch of cats.filter((x) => x.parent === c.id)) {
-      html += `<a class="child" href="#/posts/${esc(ch.id)}?period=today&sort=collectedAt" data-cat="${esc(ch.id)}">${ch.fav ? "⚠️ " : ""}${esc(ch.name)}${ytCat(ch) ? nsBadge(ch.id) : ""}<span class="cnt">${store.today?.cat?.[ch.id] || 0}</span></a>`;
+      html += `<a class="child" href="#/posts/${esc(ch.id)}?period=today" data-cat="${esc(ch.id)}">${ch.fav ? "⚠️ " : ""}${esc(ch.name)}${ytCat(ch) ? nsBadge(ch.id) : ""}<span class="cnt">${store.today?.cat?.[ch.id] || 0}</span></a>`;
     }
   }
   html += `<div class="nav-sec">관리</div>`;

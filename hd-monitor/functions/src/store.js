@@ -43,6 +43,8 @@ export function buildPost(item, cls, now) {
 
 export async function ingest(items, ctx, log) {
   const now = new Date();
+  // 카페 이름: 장부에서 채우고, 새로 본 이름은 장부에 기억
+  try { const { fillCafeNames } = await import("./cafeNames.js"); await fillCafeNames(items); } catch (e) { log.push(`카페 이름 장부: ${e.message}`.slice(0, 120)); }
   const byId = new Map();
   for (const it of items) {
     if (!it || !it.url || !it.title) continue;

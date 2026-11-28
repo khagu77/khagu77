@@ -56,14 +56,18 @@ export const chIcon = (ch, small = false, p = null) => {
 // 제목 앞 매체명 상자 (언론·동호회·유튜브·자동차 커뮤니티)
 const PILL_CH = new Set(["news", "cafe", "youtube", "bobae", "clien", "ppomppu", "instagram"]);
 let cafeNames = new Map();
+let bookNames = new Map(); // 시스템 카페 이름 장부 (관심 동호회가 아닌 카페 포함)
 export const setCafeNames = (list) => { cafeNames = new Map((list || []).map((c) => [String(c.id).toLowerCase(), c.name])); };
+export const setCafeBook = (obj) => { bookNames = new Map(Object.entries(obj || {}).map(([k, v]) => [k.toLowerCase(), v])); };
+const cafeNameOf = (club) => cafeNames.get(club.toLowerCase()) || bookNames.get(club.toLowerCase()) || "";
 const clubFromUrl = (u) => (String(u || "").match(/cafe\.naver\.com\/(?!f-e\/|ca-fe\/)([\w-]+)\/\d+/) || [])[1] || "";
 // 매체명: 저장된 이름 → 관심 동호회 이름(카페 주소 ID) → 카페 주소 ID
 export const sourceName = (p) => {
-  if (p.source) return p.source;
-  if (p.channel !== "cafe") return "";
+  if (p.channel !== "cafe") return p.source || "";
   const club = (p.sourceId && !String(p.sourceId).startsWith("#") ? p.sourceId : "") || clubFromUrl(p.url);
-  return (club && (cafeNames.get(club.toLowerCase()) || club)) || "";
+  // 이름 대신 카페 주소 ID 가 저장된 글도 장부의 카페 이름으로
+  if (p.source && (!club || p.source.toLowerCase() !== club.toLowerCase())) return p.source;
+  return (club && (cafeNameOf(club) || club)) || p.source || "";
 };
 export const srcPill = (p) => {
   if (!PILL_CH.has(p.channel)) return "";

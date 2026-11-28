@@ -69,7 +69,7 @@ async function lookupCafe(dict, club) {
   remember(dict, club, num, name.trim());
 }
 
-async function collectNaver(cfg, items, status) {
+async function collectNaver(cfg, items, status, names) {
   const n = cfg.naver || {};
   if (!n.on || !n.queries?.length || !n.kinds?.length) return;
   const st = await chrome.storage.local.get(["naverCursor", "naverSeen", "naverPauseUntil"]);
@@ -122,9 +122,17 @@ async function collectNaver(cfg, items, status) {
   }
   // 이름 모르는 카페 · 번호 모르는 관심 동호회를 몇 곳씩 알아 둠 (다음 수집부터 이름 표시·관심 동호회 확인)
   const favNoNum = (cfg.favCafes || []).map((c) => c.id).filter((id) => !dict[String(id).toLowerCase()]?.num);
-  for (const club of [...unknown].slice(0, 4).concat(favNoNum.slice(0, 3))) {
+  const ask = (cfg.cafeLookup || []).filter((club) => !dict[String(club).toLowerCase()]?.name);
+  for (const club of [...new Set([...unknown].slice(0, 4).concat(ask.slice(0, 6), favNoNum.slice(0, 3)))]) {
     try { await lookupCafe(dict, club); } catch {}
     await sleep(1200 + Math.random() * 1500);
+  }
+  // 시스템이 물어본 카페 · 이번에 이름을 안 카페 → 시스템의 카페 이름 장부로 (이미 저장된 글의 이름도 채워짐)
+  const sentNames = (await chrome.storage.local.get("cafeNamesSent")).cafeNamesSent || {};
+  for (const [k, e] of Object.entries(dict)) {
+    if (k.startsWith("#") || !e.name || !e.club) continue;
+    if (sentNames[k] !== e.name || (cfg.cafeLookup || []).map((x) => String(x).toLowerCase()).includes(k)) names[e.club] = e.name;
+    if (Object.keys(names).length >= 200) break;
   }
   await chrome.storage.local.set({ naverCursor: i, naverSeen: seen, cafeDict: dict });
   status.naver ||= `네이버 검색 ${done}회 (전체 ${calls.length}개 중), 새 글 ${got}건`;
@@ -141,8 +149,9 @@ async function run() {
     if (!c.token) throw new Error("수집 토큰을 넣어 주세요 (시스템 → 설정 → API 키 → 크롬 수집 도우미)");
     const { seen = {} } = await chrome.storage.local.get("seen");
     const items = [];
+    const cafeNames = {};
     try {
-      await collectNaver(await remoteConfig(c), items, status);
+      await collectNaver(await remoteConfig(c), items, status, cafeNames);
     } catch (e) {
       status.naver = `네이버 오류: ${e.message || e}`;
     }
@@ -170,15 +179,19 @@ async function run() {
       await sleep(1000 + Math.random() * 1500);
     }
     status.ppomppu = `뽐뿌 게시판 ${boardsRead}곳, 새 글 ${items.length - before}건`;
-    if (items.length) {
+    if (items.length || Object.keys(cafeNames).length) {
       const r = await fetch(c.endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${c.token}` },
-        body: JSON.stringify({ items, client: `수집 도우미 ${chrome.runtime.getManifest().version}`, naver: status.naver }),
+        body: JSON.stringify({ items, cafeNames, client: `수집 도우미 ${chrome.runtime.getManifest().version}`, naver: status.naver }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `시스템 응답 ${r.status}`);
       status.sent = items.length;
+      if (Object.keys(cafeNames).length) {
+        const { cafeNamesSent = {} } = await chrome.storage.local.get("cafeNamesSent");
+        await chrome.storage.local.set({ cafeNamesSent: { ...cafeNamesSent, ...Object.fromEntries(Object.entries(cafeNames).map(([k, v]) => [k.toLowerCase(), v])) } });
+      }
       status.created = j.created || 0;
     }
     await chrome.storage.local.set({ seen });

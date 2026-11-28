@@ -32,6 +32,12 @@ export function normalizeExternal(body) {
 
 export async function ingestFromExtension(body, secrets) {
   const log = [];
+  // 수집 도우미가 네이버에서 알아 온 카페 이름 → 장부 + 이미 저장된 글의 빈 이름 채움
+  if (body.cafeNames && typeof body.cafeNames === "object") {
+    const { addNames } = await import("./cafeNames.js");
+    const fixed = await addNames(Object.fromEntries(Object.entries(body.cafeNames).slice(0, 300)));
+    if (fixed) log.push(`카페 이름 채움: 글 ${fixed}건`);
+  }
   const items = normalizeExternal(body);
   const ctx = buildContext(await getSettings());
   const settings = ctx.settings;
@@ -61,5 +67,6 @@ export async function extensionConfig(secrets) {
       perRun: Number(settings.collect.extNaverPerRun) || 12,
     },
     favCafes: (settings.favCafes || []).map((c) => ({ id: c.id, name: c.name })),
+    cafeLookup: await (await import("./cafeNames.js")).unknownCafes(8), // 이름을 알아 와 줄 카페
   };
 }
