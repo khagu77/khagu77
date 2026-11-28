@@ -141,7 +141,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .nav a .cnt-ns { margin-left: auto; font-size: 10px; color: var(--text-3); white-space: nowrap; }
 .nav a .cnt-ns + .cnt { margin-left: 6px; }
 .nav a.child { padding-left: 34px; height: var(--nav-ch, 28px); font-size: 13px; }
-.nav a.child::before { content: ""; position: absolute; left: 22px; top: 50%; width: 7px; height: 1px; background: var(--line-2); }
+.nav a.child::before { content: ""; position: absolute; left: 21px; top: 4px; width: 8px; height: calc(50% - 4px); border-left: 1.5px solid var(--line-2); border-bottom: 1.5px solid var(--line-2); border-bottom-left-radius: 4px; }
 .side-foot { margin-top: auto; padding: 8px 8px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
 /* 화면 높이에 맞춰 메뉴 줄 높이를 줄여 스크롤이 생기지 않게 */
 /* 줄 높이를 화면 높이에 비례 (24~34px) — 확대율·화면 크기와 관계없이 한 화면에 */
