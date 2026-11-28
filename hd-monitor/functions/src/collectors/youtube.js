@@ -37,17 +37,20 @@ export async function collectYoutubeRss({ settings, log }) {
   const seenDoc = await getState("yt_rss_seen");
   const out = [];
   let fail = 0;
+  let read = 0;
   const res = await pool(chans, 6, async (c) => {
     const r = await fetchWithTimeout(`https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(c.id)}`);
     if (!r.ok) throw new Error(`${c.name} RSS ${r.status}`);
     const items = parseRss(await r.text(), c.id);
+    if (!items.length) throw new Error(`${c.name} RSS 비어 있음`);
+    read += items.length;
     const seen = new Set(seenDoc[c.id] || []);
     for (const it of items) if (!seen.has(it.vid)) out.push({ ...it, source: c.name || it.source, requireMatch: true, via: "yt:rss" });
     seenDoc[c.id] = items.map((x) => x.vid);
   });
   for (const r of res) if (!r.ok) { fail++; if (fail <= 2) log.push(`유튜브 RSS: ${r.error.message}`); }
   await setState("yt_rss_seen", seenDoc);
-  log.push(`유튜브 관심 채널 ${chans.length}곳 확인, 새 영상 ${out.length}건${fail ? `, 실패 ${fail}` : ""}`);
+  log.push(`유튜브 관심 채널 ${chans.length}곳 확인 (영상 ${read}개 읽음), 새 영상 ${out.length}건${fail ? `, 실패 ${fail}` : ""}`);
   return out;
 }
 

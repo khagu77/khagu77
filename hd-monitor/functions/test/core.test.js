@@ -232,3 +232,10 @@ test("수집 도우미: 뽐뿌 목록 읽기 (EUC-KR 해독 뒤 HTML)", async ()
   assert.equal(rows[0].date.toISOString(), "2026-11-27T22:46:00.000Z");
   assert.equal(rows[1].date.toISOString(), "2026-11-26T15:00:00.000Z");
 });
+
+test("관심 동호회: 카페 주소 ID 를 몰라도 카페 이름으로 확인", () => {
+  const item = { channel: "cafe", title: "팰리세이드 전동시트 끼임", source: "LX3 클럽", sourceId: "#12345" };
+  const c = classify(item, ctx);
+  assert.ok(c.fav && c.cats.includes("cafe_fav"));
+  assert.equal(item.sourceId, "gamewinds");
+});

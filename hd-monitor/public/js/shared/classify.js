@@ -8,6 +8,8 @@ export function buildContext(settings) {
     compiled: compileGroups(settings),
     lex: compileLexicon(settings.lexicon),
     favCafes: new Map((settings.favCafes || []).map((c) => [String(c.id).toLowerCase(), c])),
+    // 카페 주소 ID 를 모를 때(새 카페 주소 형식 등) 카페 이름으로도 관심 동호회 확인
+    favCafeNames: new Map((settings.favCafes || []).map((c) => [norm(c.name), c])),
     favYoutube: new Map((settings.favYoutube || []).map((c) => [c.id, c])),
     categories: settings.categories || [],
   };
@@ -52,7 +54,13 @@ export function classify(item, ctx) {
 
   let fav = false;
   let must = false;
-  if (item.channel === "cafe") fav = ctx.favCafes.has(String(item.sourceId || "").toLowerCase());
+  if (item.channel === "cafe") {
+    const byId = ctx.favCafes.get(String(item.sourceId || "").toLowerCase());
+    const byName = !byId && item.source ? ctx.favCafeNames?.get(norm(item.source)) : null;
+    fav = !!(byId || byName);
+    // 이름으로 찾았으면 통계(관심 동호회 TOP)가 모이도록 카페 주소 ID 로 맞춤
+    if (byName && (!item.sourceId || String(item.sourceId).startsWith("#") || !ctx.favCafes.has(String(item.sourceId).toLowerCase()))) item.sourceId = byName.id;
+  }
   if (item.channel === "youtube") {
     const y = ctx.favYoutube.get(item.sourceId);
     fav = !!y;
