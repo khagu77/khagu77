@@ -118,7 +118,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .nav-indicator {
   position: absolute; left: 0; right: 0; height: 38px; border-radius: 11px; z-index: 0;
   background: linear-gradient(90deg, rgba(0, 170, 210, .22), rgba(47, 123, 255, .10));
-  box-shadow: inset 3px 0 0 var(--brand);
+  box-shadow: none;
   transition: transform .45s var(--spring), height .3s var(--ease), opacity .2s;
   pointer-events: none;
 }
