@@ -73,6 +73,13 @@ jobs:
           mkdir -p public/download
           cd extension && zip -qr ../public/download/hd-collector-extension.zip . -x "README.md"
 
+      - name: 화면 파일에 버전 붙이기 (휴대폰 브라우저가 예전 파일과 새 파일을 섞어 쓰지 않게)
+        run: |
+          V="${GITHUB_SHA::8}"
+          find public/js -name "*.js" -not -path "*/vendor/*" -print0 | xargs -0 perl -pi -e 's{((?:\bfrom|\bimport)\s*\(?\s*["\x27])(\.{1,2}/[^"\x27?]+?\.js)(["\x27])}{$1$2?v='"$V"'$3}g'
+          perl -pi -e 's{src="/js/main\.js"}{src="/js/main.js?v='"$V"'"}; s{href="/css/app\.css"}{href="/css/app.css?v='"$V"'"}' public/index.html
+          grep -c "?v=$V" public/js/main.js public/index.html
+
       - name: Firebase CLI 설치
         run: npm i -g firebase-tools
 

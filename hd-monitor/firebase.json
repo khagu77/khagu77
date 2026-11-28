@@ -3,14 +3,52 @@
     {
       "target": "hdmon",
       "public": "public",
-      "ignore": ["firebase.json", "**/.*"],
+      "ignore": [
+        "firebase.json",
+        "**/.*"
+      ],
       "cleanUrls": false,
       "headers": [
-        { "source": "**/*.@(js|css)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+        {
+          "source": "**/*.@(js|css)",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        },
+        {
+          "source": "**/*.html",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        },
+        {
+          "source": "/",
+          "headers": [
+            {
+              "key": "Cache-Control",
+              "value": "no-cache"
+            }
+          ]
+        }
       ],
       "rewrites": [
-        { "source": "/api/ingest", "function": { "functionId": "ingestExternal", "region": "asia-northeast3" } },
-        { "source": "/", "destination": "/index.html" }
+        {
+          "source": "/api/ingest",
+          "function": {
+            "functionId": "ingestExternal",
+            "region": "asia-northeast3"
+          }
+        },
+        {
+          "source": "/",
+          "destination": "/index.html"
+        }
       ]
     }
   ],
@@ -19,7 +57,12 @@
       "source": "functions",
       "codebase": "hdmon",
       "runtime": "nodejs22",
-      "ignore": ["node_modules", ".git", "test", "*.log"]
+      "ignore": [
+        "node_modules",
+        ".git",
+        "test",
+        "*.log"
+      ]
     }
   ],
   "firestore": [
