@@ -239,3 +239,12 @@ test("관심 동호회: 카페 주소 ID 를 몰라도 카페 이름으로 확�
   assert.ok(c.fav && c.cats.includes("cafe_fav"));
   assert.equal(item.sourceId, "gamewinds");
 });
+
+test("수집 도우미 네이버 검색 결과: 검색 결과는 관련어 없어도 저장 대상, 언론사 원문 주소 유지", () => {
+  const [n] = normalizeExternal({ items: [{ channel: "news", fromSearch: true, url: "https://n.news.naver.com/mnews/article/015/0001", extUrl: "https://www.hankyung.com/a/1", title: "기사", query: "현대차" }] });
+  assert.equal(n.requireMatch, false);
+  assert.equal(n.extUrl, "https://www.hankyung.com/a/1");
+  assert.equal(n.via, "ext:naver:news");
+  const [p] = normalizeExternal({ items: [{ channel: "ppomppu", url: "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=1", title: "글" }] });
+  assert.equal(p.requireMatch, true);
+});

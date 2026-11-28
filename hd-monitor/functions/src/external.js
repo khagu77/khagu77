@@ -1,6 +1,8 @@
 // 크롬 확장(수집 도우미)이 보낸 글 저장 — 서버 수집과 같은 분류·중복 제거·알림을 거침
 import { db, getSettings, getState, setState, Timestamp } from "./db.js";
 import { buildContext } from "./classify.js";
+import { collectQueries } from "./keywords.js";
+import { parseKeys } from "./collectors/naver.js";
 import { ingest } from "./store.js";
 import { sendAlerts } from "./alerts.js";
 import { autoAnalyze } from "./ai.js";
@@ -16,10 +18,13 @@ export function normalizeExternal(body) {
     const title = String(it.title || "").replace(/\s+/g, " ").trim().slice(0, 300);
     if (!ALLOWED.has(channel) || !/^https:\/\//.test(url) || !title) continue;
     const d = it.postedAt ? new Date(it.postedAt) : null;
+    // 네이버 검색 결과(검색어로 찾은 글)는 서버 네이버 수집과 같게 전부 '전체'에 넣고, 게시판 목록 글은 현대차 관련어가 있어야 저장
+    const fromSearch = !!it.fromSearch && ["news", "blog", "cafe"].includes(channel);
+    const extUrl = /^https?:\/\//.test(String(it.extUrl || "")) ? String(it.extUrl) : "";
     out.push({
-      channel, url, title, desc: String(it.desc || "").slice(0, 400), source: String(it.source || "").slice(0, 80),
+      channel, url, extUrl, title, desc: String(it.desc || "").slice(0, 400), source: String(it.source || "").slice(0, 80),
       sourceId: String(it.sourceId || "").slice(0, 120), postedAt: d && !isNaN(d) ? d : null,
-      requireMatch: true, via: `ext:${channel}`, query: "",
+      requireMatch: !fromSearch, via: fromSearch ? `ext:naver:${channel}` : `ext:${channel}`, query: String(it.query || "").slice(0, 80),
     });
   }
   return out;
@@ -33,11 +38,27 @@ export async function ingestFromExtension(body, secrets) {
   const created = items.length ? await ingest(items, ctx, log) : [];
   if (created.length) await autoAnalyze(created, settings, secrets, log);
   if (created.length) await sendAlerts(created, ctx, secrets, log);
-  const run = { at: Timestamp.now(), received: items.length, created: created.length, client: String(body.client || "").slice(0, 60), log };
+  if (body.naver) log.unshift(String(body.naver).slice(0, 120));
+  const run = { at: Timestamp.now(), received: items.length, created: created.length, client: String(body.client || "").slice(0, 60), naver: String(body.naver || "").slice(0, 120), log };
   const prev = await getState("ext_runs");
   await Promise.all([
     setState("ext_runs", { items: [run, ...(prev.items || [])].slice(0, 30) }),
     db.doc("status/main").set({ extLast: run }, { merge: true }),
   ]);
   return { received: items.length, created: created.length };
+}
+
+// 수집 도우미가 5분마다 받아 가는 설정: 네이버 검색어·종류 (서버가 네이버에 막혀 PC 크롬이 대신 검색)
+export async function extensionConfig(secrets) {
+  const settings = await getSettings();
+  const ctx = buildContext(settings);
+  const useExt = settings.collect.naverByExtension !== false && !parseKeys(secrets.naverKeys).length;
+  return {
+    naver: {
+      on: useExt,
+      kinds: ["news", "blog", "cafe"].filter((k) => settings.collect.naver?.[k]),
+      queries: collectQueries(ctx.compiled),
+      perRun: Number(settings.collect.extNaverPerRun) || 12,
+    },
+  };
 }

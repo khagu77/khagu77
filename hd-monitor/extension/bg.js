@@ -1,5 +1,5 @@
-// 수집 도우미: 5분마다 뽐뿌 게시판 목록을 읽어(평소 크롬으로 보는 것과 같은 접속) 새 글만 모니터링 시스템으로 보냄
-importScripts("parse.js");
+// 수집 도우미: 5분마다 뽐뿌 게시판 목록 + 네이버 검색(뉴스·블로그·카페)을 평소 크롬으로 보는 것처럼 읽어 새 글만 모니터링 시스템으로 보냄
+importScripts("parse.js", "naver-parse.js");
 
 const DEF = {
   on: true,
@@ -34,17 +34,83 @@ async function fetchList(id, page) {
   return new TextDecoder(/euc-kr|ks_c|cp949/i.test(cs) ? "euc-kr" : "utf-8").decode(buf);
 }
 
+// ── 네이버 검색 (시스템이 정해 준 검색어를 돌아가며, 사람이 검색하는 속도로) ──
+const h8 = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; return h.toString(36); };
+
+async function remoteConfig(c) {
+  const { rc } = await chrome.storage.local.get("rc");
+  if (rc && Date.now() - rc.at < 30 * 60e3) return rc.cfg;
+  const r = await fetch(c.endpoint, { headers: { Authorization: `Bearer ${c.token}` } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `시스템 응답 ${r.status}`);
+  await chrome.storage.local.set({ rc: { at: Date.now(), cfg: j } });
+  return j;
+}
+
+async function ensureOffscreen() {
+  if (await chrome.offscreen.hasDocument()) return;
+  await chrome.offscreen.createDocument({ url: "offscreen.html", reasons: ["DOM_PARSER"], justification: "네이버 검색 결과 화면 읽기" });
+}
+
+async function collectNaver(cfg, items, status) {
+  const n = cfg.naver || {};
+  if (!n.on || !n.queries?.length || !n.kinds?.length) return;
+  const st = await chrome.storage.local.get(["naverCursor", "naverSeen", "naverPauseUntil"]);
+  if (st.naverPauseUntil > Date.now()) { status.naver = `네이버 잠시 쉼 (${Math.ceil((st.naverPauseUntil - Date.now()) / 60000)}분)`; return; }
+  const calls = [];
+  for (const q of n.queries) for (const k of n.kinds) calls.push({ q, k });
+  let i = (st.naverCursor || 0) % calls.length;
+  const seen = st.naverSeen || {};
+  const perRun = Math.max(3, Math.min(30, Number(n.perRun) || 12));
+  await ensureOffscreen();
+  let done = 0;
+  let got = 0;
+  for (let x = 0; x < Math.min(perRun, calls.length); x++) {
+    const { q, k } = calls[i];
+    i = (i + 1) % calls.length;
+    const r = await fetch(HDNaver.searchUrl(k, q), { credentials: "include", cache: "no-store" });
+    const html = await r.text();
+    if (HDNaver.isBlocked(html, r.status)) {
+      await chrome.storage.local.set({ naverPauseUntil: Date.now() + 30 * 60e3 });
+      status.naver = "네이버가 잠시 막음 → 30분 쉼";
+      break;
+    }
+    const { rows = [] } = await chrome.runtime.sendMessage({ target: "offscreen", type: "parseNaver", html, kind: k });
+    const sk = `${k}|${q}`;
+    const prev = new Set(seen[sk] || []);
+    for (const row of rows) {
+      const hh = h8(row.url);
+      if (prev.has(hh)) continue;
+      got++;
+      items.push({
+        channel: k, title: row.title, desc: row.snippet, url: row.url, extUrl: row.extUrl, source: row.source,
+        sourceId: k === "cafe" ? row.club : k === "blog" ? row.owner : "", postedAt: row.date, fromSearch: true, query: q,
+      });
+    }
+    seen[sk] = rows.map((row) => h8(row.url)).slice(0, 40);
+    done++;
+    await sleep(2500 + Math.random() * 3000); // 사람이 검색하는 정도의 간격
+  }
+  await chrome.storage.local.set({ naverCursor: i, naverSeen: seen });
+  status.naver ||= `네이버 검색 ${done}회 (전체 ${calls.length}개 중), 새 글 ${got}건`;
+}
+
 let running = false;
 async function run() {
   if (running) return { skipped: true };
   running = true;
-  const status = { at: Date.now(), sent: 0, created: 0, error: "" };
+  const status = { at: Date.now(), sent: 0, created: 0, error: "", naver: "" };
   try {
     const c = await getCfg();
     if (!c.on) return status;
     if (!c.token) throw new Error("수집 토큰을 넣어 주세요 (시스템 → 설정 → API 키 → 크롬 수집 도우미)");
     const { seen = {} } = await chrome.storage.local.get("seen");
     const items = [];
+    try {
+      await collectNaver(await remoteConfig(c), items, status);
+    } catch (e) {
+      status.naver = `네이버 오류: ${e.message || e}`;
+    }
     for (const b of boardsOf(c.boards)) {
       const prev = new Set(seen[b.id] || []);
       const first = !seen[b.id];
@@ -69,7 +135,7 @@ async function run() {
       const r = await fetch(c.endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${c.token}` },
-        body: JSON.stringify({ items, client: `수집 도우미 ${chrome.runtime.getManifest().version}` }),
+        body: JSON.stringify({ items, client: `수집 도우미 ${chrome.runtime.getManifest().version}`, naver: status.naver }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `시스템 응답 ${r.status}`);
@@ -90,6 +156,7 @@ async function run() {
 }
 
 chrome.runtime.onMessage.addListener((msg, _s, reply) => {
+  if (typeof msg !== "string") return false; // offscreen 문서용 메시지는 무시
   if (msg === "runNow") { run().then(reply); return true; }
   if (msg === "reschedule") { schedule().then(() => reply(true)); return true; }
   return false;

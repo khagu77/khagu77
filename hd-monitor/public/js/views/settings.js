@@ -239,7 +239,9 @@ export async function render(root, store, { arg }) {
       <div class="card span-6"><h3>📡 수집</h3><div style="display:flex;flex-direction:column;gap:12px">
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="enabled" ${c.enabled ? "checked" : ""}><span></span></span><b>자동 수집 (5분마다)</b></label>
         <div class="frow"><span class="lbl">네이버</span>${[["news", "뉴스"], ["blog", "블로그"], ["cafe", "카페글"], ["post", "포스트(웹문서)"]].map(([k, l]) => `<label class="toggle-row"><span class="switch"><input type="checkbox" data-n="${k}" ${c.naver[k] ? "checked" : ""}><span></span></span>${l}</label>`).join("")}</div>
-        <label class="field">네이버 검색 화면 읽기 — 5분마다 읽을 검색 수 (API 키가 없을 때 · 너무 크면 네이버가 잠시 막을 수 있음)<input class="input" type="number" min="6" max="80" data-c="naverWebPerTick" value="${c.naverWebPerTick ?? 36}"></label>
+        <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="naverByExtension" ${c.naverByExtension !== false ? "checked" : ""}><span></span></span><b>네이버 검색은 크롬 수집 도우미가</b> (서버 접속은 네이버가 막음 · 끄면 서버가 시도)</label>
+        <label class="field">수집 도우미가 5분마다 하는 네이버 검색 수 (12 = 시간당 144회 · 너무 크면 네이버가 잠시 막을 수 있음)<input class="input" type="number" min="3" max="30" data-c="extNaverPerRun" value="${c.extNaverPerRun ?? 12}"></label>
+        <label class="field">(서버가 시도할 때) 네이버 검색 화면 읽기 — 5분마다 읽을 검색 수 (API 키가 없을 때 · 너무 크면 네이버가 잠시 막을 수 있음)<input class="input" type="number" min="6" max="80" data-c="naverWebPerTick" value="${c.naverWebPerTick ?? 36}"></label>
         <label class="field">(API 키를 넣은 경우) 네이버 API 하루 사용량 (앱 1개당, 최대 25,000)<input class="input" type="number" data-c="naverDailyBudget" value="${c.naverDailyBudget}"></label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="youtubeRss" ${c.youtubeRss ? "checked" : ""}><span></span></span>관심 유튜브 새 영상 (RSS · 무료 · 10분마다)</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="youtubeSearch" ${c.youtubeSearch ? "checked" : ""}><span></span></span>유튜브 전체 검색 (YouTube API)</label>
@@ -317,8 +319,8 @@ export async function render(root, store, { arg }) {
           </ol>
           <div class="frow"><input class="input" id="kakaoRestKey" style="flex:1" placeholder="REST API 키"><input class="input" id="kakaoSecret" style="flex:1" placeholder="클라이언트 시크릿"></div></div>
       </div>
-      <div class="card" style="margin-top:14px"><h3>🧩 크롬 수집 도우미 (뽐뿌) <span class="sub" id="extSt"></span></h3>
-        <p class="hint">뽐뿌는 서버 접속을 막아서, 담당자 PC의 크롬이 5분마다 뽐뿌 목록을 읽어 이 시스템으로 보냅니다. 크롬이 켜져 있는 PC 한 대 이상에 설치해 두세요 (여러 대여도 같은 글은 한 번만 저장).</p>
+      <div class="card" style="margin-top:14px"><h3>🧩 크롬 수집 도우미 (네이버 검색·뽐뿌) <span class="sub" id="extSt"></span></h3>
+        <p class="hint">네이버 검색과 뽐뿌는 서버 접속을 막아서, 담당자 PC의 크롬이 5분마다 사람이 보는 속도로 읽어 이 시스템으로 보냅니다. <b>이미 설치했다면 새로 내려받아 폴더를 덮어쓰고 chrome://extensions 에서 새로고침(↻)</b> 해 주세요 (버전 1.1.0). 크롬이 켜져 있는 PC 한 대 이상에 설치해 두세요 (여러 대여도 같은 글은 한 번만 저장).</p>
         <ol class="hint" style="line-height:1.9;margin:0 0 12px;padding-left:18px">
           <li><b>토큰 만들기</b>로 수집 토큰을 만들고 복사합니다 (만들 때 한 번만 보입니다 · 다시 만들면 예전 토큰은 못 씀)</li>
           <li><a class="btn sm" href="/download/hd-collector-extension.zip" download>📦 확장 내려받기</a> → 압축 풀기 → 크롬 <code>chrome://extensions</code> → 개발자 모드 켜기 → '압축해제된 확장 프로그램을 로드합니다' → 푼 폴더 선택</li>

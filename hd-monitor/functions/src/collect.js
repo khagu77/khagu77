@@ -24,7 +24,12 @@ export async function runCollection({ force = false, parts = null } = {}) {
 
   const jobs = [];
   // 네이버: 검색 API 키가 있으면 API, 없으면 검색 결과 화면을 직접 읽음
-  if (want("naver")) jobs.push(parseKeys(secrets.naverKeys).length ? collectNaver({ queries, settings, secrets, log }) : collectNaverWeb({ queries, settings, log, force }));
+  // 네이버가 Google 서버의 검색을 막아(403) 기본은 크롬 수집 도우미가 담당
+  if (want("naver")) {
+    if (parseKeys(secrets.naverKeys).length) jobs.push(collectNaver({ queries, settings, secrets, log }));
+    else if (settings.collect.naverByExtension !== false) log.push("네이버 검색: 크롬 수집 도우미가 담당 (서버 접속은 네이버가 막음)");
+    else jobs.push(collectNaverWeb({ queries, settings, log, force }));
+  }
   if (want("rss") && settings.collect.youtubeRss && (force || tick % 2 === 0)) jobs.push(collectYoutubeRss({ settings, log }));
   if (want("ytsearch") && settings.collect.youtubeSearch) jobs.push(collectYoutubeSearch({ queries: targetQueries, settings, secrets, log }));
   if (want("community") && settings.collect.community) jobs.push(collectCommunity({ settings, log }));

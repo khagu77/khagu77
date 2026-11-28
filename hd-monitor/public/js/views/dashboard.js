@@ -150,7 +150,7 @@ export async function render(root, store) {
     const r = store.status?.lastRun;
     $q("#runSub").textContent = r ? `마지막 수집 ${fmtTime(r.at)} (${ago(r.at)}) · ${Math.round((r.ms || 0) / 1000)}초 · 받은 글 ${fmtNum(r.fetched)} · 새 글 ${fmtNum(r.created)} · 검색어 ${fmtNum(store.status.queries || 0)}개` : "아직 수집 기록이 없습니다";
     const x = store.status?.extLast;
-    const extLine = x ? `<div>› 🧩 크롬 수집 도우미(뽐뿌): ${esc(fmtTime(x.at))} (${esc(ago(x.at))}) · 받은 글 ${fmtNum(x.received)} · 새 글 ${fmtNum(x.created)}</div>` : `<div>› 🧩 크롬 수집 도우미(뽐뿌): 아직 받은 기록 없음 (설정 → API 키 → 크롬 수집 도우미)</div>`;
+    const extLine = x ? `<div>› 🧩 크롬 수집 도우미(네이버·뽐뿌): ${esc(fmtTime(x.at))} (${esc(ago(x.at))}) · 받은 글 ${fmtNum(x.received)} · 새 글 ${fmtNum(x.created)}${x.naver ? ` · ${esc(x.naver)}` : ""}</div>` : `<div>› 🧩 크롬 수집 도우미(네이버·뽐뿌): 아직 받은 기록 없음 (설정 → API 키 → 크롬 수집 도우미)</div>`;
     $q("#runlog").innerHTML = ((r?.log || []).map((l) => `<div>› ${esc(l)}</div>`).join("") || `<div class="hint">설정 → API 키를 넣으면 5분마다 자동으로 수집합니다.</div>`) + extLine;
   }
 

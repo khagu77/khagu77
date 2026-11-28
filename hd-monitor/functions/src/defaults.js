@@ -237,6 +237,8 @@ export const DEFAULT_SETTINGS = {
     enabled: true,
     naver: { news: true, blog: true, cafe: true, post: false },
     naverDailyBudget: 24000,      // 네이버 검색 API 1개 앱당 하루 25,000회 (여유분 제외)
+    naverByExtension: true,        // 네이버 검색은 크롬 수집 도우미가 (서버는 네이버가 막음)
+    extNaverPerRun: 12,            // 수집 도우미가 5분마다 하는 네이버 검색 수 (사람이 검색하는 정도)
     naverWebPerTick: 36,           // (API 키가 없을 때) 5분마다 읽는 네이버 검색 결과 화면 수
     youtubeRss: true,              // 관심 유튜브 새 영상 (무료·무제한)
     youtubeSearch: true,           // 유튜브 전체 검색 (YouTube Data API: 검색 1회 100단위)

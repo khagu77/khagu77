@@ -3,7 +3,7 @@ import { setGlobalOptions } from "firebase-functions/v2";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
 import crypto from "node:crypto";
-import { ingestFromExtension } from "./src/external.js";
+import { ingestFromExtension, extensionConfig } from "./src/external.js";
 import { getAuth } from "firebase-admin/auth";
 import { db, FieldValue, getSettings, getSecrets, SECRETS_REF, SETTINGS_REF } from "./src/db.js";
 import { DEFAULT_SETTINGS } from "./src/defaults.js";
@@ -215,12 +215,13 @@ export const reclassify = onCall({ timeoutSeconds: 540, memory: "1GiB" }, wrap(a
 
 // ── 크롬 확장(수집 도우미)이 보내는 글 받기: 사이트가 서버 접속을 막는 곳(뽐뿌 등)을 담당자 PC 크롬이 읽어 보냄 ──
 export const ingestExternal = onRequest({ timeoutSeconds: 120, memory: "512MiB", invoker: "public" }, async (req, res) => {
-  if (req.method !== "POST") { res.status(405).json({ error: "POST 만 받습니다" }); return; }
+  if (req.method !== "POST" && req.method !== "GET") { res.status(405).json({ error: "GET·POST 만 받습니다" }); return; }
   const token = String(req.get("authorization") || "").replace(/^Bearer\s+/i, "");
   const secrets = await getSecrets();
   const ok = secrets.ingestToken && token.length === secrets.ingestToken.length && crypto.timingSafeEqual(Buffer.from(token), Buffer.from(secrets.ingestToken));
   if (!ok) { res.status(401).json({ error: "수집 토큰이 맞지 않습니다 (시스템 설정 → API 키 → 크롬 수집 도우미)" }); return; }
   try {
+    if (req.method === "GET") { res.json(await extensionConfig(secrets)); return; }
     res.json(await ingestFromExtension(req.body || {}, secrets));
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });

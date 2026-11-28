@@ -17,7 +17,7 @@
   .log { max-height: 110px; overflow: auto; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #a6b2d4; }
 </style></head>
 <body>
-  <header><img src="icons/icon48.png" alt=""><div><b>현대차 이슈 모니터링 수집 도우미</b><span>뽐뿌 게시판 → 모니터링 시스템</span></div></header>
+  <header><img src="icons/icon48.png" alt=""><div><b>현대차 이슈 모니터링 수집 도우미</b><span>네이버 검색 · 뽐뿌 게시판 → 모니터링 시스템</span></div></header>
   <main>
     <div class="st" id="st">불러오는 중…</div>
     <label class="row" style="flex-direction:row;gap:8px"><input type="checkbox" id="on"> 자동 수집 켜기</label>
@@ -26,7 +26,7 @@
     <label>수집 간격(분)<input id="every" type="number" min="3" max="60"></label>
     <label>시스템 주소<input id="endpoint"></label>
     <div class="row"><button id="save">저장</button><button class="primary" id="run">지금 수집</button></div>
-    <div class="hint">크롬이 켜져 있는 동안 정해진 간격으로 뽐뿌 목록 1~2쪽을 읽고, 새 글만 시스템으로 보냅니다. 현대차 관련 글인지는 시스템이 판단합니다.</div>
+    <div class="hint">크롬이 켜져 있는 동안 정해진 간격으로 네이버 검색(뉴스·블로그·카페, 시스템이 정한 검색어를 돌아가며)과 뽐뿌 목록을 읽고, 새 글만 시스템으로 보냅니다. 현대차 관련·이슈 여부는 시스템이 판단합니다.</div>
     <div class="log" id="log"></div>
   </main>
   <script src="popup.js"></script>
