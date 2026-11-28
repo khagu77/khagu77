@@ -144,41 +144,59 @@ export async function render(root, store, { arg, qs }) {
   for (const k of ["dedupe", "star", "showHidden", "alertedOnly", "issueOnly"]) $q(`#${k}`).onchange = (e) => { st[k] = e.target.checked; apply(); };
 
   let totalCount = null;
+  // gen: 기간·정렬을 바꿀 때마다 1씩 올림 → 그 전에 출발한 불러오기 결과는 버림 (겹치면 회색 줄이 남거나 화면이 멈추던 문제)
+  let gen = 0;
+  let pending = null; // 지금 진행 중인 불러오기
   async function reload() {
+    const g = ++gen;
     totalCount = null;
     const [cf, ct] = rangeOf(st.period, st.from, st.to);
-    store.be.countPosts?.({ cat: cat.id, from: cf, to: ct, sort: st.sort }).then((n) => { totalCount = n; apply(); }).catch(() => {});
-    all = []; cursor = null; done = false; sel.clear(); newestMs = 0; drawn = []; shown = 0;
+    store.be.countPosts?.({ cat: cat.id, from: cf, to: ct, sort: st.sort }).then((n) => { if (g === gen) { totalCount = n; apply(); } }).catch(() => {});
+    all = []; cursor = null; done = false; sel.clear(); newestMs = 0; drawn = []; shown = 0; searching = false; pending = null; loading = false;
     $q("#banner").innerHTML = "";
     $q("#list").innerHTML = Array.from({ length: 8 }, () => `<div class="post"><span></span><div class="skeleton" style="width:30px;height:30px"></div><div><div class="skeleton" style="height:14px;width:70%"></div><div class="skeleton" style="height:10px;width:40%;margin-top:8px"></div></div><div class="skeleton" style="height:12px"></div><div class="skeleton" style="height:12px"></div></div>`).join("");
     await fetchMore();
-    ensureEnough();
+    if (g === gen) ensureEnough();
   }
   async function fetchMore() {
-    if (loading || done) return;
+    if (pending) return pending; // 이미 불러오는 중이면 그걸 기다림 (헛돌지 않음)
+    if (done) return;
+    const g = gen;
     loading = true;
     if (!searching) $q("#more").innerHTML = `<span class="hint">불러오는 중…</span>`;
-    try {
-      const [from, to] = rangeOf(st.period, st.from, st.to);
-      const r = await store.be.listPosts({ cat: cat.id, from, to, sort: st.sort, pageSize: 300, cursor });
-      all.push(...r.items);
-      cursor = r.cursor; done = r.done;
-      if (!newestMs && all[0]) newestMs = toDate(all[0].time)?.getTime() || 0;
-    } catch (e) {
-      toast(e.message, "err", 6000);
-      done = true;
-    } finally {
-      loading = false;
+    pending = (async () => {
+      try {
+        const [from, to] = rangeOf(st.period, st.from, st.to);
+        const r = await store.be.listPosts({ cat: cat.id, from, to, sort: st.sort, pageSize: 300, cursor });
+        if (g !== gen) return; // 그사이 기간이 바뀜 → 버림
+        all.push(...r.items);
+        cursor = r.cursor; done = r.done || !r.items.length;
+        if (!newestMs && all[0]) newestMs = toDate(all[0].time)?.getTime() || 0;
+      } catch (e) {
+        if (g !== gen) return;
+        toast(e.message, "err", 6000);
+        done = true;
+      }
+    })();
+    try { await pending; } finally {
+      if (g === gen) { pending = null; loading = false; apply({ keep: true }); }
     }
-    apply({ keep: true });
   }
   // 검색·필터로 보이는 글이 적으면 기간 안의 글을 더 불러옴 (최대 3,000건)
   let searching = false;
   async function ensureEnough() {
     if (searching) return;
+    const g = gen;
     searching = true;
-    try { while (!done && view.length < 60 && all.length < 3000) await fetchMore(); }
-    finally { searching = false; if (!view.length) apply({ keep: true }); }
+    try {
+      while (g === gen && !done && view.length < 60 && all.length < 3000) {
+        const before = all.length;
+        await fetchMore();
+        if (g !== gen || all.length === before) break; // 더 늘지 않으면 멈춤
+      }
+    } finally {
+      if (g === gen) { searching = false; if (!view.length) apply({ keep: true }); else updateMoreBtn(); }
+    }
   }
 
   // 검색어: 쉼표(,)로 나누면 '하나라도 포함'(OR) · 띄어쓰기는 '모두 포함'(AND) · -단어 는 제외
