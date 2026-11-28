@@ -25,7 +25,7 @@ export async function render(root, store, { arg, qs }) {
   const groups = (store.settings.keywordGroups || []).filter((g) => g.role === "issue");
   const hasYt = (cat.channels || []).includes("youtube") || (cat.channels || []).includes("*");
   const st = {
-    period: PERIODS.some(([v]) => v === qs.get("period")) ? qs.get("period") : qs.get("q") ? "30d" : "3d", from: "", to: "", sort: "time", q: qs.get("q") || "", alertedOnly: false,
+    period: PERIODS.some(([v]) => v === qs.get("period")) ? qs.get("period") : qs.get("q") ? "30d" : "3d", from: "", to: "", sort: qs.get("sort") === "collectedAt" ? "collectedAt" : "time", q: qs.get("q") || "", alertedOnly: false,
     issueOnly: qs.get("issue") === "1",
     src: qs.get("src") || "",
     // 숏츠 보기: all 전체 · no 숏츠 제외 · only 숏츠만 (예전 '숏츠 제외' 켬 값도 이어받음)
@@ -50,7 +50,7 @@ export async function render(root, store, { arg, qs }) {
       <div class="frow"><span class="lbl">기간</span>
         <div class="seg" id="period">${PERIODS.map(([v, l]) => `<button data-v="${v}" class="${st.period === v ? "on" : ""}">${l}</button>`).join("")}</div>
         <span id="custom" style="display:none;gap:6px;align-items:center;flex-wrap:wrap"><input type="datetime-local" class="input" id="from" step="60"> ~ <input type="datetime-local" class="input" id="to" step="60"><button class="btn sm" id="applyRange">조회</button></span>
-        <div class="seg" id="sort" style="margin-left:auto"><button data-v="time" class="on">작성일 기준</button><button data-v="collectedAt">수집일 기준</button></div>
+        <div class="seg" id="sort" style="margin-left:auto"><button data-v="time" class="${st.sort === "time" ? "on" : ""}">작성일 기준</button><button data-v="collectedAt" class="${st.sort === "collectedAt" ? "on" : ""}">수집일 기준</button></div>
       </div>
       ${chList.length > 1 ? `<div class="frow"><span class="lbl">채널</span><div class="chips" id="chs">${chList.map((c) => `<button class="chip" data-v="${c}">${chIcon(c, true)} ${CH[c].name}</button>`).join("")}</div></div>` : ""}
       <div class="frow"><span class="lbl">성향</span><div class="chips" id="sents"><button class="chip ${st.sent.size ? "" : "on"}" data-all>전체</button>${SENT_ORDER.map((s) => `<button class="chip ${st.sent.has(s) ? "on" : ""}" data-v="${s}">${SENT[s].name}</button>`).join("")}</div>
