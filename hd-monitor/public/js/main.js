@@ -62,6 +62,7 @@ async function startShell() {
     <aside class="sidebar">
       <div class="brand"><img class="brand-logo" src="/img/hyundai-logo-white.png" alt="HYUNDAI"><div class="brand-text"><b>온라인 이슈 모니터링</b><span>HYUNDAI · GENESIS</span></div></div>
       <nav class="nav" id="nav"><span class="nav-indicator"></span></nav>
+      <div class="powered">Powered by <b>LINESQUARE</b></div>
       <div class="side-foot">
         <div class="live-pill"><span class="dot" id="liveDot"></span><span id="liveText">연결 중…</span></div>
         <button class="btn sm ghost" id="themeBtn" style="justify-content:flex-start">🌓 화면 밝기 바꾸기</button>

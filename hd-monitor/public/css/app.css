@@ -703,3 +703,7 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 .st-col:hover .st-stack { filter: brightness(1.2); }
 .st-col small { font-size: 10px; color: var(--text-3); height: 12px; white-space: nowrap; }
 .calm .st-stack { animation: none; }
+/* 사이드바 아래: Powered by LINESQUARE (구분선 바로 위, 작게 · 자간 좁게 · 왼쪽 정렬) */
+.powered { margin-top: auto; padding: 0 12px 8px; font-size: 10.5px; letter-spacing: -.03em; color: var(--text-3); text-align: left; }
+.powered b { font-weight: 800; color: var(--text-2); letter-spacing: -.02em; }
+.powered + .side-foot { margin-top: 0; }
