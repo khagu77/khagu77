@@ -177,3 +177,15 @@ test("언론사 로고용 사이트 주소", () => {
   assert.equal(siteOf({ channel: "news", url: "https://www.motorgraph.com/news/articleView.html?idxno=1" }), "motorgraph.com");
   assert.equal(siteOf({ channel: "cafe", url: "https://cafe.naver.com/a/1" }), null);
 });
+
+test("알림: 동호회·유튜브는 관심 목록 글만", async () => {
+  const { sendAlerts } = await import("../src/alerts.js");
+  // 카카오 키가 없으면 후보만 고르고 끝나므로, 후보 필터만 따로 확인
+  const ctx2 = { settings: { ...DEFAULT_SETTINGS } };
+  const mk = (channel, fav) => ({ id: channel + fav, channel, fav, alert: true, dupOf: null, title: `${channel}${fav}`, time: { toMillis: () => 0 } });
+  const log = [];
+  await sendAlerts([mk("cafe", false), mk("youtube", false)], ctx2, {}, log);
+  assert.deepEqual(log, []); // 관심 아닌 동호회·유튜브는 후보에서 빠져 아무 것도 안 함
+  await sendAlerts([mk("cafe", true)], ctx2, {}, log);
+  assert.deepEqual(log, ["알림: 카카오 키 없음"]);
+});

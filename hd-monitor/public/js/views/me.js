@@ -5,6 +5,7 @@ export async function render(root, store) {
   const me = store.me;
   const chans = new Set(me.alertChannels?.length ? me.alertChannels : CH_ORDER);
   const kakaoId = store.settings.kakaoClientId;
+  const favOnly = { cafe: true, youtube: true, ...(store.settings.alert?.favOnly || {}) };
   root.innerHTML = `
     <div class="page-head"><div><h1>내 알림 · 정보</h1><p>${esc(me.email)} · ${ROLE[me.role] || ""}</p></div></div>
     <div class="dash-grid stagger">
@@ -19,7 +20,8 @@ export async function render(root, store) {
         ${me.kakaoError ? `<p class="hint err">${esc(me.kakaoError)}</p>` : ""}
         <label class="toggle-row" style="margin-bottom:14px"><span class="switch"><input type="checkbox" id="alertOn" ${me.alertOn ? "checked" : ""}><span></span></span><b>알림 받기</b></label>
         <div class="field" style="margin-bottom:8px">받을 채널</div>
-        <div class="chips" id="chs">${CH_ORDER.map((c) => `<button class="chip ${chans.has(c) ? "on" : ""}" data-v="${c}">${chIcon(c, true)} ${CH[c].name}</button>`).join("")}</div>
+        <div class="chips" id="chs">${CH_ORDER.map((c) => `<button class="chip ${chans.has(c) ? "on" : ""}" data-v="${c}">${chIcon(c, true)} ${favOnly[c] ? `관심 ${CH[c].name}` : CH[c].name}</button>`).join("")}</div>
+        <p class="hint" style="margin-top:8px">${favOnly.cafe || favOnly.youtube ? `동호회·유튜브는 <b>관심 동호회·관심 유튜브</b>에서 나온 글만 보냅니다 (네이버 전체·유튜브 전체 검색으로 찾은 글은 목록에서만 확인).` : ""}</p>
         <div class="card" style="margin-top:16px;background:var(--panel-2);box-shadow:none"><div class="hint" style="margin-bottom:6px">이런 모양으로 옵니다</div>
           <div style="background:#b2c7da;color:#111;border-radius:14px;padding:12px;max-width:320px;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5"><div style="background:#fff;border-radius:10px;padding:10px">📰 [언론]
 현대차 아이오닉5 ICCU 결함 무상수리 확대…12만대 대상

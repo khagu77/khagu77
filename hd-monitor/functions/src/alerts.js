@@ -18,7 +18,9 @@ export function formatAlert(p) {
 }
 
 export async function sendAlerts(created, ctx, secrets, log) {
-  const cand = created.filter((p) => p.alert && !p.dupOf).sort((a, b) => a.time.toMillis() - b.time.toMillis());
+  // 동호회·유튜브는 관심 목록(관심 동호회 51곳 · 관심 유튜브)에서 나온 글만 알림 (설정에서 끌 수 있음)
+  const favOnly = { cafe: true, youtube: true, ...(ctx.settings.alert?.favOnly || {}) };
+  const cand = created.filter((p) => p.alert && !p.dupOf && !(favOnly[p.channel] && !p.fav)).sort((a, b) => a.time.toMillis() - b.time.toMillis());
   if (!cand.length) return;
   if (!secrets.kakaoRestKey) { log.push("알림: 카카오 키 없음"); return; }
   const cfg = ctx.settings.alert || {};

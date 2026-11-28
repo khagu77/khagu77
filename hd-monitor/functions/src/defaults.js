@@ -249,6 +249,7 @@ export const DEFAULT_SETTINGS = {
     dupThreshold: 0.8,             // 알림 제목 유사도 80% 이상 → 대표 1건만
     dupHours: 24,
     maxPerRun: 15,                 // 한 번 수집에 한 사람에게 보내는 최대 알림 수 (넘으면 요약 1건)
+    favOnly: { cafe: true, youtube: true }, // 동호회·유튜브는 관심 동호회·관심 유튜브 글만 알림
   },
   ai: {
     geminiModel: "gemini-2.5-flash",
