@@ -10,10 +10,11 @@ export async function render(root, store) {
   let period = 7;
   root.innerHTML = `
     <div class="page-head">
-      <div><h1>모니터링 <span class="grad">대시보드</span></h1><p id="sub">현대차·제네시스 온라인 이슈 현황</p><div class="now-clock" id="nowClock"></div></div>
-      <div class="actions">
-        <div class="seg" id="period"><button data-v="1">오늘</button><button data-v="7" class="on">7일</button><button data-v="30">30일</button></div>
-        ${store.isAdmin() ? `<button class="btn" id="runNow">⚡ 지금 수집</button>` : ""}
+      <div><h1>모니터링 <span class="grad">대시보드</span></h1><p id="sub">현대차·제네시스 온라인 이슈 현황</p></div>
+      <div class="actions dash-actions">
+        <div class="now-clock" id="nowClock"></div>
+        <div class="dash-btns"><div class="seg" id="period"><button data-v="1">오늘</button><button data-v="7" class="on">7일</button><button data-v="30">30일</button></div>
+        ${store.isAdmin() ? `<button class="btn" id="runNow">⚡ 지금 수집</button>` : ""}</div>
       </div>
     </div>
     <div class="basis-note" id="basisNote"></div>
@@ -322,10 +323,8 @@ export async function render(root, store) {
     const w = Math.round(r.getBoundingClientRect().width);
     if (w > 120) el.style.width = `${w}px`;
   };
-  requestAnimationFrame(fitClock);
-  document.fonts?.ready.then(fitClock);
-  window.addEventListener("resize", fitClock);
+  void fitClock; // 시계는 오른쪽 버튼 위로 옮김 (폭은 글자에 맞춤)
   drawClock();
   const clock = setInterval(drawClock, 1000);
-  return { cleanup() { store.listeners.delete(onEv); window.removeEventListener("resize", onResize); clearInterval(tick); clearInterval(clock); window.removeEventListener("resize", fitClock); } };
+  return { cleanup() { store.listeners.delete(onEv); window.removeEventListener("resize", onResize); clearInterval(tick); clearInterval(clock); } };
 }

@@ -707,3 +707,8 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 .powered { margin-top: auto; padding: 0 12px 8px; font-size: 10.5px; letter-spacing: -.03em; color: var(--text-3); text-align: left; }
 .powered b { font-weight: 800; color: var(--text-2); letter-spacing: -.02em; }
 .powered + .side-foot { margin-top: 0; }
+/* 대시보드: 날짜·시각을 오른쪽 버튼 위에 오른쪽 정렬 */
+.dash-actions { flex-direction: column; align-items: flex-end !important; gap: 8px !important; }
+.dash-btns { display: flex; gap: 8px; align-items: center; }
+.dash-actions .now-clock { margin-top: 0; width: auto !important; }
+@media (max-width: 900px) { .dash-actions { align-items: flex-start !important; } }
