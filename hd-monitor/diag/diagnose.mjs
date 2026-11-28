@@ -1,24 +1,20 @@
-// 점검(읽기 전용): 오늘 '수집된' 글 vs 오늘 '작성된' 글 — 차이가 어디서 나는지
+// 점검(읽기 전용): 유튜브·커뮤니티 글의 조회수·댓글수 저장 상태
 import { initializeApp } from "firebase-admin/app";
-import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { getFirestore } from "firebase-admin/firestore";
 const db = getFirestore(initializeApp(), "hdmon");
-const day = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
-const from = Timestamp.fromDate(new Date(`${day}T00:00:00+09:00`));
-const c = async (q) => (await q.count().get()).data().count;
-const P = db.collection("posts").where("cats", "array-contains", "all");
-console.log("오늘 수집된 글:", await c(P.where("collectedAt", ">=", from).orderBy("collectedAt", "desc")));
-console.log("오늘 작성된 글:", await c(P.where("time", ">=", from).orderBy("time", "desc")));
-console.log("통계(오늘 수집) 전체:", (await db.doc(`stats/${day}`).get()).data()?.cat?.all);
-// 오늘 수집됐지만 작성은 오늘 이전인 글: 채널별 · 며칠 전 글인지
-const snap = await P.where("collectedAt", ">=", from).orderBy("collectedAt", "desc").select("channel", "time", "via").get();
-const old = {}, age = { "1일": 0, "2~3일": 0, "4~7일": 0, "8~30일": 0, "30일+": 0 };
+const since = new Date(Date.now() - 6 * 3600e3);
+const snap = await db.collection("posts").where("collectedAt", ">=", since).select("channel", "views", "comments", "likes", "via", "url", "collectedAt").get();
+const by = {};
 for (const d of snap.docs) {
   const p = d.data();
-  const t = p.time?.toMillis?.() || 0;
-  if (t >= from.toMillis()) continue;
-  old[p.channel] = (old[p.channel] || 0) + 1;
-  const dd = (from.toMillis() - t) / 86400e3;
-  age[dd <= 1 ? "1일" : dd <= 3 ? "2~3일" : dd <= 7 ? "4~7일" : dd <= 30 ? "8~30일" : "30일+"]++;
+  const b = (by[p.channel] ||= { n: 0, views: 0, comments: 0, likes: 0, ex: [] });
+  b.n++; if (typeof p.views === "number") b.views++; if (typeof p.comments === "number") b.comments++; if (typeof p.likes === "number") b.likes++;
+  if (b.ex.length < 2 && ["youtube", "bobae", "clien", "ppomppu"].includes(p.channel)) b.ex.push(`${p.via} ${p.collectedAt.toDate().toISOString().slice(11, 16)} v=${p.views} c=${p.comments}`);
 }
-console.log("오늘 수집 · 작성은 이전 (채널별):", JSON.stringify(old).replace(/[{}]/g, " "));
-console.log("며칠 전 글인지:", JSON.stringify(age).replace(/[{}]/g, " "));
+for (const [ch, b] of Object.entries(by)) console.log(ch, "최근 6시간", b.n, "| 조회수", b.views, "댓글수", b.comments, "좋아요", b.likes, "|", b.ex.join(" ; "));
+const sec = (await db.doc("secrets/main").get()).data() || {};
+console.log("유튜브 키 개수:", String(sec.youtubeKeys || "").split(/\s+/).filter(Boolean).length);
+const runs = (await db.doc("state/runs").get()).data()?.items || [];
+for (const r of runs.slice(0, 8)) { const l = (r.log || []).filter((x) => /유튜브|커뮤니티|조회수|통계/.test(x)); console.log("수집", r.at.toDate().toISOString().slice(11, 16), "|", l.join(" / ").slice(0, 300)); }
+const top = (await db.doc("status/top").get()).data();
+console.log("TOP 문서:", top ? `${top.items.length}건, ${top.at?.toDate?.().toISOString()}` : "없음");
