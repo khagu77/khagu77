@@ -1,6 +1,6 @@
 // 앱 뼈대: 로그인 확인 → 사이드바·상단바 → 화면 전환(#/주소)
 import { createBackend, IS_DEMO } from "./backend.js";
-import { $, $$, h, esc, toast, dayKey, ROLE } from "./ui.js";
+import { $, $$, h, esc, toast, dayKey, ROLE, setCafeNames } from "./ui.js";
 import { renderLogin, renderPending } from "./views/login.js";
 
 const store = { be: null, me: null, settings: null, live: { items: [] }, status: {}, today: null, listeners: new Set() };
@@ -56,6 +56,7 @@ function cleanupShell() {
 
 async function startShell() {
   store.settings = await store.be.getSettings();
+  setCafeNames(store.settings.favCafes);
   const app = h(`<div class="app">
     <aside class="sidebar">
       <div class="brand"><img class="brand-logo" src="/img/hyundai-logo-white.png" alt="HYUNDAI"><div class="brand-text"><b>온라인 이슈 모니터링</b><span>HYUNDAI · GENESIS</span></div></div>
@@ -96,7 +97,7 @@ async function startShell() {
     if (e.key === "/" && !/input|textarea|select/i.test(document.activeElement?.tagName)) { e.preventDefault(); $("#gsearch input")?.focus(); }
   });
 
-  shellSubs.push(store.be.watchSettings((s) => { if (s) { store.settings = s; buildNav(); store.emit({ type: "settings" }); } }));
+  shellSubs.push(store.be.watchSettings((s) => { if (s) { store.settings = s; setCafeNames(s.favCafes); buildNav(); store.emit({ type: "settings" }); } }));
   shellSubs.push(store.be.watchLive((l) => {
     const prevTop = store.live.items?.[0]?.id;
     store.live = l;

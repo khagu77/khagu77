@@ -196,3 +196,13 @@ test("네이버 차단 판단: 스크립트 속 captcha 글자는 무시", () =>
   assert.equal(isBlockedPage("<html><div>자동입력 방지 문자를 입력해 주세요</div></html>", 200), true);
   assert.equal(isBlockedPage("", 403), true);
 });
+
+test("네이버 검색 화면: 카페 이름이 링크가 아닌 글자일 때도 읽음", () => {
+  const html = `<div class="view_wrap"><div class="user_info"><span class="cafe_name">LX3 클럽</span><span class="sub">3시간 전</span></div>
+    <a class="title_link" href="https://cafe.naver.com/gamewinds/111">팰리세이드 시트 끼임</a></div>
+    <div class="view_wrap"><div class="user_info"><span class="cafe_name">그랜저 오너스</span></div>
+    <a class="title_link" href="https://cafe.naver.com/allfm03/222">그랜저 누수</a></div>`;
+  const rows = parseSearchPage(html, "cafe");
+  assert.equal(rows[0].source, "LX3 클럽");
+  assert.equal(rows[1].source, "그랜저 오너스");
+});

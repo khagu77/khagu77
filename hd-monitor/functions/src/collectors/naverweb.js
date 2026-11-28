@@ -121,9 +121,16 @@ export function parseSearchPage(html, kind) {
       const href = String($(a).attr("href") || "").replace(/&amp;/g, "&");
       const t = clean(a);
       if (t.length < 2 || t.length > 30 || t === title) return;
-      if (kind === "cafe" && /cafe\.naver\.com\/[\w-]+\/?(?:[?#]|$)/.test(href)) source = t;
+      if (kind === "cafe" && (/cafe\.naver\.com\/(?!ca-fe\/|f-e\/)[\w-]+\/?(?:[?#]|$)/.test(href) || /cafe\.naver\.com\/(?:ca-fe|f-e)\/cafes\/\d+\/?(?:[?#]|$)/.test(href))) source = t;
       if (kind === "blog" && /blog\.naver\.com\/[\w-]+\/?(?:[?#]|$)/.test(href)) source = t;
     });
+    // 링크가 아닌 글자로 카페·블로그 이름이 적힌 경우 (이름·작성자 칸)
+    if ((kind === "cafe" || kind === "blog") && !source) {
+      $(it.box).find("[class*='name'], [class*='cafe'], [class*='user'], [class*='writer'], [class*='source'], [class*='sub_txt']").each((_, e) => {
+        const t = clean(e);
+        if (!source && t.length >= 2 && t.length <= 30 && t !== title && !snippet.startsWith(t) && !/^\d|전$|\d{4}\.|^카페$|^블로그$/.test(t)) source = t;
+      });
+    }
     if (kind === "news" && !source) {
       $(it.box).find("[class*='press'], [class*='Press'], [class*='profile-info-title'], [class*='source']").each((_, e) => {
         const t = clean(e);
@@ -161,6 +168,7 @@ export async function collectNaverWeb({ queries, settings, log, force = false })
   const todo = [];
   for (let n = 0; n < Math.min(perTick, calls.length); n++) { todo.push(calls[i]); i = (i + 1) % calls.length; }
   const seenDoc = await getState("naverweb_seen");
+  const cafeNames = new Map((settings.favCafes || []).map((c) => [String(c.id).toLowerCase(), c.name]));
   const out = [];
   let used = 0;
   let blocked = false;
@@ -199,7 +207,7 @@ export async function collectNaverWeb({ queries, settings, log, force = false })
         fresh++;
         if (k === "news") out.push({ channel: "news", extUrl: r.extUrl, title: r.title, desc: r.snippet, url: r.url, source: r.source || pressName(r.extUrl || r.url), sourceId: "", postedAt: r.date, via: "naverweb:news", query: q });
         if (k === "blog") out.push({ channel: "blog", title: r.title, desc: r.snippet, url: r.url, source: r.source, sourceId: r.owner, postedAt: r.date, via: "naverweb:blog", query: q });
-        if (k === "cafe") out.push({ channel: "cafe", title: r.title, desc: r.snippet, url: r.url, source: r.source, sourceId: r.club, postedAt: r.date, via: "naverweb:cafe", query: q });
+        if (k === "cafe") out.push({ channel: "cafe", title: r.title, desc: r.snippet, url: r.url, source: r.source || cafeNames.get(String(r.club).toLowerCase()) || "", sourceId: r.club, postedAt: r.date, via: "naverweb:cafe", query: q });
       }
       if (!seenDoc[sk] || !rows.length || fresh < rows.length) break;
       await sleep(500 + Math.random() * 700);

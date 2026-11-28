@@ -44,9 +44,12 @@ export const chIcon = (ch, small = false, p = null) => {
 };
 // 제목 앞 매체명 상자 (언론·동호회·유튜브·자동차 커뮤니티)
 const PILL_CH = new Set(["news", "cafe", "youtube", "bobae", "clien", "ppomppu"]);
+let cafeNames = new Map();
+export const setCafeNames = (list) => { cafeNames = new Map((list || []).map((c) => [String(c.id).toLowerCase(), c.name])); };
+export const sourceName = (p) => p.source || (p.channel === "cafe" ? cafeNames.get(String(p.sourceId || "").toLowerCase()) || (p.sourceId && !/^#/.test(p.sourceId) ? `카페 ${p.sourceId}` : "") : "");
 export const srcPill = (p) => {
   if (!PILL_CH.has(p.channel)) return "";
-  const name = String(p.source || CH[p.channel]?.name || "").replace(/\s*(국산차|자동차당|자동차포럼|자유게시판|새로운소식|모두의공원)$/, "") || CH[p.channel]?.name;
+  const name = String(sourceName(p) || CH[p.channel]?.name || "").replace(/\s*(국산차|자동차당|자동차포럼|자유게시판|새로운소식|모두의공원)$/, "") || CH[p.channel]?.name;
   return `<span class="src-pill ch-${esc(p.channel)}" title="${esc(p.source || "")}">${esc(name)}</span>`;
 };
 export const sentBadge = (s, by) => {

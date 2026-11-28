@@ -270,6 +270,7 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
   font-size: 11.5px; font-weight: 800; color: #fff; line-height: 19px; white-space: nowrap; max-width: 150px;
   overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 8px rgba(0, 0, 0, .18), inset 0 0 0 1px rgba(255, 255, 255, .15);
 }
+.src-pill.ch-cafe { background: linear-gradient(135deg, #0b7a3b, #05602c); }
 .feed-item .src-pill { font-size: 10.5px; line-height: 17px; padding: 0 7px; margin-right: 5px; }
 .ch-ico.logo { position: relative; overflow: hidden; }
 .ch-ico.logo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; padding: 4px; background: #fff; border-radius: inherit; }
