@@ -35,39 +35,50 @@ export function parseGoogleNewsRss(xml) {
 
 export async function collectGoogleNews({ queries, settings, log }) {
   if (!settings.collect.googleNews || !queries.length) return [];
-  const perTick = Math.max(3, Number(settings.collect.googleNewsPerTick) || 12);
+  // 검색어 5개를 OR 로 묶어 한 번에 검색 (요청 수를 줄여 Google 이 막는 일을 줄임)
+  const perTick = Math.max(5, Math.min(30, Number(settings.collect.googleNewsPerTick) || 20));
   const gst = await getState("gnews");
-  if (gst.pauseUntil > Date.now()) { log.push(`Google 뉴스: 요청이 많아 잠시 쉬는 중 (${Math.ceil((gst.pauseUntil - Date.now()) / 60000)}분 뒤 다시)`); return []; }
+  if (gst.pauseUntil > Date.now()) { log.push(`Google 뉴스: 쉬는 중 (${Math.ceil((gst.pauseUntil - Date.now()) / 60000)}분 뒤 다시)`); return []; }
   const { todo } = await pickQueries("gnews", queries, perTick);
+  const groups = [];
+  for (let k = 0; k < todo.length; k += 5) groups.push(todo.slice(k, k + 5));
   const seenDoc = await getState("gnews_seen");
   const out = [];
   let fail = 0;
-  let done = 0;
+  let doneQ = 0;
   let limited = false;
-  for (const q of todo) {
+  for (const g of groups) {
+    const q = g.length === 1 ? g[0] : g.map((x) => (/\s/.test(x) ? `(${x})` : x)).join(" OR ");
     const u = `https://news.google.com/rss/search?${new URLSearchParams({ q: `${q} when:1d`, hl: "ko", gl: "KR", ceid: "KR:ko" })}`;
     const r = await fetchWithTimeout(u, { headers: { "User-Agent": UA } });
     if (r.status === 429 || r.status === 503) { limited = true; break; }
-    done++;
-    await sleep(1500 + Math.random() * 1500);
-    if (!r.ok) { fail++; if (fail <= 2) log.push(`Google 뉴스 "${q}": HTTP ${r.status}`); continue; }
+    doneQ += g.length;
+    if (!r.ok) { fail++; if (fail <= 2) log.push(`Google 뉴스: HTTP ${r.status}`); await sleep(4000 + Math.random() * 3000); continue; }
     const rows = parseGoogleNewsRss(await r.text());
-    const seen = new Set(seenDoc[q] || []);
+    const key = g.join("|");
+    const seen = new Set(seenDoc[key] || []);
     for (const it of rows) {
       const h = hash(it.url, 10);
       if (seen.has(h)) continue;
       let site = null;
       try { site = it.sourceUrl ? new URL(it.sourceUrl).hostname.replace(/^www\./, "") : null; } catch {}
-      out.push({ channel: "news", title: it.title, desc: "", url: it.url, source: it.source, sourceId: "", site, postedAt: it.postedAt, via: "gnews", query: q });
+      out.push({ channel: "news", title: it.title, desc: "", url: it.url, source: it.source, sourceId: "", site, postedAt: it.postedAt, via: "gnews", query: g[0] });
     }
-    seenDoc[q] = rows.map((x) => hash(x.url, 10)).slice(0, 100);
+    seenDoc[key] = rows.map((x) => hash(x.url, 10)).slice(0, 100);
+    await sleep(4000 + Math.random() * 3000); // 사람이 검색하는 정도의 간격
   }
-  const i = ((gst.i || 0) + done) % Math.max(1, queries.length); // 못 한 검색어는 다음 차례에 그 자리부터
+  // 막히면 15분 → 30분 → 1시간 → 2시간 → 3시간까지 점점 길게 쉼 (한 번이라도 성공하면 처음으로)
+  const strikes = limited ? Math.min((gst.strikes || 0) + 1, 5) : doneQ ? 0 : gst.strikes || 0;
+  const pauseMin = limited ? [15, 30, 60, 120, 180][strikes - 1] : 0;
+  const i = ((gst.i || 0) + doneQ) % Math.max(1, queries.length); // 못 한 검색어는 다음 차례에 그 자리부터
+  // 오래된 '본 기사' 기록 정리 (묶음 이름이 바뀌므로)
+  const keys = Object.keys(seenDoc);
+  if (keys.length > 200) for (const k of keys.slice(0, keys.length - 200)) delete seenDoc[k];
   await Promise.all([
-    setState("gnews", { i, at: new Date(), pauseUntil: limited ? Date.now() + 15 * 60e3 : 0 }),
+    setState("gnews", { i, at: new Date(), pauseUntil: limited ? Date.now() + pauseMin * 60e3 : 0, strikes }),
     setState("gnews_seen", seenDoc),
   ]);
-  log.push(`Google 뉴스: 검색 ${done}회 (전체 ${queries.length}개 중), 받은 기사 ${out.length}건${fail ? `, 실패 ${fail}` : ""}${limited ? " · 요청이 많다고 해서 15분 쉼" : ""}`);
+  log.push(`Google 뉴스: 검색어 ${doneQ}개를 ${Math.ceil(doneQ / 5) || 0}번에 묶어 검색 (전체 ${queries.length}개 중), 받은 기사 ${out.length}건${fail ? `, 실패 ${fail}` : ""}${limited ? ` · Google 이 요청이 많다고 막아서 ${pauseMin}분 쉼` : ""}`);
   return out;
 }
 

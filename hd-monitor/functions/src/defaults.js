@@ -243,7 +243,7 @@ export const DEFAULT_SETTINGS = {
     naver: { news: true, blog: true, cafe: true, post: false },
     naverDailyBudget: 24000,      // 네이버 검색 API 1개 앱당 하루 25,000회 (여유분 제외)
     googleNews: true,              // 언론: Google 뉴스 RSS (서버만으로)
-    googleNewsPerTick: 12,         // 하나씩 1.5~3초 간격 (많으면 Google 이 429 로 잠시 거절)
+    googleNewsPerTick: 20,         // 5분마다 검색어 수 (5개씩 OR 로 묶어 4~7초 간격 · 많으면 Google 이 429 로 잠시 거절)
     daumBlog: true,                // 블로그: 다음(카카오) 블로그 검색 API (카카오 REST 키)
     daumBlogPerTick: 20,
     ppomppuRss: true,              // 뽐뿌: 게시판 RSS
