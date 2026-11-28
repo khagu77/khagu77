@@ -96,7 +96,14 @@ jobs:
           fi
 
       - name: 배포 (이 시스템 것만)
-        run: firebase deploy --only "hosting:hdmon,functions:hdmon,firestore" --project "$PROJECT" --force --non-interactive
+        # 첫 배포 때 서울 리전 저장 공간·권한이 늦게 준비돼 일부 함수가 실패하는 경우가 있어 1분 뒤 한 번 더
+        run: |
+          for i in 1 2 3; do
+            if firebase deploy --only "hosting:hdmon,functions:hdmon,firestore" --project "$PROJECT" --force --non-interactive; then exit 0; fi
+            echo "::warning::배포 ${i}번째 시도 실패 — 60초 뒤 다시"
+            sleep 60
+          done
+          exit 1
 
       - name: 키 파일 지우기
         if: always()
