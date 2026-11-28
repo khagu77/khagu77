@@ -100,7 +100,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
   z-index: 20;
 }
 :root[data-theme="light"] .sidebar { background: rgba(255, 255, 255, .78); }
-.brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 16px; }
+.brand { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 6px 10px 16px; }
+.brand-logo { width: 118px; height: auto; display: block; filter: drop-shadow(0 2px 8px rgba(0, 170, 210, .25)); }
+:root[data-theme="light"] .brand-logo { filter: brightness(0) saturate(100%) invert(12%) sepia(64%) saturate(3200%) hue-rotate(214deg) brightness(88%); }
 .brand-mark {
   width: 38px; height: 38px; border-radius: 12px; background: var(--grad);
   display: grid; place-items: center; font-weight: 800; color: #fff; font-size: 17px; letter-spacing: -1px;
