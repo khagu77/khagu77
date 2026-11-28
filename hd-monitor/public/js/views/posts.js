@@ -26,6 +26,7 @@ export async function render(root, store, { arg, qs }) {
   const st = {
     period: PERIODS.some(([v]) => v === qs.get("period")) ? qs.get("period") : qs.get("q") ? "30d" : "3d", from: "", to: "", sort: "time", q: qs.get("q") || "", alertedOnly: false,
     issueOnly: qs.get("issue") === "1",
+    src: qs.get("src") || "",
     ch: new Set(), sent: new Set((qs.get("sent") || "").split(",").filter((s) => SENT[s])), grp: "", dedupe: catId === "news" || catId === "all", star: false, showHidden: false,
   };
   let all = [];
@@ -39,7 +40,7 @@ export async function render(root, store, { arg, qs }) {
 
   root.innerHTML = `
     <div class="page-head">
-      <div><h1>${esc(cat.name)}${st.sent.size ? ` <span class="grad">· ${[...st.sent].map((s) => SENT[s].name).join("·")}</span>` : ""}</h1><p>${cat.filter === "garbage" ? "현대차 관련 글 중 설정된 이슈 키워드에 걸리지 않은 글" : cat.filter === "issue" ? "품질·안전 등 이슈 키워드가 걸린 게시물" + (cat.fav ? " · 관심 목록만" : "") : "수집된 현대차 관련 게시물 전체 (가비지 포함)"}</p></div>
+      <div><h1>${esc(cat.name)}${st.src ? ` <span class="grad">· ${esc(st.src)}</span>` : ""}${st.sent.size ? ` <span class="grad">· ${[...st.sent].map((s) => SENT[s].name).join("·")}</span>` : ""}</h1><p>${cat.filter === "garbage" ? "현대차 관련 글 중 설정된 이슈 키워드에 걸리지 않은 글" : cat.filter === "issue" ? "품질·안전 등 이슈 키워드가 걸린 게시물" + (cat.fav ? " · 관심 목록만" : "") : "수집된 현대차 관련 게시물 전체 (가비지 포함)"}</p></div>
       <div class="actions"><button class="btn" id="xlsAll">📥 보이는 목록 엑셀</button></div>
     </div>
     <div class="card filters">
@@ -55,6 +56,7 @@ export async function render(root, store, { arg, qs }) {
       <div class="frow"><span class="lbl">검색</span>
         <input class="input" id="q" style="flex:1;min-width:200px" placeholder="제목·내용·매체명 (여러 단어는 모두 포함, -단어 는 제외)" value="${esc(st.q)}">
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="dedupe" ${st.dedupe ? "checked" : ""}><span></span></span>유사 기사 묶기</label>
+        ${st.src ? `<button class="chip on" id="srcChip" title="눌러서 매체 조건 지우기">${esc(st.src)} ✕</button>` : ""}
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="issueOnly" ${st.issueOnly ? "checked" : ""}><span></span></span>이슈 글만</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="alertedOnly"><span></span></span>💬 카톡 발송만</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="star"><span></span></span>중요만</label>
@@ -108,6 +110,7 @@ export async function render(root, store, { arg, qs }) {
   $q("#grp").onchange = (e) => { st.grp = e.target.value; apply(); };
   let qt;
   $q("#q").oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => { st.q = e.target.value; apply(); ensureEnough(); }, 220); };
+  $q("#srcChip")?.addEventListener("click", () => { location.hash = `#/posts/${cat.id}`; });
   for (const k of ["dedupe", "star", "showHidden", "alertedOnly", "issueOnly"]) $q(`#${k}`).onchange = (e) => { st[k] = e.target.checked; apply(); };
 
   let totalCount = null;
@@ -155,6 +158,7 @@ export async function render(root, store, { arg, qs }) {
       if (!st.showHidden && p.hidden) return false;
       if (st.star && !p.star) return false;
       if (st.issueOnly && !(p.isIssue || p.must)) return false;
+      if (st.src && (sourceName(p) || p.source) !== st.src && p.source !== st.src) return false;
       if (st.alertedOnly && !p.alerted) return false;
       if (st.dedupe && p.dupOf) return false;
       if (st.ch.size && !st.ch.has(p.channel)) return false;

@@ -70,7 +70,8 @@ export async function render(root, store) {
   function favTop(key, catId, statMap, nameOf, rank) {
     const el = $q(`#${key}`);
     const ck = `${key}:${period}`;
-    const show = (entries) => rank(el, entries.slice(0, 7), (k) => k, () => `#/posts/${catId}`);
+    // 누르면 그 동호회·채널 글만 (보던 기간 그대로)
+    const show = (entries) => rank(el, entries.slice(0, 7), (k) => k, (k) => `#/posts/${catId}?src=${encodeURIComponent(k)}&period=${period === 1 ? "today" : period === 30 ? "30d" : "7d"}`);
     const fromStats = Object.entries(statMap || {}).map(([k, v]) => [nameOf(k), v]).sort((a, b) => b[1] - a[1]);
     if (fromStats.length) { favCache[ck] = fromStats.slice(0, 7); save(); return show(fromStats); }
     if (favCache[ck]?.length) show(favCache[ck]); // 새로 셀 동안 마지막 순위 그대로
