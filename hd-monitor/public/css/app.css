@@ -130,7 +130,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 .nav a:hover { color: var(--text); background: rgba(127, 150, 220, .08); transform: translateX(2px); }
 .nav a.on { color: var(--text); font-weight: 600; }
-.nav a .ico { width: 22px; text-align: center; font-size: 15px; }
+.nav a .ico { width: 22px; text-align: center; font-size: 15px; display: inline-flex; justify-content: center; }
+.nav a .ico .ch-ico { width: 20px !important; height: 20px !important; font-size: 9px !important; border-radius: 6px !important; }
 .nav a .cnt {
   margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; color: var(--text-3);
   background: rgba(127, 150, 220, .1); padding: 1px 7px; border-radius: 99px; transition: background .3s, color .3s;

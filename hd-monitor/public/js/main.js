@@ -1,6 +1,6 @@
 // 앱 뼈대: 로그인 확인 → 사이드바·상단바 → 화면 전환(#/주소)
 import { createBackend, IS_DEMO } from "./backend.js";
-import { $, $$, h, esc, toast, dayKey, ROLE, setCafeNames } from "./ui.js";
+import { $, $$, h, esc, toast, dayKey, ROLE, setCafeNames, chIcon, CH_IMG } from "./ui.js";
 import { renderLogin, renderPending } from "./views/login.js";
 
 const store = { be: null, me: null, settings: null, live: { items: [] }, status: {}, today: null, listeners: new Set() };
@@ -138,7 +138,14 @@ async function refreshToday(bump = false) {
   }
 }
 
-const CAT_ICO = { all: "🗂", news: "📰", cafe: "☕", cafe_fav: "⭐", blog: "✍️", youtube: "▶️", youtube_fav: "⭐", community: "🚗", instagram: "📷", garbage: "🗑" };
+const CAT_ICO = { all: "🗂", community: "🚗", garbage: "🗑" };
+// 사이드바 카테고리 아이콘: 채널 하나짜리 카테고리는 그 채널 아이콘(언론사·카페·블로그·유튜브·인스타그램), 나머지는 기호
+function catIcon(c) {
+  if (CAT_ICO[c.id]) return CAT_ICO[c.id];
+  const chs = (c.channels || []).filter((x) => x !== "*" && x !== "post");
+  if (chs.length === 1 && (CH_IMG[chs[0]] || chs[0] === "news")) return chIcon(chs[0], true);
+  return "▪";
+}
 function buildNav() {
   const nav = $("#nav");
   if (!nav) return;
@@ -146,7 +153,7 @@ function buildNav() {
   const top = cats.filter((c) => !c.parent);
   let html = `<span class="nav-indicator"></span><div class="nav-sec">메뉴</div><a href="#/dashboard" data-route="dashboard"><span class="ico">◎</span>대시보드</a><div class="nav-sec">카테고리 <span style="float:right;text-transform:none;letter-spacing:0">오늘</span></div>`;
   for (const c of top) {
-    html += `<a href="#/posts/${esc(c.id)}" data-cat="${esc(c.id)}"><span class="ico">${CAT_ICO[c.id] || "▪"}</span>${esc(c.name)}<span class="cnt">${store.today?.cat?.[c.id] || 0}</span></a>`;
+    html += `<a href="#/posts/${esc(c.id)}" data-cat="${esc(c.id)}"><span class="ico">${catIcon(c)}</span>${esc(c.name)}<span class="cnt">${store.today?.cat?.[c.id] || 0}</span></a>`;
     for (const ch of cats.filter((x) => x.parent === c.id)) {
       html += `<a class="child" href="#/posts/${esc(ch.id)}" data-cat="${esc(ch.id)}">${esc(ch.name)}<span class="cnt">${store.today?.cat?.[ch.id] || 0}</span></a>`;
     }
