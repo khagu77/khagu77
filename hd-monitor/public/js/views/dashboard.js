@@ -19,7 +19,7 @@ export async function render(root, store) {
     <div class="kpis stagger" id="kpis"></div>
     <div class="dash-grid stagger" id="grid">
       <div class="card span-8" style="--i:1"><h3>📈 채널별 이슈 게시물 <span class="sub" id="trendSub"></span></h3><div id="trend" style="min-height:260px"></div><div class="legend" id="trendLegend"></div></div>
-      <div class="card span-4" style="--i:2;grid-row:span 2"><h3><span class="dot"></span> 실시간 수집 피드 <span class="sub">새 글이 들어오면 바로 표시</span></h3><div class="feed" id="feed"></div></div>
+      <div class="card span-4 feed-card" style="--i:2;grid-row:span 2"><h3><span class="dot"></span> 실시간 수집 피드 <span class="sub">새 글이 들어오면 바로 표시</span></h3><div class="feed-wrap"><div class="feed" id="feed"></div></div></div>
       <div class="card span-4" style="--i:3"><h3>🎭 성향 분포 <span class="sub">이슈 게시물</span></h3><div class="donut-wrap"><div id="donut"></div><div class="dlegend" id="dlegend"></div></div></div>
       <div class="card span-4" style="--i:4"><h3>🔑 많이 걸린 키워드</h3><div class="rank" id="kw"></div></div>
       <div class="card span-6" style="--i:5"><h3>📉 부정·단순비난 비율 <span class="sub">이슈 게시물 중</span></h3><div id="negline"></div></div>
@@ -141,7 +141,9 @@ export async function render(root, store) {
   function drawStatus() {
     const r = store.status?.lastRun;
     $q("#runSub").textContent = r ? `마지막 수집 ${fmtTime(r.at)} (${ago(r.at)}) · ${Math.round((r.ms || 0) / 1000)}초 · 받은 글 ${fmtNum(r.fetched)} · 새 글 ${fmtNum(r.created)} · 검색어 ${fmtNum(store.status.queries || 0)}개` : "아직 수집 기록이 없습니다";
-    $q("#runlog").innerHTML = (r?.log || []).map((l) => `<div>› ${esc(l)}</div>`).join("") || `<div class="hint">설정 → API 키를 넣으면 5분마다 자동으로 수집합니다.</div>`;
+    const x = store.status?.extLast;
+    const extLine = x ? `<div>› 🧩 크롬 수집 도우미(뽐뿌): ${esc(fmtTime(x.at))} (${esc(ago(x.at))}) · 받은 글 ${fmtNum(x.received)} · 새 글 ${fmtNum(x.created)}</div>` : `<div>› 🧩 크롬 수집 도우미(뽐뿌): 아직 받은 기록 없음 (설정 → API 키 → 크롬 수집 도우미)</div>`;
+    $q("#runlog").innerHTML = ((r?.log || []).map((l) => `<div>› ${esc(l)}</div>`).join("") || `<div class="hint">설정 → API 키를 넣으면 5분마다 자동으로 수집합니다.</div>`) + extLine;
   }
 
   // 실시간 피드

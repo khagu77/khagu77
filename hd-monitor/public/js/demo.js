@@ -154,6 +154,7 @@ export function createDemoBackend() {
     saveSecrets: async () => ({ naverKeys: 2, youtubeKeys: 1, geminiKey: true, claudeKey: true, kakaoRestKey: true, kakaoSecret: true }),
     kakaoConnect: async () => {},
     kakaoTest: async () => { await delay(600); },
+    makeIngestToken: async () => ({ token: "demo0123456789abcdef0123456789abcdef01234567" }),
     kakaoUnlink: async () => { users[0].kakaoConnected = false; },
   };
 }

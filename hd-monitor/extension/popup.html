@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>수집 도우미</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; width: 360px; font: 13px/1.5 -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; background: #0c1224; color: #eef2ff; }
+  header { display: flex; align-items: center; gap: 10px; padding: 14px 16px; background: linear-gradient(135deg, #00aad2, #2f7bff 55%, #7a5cff); }
+  header img { width: 30px; } header b { font-size: 14px; } header span { display: block; font-size: 11px; opacity: .85; }
+  main { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #a6b2d4; font-weight: 600; }
+  input, textarea { background: #121a31; border: 1px solid rgba(140,170,255,.22); color: #eef2ff; border-radius: 8px; padding: 7px 9px; font: inherit; }
+  textarea { resize: vertical; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  button { flex: 1; height: 34px; border-radius: 9px; border: 1px solid rgba(140,170,255,.25); background: #1a2546; color: #fff; font-weight: 700; cursor: pointer; }
+  button.primary { background: linear-gradient(135deg, #00aad2, #2f7bff); border: 0; }
+  .st { background: #121a31; border-radius: 10px; padding: 10px; font-size: 12px; }
+  .ok { color: #19c37d; } .err { color: #ff5d6c; } .hint { color: #6f7ca3; font-size: 11px; }
+  .log { max-height: 110px; overflow: auto; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: #a6b2d4; }
+</style></head>
+<body>
+  <header><img src="icons/icon48.png" alt=""><div><b>현대차 이슈 모니터링 수집 도우미</b><span>뽐뿌 게시판 → 모니터링 시스템</span></div></header>
+  <main>
+    <div class="st" id="st">불러오는 중…</div>
+    <label class="row" style="flex-direction:row;gap:8px"><input type="checkbox" id="on"> 자동 수집 켜기</label>
+    <label>수집 토큰 <input id="token" type="password" placeholder="시스템 → 설정 → API 키 → 크롬 수집 도우미에서 만든 값"></label>
+    <label>게시판 (한 줄에 <code>게시판id | 이름</code>)<textarea id="boards" rows="3"></textarea></label>
+    <label>수집 간격(분)<input id="every" type="number" min="3" max="60"></label>
+    <label>시스템 주소<input id="endpoint"></label>
+    <div class="row"><button id="save">저장</button><button class="primary" id="run">지금 수집</button></div>
+    <div class="hint">크롬이 켜져 있는 동안 정해진 간격으로 뽐뿌 목록 1~2쪽을 읽고, 새 글만 시스템으로 보냅니다. 현대차 관련 글인지는 시스템이 판단합니다.</div>
+    <div class="log" id="log"></div>
+  </main>
+  <script src="popup.js"></script>
+</body></html>

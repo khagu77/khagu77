@@ -306,12 +306,27 @@ export async function render(root, store, { arg }) {
           </ol>
           <div class="frow"><input class="input" id="kakaoRestKey" style="flex:1" placeholder="REST API 키"><input class="input" id="kakaoSecret" style="flex:1" placeholder="클라이언트 시크릿"></div></div>
       </div>
+      <div class="card" style="margin-top:14px"><h3>🧩 크롬 수집 도우미 (뽐뿌) <span class="sub" id="extSt"></span></h3>
+        <p class="hint">뽐뿌는 서버 접속을 막아서, 담당자 PC의 크롬이 5분마다 뽐뿌 목록을 읽어 이 시스템으로 보냅니다. 크롬이 켜져 있는 PC 한 대 이상에 설치해 두세요 (여러 대여도 같은 글은 한 번만 저장).</p>
+        <ol class="hint" style="line-height:1.9;margin:0 0 12px;padding-left:18px">
+          <li><b>토큰 만들기</b>로 수집 토큰을 만들고 복사합니다 (만들 때 한 번만 보입니다 · 다시 만들면 예전 토큰은 못 씀)</li>
+          <li><a class="btn sm" href="/download/hd-collector-extension.zip" download>📦 확장 내려받기</a> → 압축 풀기 → 크롬 <code>chrome://extensions</code> → 개발자 모드 켜기 → '압축해제된 확장 프로그램을 로드합니다' → 푼 폴더 선택</li>
+          <li>크롬 오른쪽 위 퍼즐 아이콘 → 수집 도우미 → 토큰 붙여넣기 → 저장 → 지금 수집</li>
+        </ol>
+        <div class="frow"><button class="btn" id="mkToken">🔑 토큰 만들기</button><input class="input" id="tokenOut" readonly style="flex:1;font-family:ui-monospace,monospace" placeholder="토큰 만들기를 누르면 여기에 나옵니다"><button class="btn sm" id="copyToken">복사</button></div>
+      </div>
       <div style="margin-top:14px;display:flex;gap:8px"><button class="btn primary" id="saveKeys">🔐 입력한 키 저장</button><span class="hint" style="align-self:center">빈 칸은 그대로 둡니다.</span></div>`;
     const showStatus = (s) => {
       store._naverKeys = s.naverKeys;
       const item = (ok, l) => `<span class="badge ${ok ? "b-pos" : "b-neu"}">${ok ? "✓" : "✕"} ${l}</span>`;
+      v.querySelector("#extSt").textContent = s.ingestToken ? "토큰 있음" : "토큰 없음";
       v.querySelector("#ks").innerHTML = [item(s.naverKeys, `네이버 ${s.naverKeys}개`), item(s.youtubeKeys, `유튜브 ${s.youtubeKeys}개`), item(s.geminiKey, "Gemini"), item(s.claudeKey, "Claude"), item(s.kakaoRestKey, "카카오 REST"), item(s.kakaoSecret, "카카오 시크릿")].join("");
     };
+    v.querySelector("#mkToken").onclick = (e) => busy(e.currentTarget, async () => {
+      if (v.querySelector("#extSt").textContent === "토큰 있음" && !(await confirmBox("새 토큰을 만들면 이미 설치한 수집 도우미에도 새 토큰을 다시 넣어야 합니다. 만들까요?"))) return;
+      try { const r = await store.be.makeIngestToken(); v.querySelector("#tokenOut").value = r.token; v.querySelector("#extSt").textContent = "토큰 있음"; toast("토큰을 만들었습니다. 복사해서 수집 도우미에 넣어 주세요"); } catch (err) { toast(err.message, "err"); }
+    });
+    v.querySelector("#copyToken").onclick = () => { const t = v.querySelector("#tokenOut").value; if (t) navigator.clipboard.writeText(t).then(() => toast("복사했습니다")); };
     v.querySelector("#copyR").onclick = () => navigator.clipboard.writeText(`${origin}/kakao.html`).then(() => toast("복사했습니다"));
     v.querySelector("#saveKeys").onclick = (e) => busy(e.currentTarget, async () => {
       const patch = {};

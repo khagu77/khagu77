@@ -72,6 +72,7 @@ export async function createBackend() {
     saveSecrets: (patch) => call("saveSecrets", { ...patch, siteUrl: location.origin }),
     kakaoConnect: (code, redirectUri) => call("kakaoConnect", { code, redirectUri }),
     kakaoTest: () => call("kakaoTest"),
+    makeIngestToken: () => call("makeIngestToken"),
     kakaoUnlink: () => call("kakaoUnlink"),
   };
 }

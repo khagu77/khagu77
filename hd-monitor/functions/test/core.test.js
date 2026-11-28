@@ -206,3 +206,29 @@ test("네이버 검색 화면: 카페 이름이 링크가 아닌 글자일 때�
   assert.equal(rows[0].source, "LX3 클럽");
   assert.equal(rows[1].source, "그랜저 오너스");
 });
+
+import { normalizeExternal } from "../src/external.js";
+test("크롬 수집 도우미가 보낸 글 정리", () => {
+  const out = normalizeExternal({ items: [
+    { channel: "ppomppu", url: "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=1", title: " 그랜저  누수 ", postedAt: "2026-11-28T01:00:00Z", source: "뽐뿌 자동차포럼" },
+    { channel: "evil", url: "https://x.com", title: "x" },
+    { channel: "ppomppu", url: "javascript:alert(1)", title: "x" },
+  ] });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].title, "그랜저 누수");
+  assert.ok(out[0].requireMatch && out[0].postedAt instanceof Date);
+});
+
+test("수집 도우미: 뽐뿌 목록 읽기 (EUC-KR 해독 뒤 HTML)", async () => {
+  const { createRequire } = await import("node:module");
+  const P = createRequire(import.meta.url)("../../extension/parse.js");
+  const html = `<table><tr class="list1"><td>1</td><td><a href="view.php?id=car&amp;page=1&amp;no=777001"><font class="list_title">싼타페 하이브리드 누수 &amp; 리콜</font></a> <span class="list_comment2">[3]</span></td><td><nobr class="eng list_vspace">07:46:12</nobr></td></tr>
+  <tr class="list0"><td><a href="view.php?id=car&no=776990">그랜저 소음</a></td><td><nobr>26/11/27</nobr></td></tr>
+  <tr><td><a href="view.php?id=freeboard&no=1">다른 게시판</a></td></tr></table>`;
+  const now = new Date("2026-11-28T00:00:00Z");
+  const rows = P.parsePpomppuList(html, "car", now);
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].title, "싼타페 하이브리드 누수 & 리콜");
+  assert.equal(rows[0].date.toISOString(), "2026-11-27T22:46:00.000Z");
+  assert.equal(rows[1].date.toISOString(), "2026-11-26T15:00:00.000Z");
+});

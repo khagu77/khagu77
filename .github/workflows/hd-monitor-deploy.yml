@@ -68,6 +68,11 @@ jobs:
           npm ci
           npm test
 
+      - name: 크롬 수집 도우미 zip 만들기 (사이트에서 내려받기)
+        run: |
+          mkdir -p public/download
+          cd extension && zip -qr ../public/download/hd-collector-extension.zip . -x "README.md"
+
       - name: Firebase CLI 설치
         run: npm i -g firebase-tools
 

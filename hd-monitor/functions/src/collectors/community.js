@@ -88,7 +88,8 @@ export function parseBoardList(html, ad) {
 }
 
 export async function collectCommunity({ settings, log }) {
-  const boards = (settings.boards || []).map((b) => ({ ...b, ad: boardAdapter(b.url) })).filter((b) => b.ad);
+  // 뽐뿌는 서버 접속을 막아서 크롬 수집 도우미가 담당 (설정에서 서버 수집을 다시 켤 수 있음)
+  const boards = (settings.boards || []).map((b) => ({ ...b, ad: boardAdapter(b.url) })).filter((b) => b.ad && (b.ad.channel !== "ppomppu" || settings.collect.serverPpomppu));
   if (!boards.length) return [];
   const seenDoc = await getState("community_seen");
   const out = [];
