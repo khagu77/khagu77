@@ -17,6 +17,7 @@ function tip() {
   return tipEl;
 }
 export function showTip(e, html) {
+  if (document.body.classList.contains("routing") || (e.currentTarget && e.currentTarget.isConnected === false)) return; // 화면이 바뀌는 중이면 띄우지 않음
   const t = tip();
   t.innerHTML = html;
   t.classList.add("on");

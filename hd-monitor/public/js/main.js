@@ -216,6 +216,10 @@ let current = null;
 let routeSeq = 0;
 async function route() {
   const seq = ++routeSeq;
+  // 화면이 바뀌는 동안 그래프 설명창이 다시 뜨지 않게 하고, 떠 있던 것은 닫음
+  document.body.classList.add("routing");
+  setTimeout(() => { if (seq === routeSeq) document.body.classList.remove("routing"); }, 3000); // 화면을 못 그려도 설명창이 영영 안 뜨는 일은 없게
+  document.querySelector(".tip")?.classList.remove("on");
   const [route, arg, qs] = parseHash();
   markNav();
   $(".sidebar")?.classList.remove("open");
@@ -229,7 +233,9 @@ async function route() {
   const root = h(`<div class="view"></div>`);
   content.append(root);
   window.scrollTo({ top: 0 });
+  document.querySelector(".tip")?.classList.remove("on");
   current = (await mod.render(root, store, { arg, qs })) || null;
+  if (seq === routeSeq) document.body.classList.remove("routing");
 }
 
 boot();
