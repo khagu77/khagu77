@@ -39,7 +39,7 @@ const h8 = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 
 
 async function remoteConfig(c) {
   const { rc } = await chrome.storage.local.get("rc");
-  if (rc && Date.now() - rc.at < 30 * 60e3) return rc.cfg;
+  if (rc && Date.now() - rc.at < 4 * 60e3) return rc.cfg; // 뉴스 댓글수 대기열 때문에 자주 받음
   const r = await fetch(c.endpoint, { headers: { Authorization: `Bearer ${c.token}` } });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || `시스템 응답 ${r.status}`);
@@ -152,6 +152,32 @@ async function collectNaver(cfg, items, status, names) {
   status.naver ||= `네이버 검색 ${done}회 (전체 ${calls.length}개 중), 새 글 ${got}건`;
 }
 
+// ── 네이버 뉴스 댓글 수 (시스템이 물어본 이슈 기사만 · 블로그/카페는 하지 않음) ──
+// 평범한 요청만 보냄 (출처를 바꾸지 않음) — 네이버가 거절하면 상태에 표시하고 넘어감
+async function newsCommentCount(oid, aid) {
+  const u = `https://apis.naver.com/commentBox/cbox/web_naver_list_jsonp.json?${new URLSearchParams({
+    ticket: "news", templateId: "default_society", pool: "cbox5", lang: "ko", country: "KR", objectId: `news${oid},${aid}`,
+    pageSize: "1", indexSize: "10", page: "1", sort: "FAVORITE", initialize: "true", _callback: "cb",
+  })}`;
+  const r = await fetch(u, { credentials: "include", cache: "no-store" });
+  if (!r.ok) throw new Error(`응답 ${r.status}`);
+  const t = await r.text();
+  const m = t.match(/"count"\s*:\s*\{[^}]*"comment"\s*:\s*(\d+)/);
+  if (!m) throw new Error(/"success"\s*:\s*false/.test(t) ? "네이버가 거절" : "댓글 수 없음");
+  return +m[1];
+}
+async function collectNewsComments(cfg, out, status) {
+  const list = (cfg.newsComments || []).slice(0, 30);
+  if (!list.length) return;
+  let ok = 0, fail = 0, lastErr = "";
+  for (const a of list) {
+    try { out[a.id] = await newsCommentCount(a.oid, a.aid); ok++; }
+    catch (e) { fail++; lastErr = e.message; if (fail >= 3 && !ok) break; } // 처음부터 계속 실패하면 이번엔 멈춤
+    await sleep(700 + Math.random() * 900);
+  }
+  status.news = `뉴스 댓글수 ${ok}건${fail ? ` (실패 ${fail}: ${lastErr})` : ""}`;
+}
+
 let running = false;
 async function run() {
   if (running) return { skipped: true };
@@ -164,11 +190,15 @@ async function run() {
     const { seen = {} } = await chrome.storage.local.get("seen");
     const items = [];
     const cafeNames = {};
+    const newsComments = {};
+    let rcfg = {};
     try {
-      await collectNaver(await remoteConfig(c), items, status, cafeNames);
+      rcfg = await remoteConfig(c);
+      await collectNaver(rcfg, items, status, cafeNames);
     } catch (e) {
       status.naver = `네이버 오류: ${e.message || e}`;
     }
+    try { await collectNewsComments(rcfg, newsComments, status); } catch (e) { status.news = `뉴스 댓글수 오류: ${e.message || e}`; }
     const before = items.length;
     let boardsRead = 0;
     for (const b of boardsOf(c.boards)) {
@@ -193,11 +223,11 @@ async function run() {
       await sleep(1000 + Math.random() * 1500);
     }
     status.ppomppu = `뽐뿌 게시판 ${boardsRead}곳, 새 글 ${items.length - before}건`;
-    if (items.length || Object.keys(cafeNames).length) {
+    if (items.length || Object.keys(cafeNames).length || Object.keys(newsComments).length) {
       const r = await fetch(c.endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${c.token}` },
-        body: JSON.stringify({ items, cafeNames, client: `수집 도우미 ${chrome.runtime.getManifest().version}`, naver: status.naver }),
+        body: JSON.stringify({ items, cafeNames, newsComments, client: `수집 도우미 ${chrome.runtime.getManifest().version}`, naver: [status.naver, status.news].filter(Boolean).join(" · ") }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `시스템 응답 ${r.status}`);
