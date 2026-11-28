@@ -234,11 +234,11 @@ export async function render(root, store) {
     const ytName = Object.fromEntries((store.settings.favYoutube || []).map((c) => [c.id, c.name]));
     // 관심 동호회·유튜브 TOP: 통계 → (비어 있으면) 게시물에서 직접 센 값 → 마지막으로 본 순위를 유지하다가 바뀌면 갱신
     // 기준 설명: 선택한 기간에 수집된 관심 동호회·채널 게시물 수, 많은 순 7곳
-    root.querySelectorAll(".fav-sub").forEach((e) => (e.textContent = `${period === 1 ? "오늘" : `최근 ${period}일`} 수집된 게시물 수 · 많은 순 7곳 · 누르면 해당 글`));
+    root.querySelectorAll(".fav-sub").forEach((e) => (e.textContent = `${period === 1 ? "오늘" : `최근 ${period}일`} 수집된 글 수 · 많은 순`));
     favTop("favCafe", "cafe_fav", A.favCafe, (k) => cafeName[k.toLowerCase()] || k, rank);
     drawTop("views", first); drawTop("comments", first);
     favTop("favYt", "youtube_fav", A.favYt, (k) => ytName[k] || k, rank, A.favYtShort || {}, true);
-    $q("#favYt").parentElement.querySelector(".fav-sub").textContent = `${period === 1 ? "오늘" : `최근 ${period}일`} 실제로 올라온 영상 수(작성일 기준) · 많은 순 7곳 · 누르면 해당 글`;
+    $q("#favYt").parentElement.querySelector(".fav-sub").textContent = `${period === 1 ? "오늘" : `최근 ${period}일`} 올라온 영상 수(작성일) · 많은 순`;
     drawStatus();
   }
 

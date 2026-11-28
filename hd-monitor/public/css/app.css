@@ -674,3 +674,6 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 .basis-note { margin: -4px 0 12px; padding: 7px 12px; border-radius: 10px; font-size: 12px; color: var(--text-2); background: color-mix(in srgb, var(--brand) 7%, transparent); border: 1px dashed color-mix(in srgb, var(--brand) 35%, transparent); }
 .basis-note b { color: var(--brand); }
 .basis-note span { margin: 0 4px; color: var(--text-3); }
+/* 관심 동호회·유튜브 TOP 제목 한 줄 */
+.card h3:has(.fav-sub) { white-space: nowrap; }
+.card h3 .fav-sub { letter-spacing: -.04em; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
