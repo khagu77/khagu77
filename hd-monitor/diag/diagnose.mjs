@@ -16,3 +16,4 @@ const ext = (await db.doc("state/ext_runs").get()).data()?.items || [];
 for (const r of ext.slice(0, 5)) console.log("도우미", kst(r.at.toDate()), r.client, "받음", r.received, "새글", r.created, "|", String(r.naver || "").slice(0, 160));
 const settings = (await db.doc("settings/main").get()).data();
 console.log("뽐뿌 게시판 설정:", JSON.stringify((settings.boards || []).filter((b) => /ppomppu/.test(b.url))).slice(0, 300));
+// 2026-11-28T10:11:27Z 재점검
