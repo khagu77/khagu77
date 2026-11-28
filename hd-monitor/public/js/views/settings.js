@@ -239,7 +239,11 @@ export async function render(root, store, { arg }) {
       <div class="card span-6"><h3>📡 수집</h3><div style="display:flex;flex-direction:column;gap:12px">
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="enabled" ${c.enabled ? "checked" : ""}><span></span></span><b>자동 수집 (5분마다)</b></label>
         <div class="frow"><span class="lbl">네이버</span>${[["news", "뉴스"], ["blog", "블로그"], ["cafe", "카페글"], ["post", "포스트(웹문서)"]].map(([k, l]) => `<label class="toggle-row"><span class="switch"><input type="checkbox" data-n="${k}" ${c.naver[k] ? "checked" : ""}><span></span></span>${l}</label>`).join("")}</div>
-        <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="naverByExtension" ${c.naverByExtension !== false ? "checked" : ""}><span></span></span><b>네이버 검색은 크롬 수집 도우미가</b> (서버 접속은 네이버가 막음 · 끄면 서버가 시도)</label>
+        <div class="field">설치 없이 서버만으로 (네이버·뽐뿌가 서버 접속을 막아 공식 경로로 대신)</div>
+        <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="googleNews" ${c.googleNews !== false ? "checked" : ""}><span></span></span>언론: Google 뉴스 RSS (5분마다 검색어 ${c.googleNewsPerTick ?? 20}개씩)</label>
+        <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="daumBlog" ${c.daumBlog !== false ? "checked" : ""}><span></span></span>블로그: 다음(카카오) 블로그 검색 (카카오 REST API 키 사용)</label>
+        <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="ppomppuRss" ${c.ppomppuRss !== false ? "checked" : ""}><span></span></span>뽐뿌: 게시판 RSS (10분마다)</label>
+        <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="naverByExtension" ${c.naverByExtension !== false ? "checked" : ""}><span></span></span><b>네이버 검색(카페 포함)은 크롬 수집 도우미가</b> — 선택 사항, 설치한 PC가 있을 때만 (끄면 서버가 시도하지만 네이버가 막음)</label>
         <label class="field">수집 도우미가 5분마다 하는 네이버 검색 수 (12 = 시간당 144회 · 너무 크면 네이버가 잠시 막을 수 있음)<input class="input" type="number" min="3" max="30" data-c="extNaverPerRun" value="${c.extNaverPerRun ?? 12}"></label>
         <label class="field">(서버가 시도할 때) 네이버 검색 화면 읽기 — 5분마다 읽을 검색 수 (API 키가 없을 때 · 너무 크면 네이버가 잠시 막을 수 있음)<input class="input" type="number" min="6" max="80" data-c="naverWebPerTick" value="${c.naverWebPerTick ?? 36}"></label>
         <label class="field">(API 키를 넣은 경우) 네이버 API 하루 사용량 (앱 1개당, 최대 25,000)<input class="input" type="number" data-c="naverDailyBudget" value="${c.naverDailyBudget}"></label>

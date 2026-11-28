@@ -248,3 +248,19 @@ test("수집 도우미 네이버 검색 결과: 검색 결과는 관련어 없�
   const [p] = normalizeExternal({ items: [{ channel: "ppomppu", url: "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=1", title: "글" }] });
   assert.equal(p.requireMatch, true);
 });
+
+import { parseGoogleNewsRss, parseBoardRss } from "../src/collectors/official.js";
+test("Google 뉴스 RSS: 제목 끝 언론사 이름 떼기·언론사 주소", () => {
+  const xml = `<rss><channel><item><title>현대차 아이오닉5 ICCU 무상수리 - 한국경제</title><link>https://news.google.com/rss/articles/CBMi123?oc=5</link><pubDate>Fri, 28 Nov 2026 01:00:00 GMT</pubDate><source url="https://www.hankyung.com">한국경제</source></item></channel></rss>`;
+  const [it] = parseGoogleNewsRss(xml);
+  assert.equal(it.title, "현대차 아이오닉5 ICCU 무상수리");
+  assert.equal(it.source, "한국경제");
+  assert.equal(it.sourceUrl, "https://www.hankyung.com");
+  assert.equal(it.postedAt.toISOString(), "2026-11-28T01:00:00.000Z");
+});
+test("뽐뿌 RSS 읽기", () => {
+  const xml = `<rss><channel><item><title><![CDATA[그랜저 누수 문의]]></title><link>http://www.ppomppu.co.kr/zboard/view.php?id=car&amp;no=12345</link><pubDate>Fri, 28 Nov 2026 10:00:00 +0900</pubDate></item></channel></rss>`;
+  const [it] = parseBoardRss(xml);
+  assert.equal(it.title, "그랜저 누수 문의");
+  assert.equal(it.url, "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=12345");
+});
