@@ -44,7 +44,7 @@ window.__logoCheck = (img) => {
 const SITE_LOGO = { bobae: "bobaedream.co.kr", clien: "clien.net", ppomppu: "ppomppu.co.kr" };
 export const logoSite = (ch, p) => SITE_LOGO[ch] || (ch === "news" && p ? p.site || siteOf({ channel: "news", url: p.url, extUrl: p.extUrl }) : null);
 // 카페·블로그는 정해 준 아이콘 그림
-const CH_IMG = { cafe: "/img/ch-cafe.png", blog: "/img/ch-blog.png" };
+const CH_IMG = { cafe: "/img/ch-cafe.png", blog: "/img/ch-blog.png", instagram: "/img/ch-instagram.png" };
 export const chIcon = (ch, small = false, p = null) => {
   const site = logoSite(ch, p);
   const size = small ? ' style="width:22px;height:22px;font-size:10px;border-radius:6px"' : "";
