@@ -10,7 +10,7 @@ export async function render(root, store) {
   let period = 7;
   root.innerHTML = `
     <div class="page-head">
-      <div><h1>모니터링 <span class="grad">대시보드</span></h1><p id="sub">현대차·제네시스 온라인 이슈 현황</p></div>
+      <div><h1>모니터링 <span class="grad">대시보드</span></h1><p id="sub">현대차·제네시스 온라인 이슈 현황</p><div class="now-clock" id="nowClock"></div></div>
       <div class="actions">
         <div class="seg" id="period"><button data-v="1">오늘</button><button data-v="7" class="on">7일</button><button data-v="30">30일</button></div>
         ${store.isAdmin() ? `<button class="btn" id="runNow">⚡ 지금 수집</button>` : ""}
@@ -215,5 +215,14 @@ export async function render(root, store) {
   window.addEventListener("resize", onResize);
   const tick = setInterval(() => drawFeed(false), 60000);
   await load();
-  return { cleanup() { store.listeners.delete(onEv); window.removeEventListener("resize", onResize); clearInterval(tick); } };
+  // 오늘 날짜 · 현재 시각 (1초마다)
+  const WD = ["일", "월", "화", "수", "목", "금", "토"];
+  const drawClock = () => {
+    const d = new Date();
+    const el = $q("#nowClock");
+    if (el) el.innerHTML = `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()} (${WD[d.getDay()]}) <b>${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}<span class="sec">:${String(d.getSeconds()).padStart(2, "0")}</span></b>`;
+  };
+  drawClock();
+  const clock = setInterval(drawClock, 1000);
+  return { cleanup() { store.listeners.delete(onEv); window.removeEventListener("resize", onResize); clearInterval(tick); clearInterval(clock); } };
 }

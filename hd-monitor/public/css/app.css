@@ -572,3 +572,6 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 .btn.kakao { background: #fee500; color: #191600; border-color: #e6cf00; font-weight: 700; }
 .btn.kakao:hover { background: #ffeb3b; box-shadow: 0 6px 18px rgba(254, 229, 0, .35); }
 .kpi .k-val small.kpi-ns { margin-left: 12px; }
+.now-clock { margin-top: 6px; font-size: 12.5px; color: var(--text-3); letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+.now-clock b { margin-left: 6px; font-weight: 700; color: var(--text-2); }
+.now-clock .sec { opacity: .55; font-weight: 500; }

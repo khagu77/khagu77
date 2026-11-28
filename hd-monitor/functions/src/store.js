@@ -119,10 +119,14 @@ export function statsDelta(posts) {
   return d;
 }
 
+// 주의: merge 저장에서 빈 묶음 {} 은 기존 값을 통째로 지움 → 빈 묶음은 아예 빼고 저장
 const asInc = (o) => {
   if (typeof o === "number") return FieldValue.increment(o);
   const r = {};
-  for (const [k, v] of Object.entries(o)) r[k] = asInc(v);
+  for (const [k, v] of Object.entries(o)) {
+    if (v && typeof v === "object" && !Object.keys(v).length) continue;
+    r[k] = asInc(v);
+  }
   return r;
 };
 

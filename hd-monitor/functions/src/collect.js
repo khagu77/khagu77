@@ -89,36 +89,39 @@ async function fixCommunityDatesOnce(log) {
   log.push(`게시판 글 작성 시각 바로잡음: ${n}건`);
 }
 
-// 이미 저장된 유튜브 영상의 숏츠 여부를 5분마다 조금씩 확인 (끝나면 멈춤) — 통계의 숏츠 수도 함께
+// 이미 저장된 유튜브 영상의 숏츠 여부를 5분마다 조금씩 확인 → 다 끝나면 날짜별 숏츠 수를 실제 글로 다시 셈 (한 번)
 async function backfillShorts(log) {
-  const st = await getState("shorts_backfill");
+  const st = await getState("shorts_backfill2");
   if (st.done) return;
   const { isShort } = await import("./collectors/youtube.js");
-  let q = db.collection("posts").where("channel", "==", "youtube").limit(200);
-  if (st.last) q = q.startAfter(await db.doc(`posts/${st.last}`).get());
-  const snap = await q.get();
-  if (snap.empty) { await setState("shorts_backfill", { ...st, done: true }); return; }
   const { kstParts, pool } = await import("./util.js");
-  const { FieldValue } = await import("./db.js");
-  const todo = snap.docs.filter((d) => typeof d.data().short !== "boolean").slice(0, 60);
+  const snap = await db.collection("posts").where("channel", "==", "youtube").get();
+  const todo = snap.docs.filter((d) => typeof d.data().short !== "boolean" && !(st.skip || []).includes(d.id)).slice(0, 80);
   let n = 0;
+  const skip = [...(st.skip || [])];
   await pool(todo, 5, async (d) => {
     const p = d.data();
     const vid = (String(p.url).match(/[?&]v=([\w-]{6,})/) || String(p.url).match(/shorts\/([\w-]{6,})/) || [])[1];
-    if (!vid) return;
-    const v = await isShort(vid);
-    if (v === null) return;
+    const v = vid ? await isShort(vid) : null;
+    if (v === null) { skip.push(d.id); return; } // 확인 안 되는 영상(삭제 등)은 건너뜀
     await d.ref.update(v ? { short: true, url: `https://www.youtube.com/shorts/${vid}` } : { short: false });
-    if (v && p.collectedAt) {
-      const day = kstParts(p.collectedAt.toDate()).day;
-      const inc = {};
-      for (const c of p.cats || []) inc[c] = FieldValue.increment(1);
-      await db.doc(`stats/${day}`).set({ shortCat: inc }, { merge: true });
-    }
+    Object.assign(p, { short: v });
     n++;
   });
-  // 이번 묶음을 다 확인했으면 다음 묶음으로
-  const allChecked = todo.length === 0 || n === todo.length;
-  await setState("shorts_backfill", { ...st, last: allChecked ? snap.docs[snap.docs.length - 1].id : st.last || null, checked: (st.checked || 0) + n });
   if (n) log.push(`저장된 유튜브 숏츠 확인: ${n}건`);
+  if (todo.length) { await setState("shorts_backfill2", { skip: skip.slice(-500), checked: (st.checked || 0) + n }); return; }
+  // 다 확인함 → 날짜(수집일)별 · 카테고리별 숏츠 수를 실제 글로 다시 세어 통계에 덮어씀
+  const again = await db.collection("posts").where("channel", "==", "youtube").where("short", "==", true).get();
+  const byDay = {};
+  for (const d of again.docs) {
+    const p = d.data();
+    if (!p.collectedAt) continue;
+    const day = kstParts(p.collectedAt.toDate()).day;
+    for (const c of p.cats || []) ((byDay[day] ||= {})[c] = (byDay[day][c] || 0) + 1);
+  }
+  const w = db.bulkWriter();
+  for (const [day, m] of Object.entries(byDay)) w.update(db.doc(`stats/${day}`), { shortCat: m });
+  await w.close().catch((e) => log.push(`숏츠 통계 다시 세기 일부 실패: ${e.message}`));
+  await setState("shorts_backfill2", { ...st, done: true, days: Object.keys(byDay).length });
+  log.push(`숏츠 통계 다시 셈: ${Object.keys(byDay).length}일`);
 }

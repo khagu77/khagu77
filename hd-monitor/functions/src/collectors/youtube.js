@@ -49,7 +49,8 @@ export async function collectYoutubeRss({ settings, log }) {
     if (!items.length) throw new Error(`${c.name} RSS 비어 있음`);
     read += items.length;
     const seen = new Set(seenDoc[c.id] || []);
-    for (const it of items) if (!seen.has(it.vid)) out.push({ ...it, source: c.name || it.source, requireMatch: true, via: "yt:rss" });
+    const oldMs = Date.now() - (Number(settings.collect.youtubeRssMaxDays) || 3) * 86400e3;
+    for (const it of items) if (!seen.has(it.vid) && !(it.postedAt && it.postedAt.getTime() < oldMs)) out.push({ ...it, source: c.name || it.source, requireMatch: true, via: "yt:rss" });
     seenDoc[c.id] = items.map((x) => x.vid);
   });
   for (const r of res) if (!r.ok) { fail++; if (fail <= 2) log.push(`유튜브 RSS: ${r.error.message}`); }
