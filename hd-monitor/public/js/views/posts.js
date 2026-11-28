@@ -27,6 +27,7 @@ export async function render(root, store, { arg, qs }) {
   const st = {
     period: PERIODS.some(([v]) => v === qs.get("period")) ? qs.get("period") : qs.get("q") ? "30d" : "3d", from: "", to: "", sort: qs.get("sort") === "collectedAt" ? "collectedAt" : "time", q: qs.get("q") || "", alertedOnly: false,
     issueOnly: qs.get("issue") === "1",
+    commented: qs.get("commented") === "1",
     src: qs.get("src") || "",
     // 숏츠 보기: all 전체 · no 숏츠 제외 · only 숏츠만 (예전 '숏츠 제외' 켬 값도 이어받음)
     shorts: (() => { try { const v = localStorage.getItem("hdmon-shorts"); return v || (localStorage.getItem("hdmon-noshorts") === "1" ? "no" : "all"); } catch { return "all"; } })(),
@@ -67,6 +68,7 @@ export async function render(root, store, { arg, qs }) {
         ${hasYt ? `<div class="seg" id="shortsSeg">${[["all", "전체"], ["no", "숏츠 제외"], ["only", "숏츠만"]].map(([v, l]) => `<button data-v="${v}" class="${st.shorts === v ? "on" : ""}">${l}</button>`).join("")}</div>` : ""}
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="issueOnly" ${st.issueOnly ? "checked" : ""}><span></span></span>이슈 글만</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="alertedOnly"><span></span></span>💬 카톡 발송만</label>
+        <label class="toggle-row" title="댓글 수가 1개 이상인 글 (언론은 네이버 뉴스 댓글 · 수집 도우미 1.4.0부터)"><span class="switch"><input type="checkbox" id="commented" ${st.commented ? "checked" : ""}><span></span></span>💬 댓글 달린 글만</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="star"><span></span></span>중요만</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="showHidden"><span></span></span>숨긴 글</label>
       </div>
@@ -142,6 +144,7 @@ export async function render(root, store, { arg, qs }) {
   if ($q("#shortsSeg")) segmented($q("#shortsSeg"), (v) => { st.shorts = v; try { localStorage.setItem("hdmon-shorts", v); } catch {} apply(); });
   $q("#srcChip")?.addEventListener("click", () => { location.hash = `#/posts/${cat.id}`; });
   for (const k of ["dedupe", "star", "showHidden", "alertedOnly", "issueOnly"]) $q(`#${k}`).onchange = (e) => { st[k] = e.target.checked; apply(); };
+  $q("#commented").onchange = (e) => { st.commented = e.target.checked; apply(); ensureEnough(); };
 
   let totalCount = null;
   // gen: 기간·정렬을 바꿀 때마다 1씩 올림 → 그 전에 출발한 불러오기 결과는 버림 (겹치면 회색 줄이 남거나 화면이 멈추던 문제)
@@ -223,6 +226,7 @@ export async function render(root, store, { arg, qs }) {
     view = all.filter((p) => {
       if (!st.showHidden && p.hidden) return false;
       if (st.star && !p.star) return false;
+      if (st.commented && !(p.comments > 0)) return false;
       if (st.issueOnly && !(p.isIssue || p.must)) return false;
       if (st.shorts === "no" && isShorts(p)) return false;
       if (st.shorts === "only" && !isShorts(p)) return false;
