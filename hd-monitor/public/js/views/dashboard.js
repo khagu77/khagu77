@@ -25,8 +25,8 @@ export async function render(root, store) {
       <div class="card span-6" style="--i:5"><h3>📉 부정·단순비난 비율 <span class="sub">이슈 게시물 중</span></h3><div id="negline"></div></div>
       <div class="card span-6" style="--i:6"><h3>🕒 시간대별 수집량 <span class="sub" id="heatSub"></span></h3><div id="heat" style="padding-top:8px"></div><div class="legend" id="garbage" style="margin-top:18px"></div></div>
       <div class="card span-4" style="--i:7"><h3>📡 채널별 이슈</h3><div class="rank" id="chs"></div></div>
-      <div class="card span-4" style="--i:8"><h3>☕ 관심 동호회 TOP</h3><div class="rank" id="favCafe"></div></div>
-      <div class="card span-4" style="--i:9"><h3>▶️ 관심 유튜브 TOP</h3><div class="rank" id="favYt"></div></div>
+      <div class="card span-4" style="--i:8"><h3>☕ 관심 동호회 TOP <span class="sub fav-sub"></span></h3><div class="rank" id="favCafe"></div></div>
+      <div class="card span-4" style="--i:9"><h3>▶️ 관심 유튜브 TOP <span class="sub fav-sub"></span></h3><div class="rank" id="favYt"></div></div>
       <div class="card span-12" style="--i:10"><h3>🛰 수집 상태 <span class="sub" id="runSub"></span></h3><div class="status-log" id="runlog"></div></div>
     </div>`;
   $q("#kpis").innerHTML = Array.from({ length: 6 }, () => `<div class="card kpi"><div class="skeleton" style="height:14px;width:60%"></div><div class="skeleton" style="height:30px;width:50%;margin-top:10px"></div></div>`).join("");
@@ -171,6 +171,8 @@ export async function render(root, store) {
     const cafeName = Object.fromEntries((store.settings.favCafes || []).map((c) => [c.id.toLowerCase(), c.name]));
     const ytName = Object.fromEntries((store.settings.favYoutube || []).map((c) => [c.id, c.name]));
     // 관심 동호회·유튜브 TOP: 통계 → (비어 있으면) 게시물에서 직접 센 값 → 마지막으로 본 순위를 유지하다가 바뀌면 갱신
+    // 기준 설명: 선택한 기간에 수집된 관심 동호회·채널 게시물 수, 많은 순 7곳
+    root.querySelectorAll(".fav-sub").forEach((e) => (e.textContent = `${period === 1 ? "오늘" : `최근 ${period}일`} 수집된 게시물 수 · 많은 순 7곳 · 누르면 해당 글`));
     favTop("favCafe", "cafe_fav", A.favCafe, (k) => cafeName[k.toLowerCase()] || k, rank);
     favTop("favYt", "youtube_fav", A.favYt, (k) => ytName[k] || k, rank);
     drawStatus();
