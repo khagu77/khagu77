@@ -1,5 +1,5 @@
 // 설정 (관리자): 키워드 그룹 · 카테고리 · 관심 동호회/유튜브 · 커뮤니티 게시판 · 성향 사전 · 수집/알림 · API 키 · 수집 현황
-import { h, esc, toast, busy, tabsIndicator, confirmBox, CH, CH_ORDER, SENT, sentBadge, fmtTime, fmtNum } from "../ui.js";
+import { isBadLog, badLogCount, h, esc, toast, busy, tabsIndicator, confirmBox, CH, CH_ORDER, SENT, sentBadge, fmtTime, fmtNum } from "../ui.js";
 import { parseRules, compileGroups, collectQueries } from "../shared/keywords.js";
 import { buildContext, classify } from "../shared/classify.js";
 
@@ -17,7 +17,7 @@ export async function render(root, store, { arg }) {
 
   root.innerHTML = `
     <div class="page-head"><div><h1>설정</h1><p>바꾼 내용은 다음 수집(5분 이내)부터 적용됩니다. 키워드·카테고리를 바꾼 뒤에는 '최근 글 다시 분류'로 지난 글에도 적용할 수 있어요.</p></div></div>
-    <div class="tabs" id="tabs">${TABS.map(([k, l]) => `<button data-t="${k}" class="${k === tab ? "on" : ""}">${l}</button>`).join("")}</div>
+    <div class="tabs" id="tabs">${TABS.map(([k, l]) => `<button data-t="${k}" class="${k === tab ? "on" : ""}">${l}${k === "status" ? `<span class="tab-alert" id="statusAlert" hidden></span>` : ""}</button>`).join("")}</div>
     <div id="pane"></div>
     <div class="savebar" id="savebar"><span class="hint" id="dirtyTxt"></span><button class="btn" id="discard">되돌리기</button><button class="btn primary" id="save">💾 저장</button></div>`;
   const $q = (s) => root.querySelector(s);
@@ -386,7 +386,7 @@ export async function render(root, store, { arg }) {
       <div id="runs"><div class="skeleton" style="height:120px"></div></div></div></div>`;
     const drawRuns = async () => {
       const runs = await store.be.getRuns();
-      v.querySelector("#runs").innerHTML = runs.length ? `<table class="tbl"><thead><tr><th>시각</th><th>걸린 시간</th><th>받은 글</th><th>새 글</th><th>기록</th></tr></thead><tbody>${runs.map((r) => `<tr><td style="white-space:nowrap">${esc(fmtTime(r.at))}</td><td>${Math.round(r.ms / 1000)}초</td><td>${fmtNum(r.fetched)}</td><td><b>${fmtNum(r.created)}</b></td><td class="status-log" style="max-height:none">${(r.log || []).map((l) => `<div>› ${esc(l)}</div>`).join("")}</td></tr>`).join("")}</tbody></table>` : `<div class="empty"><div class="big">🛰</div>아직 수집 기록이 없습니다</div>`;
+      v.querySelector("#runs").innerHTML = runs.length ? `<table class="tbl"><thead><tr><th>시각</th><th>걸린 시간</th><th>받은 글</th><th>새 글</th><th>기록</th></tr></thead><tbody>${runs.map((r) => `<tr><td style="white-space:nowrap">${esc(fmtTime(r.at))}</td><td>${Math.round(r.ms / 1000)}초</td><td>${fmtNum(r.fetched)}</td><td><b>${fmtNum(r.created)}</b></td><td class="status-log" style="max-height:none">${(r.log || []).map((l) => `<div class="${isBadLog(l) ? "log-bad" : ""}">${isBadLog(l) ? "⚠" : "›"} ${esc(l)}</div>`).join("")}</td></tr>`).join("")}</tbody></table>` : `<div class="empty"><div class="big">🛰</div>아직 수집 기록이 없습니다</div>`;
     };
     v.querySelector("#run").onclick = (e) => busy(e.currentTarget, async () => { try { const r = await store.be.runNow(); toast(`수집 완료 · 새 글 ${r.created}건`); drawRuns(); } catch (err) { toast(err.message, "err", 6000); } });
     v.querySelector("#re").onclick = (e) => busy(e.currentTarget, async () => { try { const r = await store.be.reclassify(+v.querySelector("#reDays").value); toast(`다시 분류: ${fmtNum(r.scanned)}건 확인, ${fmtNum(r.changed)}건 바뀜`); } catch (err) { toast(err.message, "err", 6000); } });
@@ -394,8 +394,18 @@ export async function render(root, store, { arg }) {
   }
 
   draw();
+  // '🛰 수집 현황' 탭: 최근 수집에 실패·오류가 있으면 빨간 표시와 건수
+  const markStatus = () => {
+    const n = badLogCount(store.status?.lastRun);
+    const el = root.querySelector("#statusAlert");
+    if (!el) return;
+    el.hidden = !n;
+    el.textContent = n;
+    el.title = n ? `최근 수집에 문제 ${n}건` : "";
+  };
+  markStatus();
   if (!store._naverKeys) store.be.secretsStatus().then((s) => (store._naverKeys = s.naverKeys)).catch(() => {});
-  const onEv = (ev) => { if (ev.type === "settings" && !dirty.size) { draft = structuredClone(store.settings); } };
+  const onEv = (ev) => { if (ev.type === "settings" && !dirty.size) { draft = structuredClone(store.settings); } if (ev.type === "status") markStatus(); };
   store.listeners.add(onEv);
   return { cleanup() { store.listeners.delete(onEv); } };
 }

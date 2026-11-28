@@ -1,6 +1,6 @@
 // 앱 뼈대: 로그인 확인 → 사이드바·상단바 → 화면 전환(#/주소)
 import { createBackend, IS_DEMO } from "./backend.js";
-import { $, $$, h, esc, toast, dayKey, ROLE, setCafeNames, setCafeBook, chIcon, CH_IMG } from "./ui.js";
+import { $, $$, h, esc, toast, dayKey, ROLE, setCafeNames, setCafeBook, chIcon, CH_IMG, badLogCount } from "./ui.js";
 import { renderLogin, renderPending } from "./views/login.js";
 
 const store = { be: null, me: null, settings: null, live: { items: [] }, status: {}, today: null, listeners: new Set() };
@@ -118,7 +118,17 @@ async function startShell() {
   route();
 }
 
+// 사이드바 '설정'에 수집 문제 표시 (누르면 수집 현황으로)
+function updateNavAlert() {
+  const a = $("#navAlert");
+  if (!a) return;
+  const n = badLogCount(store.status?.lastRun);
+  a.hidden = !n;
+  a.textContent = n;
+  a.closest("a").href = n ? "#/settings/status" : "#/settings";
+}
 function updateLiveDot() {
+  updateNavAlert();
   const at = store.status?.lastRun?.at;
   const d = at ? (at.toDate ? at.toDate() : new Date(at)) : null;
   const min = d ? (Date.now() - d.getTime()) / 60000 : Infinity;
@@ -184,7 +194,7 @@ function buildNav() {
     }
   }
   html += `<div class="nav-sec">관리</div>`;
-  if (store.isAdmin()) html += `<a href="#/settings" data-route="settings"><span class="ico">⚙</span>설정</a><a href="#/users" data-route="users"><span class="ico">👥</span>사용자 관리</a>`;
+  if (store.isAdmin()) html += `<a href="#/settings" data-route="settings"><span class="ico">⚙</span>설정<span class="nav-alert" id="navAlert" hidden title="최근 수집에 문제가 있습니다 (설정 → 수집 현황)">!</span></a><a href="#/users" data-route="users"><span class="ico">👥</span>사용자 관리</a>`;
   html += `<a href="#/me" data-route="me"><span class="ico">🔔</span>내 알림 · 정보</a><a href="#" id="logout"><span class="ico">⎋</span>로그아웃</a>`;
   nav.innerHTML = html;
   $("#logout").onclick = (e) => { e.preventDefault(); store.be.signOut(); };

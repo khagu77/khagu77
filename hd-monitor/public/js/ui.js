@@ -195,3 +195,7 @@ export function highlight(text, words) {
 }
 
 export const cafeSearchUrl = (title) => `https://search.naver.com/search.naver?ssc=tab.cafe.all&query=${encodeURIComponent(title)}`;
+
+// 수집 기록 한 줄이 실패·오류·차단인지 (빨간 굵은 글씨 · 메뉴 알림 표시용)
+export const isBadLog = (l) => /실패|오류|못 읽|못 엶|막음|막힘|막아|거절|쉬는 중|쉼\b|\b(401|403|404|429|5\d\d)\b|만료|비어 있음|초과|timeout|error|exceeded|no longer available/i.test(String(l || "")) && !/실패 0\b/.test(String(l || ""));
+export const badLogCount = (run) => (run?.log || []).filter(isBadLog).length;

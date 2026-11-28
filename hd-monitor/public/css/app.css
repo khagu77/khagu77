@@ -733,3 +733,9 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 .kpi.thud { animation: kthud .32s ease-out; }
 @keyframes kthud { 0% { transform: translateY(0); } 35% { transform: translateY(3px); } 100% { transform: translateY(0); } }
 .kpi .k-val { overflow: visible; }
+/* 수집 실패·오류 표시 */
+.status-log .log-bad { color: var(--danger); font-weight: 800; }
+.tab-alert, .nav-alert { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; margin-left: 6px; padding: 0 5px; border-radius: 9px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 800; line-height: 1; animation: alertPulse 1.6s ease-in-out infinite; }
+.tab-alert[hidden], .nav-alert[hidden] { display: none; }
+.nav a .nav-alert { margin-left: auto; }
+@keyframes alertPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255, 93, 108, .6); } 50% { box-shadow: 0 0 0 5px rgba(255, 93, 108, 0); } }
