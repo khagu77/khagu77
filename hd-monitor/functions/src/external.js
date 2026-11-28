@@ -43,7 +43,10 @@ export async function ingestFromExtension(body, secrets) {
   const settings = ctx.settings;
   const created = items.length ? await ingest(items, ctx, log) : [];
   if (created.length) await (await import("./topStats.js")).updateTop(created).catch(() => {});
-  if (created.length) await (await import("./newsComments.js")).queueNews(created).catch(() => {});
+  if (created.length) {
+    try { const n = await (await import("./newsComments.js")).queueNews(created); if (n) log.push(`뉴스 댓글 대기열 +${n}`); }
+    catch (e) { log.push(`뉴스 댓글 대기열 오류: ${e.message}`.slice(0, 140)); }
+  }
   // 수집 도우미가 알아 온 네이버 뉴스 댓글 수
   if (body.newsComments && typeof body.newsComments === "object") {
     const n = await (await import("./newsComments.js")).applyNewsComments(body.newsComments);

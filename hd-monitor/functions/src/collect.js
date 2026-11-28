@@ -70,7 +70,7 @@ export async function runCollection({ force = false, parts = null } = {}) {
   try {
     created = await ingest(items, ctx, log);
     await (await import("./topStats.js")).updateTop(created).catch((e) => log.push(`조회수 TOP: ${e.message}`.slice(0, 100)));
-    await (await import("./newsComments.js")).queueNews(created).catch(() => {});
+    await (await import("./newsComments.js")).queueNews(created).catch((e) => log.push(`뉴스 댓글 대기열 오류: ${e.message}`.slice(0, 140)));
     await autoAnalyze(created, settings, secrets, log);
     await sendAlerts(created, ctx, secrets, log);
   } catch (e) {

@@ -8,13 +8,15 @@ const art = (url) => String(url || "").match(/n\.news\.naver\.com\/mnews\/articl
 
 export async function queueNews(created) {
   const add = created.filter((p) => p && p.id && p.channel === "news" && (p.isIssue || p.must) && art(p.url));
-  if (!add.length) return;
+  if (!add.length) return 0;
   const st = await getState(KEY);
   const now = Date.now();
   const list = (st.items || []).filter((x) => now - x.at < HOLD);
   const have = new Set(list.map((x) => x.id));
-  for (const p of add) if (!have.has(p.id)) { const m = art(p.url); list.push({ id: p.id, oid: m[1], aid: m[2], at: now, next: now }); }
+  let n = 0;
+  for (const p of add) if (!have.has(p.id)) { const m = art(p.url); list.push({ id: p.id, oid: m[1], aid: m[2], at: now, next: now }); n++; }
   await setState(KEY, { items: list.slice(-800) });
+  return n;
 }
 
 // 수집 도우미에게 줄 기사 (확인할 때가 된 것부터)
