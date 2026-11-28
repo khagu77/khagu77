@@ -36,7 +36,7 @@ export async function runCollection({ force = false, parts = null } = {}) {
       }
     } else jobs.push(collectNaverWeb({ queries, settings, log, force }));
   }
-  if (want("rss") && settings.collect.youtubeRss && (force || tick % 2 === 0)) jobs.push(collectYoutubeRss({ settings, log }));
+  if (want("rss") && settings.collect.youtubeRss && (force || tick % 2 === 0)) jobs.push(collectYoutubeRss({ settings, secrets, log }));
   if (want("ytsearch") && settings.collect.youtubeSearch) jobs.push(collectYoutubeSearch({ queries: targetQueries, settings, secrets, log }));
   if (want("community") && settings.collect.community) jobs.push(collectCommunity({ settings, log }));
   // 설치 없이 서버만으로 되는 공식 경로

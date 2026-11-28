@@ -80,7 +80,7 @@ export async function analyzePosts(posts, settings, secrets, log = [], { geminiO
     const geminiOk = secrets.geminiKey && !(st.geminiBlockedUntil > Date.now());
     if (geminiOk) {
       try {
-        res = await gemini(chunk, secrets.geminiKey, ai.geminiModel || "gemini-2.5-flash");
+        res = await gemini(chunk, secrets.geminiKey, (!ai.geminiModel || /^gemini-(1\.|2\.0|2\.5)/.test(ai.geminiModel) ? "gemini-flash-latest" : ai.geminiModel));
         by = "gemini";
       } catch (e) {
         log.push(e.message);

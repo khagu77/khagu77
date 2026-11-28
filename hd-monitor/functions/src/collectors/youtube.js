@@ -35,27 +35,60 @@ export function parseRss(xml, fallbackChannelId) {
   return out;
 }
 
-export async function collectYoutubeRss({ settings, log }) {
+// RSS 가 막힐 때: 유튜브 API 로 채널의 최근 업로드 (채널당 1시간에 한 번 · 1단위)
+async function channelUploadsApi(c, key) {
+  const pl = `UU${String(c.id).slice(2)}`;
+  const r = await fetchWithTimeout(`https://www.googleapis.com/youtube/v3/playlistItems?${new URLSearchParams({ part: "snippet,contentDetails", playlistId: pl, maxResults: "8", key })}`);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`${c.name} API ${r.status} ${j.error?.message || ""}`.slice(0, 120));
+  return (j.items || []).map((it) => {
+    const sn = it.snippet || {};
+    const vid = it.contentDetails?.videoId || sn.resourceId?.videoId;
+    const d = new Date(it.contentDetails?.videoPublishedAt || sn.publishedAt);
+    return vid && {
+      channel: "youtube", title: decodeHtml(sn.title || ""), desc: decodeHtml(sn.description || "").slice(0, 500), url: `https://www.youtube.com/watch?v=${vid}`,
+      source: c.name || sn.channelTitle, sourceId: c.id, postedAt: isNaN(d) ? null : d, thumb: `https://i.ytimg.com/vi/${vid}/mqdefault.jpg`, vid,
+    };
+  }).filter(Boolean);
+}
+
+export async function collectYoutubeRss({ settings, secrets = {}, log }) {
   const chans = settings.favYoutube || [];
   if (!chans.length) return [];
   const seenDoc = await getState("yt_rss_seen");
+  const apiAt = seenDoc._apiAt || {};
+  const key = String(secrets.youtubeKeys || "").split(/\s+/).filter(Boolean)[0];
   const out = [];
   let fail = 0;
   let read = 0;
+  let viaApi = 0;
   const res = await pool(chans, 6, async (c) => {
-    const r = await fetchWithTimeout(`https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(c.id)}`);
-    if (!r.ok) throw new Error(`${c.name} RSS ${r.status}`);
-    const items = parseRss(await r.text(), c.id);
-    if (!items.length) throw new Error(`${c.name} RSS 비어 있음`);
+    let items = [];
+    let via = "yt:rss";
+    try {
+      const r = await fetchWithTimeout(`https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(c.id)}`);
+      if (!r.ok) throw new Error(`${c.name} RSS ${r.status}`);
+      items = parseRss(await r.text(), c.id);
+      if (!items.length) throw new Error(`${c.name} RSS 비어 있음`);
+    } catch (e) {
+      // RSS 실패 → API 로 대신 (채널당 1시간에 한 번)
+      if (!key || Date.now() - (apiAt[c.id] || 0) < 60 * 60e3) throw e;
+      apiAt[c.id] = Date.now();
+      items = await channelUploadsApi(c, key);
+      via = "yt:api";
+      viaApi++;
+    }
     read += items.length;
     const seen = new Set(seenDoc[c.id] || []);
     const oldMs = Date.now() - (Number(settings.collect.youtubeRssMaxDays) || 3) * 86400e3;
-    for (const it of items) if (!seen.has(it.vid) && !(it.postedAt && it.postedAt.getTime() < oldMs)) out.push({ ...it, source: c.name || it.source, requireMatch: true, via: "yt:rss" });
-    seenDoc[c.id] = items.map((x) => x.vid);
+    for (const it of items) if (!seen.has(it.vid) && !(it.postedAt && it.postedAt.getTime() < oldMs)) out.push({ ...it, source: c.name || it.source, requireMatch: true, via });
+    seenDoc[c.id] = [...new Set([...items.map((x) => x.vid), ...seen])].slice(0, 40);
   });
+  seenDoc._apiAt = apiAt;
+  await markShorts(out.filter((x) => x.via === "yt:api"));
   for (const r of res) if (!r.ok) { fail++; if (fail <= 2) log.push(`유튜브 RSS: ${r.error.message}`); }
   await setState("yt_rss_seen", seenDoc);
-  log.push(`유튜브 관심 채널 ${chans.length}곳 확인 (영상 ${read}개 읽음), 새 영상 ${out.length}건${fail ? `, 실패 ${fail}` : ""}`);
+  log.push(`유튜브 관심 채널 ${chans.length}곳 확인 (영상 ${read}개 읽음${viaApi ? `, RSS 대신 API ${viaApi}곳` : ""}), 새 영상 ${out.length}건${fail ? `, 실패 ${fail}` : ""}`);
   return out;
 }
 

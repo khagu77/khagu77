@@ -270,7 +270,7 @@ export const DEFAULT_SETTINGS = {
   },
   instagram: { on: true, hashtags: DEFAULT_HASHTAGS, perTick: 4 },
   ai: {
-    geminiModel: "gemini-2.5-flash",
+    geminiModel: "gemini-flash-latest",
     claudeModel: "claude-opus-5-5",
     claudeEffort: "low",
     autoChannels: ["ppomppu"],     // 새 글이 들어오면 바로 AI 성향 분석할 채널 (Gemini 무료 한도로만)
