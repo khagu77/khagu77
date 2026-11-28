@@ -45,7 +45,7 @@ export async function render(root, store, { arg, qs }) {
   root.innerHTML = `
     <div class="page-head">
       <div><h1>${esc(cat.name)}${st.src ? ` <span class="grad">· ${esc(st.src)}</span>` : ""}${st.sent.size ? ` <span class="grad">· ${[...st.sent].map((s) => SENT[s].name).join("·")}</span>` : ""}</h1><p>${cat.filter === "garbage" ? "현대차 관련 글 중 설정된 이슈 키워드에 걸리지 않은 글" : cat.filter === "issue" ? "품질·안전 등 이슈 키워드가 걸린 게시물" + (cat.fav ? " · 관심 목록만" : "") : "수집된 현대차 관련 게시물 전체 (가비지 포함)"}</p></div>
-      <div class="actions"><button class="btn" id="xlsAll">📥 보이는 목록 엑셀</button></div>
+      <div class="actions">${store.isEditor() ? `<button class="btn" id="addPost" title="수집이 놓친 글을 주소로 직접 추가">＋ 글 직접 추가</button>` : ""}<button class="btn" id="xlsAll">📥 보이는 목록 엑셀</button></div>
     </div>
     <div class="card filters">
       <div class="frow"><span class="lbl">기간</span>
@@ -484,6 +484,21 @@ export async function render(root, store, { arg, qs }) {
     toast(`${sel.size}건 성향을 '${SENT[e.target.value].name}'(으)로 바꿨습니다`);
     e.target.value = "";
     apply();
+  });
+  $q("#addPost")?.addEventListener("click", async (e) => {
+    const body = await modal("글 직접 추가", `<div style="display:flex;flex-direction:column;gap:10px">
+      <label class="field">글 주소 (URL)<input class="input" id="apUrl" placeholder="https://www.ppomppu.co.kr/zboard/view.php?id=car&no=…"></label>
+      <label class="field">제목<input class="input" id="apTitle"></label>
+      <label class="field">작성 일시 (모르면 비워 두기 → 지금 시각)<input class="input" id="apDate" type="datetime-local"></label>
+      <label class="field">내용 요약 (선택 · 키워드·성향 판단에 씀)<textarea class="input" id="apDesc" rows="3"></textarea></label>
+      <p class="hint" style="margin:0">채널은 주소로 자동으로 정합니다 (뽐뿌·보배드림·클리앙·네이버 카페·블로그·유튜브 등, 그 밖은 언론). 키워드가 없어도 저장하며, 이슈 키워드가 있으면 이슈로 분류됩니다.</p></div>`, { ok: "추가" });
+    if (!body) return;
+    const data = { url: body.querySelector("#apUrl").value.trim(), title: body.querySelector("#apTitle").value.trim(), postedAt: body.querySelector("#apDate").value ? new Date(body.querySelector("#apDate").value).toISOString() : null, desc: body.querySelector("#apDesc").value.trim() };
+    try {
+      const r = await store.be.addPostManual(data);
+      if (r.exists) toast("이미 저장된 글입니다", "info");
+      else { toast(`추가했습니다 · ${CH[r.channel]?.name || r.channel} · ${r.isIssue ? "이슈" : "가비지(이슈 키워드 없음)"}`); reload(); }
+    } catch (err) { toast(err.message, "err", 6000); }
   });
   $q("#xlsAll").onclick = () => {
     if (!view.length) return toast("내려받을 글이 없습니다", "err");

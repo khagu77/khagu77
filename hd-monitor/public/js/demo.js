@@ -131,6 +131,7 @@ export function createDemoBackend() {
       return { items, cursor: start + pageSize, done: start + pageSize >= list.length };
     },
     updatePost: async (id, patch) => { Object.assign(posts.find((p) => p.id === id) || {}, patch); },
+    async addPostManual(d) { await delay(500); return { created: 1, channel: /ppomppu/.test(d.url) ? "ppomppu" : "news", isIssue: false, cats: ["all", "garbage"] }; },
     async moveToGarbage(ids, undo = false) {
       for (const id of ids) { const p = posts.find((x) => x.id === id); if (p) Object.assign(p, { isIssue: undo, must: false, manualGarbage: !undo, cats: undo ? p.cats : ["all", "garbage"] }); }
       return { moved: ids.length };

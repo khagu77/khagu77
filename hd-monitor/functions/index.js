@@ -289,6 +289,37 @@ export const moveToGarbage = onCall({ timeoutSeconds: 120 }, wrap(async (req) =>
   return { moved: n };
 }));
 
+// 담당자가 글을 직접 추가 (수집이 놓친 글): 주소로 채널을 정하고 다른 글과 같게 분류 · 저장
+export const addPostManual = onCall({ timeoutSeconds: 60 }, wrap(async (req) => {
+  const u = await requireUser(req, "editor");
+  const url = String(req.data?.url || "").trim();
+  const title = String(req.data?.title || "").trim().slice(0, 300);
+  if (!/^https?:\/\//.test(url) || !title) throw new HttpsError("invalid-argument", "주소(http…)와 제목을 넣어 주세요");
+  const host = (() => { try { return new URL(url).hostname.replace(/^(www|m)\./, ""); } catch { return ""; } })();
+  let channel = "news", source = String(req.data?.source || "").trim().slice(0, 80), sourceId = "";
+  const q = (k) => { try { return new URL(url).searchParams.get(k) || ""; } catch { return ""; } };
+  if (/ppomppu\.co\.kr$/.test(host)) { channel = "ppomppu"; sourceId = `ppomppu:${q("id") || "car"}`; source ||= q("id") === "freeboard" ? "뽐뿌 자유게시판" : "뽐뿌 자동차포럼"; }
+  else if (/bobaedream\.co\.kr$/.test(host)) { channel = "bobae"; sourceId = `bobae:${q("code") || "national"}`; source ||= "보배드림"; }
+  else if (/clien\.net$/.test(host)) { channel = "clien"; sourceId = `clien:${(url.match(/\/board\/([^/?#]+)/) || [])[1] || ""}`; source ||= "클리앙"; }
+  else if (/cafe\.naver\.com$/.test(host)) { channel = "cafe"; sourceId = (url.match(/cafe\.naver\.com\/([\w-]+)\/\d+/) || [])[1] || ""; }
+  else if (/blog\.naver\.com$/.test(host)) { channel = "blog"; sourceId = (url.match(/blog\.naver\.com\/([\w-]+)/) || [])[1] || ""; }
+  else if (/youtube\.com$|youtu\.be$/.test(host)) channel = "youtube";
+  else if (/instagram\.com$/.test(host)) channel = "instagram";
+  const d = req.data?.postedAt ? new Date(req.data.postedAt) : null;
+  const item = { channel, url, title, desc: String(req.data?.desc || "").slice(0, 400), source, sourceId, postedAt: d && !isNaN(d) ? d : null, requireMatch: false, via: "manual" };
+  const ctx = buildContext(await getSettings());
+  const { ingest } = await import("./src/store.js");
+  const log = [];
+  const created = await ingest([item], ctx, log);
+  if (!created.length) {
+    const cls = classify(item, ctx);
+    if (!cls) throw new HttpsError("failed-precondition", "제외어에 걸려 저장하지 않았습니다 (설정 → 키워드의 제외어 확인)");
+    return { created: 0, exists: true };
+  }
+  await db.doc(`posts/${created[0].id}`).update({ addedBy: u.name || u.email || u.uid }).catch(() => {});
+  return { created: 1, id: created[0].id, channel, isIssue: !!(created[0].isIssue || created[0].must), cats: created[0].cats };
+}));
+
 // 담당자가 성향 지정: 게시물 + 통계 + 실시간 피드를 함께 바꿈
 export const setSentiment = onCall(wrap(async (req) => {
   const u = await requireUser(req, "editor");
