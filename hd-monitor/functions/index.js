@@ -358,7 +358,7 @@ export const reclassify = onCall({ timeoutSeconds: 540, memory: "1GiB" }, wrap(a
       ? { ...p, targets: cls.targets, kw: cls.kw, kwGroups: cls.kwGroups, isIssue: cls.isIssue, alert: cls.alert, fav: cls.fav, must: cls.must, cats: cls.cats,
           sentiment: p.sentimentBy === "rule" ? cls.sentiment : p.sentiment }
       : { ...p, cats: [], isIssue: false, excluded: true };
-    if (JSON.stringify([next.cats, next.kw, next.sentiment]) !== JSON.stringify([p.cats, p.kw, p.sentiment])) {
+    if (JSON.stringify([next.cats, next.kw, next.sentiment, !!next.excluded]) !== JSON.stringify([p.cats, p.kw, p.sentiment, !!p.excluded])) {
       writer.update(d.ref, { targets: next.targets || [], kw: next.kw || [], kwGroups: next.kwGroups || [], isIssue: !!next.isIssue, alert: !!next.alert, fav: !!next.fav, must: !!next.must, cats: next.cats, sentiment: next.sentiment, excluded: !!next.excluded });
       changed++;
     }
