@@ -1,5 +1,5 @@
 // 사용자 관리 (관리자): 등록 · 승인 · 권한 · 중지 · 삭제
-import { esc, toast, busy, modal, confirmBox, ROLE, STATUS, fmtTime } from "../ui.js";
+import { esc, toast, busy, modal, confirmBox, ROLE, STATUS, fmtTime, CH, CH_ORDER, chIcon } from "../ui.js";
 
 export async function render(root, store) {
   root.innerHTML = `
@@ -16,12 +16,21 @@ export async function render(root, store) {
       <td><input class="input" data-f="dept" value="${esc(u.dept || "")}" style="min-width:100px"></td>
       <td><select class="input" data-f="role">${Object.entries(ROLE).map(([k, l]) => `<option value="${k}" ${u.role === k ? "selected" : ""}>${l}</option>`).join("")}</select></td>
       <td><select class="input" data-f="status">${Object.entries(STATUS).map(([k, l]) => `<option value="${k}" ${u.status === k ? "selected" : ""}>${l}</option>`).join("")}</select>${u.status === "pending" ? ` <button class="btn sm primary" data-approve>승인</button>` : ""}</td>
-      <td>${u.kakaoConnected ? `<span class="badge b-pos">연결됨${u.alertOn ? " · 켜짐" : " · 꺼짐"}</span>` : `<span class="badge b-neu">미연결</span>`}</td>
+      <td style="white-space:nowrap">
+        <label class="toggle-row" title="관리자가 대신 켜고 끌 수 있음 (카카오 계정 연결은 본인이 '내 알림'에서 한 번)"><span class="switch"><input type="checkbox" data-alert ${u.alertOn ? "checked" : ""}><span></span></span>${u.kakaoConnected ? `<span class="badge b-pos">카톡 연결됨</span>` : `<span class="badge b-neu">카톡 미연결</span>`}</label>
+        <button class="btn sm ghost" data-chs title="받을 채널">채널 ${u.alertChannels?.length ? `${u.alertChannels.length}개` : "전체"}</button>
+      </td>
       <td class="hint">${esc(fmtTime(u.lastLoginAt) || "-")}</td>
       <td>${u.uid === store.me.uid ? `<span class="hint">나</span>` : `<button class="btn sm ghost danger" data-del>삭제</button>`}</td></tr>`).join("");
   }
+  // 칩 누르면 켜고 끄기 (채널 고르기 창)
+  if (!window.__chPick) { window.__chPick = true; document.addEventListener("click", (e) => { const c = e.target.closest("#chPick .chip"); if (c) c.classList.toggle("on"); }); }
   tbody.addEventListener("change", async (e) => {
     const tr = e.target.closest("tr");
+    if (tr && e.target.matches("[data-alert]")) {
+      try { await store.be.updateUser(tr.dataset.uid, { alertOn: e.target.checked }); toast(e.target.checked ? "알림을 켰습니다 (카톡 연결 후부터 받음)" : "알림을 껐습니다"); } catch (err) { toast(err.message, "err"); }
+      return;
+    }
     const f = e.target.dataset.f;
     if (!tr || !f) return;
     if (tr.dataset.uid === store.me.uid && (f === "role" || f === "status")) { toast("자기 자신의 권한·상태는 바꿀 수 없습니다", "err"); return load(); }
@@ -31,6 +40,17 @@ export async function render(root, store) {
     const tr = e.target.closest("tr");
     if (!tr) return;
     const u = users.find((x) => x.uid === tr.dataset.uid);
+    // 받을 채널 (관리자가 대신 설정)
+    if (e.target.closest("[data-chs]")) {
+      const cur = new Set(u.alertChannels?.length ? u.alertChannels : CH_ORDER);
+      const body = await modal(`${u.name || u.email} · 카톡으로 받을 채널`, `<div class="chips" id="chPick">${CH_ORDER.map((c) => `<button type="button" class="chip ${cur.has(c) ? "on" : ""}" data-v="${c}">${chIcon(c, true)} ${CH[c].name}</button>`).join("")}</div>
+        <p class="hint" style="margin-top:10px">동호회·유튜브는 관심 동호회·관심 유튜브 글만 보냅니다 (설정 → 수집·알림·AI).</p>`, { ok: "저장" });
+      if (!body) return;
+      const pick = [...body.querySelectorAll("#chPick .chip.on")].map((b) => b.dataset.v);
+      await store.be.updateUser(u.uid, { alertChannels: pick.length === CH_ORDER.length ? [] : pick });
+      toast("받을 채널을 저장했습니다");
+      return load();
+    }
     if (e.target.closest("[data-approve]")) {
       await store.be.updateUser(u.uid, { status: "active" });
       toast(`${u.name || u.email} 님을 승인했습니다`);
