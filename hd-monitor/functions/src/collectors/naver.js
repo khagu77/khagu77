@@ -43,7 +43,7 @@ export function normalizeItem(source, it) {
     const naver = /n\.news\.naver\.com|news\.naver\.com/.test(it.link || "");
     const url = naver ? it.link : it.originallink || it.link;
     const d = it.pubDate ? new Date(it.pubDate) : null;
-    return { channel: "news", title, desc, url, source: pressName(it.originallink || it.link), sourceId: "", postedAt: d && !isNaN(d) ? d : null };
+    return { channel: "news", extUrl: it.originallink || "", title, desc, url, source: pressName(it.originallink || it.link), sourceId: "", postedAt: d && !isNaN(d) ? d : null };
   }
   if (source === "blog") {
     const pd = /^\d{8}$/.test(it.postdate || "") ? `${it.postdate.slice(0, 4)}-${it.postdate.slice(4, 6)}-${it.postdate.slice(6)}` : null;

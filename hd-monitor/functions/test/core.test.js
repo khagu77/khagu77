@@ -119,7 +119,7 @@ test("카카오 알림 문구: 채널 머리말 + 제목 + URL, 200자 이내", 
 
 test("화면용 공용 모듈이 서버와 같음 (다르면 npm run sync-shared)", async () => {
   const fs = await import("node:fs");
-  for (const f of ["keywords", "similarity", "sentiment", "classify", "defaults"]) {
+  for (const f of ["keywords", "similarity", "sentiment", "classify", "defaults", "site"]) {
     assert.equal(fs.readFileSync(new URL(`../../public/js/shared/${f}.js`, import.meta.url), "utf8"), fs.readFileSync(new URL(`../src/${f}.js`, import.meta.url), "utf8"), f);
   }
 });
@@ -168,4 +168,12 @@ test("네이버 검색 화면: 블로그 주소 정리·상대 시각", () => {
   const now = new Date("2026-11-28T03:00:00Z");
   assert.equal(relTime("홍길동 · 2시간 전", now).toISOString(), "2026-11-28T01:00:00.000Z");
   assert.equal(relTime("어제", now).toISOString(), "2026-11-27T03:00:00.000Z");
+});
+
+import { siteOf } from "../src/store.js";
+test("언론사 로고용 사이트 주소", () => {
+  assert.equal(siteOf({ channel: "news", url: "https://n.news.naver.com/mnews/article/015/0005000001", extUrl: "https://www.hankyung.com/article/1" }), "hankyung.com");
+  assert.equal(siteOf({ channel: "news", url: "https://n.news.naver.com/mnews/article/001/0015000001" }), "yna.co.kr");
+  assert.equal(siteOf({ channel: "news", url: "https://www.motorgraph.com/news/articleView.html?idxno=1" }), "motorgraph.com");
+  assert.equal(siteOf({ channel: "cafe", url: "https://cafe.naver.com/a/1" }), null);
 });

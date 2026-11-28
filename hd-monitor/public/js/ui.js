@@ -1,3 +1,4 @@
+import { siteOf } from "./shared/site.js";
 // 화면 공용 도구: 요소 만들기 · 토스트 · 모달 · 숫자 카운트업 · 시간 표시 · 채널/성향 정보
 export const CH = {
   news: { name: "언론", short: "언", color: "--s1" },
@@ -31,7 +32,16 @@ export function h(html) {
   return t.content.firstElementChild;
 }
 
-export const chIcon = (ch, small = false) => `<span class="ch-ico ch-${esc(ch)}"${small ? ' style="width:22px;height:22px;font-size:10px;border-radius:6px"' : ""} title="${esc(CH[ch]?.name || ch)}">${esc(CH[ch]?.short || "?")}</span>`;
+// 채널 아이콘: 언론은 언론사 로고, 보배드림·클리앙·뽐뿌는 사이트 로고 (못 불러오면 글자 아이콘)
+const SITE_LOGO = { bobae: "bobaedream.co.kr", clien: "clien.net", ppomppu: "ppomppu.co.kr" };
+export const logoSite = (ch, p) => SITE_LOGO[ch] || (ch === "news" && p ? p.site || siteOf({ channel: "news", url: p.url, extUrl: p.extUrl }) : null);
+export const chIcon = (ch, small = false, p = null) => {
+  const site = logoSite(ch, p);
+  const size = small ? ' style="width:22px;height:22px;font-size:10px;border-radius:6px"' : "";
+  const title = esc(ch === "news" && p?.source ? p.source : CH[ch]?.name || ch);
+  if (!site) return `<span class="ch-ico ch-${esc(ch)}"${size} title="${title}">${esc(CH[ch]?.short || "?")}</span>`;
+  return `<span class="ch-ico ch-${esc(ch)} logo"${size} title="${title}">${esc(CH[ch]?.short || "?")}<img alt="" loading="lazy" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(site)}&sz=64" onerror="this.remove()"></span>`;
+};
 export const sentBadge = (s, by) => {
   const m = SENT[s] || SENT.neu;
   return `<span class="badge ${m.cls}">${m.name}${by && by !== "rule" && by !== "manual" ? " · AI" : ""}</span>`;

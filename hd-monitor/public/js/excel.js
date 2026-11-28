@@ -20,12 +20,13 @@ export async function exportExcel(posts, catName, settings) {
     키워드: (p.kw || []).join(", "),
     카테고리: (p.cats || []).filter((c) => c !== "all").map((c) => catNames[c] || c).join(", "),
     "유사 기사": p.dupCount || "",
+    "카톡 발송": p.alerted ? fmtTime(p.alertedAt, true) : "",
     중요: p.star ? "★" : "",
     메모: p.memo || "",
     내용: p.desc || "",
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
-  ws["!cols"] = [6, 9, 18, 17, 17, 60, 45, 8, 10, 28, 24, 22, 8, 5, 24, 60].map((wch) => ({ wch }));
+  ws["!cols"] = [6, 9, 18, 17, 17, 60, 45, 8, 10, 28, 24, 22, 8, 17, 5, 24, 60].map((wch) => ({ wch }));
   ws["!autofilter"] = { ref: ws["!ref"] };
   rows.forEach((r, i) => {
     const cell = ws[XLSX.utils.encode_cell({ r: i + 1, c: 6 })];

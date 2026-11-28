@@ -149,7 +149,7 @@ export async function render(root, store) {
   function drawFeed(animateNew) {
     const items = store.live?.items || [];
     $q("#feed").innerHTML = items.length ? items.slice(0, 30).map((p) => `<a class="feed-item ${animateNew && !shown.has(p.id) ? "new" : ""}" href="${esc(p.url)}" target="_blank" rel="noopener">
-      ${chIcon(p.channel)}<div style="min-width:0"><div class="t">${esc(p.title)}</div><div class="m">${sentBadge(p.sentiment)}${p.isIssue ? `<span class="badge b-warn">이슈</span>` : ""}<span>${esc(p.source || "")}</span><span>· ${ago(p.time)}</span></div></div></a>`).join("")
+      ${chIcon(p.channel, false, p)}<div style="min-width:0"><div class="t">${esc(p.title)}</div><div class="m">${sentBadge(p.sentiment)}${p.isIssue ? `<span class="badge b-warn">이슈</span>` : ""}<span>${esc(p.source || "")}</span><span>· ${ago(p.time)}</span></div></div></a>`).join("")
       : `<div class="empty"><div class="big">📡</div>수집을 기다리는 중…</div>`;
     items.forEach((p) => shown.add(p.id));
   }

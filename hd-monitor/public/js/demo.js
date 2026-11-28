@@ -54,7 +54,8 @@ function makePost(t) {
   const cls = classify(item, ctx) || classify({ ...item, title: `현대차 ${title}` }, ctx);
   const id = `d${++n}`;
   const url = ch === "youtube" ? `https://www.youtube.com/watch?v=demo${n}` : ch === "cafe" ? `https://cafe.naver.com/${sourceId}/${1000 + n}` : `https://example.com/${ch}/${n}`;
-  return { id, ...item, url, ...cls, time: t, collectedAt: t, postedAt: t, dupOf: null, dupCount: ch === "news" && rnd() < 0.2 ? Math.ceil(rnd() * 6) : 0, memo: "", star: rnd() < 0.05, hidden: false,
+  const alerted = !!(cls.alert && rnd() < 0.35);
+  return { id, ...item, url, site: ch === "news" ? pick(["yna.co.kr", "hankyung.com", "mk.co.kr", "motorgraph.com", "newsis.com", "chosun.com"]) : null, alerted, alertedAt: alerted ? t : null, alertedTo: alerted ? ["관리자", "김담당"] : [], ...cls, time: t, collectedAt: t, postedAt: t, dupOf: null, dupCount: ch === "news" && rnd() < 0.2 ? Math.ceil(rnd() * 6) : 0, memo: "", star: rnd() < 0.05, hidden: false,
     thumb: ch === "youtube" ? null : null };
 }
 

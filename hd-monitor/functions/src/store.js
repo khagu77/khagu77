@@ -4,6 +4,9 @@ import { classify } from "./classify.js";
 import { findSimilar } from "./similarity.js";
 import { canonicalUrl, hash, kstParts, pool } from "./util.js";
 
+import { siteOf } from "./site.js";
+export { siteOf };
+
 const toTs = (d) => (d instanceof Date && !isNaN(d) ? Timestamp.fromDate(d) : null);
 
 export function buildPost(item, cls, now) {
@@ -21,6 +24,7 @@ export function buildPost(item, cls, now) {
     collectedAt: Timestamp.fromDate(now),
     time: Timestamp.fromDate(posted || now),
     thumb: item.thumb || null,
+    site: item.site || siteOf(item),
     via: item.via || "",
     query: item.query || "",
     ...cls,
@@ -124,6 +128,6 @@ async function updateStats(created, now) {
   const next = created
     .sort((a, b) => b.time.toMillis() - a.time.toMillis())
     .slice(0, 40)
-    .map((p) => ({ id: p.id, title: p.title, channel: p.channel, source: p.source, url: p.url, time: p.time, sentiment: p.sentiment, isIssue: !!(p.isIssue || p.must), kw: (p.kw || []).slice(0, 3) }));
+    .map((p) => ({ id: p.id, site: p.site || null, title: p.title, channel: p.channel, source: p.source, url: p.url, time: p.time, sentiment: p.sentiment, isIssue: !!(p.isIssue || p.must), kw: (p.kw || []).slice(0, 3) }));
   await liveRef.set({ items: [...next, ...prev].slice(0, 40), at: Timestamp.fromDate(now) });
 }

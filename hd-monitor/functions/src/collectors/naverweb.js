@@ -183,7 +183,7 @@ export async function collectNaverWeb({ queries, settings, log }) {
         if (page === 1) first.push(h);
         if (seen.has(h)) continue;
         fresh++;
-        if (k === "news") out.push({ channel: "news", title: r.title, desc: r.snippet, url: r.url, source: r.source || pressName(r.extUrl || r.url), sourceId: "", postedAt: r.date, via: "naverweb:news", query: q });
+        if (k === "news") out.push({ channel: "news", extUrl: r.extUrl, title: r.title, desc: r.snippet, url: r.url, source: r.source || pressName(r.extUrl || r.url), sourceId: "", postedAt: r.date, via: "naverweb:news", query: q });
         if (k === "blog") out.push({ channel: "blog", title: r.title, desc: r.snippet, url: r.url, source: r.source, sourceId: r.owner, postedAt: r.date, via: "naverweb:blog", query: q });
         if (k === "cafe") out.push({ channel: "cafe", title: r.title, desc: r.snippet, url: r.url, source: r.source, sourceId: r.club, postedAt: r.date, via: "naverweb:cafe", query: q });
       }

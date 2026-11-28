@@ -38,6 +38,7 @@ export async function sendAlerts(created, ctx, secrets, log) {
   const site = ctx.settings.siteUrl || SITE_URL;
   const users = await db.collection("users").where("status", "==", "active").where("alertOn", "==", true).get();
   let sent = 0;
+  const perPost = new Map(); // 글 id → 받은 사람 이름
   let failed = 0;
   for (const u of users.docs) {
     const prof = u.data();
@@ -46,7 +47,7 @@ export async function sendAlerts(created, ctx, secrets, log) {
     const mine = picked.filter((p) => chs.includes(p.channel) && (!prof.alertIssueOnly || p.isIssue));
     const max = Number(cfg.maxPerRun) || 15;
     try {
-      for (const p of mine.slice(0, max)) { await kakaoSend(u.id, formatAlert(p), goLink(site, p.url), secrets); sent++; }
+      for (const p of mine.slice(0, max)) { await kakaoSend(u.id, formatAlert(p), goLink(site, p.url), secrets); sent++; perPost.set(p.id, [...(perPost.get(p.id) || []), prof.name || prof.email || u.id]); }
       if (mine.length > max) {
         await kakaoSend(u.id, `🔔 새 이슈 게시물 ${mine.length - max}건이 더 있습니다.\n모니터링 시스템에서 확인해 주세요.`, `${site}/#/posts`, secrets, "시스템 열기");
         sent++;
@@ -55,6 +56,12 @@ export async function sendAlerts(created, ctx, secrets, log) {
       failed++;
       log.push(`알림 실패 (${prof.name || prof.email}): ${e.message}`);
     }
+  }
+  // 카톡으로 나간 글에 표시 (목록에서 '카톡 발송' 뱃지)
+  if (perPost.size) {
+    const batch = db.batch();
+    for (const [id, names] of perPost) batch.update(db.doc(`posts/${id}`), { alerted: true, alertedAt: new Date(), alertedTo: names.slice(0, 20) });
+    await batch.commit().catch((e) => log.push(`발송 표시 실패: ${e.message}`));
   }
   await db.collection("alerts").add({ at: new Date(), posts: picked.map((p) => ({ id: p.id, title: p.title, channel: p.channel, url: p.url })), sent, failed });
   log.push(`알림: ${picked.length}건 (메시지 ${sent}통${failed ? `, 실패 ${failed}명` : ""})`);

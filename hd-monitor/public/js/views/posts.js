@@ -13,7 +13,8 @@ function rangeOf(p, from, to) {
   if (p === "3d") return [new Date(sod - 2 * 86400e3), null];
   if (p === "7d") return [new Date(sod - 6 * 86400e3), null];
   if (p === "30d") return [new Date(sod - 29 * 86400e3), null];
-  return [from ? new Date(`${from}T00:00:00`) : new Date(sod - 6 * 86400e3), to ? new Date(new Date(`${to}T00:00:00`).getTime() + 86400e3) : null];
+  // 직접: 날짜·시·분까지 (끝 시각의 그 1분까지 포함)
+  return [from ? new Date(from) : new Date(sod - 6 * 86400e3), to ? new Date(new Date(to).getTime() + 60e3) : null];
 }
 
 export async function render(root, store, { arg, qs }) {
@@ -23,7 +24,7 @@ export async function render(root, store, { arg, qs }) {
   const chList = cat.channels?.includes("*") ? CH_ORDER : CH_ORDER.filter((c) => cat.channels.includes(c));
   const groups = (store.settings.keywordGroups || []).filter((g) => g.role === "issue");
   const st = {
-    period: qs.get("q") ? "30d" : "3d", from: "", to: "", sort: "time", q: qs.get("q") || "",
+    period: qs.get("q") ? "30d" : "3d", from: "", to: "", sort: "time", q: qs.get("q") || "", alertedOnly: false,
     ch: new Set(), sent: new Set(), grp: "", dedupe: catId === "news" || catId === "all", star: false, showHidden: false,
   };
   let all = [];
@@ -43,16 +44,17 @@ export async function render(root, store, { arg, qs }) {
     <div class="card filters">
       <div class="frow"><span class="lbl">기간</span>
         <div class="seg" id="period">${PERIODS.map(([v, l]) => `<button data-v="${v}" class="${st.period === v ? "on" : ""}">${l}</button>`).join("")}</div>
-        <span id="custom" style="display:none;gap:6px;align-items:center"><input type="date" class="input" id="from"> ~ <input type="date" class="input" id="to"></span>
+        <span id="custom" style="display:none;gap:6px;align-items:center;flex-wrap:wrap"><input type="datetime-local" class="input" id="from" step="60"> ~ <input type="datetime-local" class="input" id="to" step="60"><button class="btn sm" id="applyRange">조회</button></span>
         <div class="seg" id="sort" style="margin-left:auto"><button data-v="time" class="on">작성일 기준</button><button data-v="collectedAt">수집일 기준</button></div>
       </div>
       ${chList.length > 1 ? `<div class="frow"><span class="lbl">채널</span><div class="chips" id="chs">${chList.map((c) => `<button class="chip" data-v="${c}">${chIcon(c, true)} ${CH[c].name}</button>`).join("")}</div></div>` : ""}
-      <div class="frow"><span class="lbl">성향</span><div class="chips" id="sents">${SENT_ORDER.map((s) => `<button class="chip" data-v="${s}">${SENT[s].name}</button>`).join("")}</div>
+      <div class="frow"><span class="lbl">성향</span><div class="chips" id="sents"><button class="chip on" data-all>전체</button>${SENT_ORDER.map((s) => `<button class="chip" data-v="${s}">${SENT[s].name}</button>`).join("")}</div>
         <select class="input" id="grp" style="margin-left:8px"><option value="">키워드 그룹 전체</option>${groups.map((g) => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join("")}</select>
       </div>
       <div class="frow"><span class="lbl">검색</span>
         <input class="input" id="q" style="flex:1;min-width:200px" placeholder="제목·내용·매체명 (여러 단어는 모두 포함, -단어 는 제외)" value="${esc(st.q)}">
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="dedupe" ${st.dedupe ? "checked" : ""}><span></span></span>유사 기사 묶기</label>
+        <label class="toggle-row"><span class="switch"><input type="checkbox" id="alertedOnly"><span></span></span>💬 카톡 발송만</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="star"><span></span></span>중요만</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="showHidden"><span></span></span>숨긴 글</label>
       </div>
@@ -73,16 +75,38 @@ export async function render(root, store, { arg, qs }) {
   const bulk = $q("#bulk");
   document.body.append(bulk); // 화면 아래 고정
 
-  segmented($q("#period"), (v) => { st.period = v; $q("#custom").style.display = v === "custom" ? "inline-flex" : "none"; reload(); });
+  const localStr = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
+  segmented($q("#period"), (v) => {
+    st.period = v;
+    $q("#custom").style.display = v === "custom" ? "inline-flex" : "none";
+    if (v === "custom") {
+      // 처음 열면 '오늘 0시 ~ 지금' 으로 채워 둠
+      if (!$q("#from").value) { const n = new Date(); $q("#from").value = localStr(new Date(n.getFullYear(), n.getMonth(), n.getDate())); $q("#to").value = localStr(n); }
+      st.from = $q("#from").value; st.to = $q("#to").value;
+    }
+    reload();
+  });
   segmented($q("#sort"), (v) => { st.sort = v; reload(); });
-  $q("#from").onchange = $q("#to").onchange = () => { st.from = $q("#from").value; st.to = $q("#to").value; reload(); };
+  $q("#applyRange").onclick = () => {
+    st.from = $q("#from").value; st.to = $q("#to").value;
+    if (st.from && st.to && st.from > st.to) return toast("시작 시각이 끝 시각보다 늦습니다", "err");
+    reload();
+  };
   const chipSet = (box, set) => box?.addEventListener("click", (e) => { const b = e.target.closest(".chip"); if (!b) return; set.has(b.dataset.v) ? set.delete(b.dataset.v) : set.add(b.dataset.v); b.classList.toggle("on"); apply(); });
   chipSet($q("#chs"), st.ch);
-  chipSet($q("#sents"), st.sent);
+  // 성향: '전체' 를 누르면 모두 해제, 하나라도 고르면 '전체' 꺼짐
+  $q("#sents").addEventListener("click", (e) => {
+    const b = e.target.closest(".chip");
+    if (!b) return;
+    if (b.hasAttribute("data-all")) st.sent.clear();
+    else st.sent.has(b.dataset.v) ? st.sent.delete(b.dataset.v) : st.sent.add(b.dataset.v);
+    $q("#sents").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c.hasAttribute("data-all") ? !st.sent.size : st.sent.has(c.dataset.v)));
+    apply();
+  });
   $q("#grp").onchange = (e) => { st.grp = e.target.value; apply(); };
   let qt;
   $q("#q").oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => { st.q = e.target.value; apply(); ensureEnough(); }, 220); };
-  for (const k of ["dedupe", "star", "showHidden"]) $q(`#${k}`).onchange = (e) => { st[k] = e.target.checked; apply(); };
+  for (const k of ["dedupe", "star", "showHidden", "alertedOnly"]) $q(`#${k}`).onchange = (e) => { st[k] = e.target.checked; apply(); };
 
   async function reload() {
     all = []; cursor = null; done = false; sel.clear(); newestMs = 0;
@@ -124,6 +148,7 @@ export async function render(root, store, { arg, qs }) {
     view = all.filter((p) => {
       if (!st.showHidden && p.hidden) return false;
       if (st.star && !p.star) return false;
+      if (st.alertedOnly && !p.alerted) return false;
       if (st.dedupe && p.dupOf) return false;
       if (st.ch.size && !st.ch.has(p.channel)) return false;
       if (st.sent.size && !st.sent.has(p.sentiment)) return false;
@@ -149,6 +174,7 @@ export async function render(root, store, { arg, qs }) {
   function rowHtml(p, i) {
     const cafeJoined = p.channel === "cafe" && (store.settings.favCafes || []).some((c) => c.id.toLowerCase() === String(p.sourceId).toLowerCase() && c.joined);
     const badges = [
+      p.alerted ? `<span class="badge b-kakao" title="${esc(`카톡 발송 ${fmtTime(p.alertedAt)} · ${(p.alertedTo || []).join(", ")}`)}">💬 카톡 발송</span>` : "",
       sentBadge(p.sentiment, p.sentimentBy),
       p.must ? `<span class="badge b-info">필수 수집</span>` : "",
       p.fav ? `<span class="badge b-info">⭐ 관심</span>` : "",
@@ -160,9 +186,9 @@ export async function render(root, store, { arg, qs }) {
     ].join("");
     const w = words(p);
     const tm = p.postedAt || p.postedDay ? fmtTime(p.postedAt || p.time) : fmtTime(p.time);
-    return `<div class="post ${sel.has(p.id) ? "sel" : ""} ${p.hidden ? "hid" : ""}" data-id="${esc(p.id)}" style="--i:${i}">
+    return `<div class="post ${sel.has(p.id) ? "sel" : ""} ${p.hidden ? "hid" : ""} ${p.alerted ? "alerted" : ""}" data-id="${esc(p.id)}" style="--i:${i}">
       <input type="checkbox" class="cbx" ${sel.has(p.id) ? "checked" : ""}>
-      ${chIcon(p.channel)}
+      ${chIcon(p.channel, false, p)}
       <div style="min-width:0">${p.thumb ? `<img class="thumb" loading="lazy" src="${esc(p.thumb)}" alt="">` : ""}<a class="title" href="${esc(p.url)}" target="_blank" rel="noopener">${highlight(p.title, w)}</a>
         ${p.desc ? `<div class="desc">${highlight(p.desc, w)}</div>` : ""}<div class="meta">${badges}</div></div>
       <div class="src">${esc(p.source || CH[p.channel]?.name || "")}<small>${esc(CH[p.channel]?.name || "")}</small></div>

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "sync-shared": "cp src/keywords.js src/similarity.js src/sentiment.js src/classify.js src/defaults.js ../public/js/shared/"
+    "sync-shared": "cp src/keywords.js src/similarity.js src/sentiment.js src/classify.js src/defaults.js src/site.js ../public/js/shared/"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.14.0",
