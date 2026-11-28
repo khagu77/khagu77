@@ -1,9 +1,9 @@
-# 점검(읽기 전용) — hd-monitor/tools/diagnose.mjs 가 바뀌어 올라오면 실행
+# 점검(읽기 전용) — hd-monitor/diag/diagnose.mjs 가 바뀌어 올라오면 실행
 name: Diagnose hd-monitor
 on:
   push:
     branches: [claude/determined-pascal-9tkcwj]
-    paths: ["hd-monitor/tools/**", ".github/workflows/hd-monitor-diagnose.yml"]
+    paths: ["hd-monitor/diag/**", ".github/workflows/hd-monitor-diagnose.yml"]
   workflow_dispatch:
 jobs:
   diagnose:
@@ -20,5 +20,5 @@ jobs:
           printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
           cd hd-monitor/functions && npm ci --silent
-          cp ../tools/diagnose.mjs ./_diag.mjs && node _diag.mjs
+          cp ../diag/diagnose.mjs ./_diag.mjs && node _diag.mjs
           rm -f "$RUNNER_TEMP/sa.json"

@@ -7,7 +7,7 @@ name: Deploy hd-monitor
 on:
   push:
     branches: [claude/determined-pascal-9tkcwj, main]
-    paths: ["hd-monitor/**", "!hd-monitor/tools/**", ".github/workflows/hd-monitor-deploy.yml"]
+    paths: ["hd-monitor/**", "!hd-monitor/diag/**", ".github/workflows/hd-monitor-deploy.yml"]
   workflow_dispatch:
 
 concurrency:
