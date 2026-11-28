@@ -45,6 +45,42 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "cats",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "sentiment",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "time",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "cats",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "sentiment",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "collectedAt",
+          "order": "DESCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

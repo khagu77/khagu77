@@ -198,7 +198,6 @@ async function run() {
     } catch (e) {
       status.naver = `네이버 오류: ${e.message || e}`;
     }
-    try { await collectNewsComments(rcfg, newsComments, status); } catch (e) { status.news = `뉴스 댓글수 오류: ${e.message || e}`; }
     const before = items.length;
     let boardsRead = 0;
     for (const b of boardsOf(c.boards)) {
@@ -213,7 +212,7 @@ async function run() {
         for (const r of fresh) {
           items.push({
             channel: "ppomppu", title: r.title, url: `https://www.ppomppu.co.kr/zboard/view.php?id=${b.id}&no=${r.no}`,
-            source: b.name, sourceId: `ppomppu:${b.id}`, postedAt: r.date ? r.date.toISOString() : null,
+            source: b.name, sourceId: `ppomppu:${b.id}`, postedAt: r.date ? r.date.toISOString() : null, comments: r.comments, views: r.views,
           });
         }
         if (first || fresh.length < rows.length || !rows.length) break;

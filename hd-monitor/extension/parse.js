@@ -29,7 +29,8 @@
       const id = (href.match(/[?&]id=([^&#]+)/) || [])[1];
       const no = (href.match(/[?&]no=(\d+)/) || [])[1];
       if (!no || id !== boardId) continue;
-      const title = decode(m[2]).replace(/\s*\[\d+\]\s*$/, "");
+      const rawTitle = decode(m[2]);
+      const title = rawTitle.replace(/\s*\[\d+\]\s*$/, "");
       if (!title || /^\d+$/.test(title)) continue;
       const prev = best.get(no);
       if (prev && prev.title.length >= title.length) continue;
@@ -37,7 +38,10 @@
       const start = html.lastIndexOf("<tr", m.index);
       const end = html.indexOf("</tr>", m.index);
       const row = start >= 0 && end > m.index && m.index - start < 4000 ? html.slice(start, end) : html.slice(m.index, m.index + 800);
-      best.set(no, { no, title, date: rowDate(decode(row.replace(/<a\b[\s\S]*?<\/a>/i, " ")), now) });
+      // 댓글 수: 제목 옆 [3] 또는 baseList-c / list_comment2 · 조회수: baseList-views 칸
+      const cm = rawTitle.match(/\[(\d{1,5})\]\s*$/) || row.match(/class=["'][^"']*(?:baseList-c|list_comment2)[^"']*["'][^>]*>\s*(?:<[^>]+>\s*)*(\d{1,5})/);
+      const vw = row.match(/class=["'][^"']*baseList-views[^"']*["'][^>]*>\s*([\d,]+)\s*</);
+      best.set(no, { no, title, date: rowDate(decode(row.replace(/<a\b[\s\S]*?<\/a>/i, " ")), now), comments: cm ? +cm[1] : null, views: vw ? +vw[1].replace(/,/g, "") : null });
     }
     return [...best.values()];
   }

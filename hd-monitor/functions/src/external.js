@@ -25,6 +25,7 @@ export function normalizeExternal(body) {
       channel, url, extUrl, title, desc: String(it.desc || "").slice(0, 400), source: String(it.source || "").slice(0, 80),
       sourceId: String(it.sourceId || "").slice(0, 120), postedAt: d && !isNaN(d) ? d : null,
       requireMatch: !fromSearch, via: fromSearch ? `ext:naver:${channel}` : `ext:${channel}`, query: String(it.query || "").slice(0, 80),
+      views: Number.isFinite(+it.views) && it.views !== null ? +it.views : null, comments: Number.isFinite(+it.comments) && it.comments !== null ? +it.comments : null,
     });
   }
   return out;
@@ -43,10 +44,6 @@ export async function ingestFromExtension(body, secrets) {
   const settings = ctx.settings;
   const created = items.length ? await ingest(items, ctx, log) : [];
   if (created.length) await (await import("./topStats.js")).updateTop(created).catch(() => {});
-  if (created.length) {
-    try { const n = await (await import("./newsComments.js")).queueNews(created); if (n) log.push(`뉴스 댓글 대기열 +${n}`); }
-    catch (e) { log.push(`뉴스 댓글 대기열 오류: ${e.message}`.slice(0, 140)); }
-  }
   // 수집 도우미가 알아 온 네이버 뉴스 댓글 수
   if (body.newsComments && typeof body.newsComments === "object") {
     const n = await (await import("./newsComments.js")).applyNewsComments(body.newsComments);
@@ -78,6 +75,6 @@ export async function extensionConfig(secrets) {
     },
     favCafes: (settings.favCafes || []).map((c) => ({ id: c.id, name: c.name })),
     cafeLookup: await (await import("./cafeNames.js")).unknownCafes(15), // 이름을 알아 와 줄 카페
-    newsComments: await (await import("./newsComments.js")).dueNews(30), // 댓글 수를 알아 와 줄 네이버 뉴스
+    newsComments: [], // 네이버가 댓글 수 요청을 거절해서 끔
   };
 }

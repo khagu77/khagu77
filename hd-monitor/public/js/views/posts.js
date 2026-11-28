@@ -117,7 +117,7 @@ export async function render(root, store, { arg, qs }) {
     if (b.hasAttribute("data-all")) st.sent.clear();
     else st.sent.has(b.dataset.v) ? st.sent.delete(b.dataset.v) : st.sent.add(b.dataset.v);
     $q("#sents").querySelectorAll(".chip").forEach((c) => c.classList.toggle("on", c.hasAttribute("data-all") ? !st.sent.size : st.sent.has(c.dataset.v)));
-    apply();
+    reload(); // 성향은 서버에서 걸러 다시 불러옴
   });
   $q("#grp").onchange = (e) => { st.grp = e.target.value; apply(); };
   let qt;
@@ -155,7 +155,7 @@ export async function render(root, store, { arg, qs }) {
     const g = ++gen;
     totalCount = null;
     const [cf, ct] = rangeOf(st.period, st.from, st.to);
-    store.be.countPosts?.({ cat: cat.id, from: cf, to: ct, sort: st.sort }).then((n) => { if (g === gen) { totalCount = n; apply(); } }).catch(() => {});
+    store.be.countPosts?.({ cat: cat.id, from: cf, to: ct, sort: st.sort, sents: st.sent.size ? [...st.sent] : null }).then((n) => { if (g === gen) { totalCount = n; apply(); } }).catch(() => {});
     all = []; cursor = null; done = false; sel.clear(); newestMs = 0; drawn = []; shown = 0; searching = false; pending = null; loading = false;
     $q("#banner").innerHTML = "";
     $q("#list").innerHTML = Array.from({ length: 8 }, () => `<div class="post"><span></span><div class="skeleton" style="width:30px;height:30px"></div><div><div class="skeleton" style="height:14px;width:70%"></div><div class="skeleton" style="height:10px;width:40%;margin-top:8px"></div></div><div class="skeleton" style="height:12px"></div><div class="skeleton" style="height:12px"></div></div>`).join("");
@@ -171,7 +171,7 @@ export async function render(root, store, { arg, qs }) {
     pending = (async () => {
       try {
         const [from, to] = rangeOf(st.period, st.from, st.to);
-        const r = await store.be.listPosts({ cat: cat.id, from, to, sort: st.sort, pageSize: 300, cursor });
+        const r = await store.be.listPosts({ cat: cat.id, from, to, sort: st.sort, pageSize: 300, cursor, sents: st.sent.size ? [...st.sent] : null });
         if (g !== gen) return; // 그사이 기간이 바뀜 → 버림
         all.push(...r.items);
         cursor = r.cursor; done = r.done || !r.items.length;

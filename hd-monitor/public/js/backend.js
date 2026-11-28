@@ -41,8 +41,10 @@ export async function createBackend() {
     saveSettings: (patch) => setDoc(doc(db, "settings/main"), { ...patch, updatedAt: serverTimestamp() }, { merge: true }),
     resetSettings: (key) => call("resetSettings", { key }),
 
-    async listPosts({ cat = "all", from, to, sort = "time", pageSize = 200, cursor = null }) {
+    // sents: 성향으로 서버에서 거름 (화면에서 3,000건만 읽고 거르면 적은 성향 글을 못 찾음)
+    async listPosts({ cat = "all", from, to, sort = "time", pageSize = 200, cursor = null, sents = null }) {
       const cons = [where("cats", "array-contains", cat)];
+      if (sents?.length) cons.push(where("sentiment", "in", sents.slice(0, 10)));
       if (from) cons.push(where(sort, ">=", Timestamp.fromDate(from)));
       if (to) cons.push(where(sort, "<", Timestamp.fromDate(to)));
       cons.push(orderBy(sort, "desc"), limit(pageSize));
@@ -51,8 +53,9 @@ export async function createBackend() {
       return { items: snap.docs.map((d) => ({ id: d.id, ...d.data() })), cursor: snap.docs[snap.docs.length - 1] || null, done: snap.size < pageSize };
     },
     // 기간 안의 글 수 (글을 다 불러오지 않고 서버에서 셈)
-    async countPosts({ cat = "all", from, to, sort = "time", short = null }) {
+    async countPosts({ cat = "all", from, to, sort = "time", short = null, sents = null }) {
       const cons = [where("cats", "array-contains", cat)];
+      if (sents?.length) cons.push(where("sentiment", "in", sents.slice(0, 10)));
       if (short !== null) cons.push(where("short", "==", short));
       if (from) cons.push(where(sort, ">=", Timestamp.fromDate(from)));
       if (to) cons.push(where(sort, "<", Timestamp.fromDate(to)));

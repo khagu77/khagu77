@@ -21,13 +21,13 @@ export async function render(root, store) {
     <div class="dash-grid stagger" id="grid">
       <div class="card span-8" style="--i:1"><h3>📈 채널별 이슈 게시물 <span class="sub" id="trendSub"></span></h3><div id="trend" style="min-height:260px"></div><div class="legend" id="trendLegend"></div></div>
       <div class="card span-4 feed-card" style="--i:2;grid-row:span 2"><h3><span class="dot"></span> 실시간 수집 피드 <span class="sub">새 글이 들어오면 바로 표시</span></h3><div class="feed-wrap"><div class="feed" id="feed"></div></div></div>
-      <div class="card span-4" style="--i:3"><h3>🎭 성향 분포 <span class="sub">이슈 게시물</span></h3><div class="donut-wrap"><div id="donut"></div><div class="dlegend" id="dlegend"></div></div></div>
-      <div class="card span-4" style="--i:4"><h3>🔑 많이 걸린 키워드</h3><div class="rank" id="kw"></div></div>
-      <div class="card span-3" style="--i:5"><h3>📉 부정·단순비난 비율 <span class="sub">이슈 게시물 중</span></h3><div id="negline"></div></div>
+      <div class="card span-4" style="--i:3"><h3>🎭 성향 분포 <span class="sub basis-sub" data-what="이슈 게시물"></span></h3><div class="donut-wrap"><div id="donut"></div><div class="dlegend" id="dlegend"></div></div></div>
+      <div class="card span-4" style="--i:4"><h3>🔑 많이 걸린 키워드 <span class="sub basis-sub" data-what="이슈 게시물"></span></h3><div class="rank" id="kw"></div></div>
+      <div class="card span-3" style="--i:5"><h3>📉 부정·단순비난 비율 <span class="sub basis-sub" data-what="이슈 게시물 중"></span></h3><div id="negline"></div></div>
       <div class="card span-3" style="--i:6"><h3>🕒 시간대별 수집량 <span class="sub" id="heatSub"></span></h3><div id="heat" style="padding-top:4px"></div><div id="garbage"></div></div>
       <div class="card span-3 top-card" style="--i:6"><h3>👁 조회수 TOP <span class="sub top-sub"></span></h3><div class="top-tabs" id="topViewsTabs"></div><div class="top-list" id="topViews"></div></div>
       <div class="card span-3 top-card" style="--i:6"><h3>💬 댓글수 TOP <span class="sub top-sub"></span></h3><div class="top-tabs" id="topCommentsTabs"></div><div class="top-list" id="topComments"></div></div>
-      <div class="card span-4" style="--i:7"><h3>📡 채널별 이슈</h3><div class="rank" id="chs"></div></div>
+      <div class="card span-4" style="--i:7"><h3>📡 채널별 이슈 <span class="sub basis-sub" data-what="이슈 게시물"></span></h3><div class="rank" id="chs"></div></div>
       <div class="card span-4" style="--i:8"><h3>☕ 관심 동호회 TOP <span class="sub fav-sub"></span></h3><div class="rank" id="favCafe"></div></div>
       <div class="card span-4" style="--i:9"><h3>▶️ 관심 유튜브 TOP <span class="sub fav-sub"></span></h3><div class="rank" id="favYt"></div></div>
       <div class="card span-12" style="--i:10"><h3>🛰 수집 상태 <span class="sub" id="runSub"></span></h3><div class="status-log" id="runlog"></div></div>
@@ -147,7 +147,8 @@ export async function render(root, store) {
   }
 
   // 성향별 목록으로 (대시보드에서 보던 기간 그대로, 이슈 게시물 기준)
-  const sentHref = (sent) => `#/posts/all?sent=${sent}&issue=1&period=${period === 1 ? "today" : period === 30 ? "30d" : "7d"}`;
+  // 대시보드 숫자와 같은 기준(수집일)으로 목록 열기
+  const sentHref = (sent) => `#/posts/all?sent=${sent}&issue=1&sort=collectedAt&period=${period === 1 ? "today" : period === 30 ? "30d" : "7d"}`;
 
   function draw(first = false) {
     if (!data) return;
@@ -156,7 +157,7 @@ export async function render(root, store) {
     const series = (f) => data.cur.map((k) => f(data.by[k] || {}));
     const neg = (s) => (s.sentIssue?.neg || 0) + (s.sentIssue?.abuse || 0);
     const kpis = [
-      { label: "전체 수집 (수집일)", icon: "🗂", v: A.total, p: P.total, sp: series((s) => s.total || 0), color: "--s1", href: "#/posts/all" },
+      { label: "전체 수집", icon: "🗂", v: A.total, p: P.total, sp: series((s) => s.total || 0), color: "--s1", href: "#/posts/all" },
       { label: "이슈 게시물", icon: "🚨", v: A.issue, p: P.issue, sp: series((s) => s.issue || 0), color: "--s2", href: "#/posts/news" },
       { label: "부정·단순비난", icon: "😠", v: neg(A), p: neg(P), sp: series(neg), color: "--s8", href: sentHref("neg,abuse"), suffix: A.issue ? `<small>${Math.round((neg(A) / A.issue) * 100)}%</small>` : "" },
       { label: "가비지", icon: "🗑", v: A.garbage, p: P.garbage, sp: series((s) => s.garbage || 0), color: "--s7", href: "#/posts/garbage", good: true },
@@ -166,7 +167,7 @@ export async function render(root, store) {
     const kEl = $q("#kpis");
     if (first || kEl.children.length !== kpis.length || kEl.querySelector(".skeleton")) {
       kEl.innerHTML = kpis.map((k, i) => `<a class="card kpi hover" style="--i:${i};--accent:var(${k.color})" href="${k.href || "#/dashboard"}">
-        <div class="k-label">${k.icon} ${esc(k.label)}</div><div class="k-val"><span data-k="${i}">0</span>${k.suffix || ""}</div>
+        <div class="k-label">${k.icon} ${esc(k.label)}<small class="k-basis">${period === 1 ? "오늘" : `최근 ${period}일`} 수집</small></div><div class="k-val"><span data-k="${i}">0</span>${k.suffix || ""}</div>
         <div class="k-delta" data-d="${i}"></div>${sparkline(k.sp.slice(-Math.max(period, 7)), k.color)}</a>`).join("");
     }
     kpis.forEach((k, i) => {
@@ -216,6 +217,8 @@ export async function render(root, store) {
     // 히트맵
     radialHours($q("#heat"), Array.from({ length: 24 }, (_, i) => A.hour[String(i).padStart(2, "0")] || 0));
     $q("#heatSub").textContent = period === 1 ? "오늘 수집" : `최근 ${period}일 수집 합계`;
+    root.querySelectorAll(".basis-sub").forEach((e) => (e.textContent = `${period === 1 ? "오늘" : `최근 ${period}일`} 수집 · ${e.dataset.what}`));
+    root.querySelectorAll(".k-basis").forEach((e) => (e.textContent = `${period === 1 ? "오늘" : `최근 ${period}일`} 수집`));
     $q("#basisNote").innerHTML = `ⓘ <b>숫자 기준</b> 위 카드·그래프 = ${period === 1 ? "오늘" : `최근 ${period}일`} <b>수집된</b> 글 (예전에 쓰였지만 이번에 처음 수집된 글 포함) <span>·</span> 조회수·댓글수 TOP·관심 유튜브 TOP = <b>작성일</b> 기준 <span>·</span> 사이드바·게시물 목록 = <b>작성일</b> 기준`;
     const issueN = A.total - A.garbage, gp = A.total ? (A.garbage / A.total) * 100 : 0;
     $q("#garbage").innerHTML = `<div class="ig-bar"><i style="width:${100 - gp}%;background:var(--grad)"></i><i style="width:${gp}%;background:var(--s7);opacity:.55;animation-delay:.3s"></i></div>
@@ -283,10 +286,15 @@ export async function render(root, store) {
   await load();
   // 오늘 날짜 · 현재 시각 (1초마다)
   const WD = ["일", "월", "화", "수", "목", "금", "토"];
+  // 공휴일(대체공휴일 포함) — 일요일과 함께 빨간색
+  const HOLI = new Set(["2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18", "2026-03-01", "2026-03-02", "2026-05-05", "2026-05-24", "2026-05-25", "2026-06-03", "2026-06-06", "2026-08-15", "2026-08-17", "2026-09-24", "2026-09-25", "2026-09-26", "2026-10-03", "2026-10-05", "2026-10-09", "2026-12-25",
+    "2027-01-01", "2027-02-06", "2027-02-07", "2027-02-08", "2027-02-09", "2027-03-01", "2027-05-05", "2027-05-13", "2027-06-06", "2027-08-15", "2027-08-16", "2027-09-14", "2027-09-15", "2027-09-16", "2027-10-03", "2027-10-04", "2027-10-09", "2027-10-11", "2027-12-25", "2027-12-27"]);
   const drawClock = () => {
     const d = new Date();
     const el = $q("#nowClock");
-    if (el) el.innerHTML = `<span class="d">${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()} (${WD[d.getDay()]})</span><b>${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}<span class="sec">:${String(d.getSeconds()).padStart(2, "0")}</span></b>`;
+    const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const red = d.getDay() === 0 || HOLI.has(ymd);
+    if (el) el.innerHTML = `<span class="d${red ? " red" : ""}">${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()} (${WD[d.getDay()]})</span><b>${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}<span class="sec">:${String(d.getSeconds()).padStart(2, "0")}</span></b>`;
   };
   // 시계 상자 폭을 위 '모니터링 대시보드' 글자 폭에 맞춤
   const fitClock = () => {

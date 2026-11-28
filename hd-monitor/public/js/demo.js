@@ -122,10 +122,10 @@ export function createDemoBackend() {
     watchSettings: (cb) => { cb(settings); return () => {}; },
     saveSettings: async (patch) => { Object.assign(settings, patch); await delay(); },
     resetSettings: async (key) => { settings[key] = structuredClone(DEFAULT_SETTINGS[key]); },
-    async countPosts({ cat = "all", from, to, sort = "time", short = null }) { return posts.filter((p) => p.cats.includes(cat) && (short === null || !!p.short === short) && (!from || p[sort] >= from) && (!to || p[sort] < to)).length; },
-    async listPosts({ cat = "all", from, to, sort = "time", pageSize = 200, cursor = null }) {
+    async countPosts({ cat = "all", from, to, sort = "time", short = null, sents = null }) { return posts.filter((p) => p.cats.includes(cat) && (!sents?.length || sents.includes(p.sentiment)) && (short === null || !!p.short === short) && (!from || p[sort] >= from) && (!to || p[sort] < to)).length; },
+    async listPosts({ cat = "all", from, to, sort = "time", pageSize = 200, cursor = null, sents = null }) {
       await delay(350);
-      let list = posts.filter((p) => p.cats.includes(cat) && (!from || p[sort] >= from) && (!to || p[sort] < to)).sort((a, b) => b[sort] - a[sort]);
+      let list = posts.filter((p) => p.cats.includes(cat) && (!sents?.length || sents.includes(p.sentiment)) && (!from || p[sort] >= from) && (!to || p[sort] < to)).sort((a, b) => b[sort] - a[sort]);
       const start = cursor || 0;
       const items = list.slice(start, start + pageSize);
       return { items, cursor: start + pageSize, done: start + pageSize >= list.length };

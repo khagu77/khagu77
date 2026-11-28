@@ -544,8 +544,12 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
   .auth-hero { padding: 28px 20px 0; min-height: 300px; }
   .radar { width: 320px; height: 320px; right: -110px; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .donut-wrap { flex-direction: column; align-items: stretch; }
-  .donut-wrap svg { margin: 0 auto; }
+  /* 모바일: 원형 그래프와 막대를 좌우 한 줄로 */
+  .donut-wrap { flex-direction: row; align-items: center; gap: 12px; }
+  .donut-wrap svg { width: 42%; max-width: 150px; height: auto; aspect-ratio: 1; margin: 0; }
+  .dlegend { min-width: 0; gap: 6px; }
+  .dlegend .r { font-size: 12px; gap: 5px; }
+  .dlegend .r .badge { padding: 2px 6px; font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
@@ -574,11 +578,11 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 .btn.kakao:hover { background: #ffeb3b; box-shadow: 0 6px 18px rgba(254, 229, 0, .35); }
 .kpi .k-val small.kpi-ns { margin-left: 12px; }
 .now-clock { display: flex; align-items: center; box-sizing: border-box; margin-top: 10px; padding: 3px 12px; line-height: 1.35; border-radius: 999px; background: #fff; color: #1f5fd6; font-size: 13px; font-weight: 800; letter-spacing: -.08em; justify-content: center; gap: 0; font-variant-numeric: tabular-nums; white-space: nowrap; box-shadow: 0 6px 18px rgba(31, 95, 214, .25); }
-.now-clock::before { content: ""; flex: none; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: #1f5fd6; animation: clockPulse 2s ease-in-out infinite; }
+.now-clock .d.red { color: #e0322f; }
 .now-clock .d { letter-spacing: -.08em; }
 .now-clock b, .now-clock .sec { letter-spacing: -.05em; }
 .now-clock b { margin-left: 8px; font-weight: 800; color: #0b3fae; }
-.now-clock .sec { opacity: .6; font-weight: 700; }
+.now-clock .sec { font-weight: 800; }
 @keyframes clockPulse { 50% { opacity: .25; transform: scale(.7); } }
 .rank .r b .r-sh { margin-right: 8px; font-size: 11px; font-weight: 500; color: var(--text-3); }
 
@@ -679,3 +683,6 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 /* 관심 동호회·유튜브 TOP 제목 한 줄 */
 .card h3:has(.fav-sub) { white-space: nowrap; }
 .card h3 .fav-sub { letter-spacing: -.04em; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* 카드 숫자 기준 (작게 · 자간 좁게) */
+.k-basis { display: block; margin-top: 2px; font-size: 10.5px; font-weight: 600; letter-spacing: -.04em; color: var(--text-3); white-space: nowrap; }
+.basis-sub { letter-spacing: -.04em; font-size: 11px; }

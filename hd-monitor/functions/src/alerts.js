@@ -8,14 +8,14 @@ import { findSimilar } from "./similarity.js";
 export const SITE_URL = "https://hd-issue-monitor.web.app";
 const goLink = (site, url) => `${site}/go.html?u=${encodeURIComponent(url)}`;
 
+// 카톡 메시지: 채널 / 제목 / 링크를 한 줄씩 띄워서 (카카오 '나에게 보내기' 글자 수 200자 제한)
 export function formatAlert(p) {
   const ch = CHANNELS[p.channel] || { name: p.channel, icon: "🔔" };
-  const head = `${ch.icon} [${ch.name}]${p.channel === "cafe" || p.channel === "youtube" ? ` ${p.source}` : ""}`;
-  const kw = (p.kw || []).slice(0, 3).join(", ");
-  const tail = `${kw ? `\n🔑 ${kw}` : ""}\n${p.url}`;
+  const head = `${ch.icon} [${ch.name}]${p.source ? ` ${p.source}` : ""}`.slice(0, 50);
+  const tail = `\n\n${p.url}`;
   const room = Math.max(20, 200 - head.length - tail.length - 2);
   const title = p.title.length > room ? `${p.title.slice(0, room - 1)}…` : p.title;
-  return `${head}\n${title}${tail}`.slice(0, 200);
+  return `${head}\n\n${title}${tail}`.slice(0, 200);
 }
 
 export async function sendAlerts(created, ctx, secrets, log) {
@@ -24,7 +24,7 @@ export async function sendAlerts(created, ctx, secrets, log) {
   const skipRules = parseRules(ctx.settings.alert?.excludeTitle ?? DEFAULT_SETTINGS.alert.excludeTitle);
   const maxAgeMs = (Number(ctx.settings.alert?.maxAgeHours) || 3) * 3600e3;
   const fresh = (p) => !p.time?.toMillis || Date.now() - p.time.toMillis() <= maxAgeMs;
-  const cand = created.filter((p) => p.alert && !p.dupOf && fresh(p) && !(favOnly[p.channel] && !p.fav) && !matchRules(norm(p.title), skipRules).length).sort((a, b) => a.time.toMillis() - b.time.toMillis());
+  const cand = created.filter((p) => p.alert && (p.isIssue || p.must) && !p.manualGarbage && !p.dupOf && fresh(p) && !(favOnly[p.channel] && !p.fav) && !matchRules(norm(p.title), skipRules).length).sort((a, b) => a.time.toMillis() - b.time.toMillis());
   if (!cand.length) return;
   if (!secrets.kakaoRestKey) { log.push("알림: 카카오 키 없음"); return; }
   const cfg = ctx.settings.alert || {};
