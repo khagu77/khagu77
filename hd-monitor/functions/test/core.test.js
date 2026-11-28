@@ -123,3 +123,49 @@ test("화면용 공용 모듈이 서버와 같음 (다르면 npm run sync-shared
     assert.equal(fs.readFileSync(new URL(`../../public/js/shared/${f}.js`, import.meta.url), "utf8"), fs.readFileSync(new URL(`../src/${f}.js`, import.meta.url), "utf8"), f);
   }
 });
+
+import { parseSearchPage, linkKey, relTime } from "../src/collectors/naverweb.js";
+
+test("네이버 검색 화면: 뉴스 (언론사 링크 + 네이버뉴스 링크를 한 글로)", () => {
+  const html = `<ul class="list_news">
+  <li class="bx"><div class="news_wrap"><div class="info_group"><a class="info press" href="https://www.hankyung.com/">한국경제</a><span class="info">3시간 전</span><a class="info" href="https://n.news.naver.com/mnews/article/015/0005000001?sid=101">네이버뉴스</a></div>
+    <a class="news_tit" href="https://www.hankyung.com/article/2026112800001" title="현대차 아이오닉5 ICCU 결함 무상수리">현대차 아이오닉5 ICCU 결함 무상수리</a>
+    <div class="news_dsc"><a class="api_txt_lines dsc_txt_wrap" href="https://www.hankyung.com/article/2026112800001">현대자동차가 아이오닉5 통합충전제어장치(ICCU) 결함으로 무상수리를 실시한다. 대상은 12만대다.</a></div></div></li>
+  <li class="bx"><div class="news_wrap"><div class="info_group"><a class="info press" href="https://www.yna.co.kr/">연합뉴스</a><span class="info">15분 전</span></div>
+    <a class="news_tit" href="https://www.yna.co.kr/view/AKR2026112800001">팰리세이드 2열 전동시트 끼임 사고</a></div></li></ul>`;
+  const now = new Date("2026-11-28T03:00:00Z");
+  const rows = parseSearchPage(html, "news");
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].title, "현대차 아이오닉5 ICCU 결함 무상수리");
+  assert.equal(rows[0].url, "https://n.news.naver.com/mnews/article/015/0005000001");
+  assert.equal(rows[0].source, "한국경제");
+  assert.ok(rows[0].snippet.includes("12만대"));
+  assert.equal(rows[1].url, "https://www.yna.co.kr/view/AKR2026112800001");
+  assert.equal(rows[1].source, "연합뉴스");
+  assert.ok(rows[1].date && rows[1].date.getTime() <= Date.now());
+  void now;
+});
+
+test("네이버 검색 화면: 카페 (카페 이름·주소 ID·제목)", () => {
+  const html = `<div class="view_wrap"><div class="user_box"><a class="name" href="https://cafe.naver.com/gamewinds">LX3 클럽</a><span class="sub">2026.11.27.</span></div>
+    <div class="title_area"><a class="title_link" href="https://cafe.naver.com/gamewinds/4299497?art=abc">팰리세이드 3열 폴딩 손 끼임 조심하세요</a></div>
+    <div class="dsc_area"><a class="dsc_link" href="https://cafe.naver.com/gamewinds/4299497?art=abc">아이가 3열 폴딩할 때 손이 끼일 뻔했습니다 정말 위험하네요</a></div></div>
+  <div class="view_wrap"><div class="user_box"><a class="name" href="https://cafe.naver.com/tobloomer">팰리세이드 오너스 클럽</a><span class="sub">5시간 전</span></div>
+    <div class="title_area"><a class="title_link" href="https://cafe.naver.com/tobloomer/133964">전동시트 업데이트 후기</a></div></div>`;
+  const rows = parseSearchPage(html, "cafe");
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].url, "https://cafe.naver.com/gamewinds/4299497");
+  assert.equal(rows[0].club, "gamewinds");
+  assert.equal(rows[0].source, "LX3 클럽");
+  assert.equal(rows[0].title, "팰리세이드 3열 폴딩 손 끼임 조심하세요");
+  assert.equal(rows[0].date.toISOString(), "2026-11-26T15:00:00.000Z");
+  assert.equal(rows[1].source, "팰리세이드 오너스 클럽");
+});
+
+test("네이버 검색 화면: 블로그 주소 정리·상대 시각", () => {
+  assert.equal(linkKey("blog", "https://m.blog.naver.com/PostView.naver?blogId=car_life&logNo=223456789012").url, "https://blog.naver.com/car_life/223456789012");
+  assert.equal(linkKey("blog", "https://blog.naver.com/car_life"), null);
+  const now = new Date("2026-11-28T03:00:00Z");
+  assert.equal(relTime("홍길동 · 2시간 전", now).toISOString(), "2026-11-28T01:00:00.000Z");
+  assert.equal(relTime("어제", now).toISOString(), "2026-11-27T03:00:00.000Z");
+});

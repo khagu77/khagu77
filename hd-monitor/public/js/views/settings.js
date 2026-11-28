@@ -239,7 +239,8 @@ export async function render(root, store, { arg }) {
       <div class="card span-6"><h3>📡 수집</h3><div style="display:flex;flex-direction:column;gap:12px">
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="enabled" ${c.enabled ? "checked" : ""}><span></span></span><b>자동 수집 (5분마다)</b></label>
         <div class="frow"><span class="lbl">네이버</span>${[["news", "뉴스"], ["blog", "블로그"], ["cafe", "카페글"], ["post", "포스트(웹문서)"]].map(([k, l]) => `<label class="toggle-row"><span class="switch"><input type="checkbox" data-n="${k}" ${c.naver[k] ? "checked" : ""}><span></span></span>${l}</label>`).join("")}</div>
-        <label class="field">네이버 API 하루 사용량 (앱 1개당, 최대 25,000)<input class="input" type="number" data-c="naverDailyBudget" value="${c.naverDailyBudget}"></label>
+        <label class="field">네이버 검색 화면 읽기 — 5분마다 읽을 검색 수 (API 키가 없을 때 · 너무 크면 네이버가 잠시 막을 수 있음)<input class="input" type="number" min="6" max="80" data-c="naverWebPerTick" value="${c.naverWebPerTick ?? 36}"></label>
+        <label class="field">(API 키를 넣은 경우) 네이버 API 하루 사용량 (앱 1개당, 최대 25,000)<input class="input" type="number" data-c="naverDailyBudget" value="${c.naverDailyBudget}"></label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="youtubeRss" ${c.youtubeRss ? "checked" : ""}><span></span></span>관심 유튜브 새 영상 (RSS · 무료 · 10분마다)</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="youtubeSearch" ${c.youtubeSearch ? "checked" : ""}><span></span></span>유튜브 전체 검색 (YouTube API)</label>
         <label class="field">YouTube API 하루 단위 (키 1개당, 최대 10,000 · 검색 1회 = 100)<input class="input" type="number" data-c="youtubeDailyUnits" value="${c.youtubeDailyUnits}"></label>
@@ -264,9 +265,9 @@ export async function render(root, store, { arg }) {
       </div></div></div>`;
     const est = () => {
       const calls = qn * Object.values(c.naver).filter(Boolean).length;
-      const perTick = Math.max(10, Math.floor((c.naverDailyBudget * (store._naverKeys || 1)) / 288));
+      const perTick = store._naverKeys ? Math.max(10, Math.floor((c.naverDailyBudget * store._naverKeys) / 288)) : Math.max(6, Number(c.naverWebPerTick) || 36);
       const cycle = Math.ceil(calls / perTick) * 5;
-      v.querySelector("#est").innerHTML = `검색어 ${qn}개 × 네이버 ${Object.values(c.naver).filter(Boolean).length}곳 = ${fmtNum(calls)}회 / 5분마다 ${fmtNum(perTick)}회 → 모든 검색어를 한 바퀴 도는 데 약 <b>${cycle}분</b> (네이버 API 앱을 ${store._naverKeys || 1}개 넣은 기준 · 앱을 더 넣으면 빨라짐)<br>유튜브 관심 채널 10분마다 · 커뮤니티 5분마다`;
+      v.querySelector("#est").innerHTML = `검색어 ${qn}개 × 네이버 ${Object.values(c.naver).filter(Boolean).length}곳 = ${fmtNum(calls)}회 / 5분마다 ${fmtNum(perTick)}회 → 모든 검색어를 한 바퀴 도는 데 약 <b>${cycle}분</b> ${store._naverKeys ? `(네이버 API 앱 ${store._naverKeys}개 기준)` : "(네이버 검색 화면 읽기 기준 · 검색어를 줄이면 빨라짐)"}<br>유튜브 관심 채널 10분마다 · 커뮤니티 5분마다`;
     };
     void srcN;
     est();
@@ -285,7 +286,7 @@ export async function render(root, store, { arg }) {
     const origin = location.origin;
     v.innerHTML = `<div class="card" style="margin-bottom:14px"><h3>🔐 API 키 <span class="sub">서버 전용 저장소에 보관 · 화면에서는 다시 볼 수 없고 '설정됨'만 표시</span></h3><div id="ks" class="chips"><span class="skeleton" style="width:300px;height:26px"></span></div></div>
       <div class="dash-grid">
-        <div class="card span-6"><h3>네이버 검색 API</h3><p class="hint">developers.naver.com → Application → 애플리케이션 등록 → 사용 API '검색' → Client ID · Client Secret. <b>앱을 여러 개</b> 만들어 줄마다 넣으면 수집이 그만큼 빨라집니다 (앱당 하루 25,000회 무료).</p>
+        <div class="card span-6"><h3>네이버 검색 API <span class="badge b-info">선택</span></h3><p class="hint"><b>넣지 않아도 됩니다.</b> 키가 없으면 네이버 검색 결과 화면(뉴스·블로그·카페)을 직접 읽어 모읍니다. 예전에 만든 앱에 '검색' API 가 있는 경우에만 넣으세요. developers.naver.com → Application → 애플리케이션 등록 → 사용 API '검색' → Client ID · Client Secret. <b>앱을 여러 개</b> 만들어 줄마다 넣으면 수집이 그만큼 빨라집니다 (앱당 하루 25,000회 무료).</p>
           <textarea class="input" id="naverKeys" rows="4" style="width:100%" placeholder="ClientID:ClientSecret&#10;ClientID2:ClientSecret2"></textarea></div>
         <div class="card span-6"><h3>YouTube Data API</h3><p class="hint">Google Cloud 콘솔(linesquare--monitor 프로젝트) → API 및 서비스 → 'YouTube Data API v3' 사용 설정 → 사용자 인증 정보 → API 키. 여러 개면 띄어쓰기로 구분.</p>
           <textarea class="input" id="youtubeKeys" rows="2" style="width:100%" placeholder="AIza..."></textarea></div>

@@ -2,7 +2,8 @@
 import { db, getSettings, getSecrets, getState, setState, Timestamp } from "./db.js";
 import { buildContext } from "./classify.js";
 import { collectQueries } from "./keywords.js";
-import { collectNaver } from "./collectors/naver.js";
+import { collectNaver, parseKeys } from "./collectors/naver.js";
+import { collectNaverWeb } from "./collectors/naverweb.js";
 import { collectYoutubeRss, collectYoutubeSearch } from "./collectors/youtube.js";
 import { collectCommunity } from "./collectors/community.js";
 import { ingest } from "./store.js";
@@ -21,7 +22,8 @@ export async function runCollection({ force = false, parts = null } = {}) {
   const want = (p) => !parts || parts.includes(p);
 
   const jobs = [];
-  if (want("naver")) jobs.push(collectNaver({ queries, settings, secrets, log }));
+  // 네이버: 검색 API 키가 있으면 API, 없으면 검색 결과 화면을 직접 읽음
+  if (want("naver")) jobs.push(parseKeys(secrets.naverKeys).length ? collectNaver({ queries, settings, secrets, log }) : collectNaverWeb({ queries, settings, log }));
   if (want("rss") && settings.collect.youtubeRss && (force || tick % 2 === 0)) jobs.push(collectYoutubeRss({ settings, log }));
   if (want("ytsearch") && settings.collect.youtubeSearch) jobs.push(collectYoutubeSearch({ queries: targetQueries, settings, secrets, log }));
   if (want("community") && settings.collect.community) jobs.push(collectCommunity({ settings, log }));
