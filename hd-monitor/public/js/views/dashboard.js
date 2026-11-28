@@ -148,7 +148,7 @@ export async function render(root, store) {
   }
 
   // KPI 숫자: 바뀐 자릿수만 아주 큰 숫자가 무작위 순서로 위에서 '뚝' 떨어져 제자리에 앉음 (처음엔 모든 자릿수)
-  function dropDigits(el, to) {
+  function dropDigits(el, to, base = 0) {
     if (!el) return;
     const next = fmtNum(to);
     const prev = el.dataset.s ?? "";
@@ -160,19 +160,23 @@ export async function render(root, store) {
     const a = prev.padStart(pad, " "), b = next.padStart(pad, " ");
     const changed = [...b].map((c, i) => !prev || c !== a[i]);
     const order = changed.map((c, i) => (c ? i : -1)).filter((i) => i >= 0).sort(() => Math.random() - 0.5);
-    const delayOf = new Map(order.map((i, n) => [i, n * 90 + Math.random() * 60]));
+    let acc = base;
+    const delayOf = new Map(order.map((i) => { const d = acc; acc += 150 + Math.random() * 150; return [i, d]; }));
     el.classList.add("dd-wrap");
     el.innerHTML = [...b].map((c, i) => {
       if (c === " ") return "";
       if (!/\d/.test(c)) return `<span class="dd-sep">${c}</span>`;
       if (!changed[i] || reduce) return `<span class="dd">${c}</span>`;
-      const rot = Math.round((Math.random() - 0.5) * 50), sc = (2.4 + Math.random() * 1.8).toFixed(2), dx = Math.round((Math.random() - 0.5) * 60);
-      return `<span class="dd drop" style="--dl:${Math.round(delayOf.get(i))}ms;--rot:${rot}deg;--sc:${sc};--dx:${dx}px">${c}</span>`;
+      // 위에서 떨어지거나 아래에서 솟아오름 (거리·좌우·각도·크기 모두 무작위)
+      const fromTop = Math.random() < 0.55;
+      const dy = (fromTop ? -1 : 1) * Math.round(110 + Math.random() * 120);
+      const rot = Math.round((Math.random() - 0.5) * 70), sc = (2.2 + Math.random() * 2.2).toFixed(2), dx = Math.round((Math.random() - 0.5) * 240);
+      return `<span class="dd drop" style="--dl:${Math.round(delayOf.get(i))}ms;--rot:${rot}deg;--sc:${sc};--dx:${dx}px;--dy:${dy}%;--bo:${fromTop ? 8 : -8}%">${c}</span>`;
     }).join("");
     // 떨어진 뒤 카드가 살짝 '쿵' 흔들림
     if (!reduce && order.length) {
       const card = el.closest(".kpi");
-      const last = Math.max(...order.map((i) => delayOf.get(i))) + 520;
+      const last = Math.max(...order.map((i) => delayOf.get(i))) + 950;
       setTimeout(() => { card?.classList.remove("thud"); void card?.offsetWidth; card?.classList.add("thud"); }, last);
     }
   }
@@ -201,8 +205,11 @@ export async function render(root, store) {
         <div class="k-label">${k.icon} ${esc(k.label)}<small class="k-basis">${period === 1 ? "오늘" : `최근 ${period}일`} 수집</small></div><div class="k-val"><span data-k="${i}">0</span>${k.suffix || ""}</div>
         <div class="k-delta" data-d="${i}"></div>${sparkline(k.sp.slice(-Math.max(period, 7)), k.color)}</a>`).join("");
     }
+    // 카드마다 무작위 순서로 차례차례 (동시에 떨어지지 않게)
+    const cardOrder = kpis.map((_, i) => i).sort(() => Math.random() - 0.5);
+    const cardDelay = new Map(cardOrder.map((ci, n) => [ci, n * 350 + Math.random() * 180]));
     kpis.forEach((k, i) => {
-      dropDigits(kEl.querySelector(`[data-k="${i}"]`), k.v);
+      dropDigits(kEl.querySelector(`[data-k="${i}"]`), k.v, cardDelay.get(i));
       const d = kEl.querySelector(`[data-d="${i}"]`);
       const diff = k.v - k.p;
       const pct = k.p ? Math.round((diff / k.p) * 100) : null;
