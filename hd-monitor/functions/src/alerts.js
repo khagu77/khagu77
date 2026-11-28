@@ -22,7 +22,9 @@ export async function sendAlerts(created, ctx, secrets, log) {
   // 동호회·유튜브는 관심 목록(관심 동호회 51곳 · 관심 유튜브)에서 나온 글만 알림 (설정에서 끌 수 있음)
   const favOnly = { cafe: true, youtube: true, ...(ctx.settings.alert?.favOnly || {}) };
   const skipRules = parseRules(ctx.settings.alert?.excludeTitle ?? DEFAULT_SETTINGS.alert.excludeTitle);
-  const cand = created.filter((p) => p.alert && !p.dupOf && !(favOnly[p.channel] && !p.fav) && !matchRules(norm(p.title), skipRules).length).sort((a, b) => a.time.toMillis() - b.time.toMillis());
+  const maxAgeMs = (Number(ctx.settings.alert?.maxAgeHours) || 3) * 3600e3;
+  const fresh = (p) => !p.time?.toMillis || Date.now() - p.time.toMillis() <= maxAgeMs;
+  const cand = created.filter((p) => p.alert && !p.dupOf && fresh(p) && !(favOnly[p.channel] && !p.fav) && !matchRules(norm(p.title), skipRules).length).sort((a, b) => a.time.toMillis() - b.time.toMillis());
   if (!cand.length) return;
   if (!secrets.kakaoRestKey) { log.push("알림: 카카오 키 없음"); return; }
   const cfg = ctx.settings.alert || {};
@@ -44,11 +46,14 @@ export async function sendAlerts(created, ctx, secrets, log) {
   let sent = 0;
   const perPost = new Map(); // 글 id → 받은 사람 이름
   let failed = 0;
+  let notConnected = 0;
+  let noChannel = 0;
   for (const u of users.docs) {
     const prof = u.data();
-    if (!prof.kakaoConnected) continue;
+    if (!prof.kakaoConnected) { notConnected++; continue; }
     const chs = prof.alertChannels && prof.alertChannels.length ? prof.alertChannels : Object.keys(CHANNELS);
     const mine = picked.filter((p) => chs.includes(p.channel) && (!prof.alertIssueOnly || p.isIssue));
+    if (!mine.length) noChannel++;
     const max = Number(cfg.maxPerRun) || 15;
     try {
       for (const p of mine.slice(0, max)) { await kakaoSend(u.id, formatAlert(p), goLink(site, p.url), secrets); sent++; perPost.set(p.id, [...(perPost.get(p.id) || []), prof.name || prof.email || u.id]); }
@@ -68,5 +73,5 @@ export async function sendAlerts(created, ctx, secrets, log) {
     await batch.commit().catch((e) => log.push(`발송 표시 실패: ${e.message}`));
   }
   await db.collection("alerts").add({ at: new Date(), posts: picked.map((p) => ({ id: p.id, title: p.title, channel: p.channel, url: p.url })), sent, failed });
-  log.push(`알림: ${picked.length}건 (메시지 ${sent}통${failed ? `, 실패 ${failed}명` : ""})`);
+  log.push(`알림: ${picked.length}건 (메시지 ${sent}통${failed ? `, 실패 ${failed}명` : ""})${sent ? "" : ` — 알림 켠 사용자 ${users.size}명${notConnected ? `, 카톡 미연결 ${notConnected}명` : ""}${noChannel ? `, 받을 채널 아님 ${noChannel}명` : ""}`}`);
 }

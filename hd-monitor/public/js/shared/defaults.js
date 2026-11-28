@@ -238,7 +238,7 @@ export const DEFAULT_SETTINGS = {
     naver: { news: true, blog: true, cafe: true, post: false },
     naverDailyBudget: 24000,      // 네이버 검색 API 1개 앱당 하루 25,000회 (여유분 제외)
     googleNews: true,              // 언론: Google 뉴스 RSS (서버만으로)
-    googleNewsPerTick: 20,
+    googleNewsPerTick: 12,         // 하나씩 1.5~3초 간격 (많으면 Google 이 429 로 잠시 거절)
     daumBlog: true,                // 블로그: 다음(카카오) 블로그 검색 API (카카오 REST 키)
     daumBlogPerTick: 20,
     ppomppuRss: true,              // 뽐뿌: 게시판 RSS
@@ -255,6 +255,7 @@ export const DEFAULT_SETTINGS = {
   alert: {
     dupThreshold: 0.8,             // 알림 제목 유사도 80% 이상 → 대표 1건만
     dupHours: 24,
+    maxAgeHours: 3,                // 작성(또는 수집)된 지 이 시간 안의 글만 알림 (처음 수집 때 하루치가 한꺼번에 가는 것 방지)
     maxPerRun: 15,                 // 한 번 수집에 한 사람에게 보내는 최대 알림 수 (넘으면 요약 1건)
     favOnly: { cafe: true, youtube: true }, // 동호회·유튜브는 관심 동호회·관심 유튜브 글만 알림
     // 제목에 이 단어가 있으면 카톡 알림을 보내지 않음 (글은 목록에 그대로 저장)

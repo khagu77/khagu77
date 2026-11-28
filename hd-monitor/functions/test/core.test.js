@@ -182,7 +182,7 @@ test("알림: 동호회·유튜브는 관심 목록 글만", async () => {
   const { sendAlerts } = await import("../src/alerts.js");
   // 카카오 키가 없으면 후보만 고르고 끝나므로, 후보 필터만 따로 확인
   const ctx2 = { settings: { ...DEFAULT_SETTINGS } };
-  const mk = (channel, fav) => ({ id: channel + fav, channel, fav, alert: true, dupOf: null, title: `${channel}${fav}`, time: { toMillis: () => 0 } });
+  const mk = (channel, fav) => ({ id: channel + fav, channel, fav, alert: true, dupOf: null, title: `${channel}${fav}`, time: { toMillis: () => Date.now() } });
   const log = [];
   await sendAlerts([mk("cafe", false), mk("youtube", false)], ctx2, {}, log);
   assert.deepEqual(log, []); // 관심 아닌 동호회·유튜브는 후보에서 빠져 아무 것도 안 함
@@ -268,10 +268,18 @@ test("뽐뿌 RSS 읽기", () => {
 test("알림: 가입인사·등업 신청 글은 보내지 않음", async () => {
   const { sendAlerts } = await import("../src/alerts.js");
   const ctx2 = { settings: { ...DEFAULT_SETTINGS } };
-  const mk = (title) => ({ id: title, channel: "cafe", fav: true, alert: true, dupOf: null, title, time: { toMillis: () => 0 } });
+  const mk = (title) => ({ id: title, channel: "cafe", fav: true, alert: true, dupOf: null, title, time: { toMillis: () => Date.now() } });
   const log = [];
   await sendAlerts([mk("[가입인사] 팰리세이드 출고했습니다"), mk("등업 신청합니다 LX3 리콜")], ctx2, {}, log);
   assert.deepEqual(log, []); // 후보가 없어 아무 것도 안 함
   await sendAlerts([mk("팰리세이드 시트 끼임 사고")], ctx2, {}, log);
   assert.deepEqual(log, ["알림: 카카오 키 없음"]);
+});
+
+test("알림: 3시간 넘은 글(처음 수집 때 들어온 하루치)은 보내지 않음", async () => {
+  const { sendAlerts } = await import("../src/alerts.js");
+  const ctx2 = { settings: { ...DEFAULT_SETTINGS } };
+  const log = [];
+  await sendAlerts([{ id: "old", channel: "news", fav: false, alert: true, dupOf: null, title: "현대차 리콜", time: { toMillis: () => Date.now() - 5 * 3600e3 } }], ctx2, {}, log);
+  assert.deepEqual(log, []);
 });

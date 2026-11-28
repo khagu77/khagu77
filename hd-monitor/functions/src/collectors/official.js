@@ -4,7 +4,7 @@
 // - 뽐뿌: 뽐뿌가 제공하는 게시판 RSS (화면 대신 구독용 주소)
 import * as cheerio from "cheerio";
 import iconv from "iconv-lite";
-import { decodeHtml, fetchWithTimeout, hash, pool, UA } from "../util.js";
+import { decodeHtml, fetchWithTimeout, hash, pool, sleep, UA } from "../util.js";
 import { getState, setState } from "../db.js";
 
 const TICKS_PER_DAY = 288;
@@ -35,15 +35,22 @@ export function parseGoogleNewsRss(xml) {
 
 export async function collectGoogleNews({ queries, settings, log }) {
   if (!settings.collect.googleNews || !queries.length) return [];
-  const perTick = Math.max(5, Number(settings.collect.googleNewsPerTick) || 20);
-  const { todo, next } = await pickQueries("gnews", queries, perTick);
+  const perTick = Math.max(3, Number(settings.collect.googleNewsPerTick) || 12);
+  const gst = await getState("gnews");
+  if (gst.pauseUntil > Date.now()) { log.push(`Google 뉴스: 요청이 많아 잠시 쉬는 중 (${Math.ceil((gst.pauseUntil - Date.now()) / 60000)}분 뒤 다시)`); return []; }
+  const { todo } = await pickQueries("gnews", queries, perTick);
   const seenDoc = await getState("gnews_seen");
   const out = [];
   let fail = 0;
-  await pool(todo, 4, async (q) => {
+  let done = 0;
+  let limited = false;
+  for (const q of todo) {
     const u = `https://news.google.com/rss/search?${new URLSearchParams({ q: `${q} when:1d`, hl: "ko", gl: "KR", ceid: "KR:ko" })}`;
     const r = await fetchWithTimeout(u, { headers: { "User-Agent": UA } });
-    if (!r.ok) { fail++; if (fail <= 2) log.push(`Google 뉴스 "${q}": HTTP ${r.status}`); return; }
+    if (r.status === 429 || r.status === 503) { limited = true; break; }
+    done++;
+    await sleep(1500 + Math.random() * 1500);
+    if (!r.ok) { fail++; if (fail <= 2) log.push(`Google 뉴스 "${q}": HTTP ${r.status}`); continue; }
     const rows = parseGoogleNewsRss(await r.text());
     const seen = new Set(seenDoc[q] || []);
     for (const it of rows) {
@@ -54,9 +61,13 @@ export async function collectGoogleNews({ queries, settings, log }) {
       out.push({ channel: "news", title: it.title, desc: "", url: it.url, source: it.source, sourceId: "", site, postedAt: it.postedAt, via: "gnews", query: q });
     }
     seenDoc[q] = rows.map((x) => hash(x.url, 10)).slice(0, 100);
-  });
-  await Promise.all([setState("gnews", { i: next, at: new Date() }), setState("gnews_seen", seenDoc)]);
-  log.push(`Google 뉴스: 검색 ${todo.length}회 (전체 ${queries.length}개 중), 받은 기사 ${out.length}건${fail ? `, 실패 ${fail}` : ""}`);
+  }
+  const i = ((gst.i || 0) + done) % Math.max(1, queries.length); // 못 한 검색어는 다음 차례에 그 자리부터
+  await Promise.all([
+    setState("gnews", { i, at: new Date(), pauseUntil: limited ? Date.now() + 15 * 60e3 : 0 }),
+    setState("gnews_seen", seenDoc),
+  ]);
+  log.push(`Google 뉴스: 검색 ${done}회 (전체 ${queries.length}개 중), 받은 기사 ${out.length}건${fail ? `, 실패 ${fail}` : ""}${limited ? " · 요청이 많다고 해서 15분 쉼" : ""}`);
   return out;
 }
 
