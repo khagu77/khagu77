@@ -1,20 +1,29 @@
-// 점검(읽기 전용): 5분 수집(collectTick) 함수의 최근 실행 로그 · 저장된 마지막 수집
-import { initializeApp, applicationDefault } from "firebase-admin/app";
+// 점검(읽기 전용): 특정 유튜브 영상이 왜 수집되지 않았는지
+import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
-const app = initializeApp();
-const db = getFirestore(app, "hdmon");
-const kst = (d) => new Date(new Date(d).getTime() + 9 * 3600e3).toISOString().slice(11, 19);
+import { canonicalUrl, hash } from "./src/util.js";
+import { buildContext, classify } from "./src/classify.js";
+const db = getFirestore(initializeApp(), "hdmon");
+const vid = "cbQAELeJ9rc";
+for (const u of [`https://www.youtube.com/watch?v=${vid}`, `https://www.youtube.com/shorts/${vid}`]) {
+  const s = await db.doc(`posts/${hash(canonicalUrl(u))}`).get();
+  console.log("저장 여부", u, s.exists ? `있음 cats=${s.data().cats}` : "없음");
+}
+const sec = (await db.doc("secrets/main").get()).data() || {};
+const key = String(sec.youtubeKeys || "").split(/\s+/).filter(Boolean)[0];
+const r = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet&id=${vid}&key=${encodeURIComponent(key)}`);
+const it = (await r.json()).items?.[0];
+if (!it) { console.log("영상 정보 없음", r.status); process.exit(0); }
+const sn = it.snippet;
+console.log("채널:", sn.channelTitle, sn.channelId, "| 올린 시각:", sn.publishedAt);
+console.log("제목:", sn.title);
+const settings = (await db.doc("settings/main").get()).data();
+const fav = (settings.favYoutube || []).find((c) => c.id === sn.channelId);
+console.log("관심 채널:", fav ? `예 (${fav.name})` : "아니오");
+const ctx = buildContext(settings);
+const cls = classify({ channel: "youtube", title: sn.title, desc: sn.description, sourceId: sn.channelId, source: sn.channelTitle, requireMatch: true }, ctx);
+console.log("분류:", cls ? `저장 대상 · 이슈=${cls.isIssue} · 키워드=${cls.kw.join(",")} · 대상=${cls.targets.join(",")}` : "키워드에 안 걸리거나 제외어에 걸림 (저장 안 함)");
+const seen = (await db.doc("state/yt_rss_seen").get()).data() || {};
+console.log("관심 채널 확인 기록:", (seen[sn.channelId] || []).includes(vid) ? "이미 본 영상" : "본 적 없음", "| API 대신 읽은 시각:", seen._apiAt?.[sn.channelId] ? new Date(seen._apiAt[sn.channelId] + 9 * 3600e3).toISOString().slice(11, 16) : "-");
 const runs = (await db.doc("state/runs").get()).data()?.items || [];
-console.log("저장된 마지막 수집:", runs.slice(0, 3).map((r) => kst(r.at.toDate())).join(", "), "| 지금", kst(Date.now()));
-try {
-  const { access_token } = await applicationDefault().getAccessToken();
-  const filter = `resource.type="cloud_run_revision" AND resource.labels.service_name="collecttick" AND timestamp>="${new Date(Date.now() - 50 * 60e3).toISOString()}" AND (severity>=WARNING OR textPayload:"timeout" OR textPayload:"exceeded" OR httpRequest.status>=400)`;
-  const r = await fetch("https://logging.googleapis.com/v2/entries:list", {
-    method: "POST", headers: { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ resourceNames: [`projects/${process.env.GCLOUD_PROJECT}`], filter, orderBy: "timestamp desc", pageSize: 25 }),
-  });
-  const j = await r.json();
-  if (!r.ok) console.log("로그 읽기 실패:", r.status, j.error?.message?.slice(0, 200));
-  for (const e of j.entries || []) console.log(kst(e.timestamp), e.severity, e.httpRequest ? `HTTP ${e.httpRequest.status} ${e.httpRequest.latency || ""}` : "", String(e.textPayload || e.jsonPayload?.message || "").slice(0, 220));
-  if (r.ok && !(j.entries || []).length) console.log("최근 50분 경고·오류 로그 없음");
-} catch (e) { console.log("로그 점검 오류:", e.message); }
+for (const x of runs.slice(0, 4)) console.log("수집", new Date(x.at.toDate().getTime() + 9 * 3600e3).toISOString().slice(11, 16), "|", (x.log || []).filter((l) => /유튜브/.test(l)).join(" / ").slice(0, 220));
