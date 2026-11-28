@@ -8,7 +8,7 @@ function hero() {
   const tk = TICKS.map((t) => `<span class="tk">${t}</span>`).join("");
   return `<section class="auth-hero">
     <div class="radar"><div class="ring"></div><div class="ring"></div><div class="ring"></div><div class="ring"></div><div class="sweep"></div>${blips}</div>
-    <div class="brand" style="padding:0"><div class="brand-mark">H</div><div class="brand-text"><b>Online Issue Monitor</b><span>HYUNDAI · GENESIS</span></div></div>
+    <div class="brand" style="padding:0"><div class="brand-mark"><img src="/img/hyundai-emblem-white.png" alt="HYUNDAI"></div><div class="brand-text"><b>Online Issue Monitor</b><span>HYUNDAI · GENESIS</span></div></div>
     <div>
       <h1>온라인의 모든 신호를<br><span class="grad">5분 안에</span> 포착합니다</h1>
       <p>언론 · 동호회 · 유튜브 · 자동차 커뮤니티의 품질·안전 이슈를 자동으로 모으고, 성향을 분석해 카카오톡으로 바로 알려 드립니다.</p>

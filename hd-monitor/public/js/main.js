@@ -58,7 +58,7 @@ async function startShell() {
   store.settings = await store.be.getSettings();
   const app = h(`<div class="app">
     <aside class="sidebar">
-      <div class="brand"><div class="brand-mark">H</div><div class="brand-text"><b>온라인 이슈 모니터링</b><span>HYUNDAI · GENESIS</span></div></div>
+      <div class="brand"><div class="brand-mark"><img src="/img/hyundai-emblem-white.png" alt="HYUNDAI"></div><div class="brand-text"><b>온라인 이슈 모니터링</b><span>HYUNDAI · GENESIS</span></div></div>
       <nav class="nav" id="nav"><span class="nav-indicator"></span></nav>
       <div class="side-foot">
         <div class="live-pill"><span class="dot" id="liveDot"></span><span id="liveText">연결 중…</span></div>
