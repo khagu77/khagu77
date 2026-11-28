@@ -1,16 +1,14 @@
-// 점검(읽기 전용): 카페 이름 — 장부 · 모르는 카페 · 도우미 버전 · gajasoso 같은 글의 경로
+// 점검(읽기 전용): 자동차 커뮤니티 · 유튜브 숫자 저장, 뉴스 댓글수 대기열
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 const db = getFirestore(initializeApp(), "hdmon");
-const book = (await db.doc("status/cafeNames").get()).data()?.names || {};
-const unk = (await db.doc("state/cafe_unknown").get()).data()?.ids || [];
-console.log("장부:", Object.keys(book).length, "| 모르는 카페:", unk.length, "|", unk.slice(0, 20).join(", "));
-console.log("gajasoso 장부:", book.gajasoso || "-", "| 모르는 목록에 있음:", unk.includes("gajasoso"));
-const ext = (await db.doc("state/ext_runs").get()).data()?.items || [];
-for (const r of ext.slice(0, 6)) console.log("도우미", r.at?.toDate?.().toISOString().slice(11, 16), r.client, "|", (r.log || []).join(" / ").slice(0, 160));
-const snap = await db.collection("posts").where("sourceId", "==", "gajasoso").limit(5).get();
-for (const d of snap.docs) { const p = d.data(); console.log("gajasoso 글:", p.via, "| source:", JSON.stringify(p.source), "|", p.collectedAt?.toDate?.().toISOString().slice(0, 16)); }
-// 최근 피드 카페 중 이름 없는 것
-const live = (await db.doc("status/live").get()).data()?.items || [];
-const no = live.filter((x) => x.channel === "cafe" && (!x.source || x.source === x.sourceId));
-console.log("피드 카페 이름 없음:", no.length, "/", live.filter((x) => x.channel === "cafe").length, no.map((x) => `${x.sourceId}${book[String(x.sourceId).toLowerCase()] ? "(장부 있음)" : ""}`).join(", "));
+for (const ch of ["bobae", "clien", "ppomppu", "youtube"]) {
+  const snap = await db.collection("posts").where("channel", "==", ch).select("views", "comments", "collectedAt", "title", "via").get();
+  const docs = snap.docs.map((d) => d.data()).sort((a, b) => b.collectedAt.toMillis() - a.collectedAt.toMillis()).slice(0, 6);
+  console.log(`== ${ch} (전체 ${snap.size})`);
+  for (const p of docs) console.log(" ", p.collectedAt.toDate().toISOString().slice(11, 16), p.via, "조회", p.views, "댓글", p.comments, "|", String(p.title).slice(0, 30));
+}
+const q = (await db.doc("state/news_cmt_queue").get()).data()?.items || [];
+console.log("뉴스 댓글 대기열:", q.length, "| 확인할 때 된 것:", q.filter((x) => x.next <= Date.now()).length);
+const runs = (await db.doc("state/runs").get()).data()?.items || [];
+for (const r of runs.slice(0, 6)) { const l = (r.log || []).filter((x) => /커뮤니티|유튜브 조회|오류|통계/.test(x)); console.log("수집", r.at.toDate().toISOString().slice(11, 16), "|", l.join(" / ").slice(0, 250)); }
