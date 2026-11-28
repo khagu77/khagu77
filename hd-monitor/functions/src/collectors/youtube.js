@@ -19,7 +19,7 @@ export function parseRss(xml, fallbackChannelId) {
     out.push({
       channel: "youtube",
       title: decodeHtml(el.find("title").first().text()),
-      desc: decodeHtml(el.find("media\\:description").text()).slice(0, 500),
+      desc: decodeHtml(el.find("media\\:description").text()).slice(0, 5000), // 분류는 설명 전체로 (저장은 400자)
       url: `https://www.youtube.com/watch?v=${vid}`,
       source: channelName,
       sourceId: el.find("yt\\:channelId").text() || fallbackChannelId,
@@ -46,7 +46,7 @@ async function channelUploadsApi(c, key) {
     const vid = it.contentDetails?.videoId || sn.resourceId?.videoId;
     const d = new Date(it.contentDetails?.videoPublishedAt || sn.publishedAt);
     return vid && {
-      channel: "youtube", title: decodeHtml(sn.title || ""), desc: decodeHtml(sn.description || "").slice(0, 500), url: `https://www.youtube.com/watch?v=${vid}`,
+      channel: "youtube", title: decodeHtml(sn.title || ""), desc: decodeHtml(sn.description || "").slice(0, 5000), url: `https://www.youtube.com/watch?v=${vid}`,
       source: c.name || sn.channelTitle, sourceId: c.id, postedAt: isNaN(d) ? null : d, thumb: `https://i.ytimg.com/vi/${vid}/mqdefault.jpg`, vid,
     };
   }).filter(Boolean);
@@ -194,7 +194,7 @@ export async function addVideoStats(items, secrets) {
     if (!s) continue;
     const { desc, ...nums } = s;
     Object.assign(it, nums);
-    if (desc && desc.length > String(it.desc || "").length) it.desc = decodeHtml(desc).slice(0, 500); // 검색 결과의 짧은 설명 대신 전체 설명으로 분류
+    if (desc && desc.length > String(it.desc || "").length) it.desc = decodeHtml(desc).slice(0, 5000); // 검색 결과의 짧은 설명 대신 전체 설명으로 분류 (저장은 400자)
   }
   return m.size;
 }

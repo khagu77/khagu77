@@ -47,12 +47,14 @@ export async function runCollection({ force = false, parts = null } = {}) {
 
   jobs.push(fixCommunityDatesOnce(log).then(() => []));
   jobs.push(backfillShorts(log).then(() => []));
-  if (force || tick % 6 === 0) jobs.push(refreshYoutubeStats(secrets, log, ctx).then(() => [])); // 30분마다 최근 영상 숫자 새로
+  // 30분마다(마지막 실행 기준 — 배포 등으로 한 번 건너뛰어도 다음 회차에 바로 실행)
+  const due = async (key, min) => { const st = await getState(key); if (!force && Date.now() - (st.at || 0) < min * 60e3) return false; await setState(key, { at: Date.now() }); return true; };
+  if (await due("yt_refresh_at", 29)) jobs.push(refreshYoutubeStats(secrets, log, ctx).then(() => [])); // 최근 영상 숫자 · 가비지 다시 분류
   // 게시판(보배드림·클리앙) 조회수·댓글수: 처음 한 번은 10쪽(기존 글 채우기), 그 뒤 30분마다 3쪽
   if (want("community") && settings.collect.community) jobs.push((async () => {
     const st = await getState("community_counts");
     const first = !st.filled;
-    if (!first && !(force || tick % 6 === 3)) return [];
+    if (!first && !(await due("community_counts_at", 29))) return [];
     const { refreshCommunityCounts } = await import("./collectors/community.js");
     await refreshCommunityCounts({ settings, log, pages: first ? 10 : 3 });
     if (first) await setState("community_counts", { filled: true });
@@ -171,7 +173,7 @@ async function refreshYoutubeStats(secrets, log, ctx) {
   if (ctx) {
     const { ingest } = await import("./store.js");
     const recheck = docs.filter((d) => { const p = d.data(); const s = m.get(vidOf(p.url)); return !(p.isIssue || p.must) && !p.manualGarbage && s?.desc && s.desc.length > String(p.desc || "").length; })
-      .map((d) => { const p = d.data(); return { channel: "youtube", url: p.url, title: p.title, desc: m.get(vidOf(p.url)).desc.slice(0, 500), source: p.source, sourceId: p.sourceId, postedAt: p.postedAt?.toDate?.() || null, requireMatch: true, via: "yt:recheck" }; });
+      .map((d) => { const p = d.data(); return { channel: "youtube", url: p.url, title: p.title, desc: m.get(vidOf(p.url)).desc.slice(0, 5000), source: p.source, sourceId: p.sourceId, postedAt: p.postedAt?.toDate?.() || null, requireMatch: true, via: "yt:recheck" }; });
     if (recheck.length) await ingest(recheck, ctx, log);
   }
   if (n) log.push(`유튜브 조회수·댓글수 새로 고침: ${n}건`);
