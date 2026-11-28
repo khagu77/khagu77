@@ -128,6 +128,6 @@ async function updateStats(created, now) {
   const next = created
     .sort((a, b) => b.time.toMillis() - a.time.toMillis())
     .slice(0, 40)
-    .map((p) => ({ id: p.id, site: p.site || null, title: p.title, channel: p.channel, source: p.source, url: p.url, time: p.time, sentiment: p.sentiment, isIssue: !!(p.isIssue || p.must), kw: (p.kw || []).slice(0, 3) }));
+    .map((p) => ({ id: p.id, site: p.site || null, sourceId: p.sourceId || "", title: p.title, channel: p.channel, source: p.source, url: p.url, time: p.time, sentiment: p.sentiment, isIssue: !!(p.isIssue || p.must), kw: (p.kw || []).slice(0, 3) }));
   await liveRef.set({ items: [...next, ...prev].slice(0, 40), at: Timestamp.fromDate(now) });
 }

@@ -60,5 +60,6 @@ export async function extensionConfig(secrets) {
       queries: collectQueries(ctx.compiled),
       perRun: Number(settings.collect.extNaverPerRun) || 12,
     },
+    favCafes: (settings.favCafes || []).map((c) => ({ id: c.id, name: c.name })),
   };
 }

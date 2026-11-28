@@ -110,9 +110,9 @@
         if (kind === "blog" && /blog\.naver\.com\/[\w-]+\/?(?:[?#]|$)/.test(href)) source = t;
       }
       if ((kind === "cafe" || kind === "blog") && !source) {
-        for (const e of it.box.querySelectorAll("[class*='name'], [class*='cafe'], [class*='user'], [class*='writer'], [class*='source'], [class*='sub_txt']")) {
+        for (const e of it.box.querySelectorAll("[class*='profile-info-title'], [class*='profile_title'], [class*='name'], [class*='cafe'], [class*='user'], [class*='writer'], [class*='source'], [class*='sub_txt']")) {
           const t = clean(e);
-          if (t.length >= 2 && t.length <= 30 && t !== title && !snippet.startsWith(t) && !/^\d|전$|\d{4}\.|^카페$|^블로그$/.test(t)) { source = t; break; }
+          if (t.length >= 2 && t.length <= 30 && t !== title && !snippet.startsWith(t) && !/^\d|전$|\d{4}\.|^카페$|^블로그$|^네이버\s*카페$/.test(t)) { source = t.replace(/\s*:\s*네이버\s*카페$/, ""); break; }
         }
       }
       if (kind === "news" && !source) {

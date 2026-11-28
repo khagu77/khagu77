@@ -52,6 +52,23 @@ async function ensureOffscreen() {
   await chrome.offscreen.createDocument({ url: "offscreen.html", reasons: ["DOM_PARSER"], justification: "네이버 검색 결과 화면 읽기" });
 }
 
+// 카페 이름 사전: 카페 주소 ID(소문자) 또는 '#카페 번호' → { club, num, name }
+// 검색 화면에 카페 이름이 없을 때 카페 첫 화면 제목("이름 : 네이버 카페")에서 찾아 기억해 둠 (한 번에 몇 곳씩만)
+async function cafeDict() { return (await chrome.storage.local.get("cafeDict")).cafeDict || {}; }
+function remember(dict, club, num, name) {
+  const e = { club: club || dict[`#${num}`]?.club || "", num: num || dict[String(club).toLowerCase()]?.num || "", name: name || "" };
+  if (e.club) dict[e.club.toLowerCase()] = { ...(dict[e.club.toLowerCase()] || {}), ...Object.fromEntries(Object.entries(e).filter(([, v]) => v)) };
+  if (e.num) dict[`#${e.num}`] = { ...(dict[`#${e.num}`] || {}), ...Object.fromEntries(Object.entries(e).filter(([, v]) => v)) };
+}
+async function lookupCafe(dict, club) {
+  const r = await fetch(`https://cafe.naver.com/${encodeURIComponent(club)}`, { credentials: "include", cache: "no-store" });
+  if (!r.ok) return;
+  const html = await r.text();
+  const name = (html.match(/<title>\s*([^<]+?)\s*:\s*네이버\s*카페\s*<\/title>/i) || [])[1] || "";
+  const num = (html.match(/g_sClubId\s*=\s*["'](\d+)["']/) || html.match(/["']?clubid["']?\s*[:=]\s*["']?(\d{4,})/i) || [])[1] || "";
+  remember(dict, club, num, name.trim());
+}
+
 async function collectNaver(cfg, items, status) {
   const n = cfg.naver || {};
   if (!n.on || !n.queries?.length || !n.kinds?.length) return;
@@ -62,6 +79,9 @@ async function collectNaver(cfg, items, status) {
   let i = (st.naverCursor || 0) % calls.length;
   const seen = st.naverSeen || {};
   const perRun = Math.max(3, Math.min(30, Number(n.perRun) || 12));
+  const dict = await cafeDict();
+  for (const c of cfg.favCafes || []) if (!dict[String(c.id).toLowerCase()]?.name) remember(dict, c.id, "", c.name);
+  const unknown = new Set();
   await ensureOffscreen();
   let done = 0;
   let got = 0;
@@ -79,6 +99,15 @@ async function collectNaver(cfg, items, status) {
     const sk = `${k}|${q}`;
     const prev = new Set(seen[sk] || []);
     for (const row of rows) {
+      if (k === "cafe") {
+        const num = (row.url.match(/cafes\/(\d+)\/articles/) || [])[1] || "";
+        const art = (row.url.match(/articles\/(\d+)/) || [])[1] || "";
+        if (row.source) remember(dict, row.club, num, row.source);
+        const e = (row.club && dict[row.club.toLowerCase()]) || (num && dict[`#${num}`]) || null;
+        if (!row.club && e?.club) { row.club = e.club; if (art) row.url = `https://cafe.naver.com/${e.club}/${art}`; }
+        if (!row.source && e?.name) row.source = e.name;
+        if (!row.source && row.club) unknown.add(row.club);
+      }
       const hh = h8(row.url);
       if (prev.has(hh)) continue;
       got++;
@@ -91,7 +120,13 @@ async function collectNaver(cfg, items, status) {
     done++;
     await sleep(2500 + Math.random() * 3000); // 사람이 검색하는 정도의 간격
   }
-  await chrome.storage.local.set({ naverCursor: i, naverSeen: seen });
+  // 이름 모르는 카페 · 번호 모르는 관심 동호회를 몇 곳씩 알아 둠 (다음 수집부터 이름 표시·관심 동호회 확인)
+  const favNoNum = (cfg.favCafes || []).map((c) => c.id).filter((id) => !dict[String(id).toLowerCase()]?.num);
+  for (const club of [...unknown].slice(0, 4).concat(favNoNum.slice(0, 3))) {
+    try { await lookupCafe(dict, club); } catch {}
+    await sleep(1200 + Math.random() * 1500);
+  }
+  await chrome.storage.local.set({ naverCursor: i, naverSeen: seen, cafeDict: dict });
   status.naver ||= `네이버 검색 ${done}회 (전체 ${calls.length}개 중), 새 글 ${got}건`;
 }
 

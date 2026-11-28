@@ -53,7 +53,14 @@ export const chIcon = (ch, small = false, p = null) => {
 const PILL_CH = new Set(["news", "cafe", "youtube", "bobae", "clien", "ppomppu"]);
 let cafeNames = new Map();
 export const setCafeNames = (list) => { cafeNames = new Map((list || []).map((c) => [String(c.id).toLowerCase(), c.name])); };
-export const sourceName = (p) => p.source || (p.channel === "cafe" ? cafeNames.get(String(p.sourceId || "").toLowerCase()) || (p.sourceId && !/^#/.test(p.sourceId) ? `카페 ${p.sourceId}` : "") : "");
+const clubFromUrl = (u) => (String(u || "").match(/cafe\.naver\.com\/(?!f-e\/|ca-fe\/)([\w-]+)\/\d+/) || [])[1] || "";
+// 매체명: 저장된 이름 → 관심 동호회 이름(카페 주소 ID) → 카페 주소 ID
+export const sourceName = (p) => {
+  if (p.source) return p.source;
+  if (p.channel !== "cafe") return "";
+  const club = (p.sourceId && !String(p.sourceId).startsWith("#") ? p.sourceId : "") || clubFromUrl(p.url);
+  return (club && (cafeNames.get(club.toLowerCase()) || club)) || "";
+};
 export const srcPill = (p) => {
   if (!PILL_CH.has(p.channel)) return "";
   const name = String(sourceName(p) || CH[p.channel]?.name || "").replace(/\s*(국산차|자동차당|자동차포럼|자유게시판|새로운소식|모두의공원)$/, "") || CH[p.channel]?.name;
