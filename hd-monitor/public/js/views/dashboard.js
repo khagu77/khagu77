@@ -72,12 +72,13 @@ export async function render(root, store) {
   const favCache = (() => { try { return JSON.parse(localStorage.getItem("hdmon-favtop") || "{}"); } catch { return {}; } })();
   const favFetchedAt = {};
   // byPosted: 수집일이 아니라 작성일(실제로 올라온 날) 기준으로 게시물에서 직접 셈 (유튜브: 지난 영상이 한꺼번에 수집돼 순위가 틀어지던 문제)
+  const byCount = (a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), "ko");
   function favTop(key, catId, statMap, nameOf, rank, shortMap = null, byPosted = false) {
     const el = $q(`#${key}`);
     const ck = `${key}${byPosted ? ":posted" : ""}:${period}`;
     // 누르면 그 동호회·채널 글만 (보던 기간 그대로)
     const show = (entries) => rank(el, entries.slice(0, 7), (k) => k, (k) => `#/posts/${catId}?src=${encodeURIComponent(k)}&period=${period === 1 ? "today" : period === 30 ? "30d" : "7d"}`);
-    const fromStats = Object.entries(statMap || {}).map(([k, v]) => [nameOf(k), v, ...(shortMap ? [shortMap[k] || 0] : [])]).sort((a, b) => b[1] - a[1]);
+    const fromStats = Object.entries(statMap || {}).map(([k, v]) => [nameOf(k), v, ...(shortMap ? [shortMap[k] || 0] : [])]).sort(byCount);
     if (fromStats.length && !byPosted) { favCache[ck] = fromStats.slice(0, 7); save(); return show(fromStats); }
     if (favCache[ck]?.length) show(favCache[ck]); // 새로 셀 동안 마지막 순위 그대로
     else if (!el.dataset.html) el.innerHTML = `<div class="skeleton" style="height:120px"></div>`;
@@ -94,7 +95,7 @@ export async function render(root, store) {
         if (shortMap && isShorts(p)) c[2]++;
         cnt.set(n, c);
       }
-      const entries = [...cnt.values()].sort((a, b) => b[1] - a[1]);
+      const entries = [...cnt.values()].sort(byCount); // 같은 수면 이름순 — 새로고침할 때마다 순서가 바뀌지 않게
       if (entries.length || !favCache[ck]?.length) { favCache[ck] = entries.slice(0, 7); save(); show(entries); }
     }).catch(() => {});
     function save() { try { localStorage.setItem("hdmon-favtop", JSON.stringify(favCache)); } catch {} }
@@ -115,7 +116,7 @@ export async function render(root, store) {
     const tabsEl = $q(kind === "views" ? "#topViewsTabs" : "#topCommentsTabs");
     if (!list) return;
     const since = period === 1 ? new Date().setHours(0, 0, 0, 0) : Date.now() - period * 86400e3;
-    const rows = topItems.filter((x) => typeof x[kind] === "number" && x[kind] > 0 && x.time >= since).sort((a, b) => b[kind] - a[kind]);
+    const rows = topItems.filter((x) => typeof x[kind] === "number" && x[kind] > 0 && x.time >= since).sort((a, b) => b[kind] - a[kind] || String(a.id).localeCompare(String(b.id)));
     const groups = ["all", ...["youtube", "cafe", "community", "instagram", "news", "blog"].filter((g) => rows.some((x) => TOP_GROUP[x.channel] === g))];
     let tab = groups.includes(topTab[kind]) ? topTab[kind] : "all";
     const tabsHtml = groups.map((g) => `<button data-g="${g}" class="${g === tab ? "on" : ""}">${TOP_NAME[g]}</button>`).join("");
