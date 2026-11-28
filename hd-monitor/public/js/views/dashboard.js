@@ -1,5 +1,5 @@
 // 대시보드: KPI 카운트업 · 채널별 추이 · 성향 도넛 · 부정 비율 · 시간대 히트맵 · 키워드 순위 · 실시간 피드
-import { h, esc, countUp, dayKey, fmtNum, CH, CH_ORDER, SENT, SENT_ORDER, chIcon, sentBadge, srcPill, ago, segmented, toast, busy, fmtTime } from "../ui.js";
+import { h, esc, countUp, dayKey, fmtNum, CH, CH_ORDER, SENT, SENT_ORDER, chIcon, sentBadge, srcPill, sourceName, ago, segmented, toast, busy, fmtTime } from "../ui.js";
 import { stackedBars, lineChart, donut, sparkline, heat } from "../charts.js";
 
 const sum = (o) => Object.values(o || {}).reduce((a, b) => a + (+b || 0), 0);
@@ -63,6 +63,29 @@ export async function render(root, store) {
       for (const f of ["ch", "chIssue", "sent", "sentIssue", "hour", "kw", "cat", "favCafe", "favYt"]) add(a[f], s[f]);
     }
     return a;
+  }
+
+  const favCache = (() => { try { return JSON.parse(localStorage.getItem("hdmon-favtop") || "{}"); } catch { return {}; } })();
+  const favFetchedAt = {};
+  function favTop(key, catId, statMap, nameOf, rank) {
+    const el = $q(`#${key}`);
+    const ck = `${key}:${period}`;
+    const show = (entries) => rank(el, entries.slice(0, 7), (k) => k, () => `#/posts/${catId}`);
+    const fromStats = Object.entries(statMap || {}).map(([k, v]) => [nameOf(k), v]).sort((a, b) => b[1] - a[1]);
+    if (fromStats.length) { favCache[ck] = fromStats.slice(0, 7); save(); return show(fromStats); }
+    if (favCache[ck]?.length) show(favCache[ck]); // 새로 셀 동안 마지막 순위 그대로
+    else if (!el.dataset.html) el.innerHTML = `<div class="skeleton" style="height:120px"></div>`;
+    // 통계가 비어 있으면 그 기간의 관심 게시물에서 직접 셈 (10분에 한 번까지)
+    if (Date.now() - (favFetchedAt[ck] || 0) < 10 * 60e3) return;
+    favFetchedAt[ck] = Date.now();
+    const from = new Date(new Date().setHours(0, 0, 0, 0) - (period - 1) * 86400e3);
+    store.be.listPosts({ cat: catId, from, pageSize: 1000 }).then(({ items }) => {
+      const cnt = new Map();
+      for (const p of items) { const n = sourceName(p) || p.source || "기타"; cnt.set(n, (cnt.get(n) || 0) + 1); }
+      const entries = [...cnt].sort((a, b) => b[1] - a[1]);
+      if (entries.length || !favCache[ck]?.length) { favCache[ck] = entries.slice(0, 7); save(); show(entries); }
+    }).catch(() => {});
+    function save() { try { localStorage.setItem("hdmon-favtop", JSON.stringify(favCache)); } catch {} }
   }
 
   // 성향별 목록으로 (대시보드에서 보던 기간 그대로, 이슈 게시물 기준)
@@ -146,8 +169,9 @@ export async function render(root, store) {
     rank($q("#chs"), Object.entries(A.chIssue).sort((a, b) => b[1] - a[1]), (k) => CH[k]?.name || k, (k) => `#/posts/${catOf[k] || "all"}`, (k) => chIcon(k, true));
     const cafeName = Object.fromEntries((store.settings.favCafes || []).map((c) => [c.id.toLowerCase(), c.name]));
     const ytName = Object.fromEntries((store.settings.favYoutube || []).map((c) => [c.id, c.name]));
-    rank($q("#favCafe"), Object.entries(A.favCafe).sort((a, b) => b[1] - a[1]).slice(0, 7), (k) => cafeName[k.toLowerCase()] || k, () => "#/posts/cafe_fav");
-    rank($q("#favYt"), Object.entries(A.favYt).sort((a, b) => b[1] - a[1]).slice(0, 7), (k) => ytName[k] || k, () => "#/posts/youtube_fav");
+    // 관심 동호회·유튜브 TOP: 통계 → (비어 있으면) 게시물에서 직접 센 값 → 마지막으로 본 순위를 유지하다가 바뀌면 갱신
+    favTop("favCafe", "cafe_fav", A.favCafe, (k) => cafeName[k.toLowerCase()] || k, rank);
+    favTop("favYt", "youtube_fav", A.favYt, (k) => ytName[k] || k, rank);
     drawStatus();
   }
 
