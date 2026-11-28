@@ -138,7 +138,7 @@ async function refreshToday(bump = false) {
   }
 }
 
-const CAT_ICO = { all: "🗂", community: "🚗", garbage: "🗑" };
+const CAT_ICO = { all: "🗂", news: "📰", community: "🚗", garbage: "🗑" };
 // 사이드바 카테고리 아이콘: 채널 하나짜리 카테고리는 그 채널 아이콘(언론사·카페·블로그·유튜브·인스타그램), 나머지는 기호
 function catIcon(c) {
   if (CAT_ICO[c.id]) return CAT_ICO[c.id];
@@ -155,7 +155,7 @@ function buildNav() {
   for (const c of top) {
     html += `<a href="#/posts/${esc(c.id)}" data-cat="${esc(c.id)}"><span class="ico">${catIcon(c)}</span>${esc(c.name)}<span class="cnt">${store.today?.cat?.[c.id] || 0}</span></a>`;
     for (const ch of cats.filter((x) => x.parent === c.id)) {
-      html += `<a class="child" href="#/posts/${esc(ch.id)}" data-cat="${esc(ch.id)}">${esc(ch.name)}<span class="cnt">${store.today?.cat?.[ch.id] || 0}</span></a>`;
+      html += `<a class="child" href="#/posts/${esc(ch.id)}" data-cat="${esc(ch.id)}">${ch.fav ? "⚠️ " : ""}${esc(ch.name)}<span class="cnt">${store.today?.cat?.[ch.id] || 0}</span></a>`;
     }
   }
   html += `<div class="nav-sec">관리</div>`;
