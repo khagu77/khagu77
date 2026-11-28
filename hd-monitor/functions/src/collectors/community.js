@@ -82,10 +82,18 @@ export function parseBoardList(html, ad) {
     const prev = best.get(id);
     if (prev && prev.title.length >= title.length) return;
     const row = $(a).closest("tr, li, .list_item, .symph_row, .bbs_list_item");
-    const rowText = (row.length ? row : $(a).parent().parent()).text().replace(/\s+/g, " ");
+    // 칸 사이를 띄어서 읽음 (붙여 읽으면 '(25)11/21204' 처럼 날짜를 못 찾음)
+    const rowText = decodeHtml($.html(row.length ? row : $(a).parent().parent()).replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ");
+    // 조회수: 클리앙 .list_hit .hit ('90.4 k'), 보배드림 td.count
+    const hitTxt = row.find(".list_hit .hit, td.count, .hit, .count").first().text().trim();
+    const hm = hitTxt.match(/^([\d,.]+)\s*([kK만])?$/);
+    const views = hm ? Math.round(parseFloat(hm[1].replace(/,/g, "")) * (hm[2] === "만" ? 1e4 : hm[2] ? 1e3 : 1)) : null;
     // 댓글 수: 제목 끝 [12] 또는 제목 옆 댓글 표시 (게시판마다 달라 못 찾으면 비움)
-    const cm = raw.match(/\[(\d{1,5})\]\s*$/) || $(a).text().match(/\[(\d{1,5})\]\s*$/) || $(a).parent().find(".rSymph05, .reply, .list_comment, .baseList-c, .comment_count, .totreply").first().text().match(/(\d{1,5})/);
-    best.set(id, { id, title, date: rowDate(rowText), comments: cm ? +cm[1] : null });
+    const dc = row.attr("data-comment-count"); // 클리앙: 글 줄에 댓글 수가 들어 있음
+    const cm = (dc != null && /^\d+$/.test(dc) ? [null, dc] : null) || raw.match(/\[(\d{1,5})\]\s*$/) || $(a).text().match(/\[(\d{1,5})\]\s*$/) || $(a).parent().find(".rSymph05, .reply, .list_comment, .baseList-c, .comment_count, .totreply").first().text().match(/(\d{1,5})/);
+    // 보배드림: 댓글이 없으면 표시가 없음 → 0
+    const comments = cm ? +cm[1] : row.length && row.find(".totreply").length === 0 && ad.channel === "bobae" ? 0 : null;
+    best.set(id, { id, title, date: rowDate(rowText), comments, views });
   });
   return [...best.values()];
 }
@@ -107,7 +115,7 @@ export async function collectCommunity({ settings, log }) {
       for (const r of fresh) {
         out.push({
           channel: b.ad.channel, title: r.title, desc: "", url: b.ad.articleUrl(r.id), source: b.name || b.ad.site,
-          sourceId: b.ad.key, postedAt: r.date, requireMatch: true, via: "community", comments: r.comments,
+          sourceId: b.ad.key, postedAt: r.date, requireMatch: true, via: "community", comments: r.comments, views: r.views,
         });
       }
       if (first || fresh.length < rows.length || !rows.length) break;

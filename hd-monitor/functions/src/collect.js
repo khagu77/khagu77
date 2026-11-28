@@ -137,12 +137,13 @@ async function backfillShorts(log) {
 async function refreshYoutubeStats(secrets, log) {
   if (!secrets.youtubeKeys) return;
   const { videoStats } = await import("./collectors/youtube.js");
-  const since = new Date(Date.now() - 3 * 86400e3);
-  const snap = await db.collection("posts").where("collectedAt", ">=", since).get();
-  const docs = snap.docs.filter((d) => d.data().channel === "youtube").slice(0, 1000);
+  const since = Date.now() - 3 * 86400e3;
+  // 유튜브 글만 읽음 (전체 채널 최근 3일 수만 건을 읽다 실패하던 문제)
+  const snap = await db.collection("posts").where("channel", "==", "youtube").select("url", "views", "likes", "comments", "collectedAt", "title", "channel", "source", "sourceId", "time", "short", "isIssue", "must").get();
+  const docs = snap.docs.filter((d) => (d.data().collectedAt?.toMillis?.() || 0) >= since).slice(0, 1500);
   const vidOf = (u) => (String(u).match(/[?&]v=([\w-]{6,})/) || String(u).match(/shorts\/([\w-]{6,})/) || [])[1];
   const m = await videoStats(docs.map((d) => vidOf(d.data().url)), secrets);
-  if (!m.size) return;
+  if (!m.size) { if (docs.length) log.push(`유튜브 조회수·댓글수: 받은 통계 없음 (영상 ${docs.length}개${videoStats.lastError ? `, ${videoStats.lastError}` : ""})`); return; }
   const w = db.bulkWriter();
   let n = 0;
   const changedPosts = [];

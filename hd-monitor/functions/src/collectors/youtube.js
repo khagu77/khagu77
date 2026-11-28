@@ -138,14 +138,14 @@ export async function videoStats(vids, secrets) {
     for (const key of keys) {
       try {
         const r = await fetchWithTimeout(`https://www.googleapis.com/youtube/v3/videos?${new URLSearchParams({ part: "statistics", id: chunk.join(","), key })}`);
-        if (!r.ok) continue;
-        const j = await r.json();
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) { videoStats.lastError = `${r.status} ${j.error?.message || ""}`.slice(0, 120); continue; }
         for (const it of j.items || []) {
           const s = it.statistics || {};
           out.set(it.id, { views: s.viewCount ?? null, likes: s.likeCount ?? null, comments: s.commentCount ?? null });
         }
         break;
-      } catch {}
+      } catch (e) { videoStats.lastError = e.message; }
     }
   }
   return out;
