@@ -178,9 +178,11 @@ export async function render(root, store, { arg, qs }) {
     shown = 0;
     $q("#list").innerHTML = "";
     renderMore();
+    // 왼쪽: 기간 안 전체 건수(서버 집계) · 조건으로 거른 경우 그 건수 / 오른쪽: 불러온 글 수
+    const total = totalCount ?? (done ? all.length : null);
     const filtered = view.length !== all.length;
-    $q("#count").innerHTML = done || filtered ? `<b>${fmtNum(view.length)}</b>건${done ? "" : " (불러온 글 중)"}` : `<b>${fmtNum(totalCount ?? view.length)}</b>건`;
-    $q("#loaded").textContent = `${totalCount != null ? `기간 안 전체 ${fmtNum(totalCount)}건 · ` : ""}불러온 글 ${fmtNum(all.length)}건${done ? "" : " (아래로 내리면 더 불러옴)"}${st.dedupe ? " · 유사 기사 묶음" : ""}`;
+    $q("#count").innerHTML = `<b>${total != null ? fmtNum(total) : `${fmtNum(all.length)}+`}</b>건${filtered ? ` <span class="hint">· 조건에 맞는 글 ${fmtNum(view.length)}건${done ? "" : " (불러온 글 중)"}</span>` : ""}`;
+    $q("#loaded").textContent = `불러온 글 ${fmtNum(all.length)}건${done ? "" : " · 아래로 내리면 더 불러옴"}`;
     updateBulk();
   }
 
