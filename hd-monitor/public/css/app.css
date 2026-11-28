@@ -573,10 +573,11 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 .btn.kakao { background: #fee500; color: #191600; border-color: #e6cf00; font-weight: 700; }
 .btn.kakao:hover { background: #ffeb3b; box-shadow: 0 6px 18px rgba(254, 229, 0, .35); }
 .kpi .k-val small.kpi-ns { margin-left: 12px; }
-.now-clock { display: inline-flex; align-items: center; gap: 2px; margin-top: 10px; padding: 6px 14px; border-radius: 999px; background: #fff; color: #1f5fd6; font-size: 13px; font-weight: 600; letter-spacing: .02em; font-variant-numeric: tabular-nums; box-shadow: 0 6px 18px rgba(31, 95, 214, .25); }
-.now-clock::before { content: ""; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: #1f5fd6; animation: clockPulse 2s ease-in-out infinite; }
+.now-clock { display: flex; align-items: center; box-sizing: border-box; margin-top: 10px; padding: 6px 14px; border-radius: 999px; background: #fff; color: #1f5fd6; font-size: 13px; font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; white-space: nowrap; box-shadow: 0 6px 18px rgba(31, 95, 214, .25); }
+.now-clock::before { content: ""; flex: none; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: #1f5fd6; animation: clockPulse 2s ease-in-out infinite; }
+.now-clock .d { flex: 1; }
 .now-clock b { margin-left: 8px; font-weight: 800; color: #0b3fae; }
-.now-clock .sec { opacity: .6; font-weight: 600; }
+.now-clock .sec { opacity: .6; font-weight: 700; }
 @keyframes clockPulse { 50% { opacity: .25; transform: scale(.7); } }
 .rank .r b .r-sh { margin-right: 8px; font-size: 11px; font-weight: 500; color: var(--text-3); }
 

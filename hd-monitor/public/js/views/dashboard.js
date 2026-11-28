@@ -285,9 +285,21 @@ export async function render(root, store) {
   const drawClock = () => {
     const d = new Date();
     const el = $q("#nowClock");
-    if (el) el.innerHTML = `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()} (${WD[d.getDay()]}) <b>${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}<span class="sec">:${String(d.getSeconds()).padStart(2, "0")}</span></b>`;
+    if (el) el.innerHTML = `<span class="d">${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()} (${WD[d.getDay()]})</span><b>${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}<span class="sec">:${String(d.getSeconds()).padStart(2, "0")}</span></b>`;
   };
+  // 시계 상자 폭을 위 '모니터링 대시보드' 글자 폭에 맞춤
+  const fitClock = () => {
+    const h1 = root.querySelector(".page-head h1"), el = $q("#nowClock");
+    if (!h1 || !el) return;
+    const r = document.createRange();
+    r.selectNodeContents(h1);
+    const w = Math.round(r.getBoundingClientRect().width);
+    if (w > 120) el.style.width = `${w}px`;
+  };
+  requestAnimationFrame(fitClock);
+  document.fonts?.ready.then(fitClock);
+  window.addEventListener("resize", fitClock);
   drawClock();
   const clock = setInterval(drawClock, 1000);
-  return { cleanup() { store.listeners.delete(onEv); window.removeEventListener("resize", onResize); clearInterval(tick); clearInterval(clock); } };
+  return { cleanup() { store.listeners.delete(onEv); window.removeEventListener("resize", onResize); clearInterval(tick); clearInterval(clock); window.removeEventListener("resize", fitClock); } };
 }
