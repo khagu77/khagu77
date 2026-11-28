@@ -55,6 +55,14 @@ jobs:
       - name: Firebase CLI 설치
         run: npm i -g firebase-tools
 
+      - name: 웹 앱 등록 확인 (없으면 만들기 — 화면의 Firebase 설정 /__/firebase/init.json 에 필요)
+        run: |
+          if firebase apps:list WEB --project "$PROJECT" --non-interactive | grep -q ":web:"; then
+            echo "웹 앱 있음"
+          else
+            firebase apps:create WEB "HD Issue Monitor" --project "$PROJECT" --non-interactive
+          fi
+
       - name: 호스팅 사이트 준비 (없으면 만들기)
         run: |
           if firebase hosting:sites:get "$SITE" --project "$PROJECT" >/dev/null 2>&1; then
