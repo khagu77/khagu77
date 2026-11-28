@@ -242,6 +242,7 @@ export const DEFAULT_SETTINGS = {
     youtubeDailyUnits: 9000,       // API 키 1개당 하루 10,000단위
     community: true,
     newsDupThreshold: 0.8,         // 언론 제목 유사도 80% 이상 → 중복 묶음
+    garbageRetentionDays: 90,      // 가비지 글 보관 기간(일) · 0 이면 지우지 않음 (중요 표시·메모 달린 글은 항상 보관)
   },
   alert: {
     dupThreshold: 0.8,             // 알림 제목 유사도 80% 이상 → 대표 1건만

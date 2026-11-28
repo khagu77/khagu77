@@ -6,6 +6,7 @@ import { getAuth } from "firebase-admin/auth";
 import { db, FieldValue, getSettings, getSecrets, SECRETS_REF, SETTINGS_REF } from "./src/db.js";
 import { DEFAULT_SETTINGS } from "./src/defaults.js";
 import { runCollection } from "./src/collect.js";
+import { cleanupOldGarbage } from "./src/cleanup.js";
 import { analyzePosts } from "./src/ai.js";
 import { kakaoExchange, kakaoSend, kakaoDisconnect } from "./src/kakao.js";
 import { buildContext, classify } from "./src/classify.js";
@@ -38,6 +39,12 @@ const wrap = (fn) => async (req) => {
 export const collectTick = onSchedule(
   { schedule: "every 5 minutes", timeZone: "Asia/Seoul", timeoutSeconds: 280, memory: "512MiB", maxInstances: 1, retryCount: 0 },
   async () => { await runCollection(); },
+);
+
+// 가비지 정리 (매일 새벽 4시 10분): 보관 기간이 지난 가비지 글 삭제 — 일별 통계(가비지 건수)는 그대로 남음
+export const cleanupGarbage = onSchedule(
+  { schedule: "10 4 * * *", timeZone: "Asia/Seoul", timeoutSeconds: 540, memory: "512MiB", maxInstances: 1, retryCount: 0 },
+  async () => { await cleanupOldGarbage(); },
 );
 
 export const runNow = onCall({ timeoutSeconds: 300, memory: "512MiB" }, wrap(async (req) => {

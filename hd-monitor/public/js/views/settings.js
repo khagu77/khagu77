@@ -245,6 +245,9 @@ export async function render(root, store, { arg }) {
         <label class="field">YouTube API 하루 단위 (키 1개당, 최대 10,000 · 검색 1회 = 100)<input class="input" type="number" data-c="youtubeDailyUnits" value="${c.youtubeDailyUnits}"></label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-c="community" ${c.community ? "checked" : ""}><span></span></span>자동차 커뮤니티 게시판</label>
         <label class="field">언론 유사 기사 묶기 기준 (0.8 = 80%)<input class="input" type="number" step="0.05" min="0.5" max="1" data-c="newsDupThreshold" value="${c.newsDupThreshold}"></label>
+        <label class="field">🗑 가비지 보관 기간 (이 기간이 지난 가비지 글은 매일 새벽 자동 삭제 · 일별 가비지 건수 통계는 남음)
+          <select class="input" data-c="garbageRetentionDays">${[[30, "1개월"], [90, "3개월 (기본)"], [180, "6개월"], [365, "1년"], [0, "지우지 않음"]].map(([d, l]) => `<option value="${d}" ${Number(c.garbageRetentionDays ?? 90) === d ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <p class="hint" style="margin-top:-6px">⭐ 중요 표시나 📝 메모를 단 가비지 글은 지우지 않습니다.</p>
         <div class="card" style="background:var(--panel-2);box-shadow:none"><b>⏱ 예상 수집 주기</b><div class="hint" id="est"></div></div>
       </div></div>
       <div class="card span-6"><h3>🔔 카카오톡 알림</h3><div style="display:flex;flex-direction:column;gap:12px">
@@ -269,7 +272,7 @@ export async function render(root, store, { arg }) {
     est();
     v.addEventListener("input", (e) => {
       const t = e.target;
-      const val = t.type === "checkbox" ? t.checked : t.type === "number" ? Number(t.value) : t.value;
+      const val = t.type === "checkbox" ? t.checked : t.type === "number" || t.dataset.c === "garbageRetentionDays" ? Number(t.value) : t.value;
       if (t.dataset.c) { c[t.dataset.c] = val; mark("collect"); }
       if (t.dataset.n) { c.naver[t.dataset.n] = val; mark("collect"); }
       if (t.dataset.a) { draft.alert[t.dataset.a] = val; mark("alert"); }
