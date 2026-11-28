@@ -14,7 +14,7 @@ import { analyzePosts } from "./src/ai.js";
 import { applySentiment } from "./src/sentimentApply.js";
 const SENT_LABELS = ["pos", "neu", "neg", "abuse"];
 import { kakaoExchange, kakaoSend, kakaoDisconnect } from "./src/kakao.js";
-import { buildContext, classify } from "./src/classify.js";
+import { buildContext, classify, categoriesFor } from "./src/classify.js";
 import { statsDelta } from "./src/store.js";
 import { kstParts } from "./src/util.js";
 import { SITE_URL, formatAlert } from "./src/alerts.js";
@@ -226,6 +226,69 @@ export const analyze = onCall({ timeoutSeconds: 300 }, wrap(async (req) => {
   return { results: res, log };
 }));
 
+// 담당자가 고른 글을 가비지로 (또는 되돌리기): 카테고리 · 일별 통계 · 실시간 피드를 함께 바꿈
+// manualGarbage 표시가 있으면 '다시 분류'를 해도 가비지로 남음
+export const moveToGarbage = onCall({ timeoutSeconds: 120 }, wrap(async (req) => {
+  const u = await requireUser(req, "editor");
+  const ids = [...new Set((req.data?.ids || []).map(String))].slice(0, 300);
+  const undo = !!req.data?.undo;
+  if (!ids.length) throw new HttpsError("invalid-argument", "게시물을 고르세요");
+  const ctx = buildContext(await getSettings());
+  const snaps = await db.getAll(...ids.map((id) => db.doc(`posts/${id}`)));
+  const batch = db.batch();
+  const inc = {};
+  const bump = (day, f, k, n) => { ((inc[day] ||= {})[f] ||= {})[k] = (inc[day][f][k] || 0) + n; };
+  const top = (day, k, n) => { (inc[day] ||= {})[k] = (inc[day][k] || 0) + n; };
+  let n = 0;
+  for (const s of snaps) {
+    if (!s.exists) continue;
+    const p = s.data();
+    let next;
+    if (!undo) {
+      if (!(p.isIssue || p.must) && p.manualGarbage) continue;
+      next = { isIssue: false, must: false, alert: false, manualGarbage: true };
+    } else {
+      if (!p.manualGarbage) continue;
+      const cls = classify({ ...p, requireMatch: false }, ctx);
+      next = { isIssue: !!cls?.isIssue, must: !!cls?.must, alert: !!cls?.alert, manualGarbage: false };
+    }
+    next.cats = categoriesFor({ ...p, ...next }, ctx.categories);
+    next.editedBy = u.uid;
+    next.editedAt = FieldValue.serverTimestamp();
+    batch.update(s.ref, next);
+    n++;
+    // 일별 통계: 카테고리 · 이슈/가비지 건수 옮김
+    if (p.collectedAt) {
+      const day = kstParts(p.collectedAt.toDate()).day;
+      for (const c of p.cats || []) if (!next.cats.includes(c)) bump(day, "cat", c, -1);
+      for (const c of next.cats) if (!(p.cats || []).includes(c)) bump(day, "cat", c, 1);
+      const was = !!(p.isIssue || p.must), now = !!(next.isIssue || next.must);
+      if (was !== now) {
+        top(day, "issue", now ? 1 : -1); top(day, "garbage", now ? -1 : 1);
+        bump(day, "chIssue", p.channel, now ? 1 : -1);
+        if (p.sentiment) bump(day, "sentIssue", p.sentiment, now ? 1 : -1);
+      }
+    }
+  }
+  for (const [day, fields] of Object.entries(inc)) {
+    const data = {};
+    for (const [f, v] of Object.entries(fields)) {
+      if (typeof v === "number") data[f] = FieldValue.increment(v);
+      else { data[f] = {}; for (const [k, x] of Object.entries(v)) if (x) data[f][k] = FieldValue.increment(x); }
+    }
+    batch.set(db.doc(`stats/${day}`), data, { merge: true });
+  }
+  if (n) await batch.commit();
+  // 실시간 피드의 '이슈' 표시도
+  const live = db.doc("status/live");
+  await db.runTransaction(async (tx) => {
+    const s = await tx.get(live);
+    const items = s.exists ? s.data().items || [] : [];
+    if (items.some((x) => ids.includes(x.id))) tx.update(live, { items: items.map((x) => (ids.includes(x.id) ? { ...x, isIssue: undo } : x)) });
+  });
+  return { moved: n };
+}));
+
 // 담당자가 성향 지정: 게시물 + 통계 + 실시간 피드를 함께 바꿈
 export const setSentiment = onCall(wrap(async (req) => {
   const u = await requireUser(req, "editor");
@@ -250,8 +313,8 @@ export const reclassify = onCall({ timeoutSeconds: 540, memory: "1GiB" }, wrap(a
   let changed = 0;
   for (const d of snap.docs) {
     const p = d.data();
-    const cls = classify({ ...p, requireMatch: false }, ctx);
-    const next = cls
+    const cls = p.manualGarbage ? null : classify({ ...p, requireMatch: false }, ctx);
+    const next = p.manualGarbage ? { ...p } : cls
       ? { ...p, targets: cls.targets, kw: cls.kw, kwGroups: cls.kwGroups, isIssue: cls.isIssue, alert: cls.alert, fav: cls.fav, must: cls.must, cats: cls.cats,
           sentiment: p.sentimentBy === "rule" ? cls.sentiment : p.sentiment }
       : { ...p, cats: [], isIssue: false, excluded: true };

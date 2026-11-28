@@ -131,6 +131,10 @@ export function createDemoBackend() {
       return { items, cursor: start + pageSize, done: start + pageSize >= list.length };
     },
     updatePost: async (id, patch) => { Object.assign(posts.find((p) => p.id === id) || {}, patch); },
+    async moveToGarbage(ids, undo = false) {
+      for (const id of ids) { const p = posts.find((x) => x.id === id); if (p) Object.assign(p, { isIssue: undo, must: false, manualGarbage: !undo, cats: undo ? p.cats : ["all", "garbage"] }); }
+      return { moved: ids.length };
+    },
     async kakaoShare(ids, to) {
       await delay(900);
       for (const id of ids) Object.assign(posts.find((p) => p.id === id) || {}, { alerted: true, alertedAt: new Date(), alertedTo: ["관리자"] });

@@ -84,7 +84,8 @@ export async function render(root, store, { arg, qs }) {
       ${store.isEditor() ? `<button class="btn sm kakao" data-a="kakao">💬 카톡 발송</button>` : ""}
       ${store.isEditor() ? `<button class="btn sm" data-a="ai">🤖 AI 성향 재분석</button>
       <select class="input" data-a="sent" style="height:30px"><option value="">성향 지정…</option>${SENT_ORDER.map((s) => `<option value="${s}">${SENT[s].name}</option>`).join("")}</select>
-      <button class="btn sm" data-a="star">⭐ 중요</button><button class="btn sm" data-a="hide">🙈 숨김/해제</button>` : ""}
+      <button class="btn sm" data-a="star">⭐ 중요</button><button class="btn sm" data-a="hide">🙈 숨김/해제</button>
+      <button class="btn sm" data-a="garbage" title="이슈가 아닌 글로 옮김 (다시 분류해도 가비지로 남음)">🗑 가비지로 이동</button>` : ""}
       <button class="btn sm ghost" data-a="clear">선택 해제</button></div>`;
   const $q = (s) => root.querySelector(s);
   const bulk = $q("#bulk");
@@ -292,6 +293,7 @@ export async function render(root, store, { arg, qs }) {
       p.channel === "cafe" && !cafeJoined ? `<a class="badge b-search" href="${esc(cafeSearchUrl(p.title))}" target="_blank" rel="noopener" title="가입하지 않은 카페 글은 네이버 검색으로 열어 보세요">🔍 검색</a>` : "",
       ...(p.kw || []).slice(0, 4).map((k) => `<span class="badge b-kw">#${esc(k)}</span>`),
       p.star ? `<span class="badge b-warn">⭐ 중요</span>` : "",
+      p.manualGarbage ? `<span class="badge b-neu" title="담당자가 가비지로 옮긴 글">🗑 직접 가비지</span>` : "",
       p.memo ? `<span class="badge b-kw">📝 메모</span>` : "",
     ].join("");
     const w = words(p);
@@ -441,6 +443,18 @@ export async function render(root, store, { arg, qs }) {
     try {
       if (b.dataset.a === "xls") return exportExcel(selected(), cat.name, store);
       if (b.dataset.a === "clear") { sel.clear(); apply(); return; }
+      if (b.dataset.a === "garbage") {
+        const allG = selected().every((p) => p.manualGarbage);
+        const ok = await modal(allG ? "가비지에서 되돌리기" : "가비지로 이동", `<p>고른 글 <b>${ids.length}건</b>을 ${allG ? "원래 분류로 되돌립니다." : "<b>가비지</b>로 옮깁니다.<br><span class='hint'>이슈 카테고리 목록·통계에서 빠지고 '가비지'에서 볼 수 있습니다. 다시 분류해도 가비지로 남습니다.</span>"}</p>`, { ok: allG ? "되돌리기" : "가비지로 이동", danger: !allG });
+        if (!ok) return;
+        await busy(b, async () => {
+          const r = await store.be.moveToGarbage(ids, allG);
+          toast(`${r.moved}건을 ${allG ? "되돌렸습니다" : "가비지로 옮겼습니다"}`);
+          if (!allG && cat.id !== "all" && cat.id !== "garbage") { all = all.filter((p) => !sel.has(p.id)); }
+          for (const p of selected()) Object.assign(p, { manualGarbage: !allG, isIssue: allG });
+          sel.clear();
+        });
+      }
       if (b.dataset.a === "kakao") {
         if (ids.length > 20) return toast("카톡 발송은 한 번에 20건까지 고를 수 있습니다", "err");
         const body = await modal(`카톡 발송 · ${ids.length}건`, `<div style="display:flex;flex-direction:column;gap:10px">

@@ -71,6 +71,7 @@ export async function createBackend() {
     getTop: async () => (await getDoc(doc(db, "status/top"))).data()?.items || [],
     getRuns: async () => (await getDoc(doc(db, "state/runs"))).data()?.items || [],
     analyze: (ids) => call("analyze", { ids }),
+    moveToGarbage: (ids, undo = false) => call("moveToGarbage", { ids, undo }),
     kakaoShare: (ids, to) => call("kakaoShare", { ids, to }),
     setSentiment: (ids, sentiment) => call("setSentiment", { ids, sentiment }),
     runNow: (parts) => call("runNow", { parts }),
