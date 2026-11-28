@@ -1,13 +1,13 @@
-// 점검(읽기 전용): 20:48 이후 다시 분류 호출 결과(시간·상태) · 우파 영상 문서 수정 시각
-import { initializeApp, applicationDefault } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
-import { canonicalUrl, hash } from "./src/util.js";
-const P = process.env.GCLOUD_PROJECT;
-const db = getFirestore(initializeApp(), "hdmon");
-const kst = (d) => new Date(new Date(d).getTime() + 9 * 3600e3).toISOString().slice(5, 19).replace("T", " ");
-const s = await db.doc(`posts/${hash(canonicalUrl("https://www.youtube.com/watch?v=cbQAELeJ9rc"))}`).get();
-console.log("우파 영상 문서 수정:", kst(s.updateTime.toDate()), "| excluded", s.data().excluded);
-const { access_token } = await applicationDefault().getAccessToken();
-const q = async (filter) => { const r = await fetch("https://logging.googleapis.com/v2/entries:list", { method: "POST", headers: { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" }, body: JSON.stringify({ resourceNames: [`projects/${P}`], filter, orderBy: "timestamp asc", pageSize: 100 }) }); const j = await r.json(); if (!r.ok) console.log("로그 실패", j.error?.message); return j.entries || []; };
-for (const e of await q(`timestamp>="2026-11-28T05:30:00Z" AND resource.type="cloud_run_revision" AND resource.labels.service_name="reclassify" AND httpRequest.requestMethod="POST"`)) console.log("다시 분류", kst(e.timestamp), e.httpRequest.status, e.httpRequest.latency || "");
-for (const e of await q(`timestamp>="2026-11-28T11:45:00Z" AND resource.type="cloud_run_revision" AND resource.labels.service_name="reclassify" AND severity>=WARNING`)) console.log("경고", kst(e.timestamp), (e.textPayload || JSON.stringify(e.jsonPayload || {})).slice(0, 200));
+// 점검(읽기 전용): 네이버 카페 검색 '결과를 못 읽음' — 결과 0건 화면인지, 화면 모양이 바뀐 건지
+import { searchUrl, parseSearchPage } from "./src/collectors/naverweb.js";
+import { UA } from "./src/util.js";
+for (const [q, nso] of [["승용차 시동꺼짐", true], ["불났", true], ["불났", false], ["현대차", true]]) {
+  let u = searchUrl("cafe", q); if (!nso) u = u.replace(/&nso=[^&]+/, "");
+  const r = await fetch(u, { headers: { "User-Agent": UA, "Accept-Language": "ko-KR,ko;q=0.9", Referer: "https://www.naver.com/" } });
+  const h = await r.text();
+  const vis = h.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  const none = vis.match(/[^.]{0,30}(결과가 없|검색결과가 없|일치하는)[^.]{0,40}/);
+  const links = new Set(h.match(/cafe\.naver\.com\/[\w-]+\/\d+|cafe\.naver\.com\/(?:ca-fe|f-e)\/cafes\/\d+\/articles\/\d+/g) || []);
+  console.log(`${q}${nso ? " (최근 1일)" : " (기간 없음)"} | HTTP ${r.status} · ${h.length}자 | 결과 없음 문구: ${none ? none[0].trim() : "없음"} | 카페 글 링크 ${links.size} | 읽은 글 ${parseSearchPage(h, "cafe").length}`);
+  await new Promise((s) => setTimeout(s, 3000));
+}
