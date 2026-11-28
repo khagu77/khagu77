@@ -1,24 +1,9 @@
-// 점검(읽기 전용): 5분 수집 예약(Cloud Scheduler) 상태 · 최근 수집 함수 호출 로그
-import { initializeApp, applicationDefault } from "firebase-admin/app";
+// 점검(읽기 전용): Google 뉴스 묶음 검색 결과 · 쉬는 상태
+import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 const db = getFirestore(initializeApp(), "hdmon");
-const kst = (d) => new Date(new Date(d).getTime() + 9 * 3600e3).toISOString().slice(5, 19).replace("T", " ");
-const P = process.env.GCLOUD_PROJECT;
-const { access_token } = await applicationDefault().getAccessToken();
-const H = { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" };
+const kst = (d) => new Date(new Date(d).getTime() + 9 * 3600e3).toISOString().slice(5, 16).replace("T", " ");
 const runs = (await db.doc("state/runs").get()).data()?.items || [];
-console.log("지금", kst(Date.now()), "| 저장된 마지막 수집:", runs.slice(0, 2).map((r) => kst(r.at.toDate())).join(", "));
-const r = await fetch(`https://cloudscheduler.googleapis.com/v1/projects/${P}/locations/asia-northeast3/jobs`, { headers: H });
-const j = await r.json();
-if (!r.ok) console.log("예약 목록 읽기 실패", r.status, j.error?.message?.slice(0, 200));
-for (const x of j.jobs || []) if (/collect|hdmon/i.test(x.name)) console.log("예약:", x.name.split("/").pop(), "| 상태", x.state, "| 주기", x.schedule, x.timeZone, "| 마지막 시도", x.lastAttemptTime ? kst(x.lastAttemptTime) : "-", "| 결과", JSON.stringify(x.status || {}), "| 다음", x.scheduleTime ? kst(x.scheduleTime) : "-");
-const since = new Date(Date.now() - 45 * 60e3).toISOString();
-const filter = `timestamp>="${since}" AND resource.labels.service_name="collecttick" AND httpRequest.requestMethod="POST"`;
-const lr = await fetch("https://logging.googleapis.com/v2/entries:list", { method: "POST", headers: H, body: JSON.stringify({ resourceNames: [`projects/${P}`], filter, orderBy: "timestamp desc", pageSize: 20 }) });
-const lj = await lr.json();
-for (const e of lj.entries || []) console.log("호출", kst(e.timestamp), e.httpRequest.status, e.httpRequest.latency || "");
-if (!(lj.entries || []).length) console.log("최근 45분 수집 함수 호출 없음", lr.status, lj.error?.message?.slice(0, 120) || "");
-const sf = `timestamp>="${since}" AND resource.type="cloud_scheduler_job"`;
-const sr = await fetch("https://logging.googleapis.com/v2/entries:list", { method: "POST", headers: H, body: JSON.stringify({ resourceNames: [`projects/${P}`], filter: sf, orderBy: "timestamp desc", pageSize: 10 }) });
-const sj = await sr.json();
-for (const e of sj.entries || []) console.log("예약 로그", kst(e.timestamp), e.severity, JSON.stringify(e.jsonPayload || {}).slice(0, 220));
+for (const r of runs.slice(0, 8)) console.log("수집", kst(r.at.toDate()), "|", (r.log || []).filter((x) => /Google/.test(x)).join(" / "));
+const g = (await db.doc("state/gnews").get()).data() || {};
+console.log("Google 상태: 연속 막힘", g.strikes, "| 쉬는 끝", g.pauseUntil ? kst(g.pauseUntil) : "-");
