@@ -58,6 +58,11 @@ export async function render(root, store, { arg, qs }) {
       </div>
       <div class="frow"><span class="lbl">검색</span>
         <div class="qsteps" id="qsteps"></div>
+        <div class="qhelp">💡 <b>검색 방법</b>
+          <span><kbd>,</kbd> 쉼표 = 하나라도 <em>블루핸즈, 하이테크센터, 파란손</em></span>
+          <span><kbd>␣</kbd> 띄어쓰기 = 모두 포함 <em>블루핸즈 불친절</em></span>
+          <span><kbd>-</kbd> 빼기 = 제외 <em>-광고</em></span>
+          <span><kbd>＋</kbd> 결과 내 검색 = 2차·3차로 좁히기</span></div>
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="dedupe" ${st.dedupe ? "checked" : ""}><span></span></span>유사 기사 묶기</label>
         ${st.src ? `<button class="chip on" id="srcChip" title="눌러서 매체 조건 지우기">${esc(st.src)} ✕</button>` : ""}
         ${hasYt ? `<div class="seg" id="shortsSeg">${[["all", "전체"], ["no", "숏츠 제외"], ["only", "숏츠만"]].map(([v, l]) => `<button data-v="${v}" class="${st.shorts === v ? "on" : ""}">${l}</button>`).join("")}</div>` : ""}
