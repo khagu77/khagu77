@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>이동 중…</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#070b16;color:#a6b2d4;font-family:-apple-system,"Malgun Gothic",sans-serif}a{color:#00aad2}</style></head>
+<body><p id="m">원문으로 이동 중…</p>
+<script>
+  // 카카오톡 알림의 '게시물 보기' 버튼 → 원문 주소로 이동 (http/https 주소만)
+  const u = new URLSearchParams(location.search).get("u") || "";
+  if (/^https?:\/\//i.test(u)) location.replace(u);
+  else document.getElementById("m").innerHTML = '주소가 올바르지 않습니다. <a href="/">모니터링 시스템 열기</a>';
+</script></body></html>

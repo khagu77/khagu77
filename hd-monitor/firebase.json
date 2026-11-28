@@ -1,0 +1,29 @@
+{
+  "hosting": [
+    {
+      "target": "hdmon",
+      "public": "public",
+      "ignore": ["firebase.json", "**/.*"],
+      "cleanUrls": false,
+      "headers": [
+        { "source": "**/*.@(js|css)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+      ],
+      "rewrites": [{ "source": "/", "destination": "/index.html" }]
+    }
+  ],
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "hdmon",
+      "runtime": "nodejs22",
+      "ignore": ["node_modules", ".git", "test", "*.log"]
+    }
+  ],
+  "firestore": [
+    {
+      "database": "hdmon",
+      "rules": "firestore.rules",
+      "indexes": "firestore.indexes.json"
+    }
+  ]
+}

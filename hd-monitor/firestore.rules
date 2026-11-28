@@ -1,0 +1,37 @@
+rules_version = '2';
+// 현대차 온라인 이슈 모니터링 전용 데이터베이스(hdmon) 규칙
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function prof() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function active() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && prof().status == 'active'; }
+    function editor() { return active() && (prof().role == 'editor' || prof().role == 'admin'); }
+    function admin() { return active() && prof().role == 'admin'; }
+
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || admin());
+      // 본인은 이름·알림 설정만, 관리자는 권한·상태도
+      allow update: if (signedIn() && request.auth.uid == uid && prof().status == 'active'
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'dept', 'alertOn', 'alertChannels', 'alertIssueOnly', 'theme']))
+                    || (admin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'dept', 'role', 'status', 'alertOn', 'alertChannels', 'alertIssueOnly']));
+      allow create, delete: if false;
+    }
+    match /settings/{doc} {
+      allow read: if active();
+      allow write: if admin();
+    }
+    match /posts/{id} {
+      allow read: if active();
+      allow update: if editor() && request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['sentiment', 'sentimentBy', 'sentimentReason', 'memo', 'star', 'hidden', 'editedBy', 'editedAt']);
+      allow create, delete: if false;
+    }
+    match /stats/{day} { allow read: if active(); allow write: if false; }
+    match /status/{doc} { allow read: if active(); allow write: if false; }
+    match /alerts/{id} { allow read: if admin(); allow write: if false; }
+    // 서버 전용 (API 키 · 카카오 토큰 · 수집 상태)
+    match /secrets/{doc} { allow read, write: if false; }
+    match /kakao/{uid} { allow read, write: if false; }
+    match /state/{doc} { allow read: if admin() && doc == 'runs'; allow write: if false; }
+  }
+}

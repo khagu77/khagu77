@@ -1,0 +1,8 @@
+{
+  "projects": { "default": "linesquare--monitor" },
+  "targets": {
+    "linesquare--monitor": {
+      "hosting": { "hdmon": ["hd-issue-monitor"] }
+    }
+  }
+}
