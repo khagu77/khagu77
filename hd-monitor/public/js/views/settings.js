@@ -35,7 +35,7 @@ export async function render(root, store, { arg }) {
   const mark = (key) => {
     dirty.add(key);
     $q("#savebar").classList.add("on");
-    $q("#dirtyTxt").textContent = `저장하지 않은 변경: ${[...dirty].map((k) => ({ keywordGroups: "키워드", categories: "카테고리", favCafes: "관심 동호회", favYoutube: "관심 유튜브", boards: "게시판", lexicon: "성향 사전", collect: "수집", alert: "알림", ai: "AI" }[k] || k)).join(", ")}`;
+    $q("#dirtyTxt").textContent = `저장하지 않은 변경: ${[...dirty].map((k) => ({ keywordGroups: "키워드", categories: "카테고리", favCafes: "관심 동호회", favYoutube: "관심 유튜브", boards: "게시판", lexicon: "성향 사전", collect: "수집", alert: "알림", ai: "AI", instagram: "인스타그램" }[k] || k)).join(", ")}`;
   };
   $q("#discard").onclick = () => { draft = structuredClone(store.settings); dirty.clear(); $q("#savebar").classList.remove("on"); draw(); };
   $q("#save").onclick = (e) => busy(e.currentTarget, async () => {
@@ -325,6 +325,16 @@ export async function render(root, store, { arg }) {
           </ol>
           <div class="frow"><input class="input" id="kakaoRestKey" style="flex:1" placeholder="REST API 키"><input class="input" id="kakaoSecret" style="flex:1" placeholder="클라이언트 시크릿"></div></div>
       </div>
+      <div class="card" style="margin-top:14px"><h3>📷 인스타그램 (Meta 공식 API · 해시태그 검색) <span class="sub" id="igSt"></span></h3>
+        <ol class="hint" style="line-height:1.9;margin:0 0 12px;padding-left:18px">
+          <li>developers.facebook.com 에서 만든 앱의 <b>앱 ID</b>와 <b>앱 시크릿 코드</b>를 아래에 넣고 '입력한 키 저장'</li>
+          <li>Meta 앱 → 이용 사례 → 'Facebook 로그인이 포함된 API 설정' → 리디렉션 URI 에 <code>${esc(origin)}/instagram.html</code> 등록</li>
+          <li><b>Instagram 연결</b> → 인스타그램 비즈니스 계정이 연결된 페이스북으로 로그인 → 페이지 선택·허용</li>
+        </ol>
+        <div class="frow"><input class="input" id="metaAppId" style="flex:1" placeholder="Meta 앱 ID"><input class="input" id="metaAppSecret" style="flex:1" placeholder="앱 시크릿 코드"><button class="btn" id="igConnect">📷 Instagram 연결</button></div>
+        <label class="toggle-row" style="margin-top:12px"><span class="switch"><input type="checkbox" id="igOn" ${draft.instagram?.on !== false ? "checked" : ""}><span></span></span>인스타그램 수집 (5분마다 해시태그 ${draft.instagram?.perTick ?? 4}개씩 돌아가며)</label>
+        <label class="field" style="margin-top:8px">해시태그 (띄어쓰기로 구분 · <b>7일에 서로 다른 해시태그 30개까지</b> — 자주 바꾸면 한도에 걸림)<textarea class="input" id="igTags" rows="3">${esc(draft.instagram?.hashtags || "")}</textarea></label>
+      </div>
       <div class="card" style="margin-top:14px"><h3>🧩 크롬 수집 도우미 (네이버 검색·뽐뿌) <span class="sub" id="extSt"></span></h3>
         <p class="hint">네이버 검색과 뽐뿌는 서버 접속을 막아서, 담당자 PC의 크롬이 5분마다 사람이 보는 속도로 읽어 이 시스템으로 보냅니다. <b>이미 설치했다면 새로 내려받아 폴더를 덮어쓰고 chrome://extensions 에서 새로고침(↻)</b> 해 주세요 (버전 1.1.0). 크롬이 켜져 있는 PC 한 대 이상에 설치해 두세요 (여러 대여도 같은 글은 한 번만 저장).</p>
         <ol class="hint" style="line-height:1.9;margin:0 0 12px;padding-left:18px">
@@ -339,8 +349,16 @@ export async function render(root, store, { arg }) {
       store._naverKeys = s.naverKeys;
       const item = (ok, l) => `<span class="badge ${ok ? "b-pos" : "b-neu"}">${ok ? "✓" : "✕"} ${l}</span>`;
       v.querySelector("#extSt").textContent = s.ingestToken ? "토큰 있음" : "토큰 없음";
+      v.querySelector("#igSt").textContent = s.instagram ? `연결됨 · @${s.instagram.username} (${s.instagram.page})${s.instagram.expiresAt ? ` · 로그인 유효 ${new Date(s.instagram.expiresAt).toLocaleDateString("ko-KR")}까지(자동 연장)` : ""}` : s.metaAppId ? "앱 키 있음 · 연결 전" : "연결 전";
       v.querySelector("#ks").innerHTML = [item(s.naverKeys, `네이버 ${s.naverKeys}개`), item(s.youtubeKeys, `유튜브 ${s.youtubeKeys}개`), item(s.geminiKey, "Gemini"), item(s.claudeKey, "Claude"), item(s.kakaoRestKey, "카카오 REST"), item(s.kakaoSecret, "카카오 시크릿")].join("");
     };
+    v.querySelector("#igConnect").onclick = () => {
+      const appId = store.settings.metaAppId;
+      if (!appId) return toast("Meta 앱 ID 를 먼저 넣고 '입력한 키 저장'을 눌러 주세요", "err", 5000);
+      location.href = `https://www.facebook.com/dialog/oauth?${new URLSearchParams({ client_id: appId, redirect_uri: `${origin}/instagram.html`, response_type: "code", scope: "instagram_basic,pages_show_list,pages_read_engagement,business_management" })}`;
+    };
+    v.querySelector("#igOn").onchange = (e) => { draft.instagram = { ...(draft.instagram || {}), on: e.target.checked }; mark("instagram"); };
+    v.querySelector("#igTags").oninput = (e) => { draft.instagram = { ...(draft.instagram || {}), hashtags: e.target.value }; mark("instagram"); };
     v.querySelector("#mkToken").onclick = (e) => busy(e.currentTarget, async () => {
       if (v.querySelector("#extSt").textContent === "토큰 있음" && !(await confirmBox("새 토큰을 만들면 이미 설치한 수집 도우미에도 새 토큰을 다시 넣어야 합니다. 만들까요?"))) return;
       try { const r = await store.be.makeIngestToken(); v.querySelector("#tokenOut").value = r.token; v.querySelector("#extSt").textContent = "토큰 있음"; toast("토큰을 만들었습니다. 복사해서 수집 도우미에 넣어 주세요"); } catch (err) { toast(err.message, "err"); }
@@ -349,7 +367,7 @@ export async function render(root, store, { arg }) {
     v.querySelector("#copyR").onclick = () => navigator.clipboard.writeText(`${origin}/kakao.html`).then(() => toast("복사했습니다"));
     v.querySelector("#saveKeys").onclick = (e) => busy(e.currentTarget, async () => {
       const patch = {};
-      for (const k of ["naverKeys", "youtubeKeys", "geminiKey", "claudeKey", "kakaoRestKey", "kakaoSecret"]) { const val = v.querySelector(`#${k}`).value.trim(); if (val) patch[k] = val; }
+      for (const k of ["naverKeys", "youtubeKeys", "geminiKey", "claudeKey", "kakaoRestKey", "kakaoSecret", "metaAppId", "metaAppSecret"]) { const val = v.querySelector(`#${k}`).value.trim(); if (val) patch[k] = val; }
       if (!Object.keys(patch).length) return toast("넣은 키가 없습니다", "err");
       try { showStatus(await store.be.saveSecrets(patch)); v.querySelectorAll("textarea, input").forEach((x) => (x.value = "")); toast("키를 저장했습니다"); } catch (err) { toast(err.message, "err", 6000); }
     });

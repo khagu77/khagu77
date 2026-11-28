@@ -140,7 +140,7 @@ export async function render(root, store) {
       const max = entries[0]?.[1] || 1;
       el.innerHTML = entries.length ? entries.map(([k, v], i) => `<a class="r" href="${hrefOf(k)}"><span class="n">${icon ? icon(k) : i + 1}</span><span class="name">${esc(nameOf(k))}</span><b>${fmtNum(v)}</b><span class="track"><div style="width:${(v / max) * 100}%;animation-delay:${i * 70}ms"></div></span></a>`).join("") : `<div class="hint">아직 데이터가 없습니다</div>`;
     };
-    const catOf = { news: "news", cafe: "cafe", blog: "blog", post: "blog", youtube: "youtube", bobae: "community", clien: "community", ppomppu: "community" };
+    const catOf = { news: "news", cafe: "cafe", blog: "blog", post: "blog", youtube: "youtube", bobae: "community", clien: "community", ppomppu: "community", instagram: "instagram" };
     rank($q("#chs"), Object.entries(A.chIssue).sort((a, b) => b[1] - a[1]), (k) => CH[k]?.name || k, (k) => `#/posts/${catOf[k] || "all"}`, (k) => chIcon(k, true));
     const cafeName = Object.fromEntries((store.settings.favCafes || []).map((c) => [c.id.toLowerCase(), c.name]));
     const ytName = Object.fromEntries((store.settings.favYoutube || []).map((c) => [c.id, c.name]));

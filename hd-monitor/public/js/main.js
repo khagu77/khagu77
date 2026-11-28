@@ -138,7 +138,7 @@ async function refreshToday(bump = false) {
   }
 }
 
-const CAT_ICO = { all: "🗂", news: "📰", cafe: "☕", cafe_fav: "⭐", blog: "✍️", youtube: "▶️", youtube_fav: "⭐", community: "🚗", garbage: "🗑" };
+const CAT_ICO = { all: "🗂", news: "📰", cafe: "☕", cafe_fav: "⭐", blog: "✍️", youtube: "▶️", youtube_fav: "⭐", community: "🚗", instagram: "📷", garbage: "🗑" };
 function buildNav() {
   const nav = $("#nav");
   if (!nav) return;

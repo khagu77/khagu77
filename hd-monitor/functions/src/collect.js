@@ -7,6 +7,7 @@ import { collectNaverWeb } from "./collectors/naverweb.js";
 import { collectYoutubeRss, collectYoutubeSearch } from "./collectors/youtube.js";
 import { collectCommunity } from "./collectors/community.js";
 import { collectGoogleNews, collectDaumBlog, collectPpomppuRss } from "./collectors/official.js";
+import { collectInstagram } from "./collectors/instagram.js";
 import { ingest } from "./store.js";
 import { sendAlerts } from "./alerts.js";
 import { autoAnalyze } from "./ai.js";
@@ -40,6 +41,7 @@ export async function runCollection({ force = false, parts = null } = {}) {
   if (want("community") && settings.collect.community) jobs.push(collectCommunity({ settings, log }));
   // 설치 없이 서버만으로 되는 공식 경로
   if (want("gnews")) jobs.push(collectGoogleNews({ queries, settings, log }));
+  if (want("instagram")) jobs.push(collectInstagram({ settings, secrets, log }));
   if (want("daum")) jobs.push(collectDaumBlog({ queries, settings, secrets, log }));
   if (want("ppomppu") && (force || tick % 2 === 0)) jobs.push(collectPpomppuRss({ settings, log }));
 

@@ -11,6 +11,7 @@ export const CHANNELS = {
   bobae: { name: "보배드림", icon: "🚗" },
   clien: { name: "클리앙", icon: "💬" },
   ppomppu: { name: "뽐뿌", icon: "🛒" },
+  instagram: { name: "인스타그램", icon: "📷" },
 };
 
 const j = (a) => a.join(" + ");
@@ -96,6 +97,7 @@ export const DEFAULT_CATEGORIES = [
   { id: "youtube", name: "유튜브 (전체)", parent: null, channels: ["youtube"], filter: "issue", fav: null },
   { id: "youtube_fav", name: "관심 유튜브", parent: "youtube", channels: ["youtube"], filter: "issue", fav: "youtube" },
   { id: "community", name: "자동차 커뮤니티", parent: null, channels: ["bobae", "clien", "ppomppu"], filter: "issue", fav: null },
+  { id: "instagram", name: "인스타그램", parent: null, channels: ["instagram"], filter: "issue", fav: null },
   { id: "garbage", name: "가비지", parent: null, channels: ["*"], filter: "garbage", fav: null },
 ];
 
@@ -226,6 +228,9 @@ export const DEFAULT_LEXICON = {
   positive: j(["만족", "좋아요", "좋네요", "좋습니다", "최고", "추천", "훌륭", "편하", "감사", "칭찬", "잘 샀", "굿", "멋지", "멋있", "예쁘", "이쁘", "완벽", "해결", "개선", "친절", "신속", "든든", "가성비", "호평", "인기", "1위", "출시", "수상", "역대 최대", "흥행"]),
 };
 
+// 인스타그램 해시태그 (계정당 7일에 30개까지)
+export const DEFAULT_HASHTAGS = ["현대차", "현대자동차", "제네시스", "팰리세이드", "싼타페", "투싼", "아반떼", "쏘나타", "그랜저", "코나", "캐스퍼", "아이오닉5", "아이오닉6", "아이오닉9", "스타리아", "넥쏘", "gv80", "gv70", "g80", "현대차결함", "현대차리콜", "급발진"].join(" ");
+
 export const DEFAULT_SETTINGS = {
   keywordGroups: DEFAULT_KEYWORD_GROUPS,
   categories: DEFAULT_CATEGORIES,
@@ -263,6 +268,7 @@ export const DEFAULT_SETTINGS = {
     // 제목에 이 단어가 있으면 카톡 알림을 보내지 않음 (글은 목록에 그대로 저장)
     excludeTitle: "가입인사 + 가입 인사 + 가입했습니다 + 가입 했습니다 + 등업 + 등업신청 + 등업 신청 + 출석체크 + 출석 체크 + 자기소개 + 첫인사 + 첫 인사 + 인사드립니다 + 인사 드립니다",
   },
+  instagram: { on: true, hashtags: DEFAULT_HASHTAGS, perTick: 4 },
   ai: {
     geminiModel: "gemini-2.5-flash",
     claudeModel: "claude-opus-5-5",

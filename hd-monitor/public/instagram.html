@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>인스타그램 연결</title>
+<link rel="stylesheet" href="/css/app.css"></head>
+<body><div class="bg-fx"><div class="blob b1"></div><div class="blob b2"></div></div>
+<div class="auth-box" style="min-height:100vh"><div class="card auth-card" style="text-align:center">
+  <div style="font-size:48px;animation:float 3s ease-in-out infinite">📷</div><h2 id="t">인스타그램 연결 중…</h2><p class="hint" id="d">잠시만 기다려 주세요</p>
+  <a class="btn" href="/#/settings/keys">돌아가기</a></div></div>
+<script type="module">
+  import { createBackend } from "/js/backend.js";
+  const qs = new URLSearchParams(location.search);
+  const code = qs.get("code");
+  const t = document.getElementById("t"), d = document.getElementById("d");
+  if (!code) { t.textContent = "연결이 취소되었습니다"; d.textContent = qs.get("error_description") || ""; }
+  else {
+    const be = await createBackend();
+    const off = be.onAuth(async (user) => {
+      if (!user) { t.textContent = "먼저 로그인해 주세요"; return; }
+      try {
+        await be.instagramConnect(code, `${location.origin}/instagram.html`);
+        t.textContent = "연결되었습니다 🎉"; d.textContent = "설정 화면으로 돌아갑니다";
+        setTimeout(() => location.replace("/#/settings/keys"), 1200);
+      } catch (e) { t.textContent = "연결하지 못했습니다"; d.textContent = e.message; }
+    });
+  }
+</script></body></html>

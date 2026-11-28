@@ -26,6 +26,14 @@ export async function getSettings(fresh = false) {
       d.collect = { ...d.collect, youtubeDailyUnits: 3000, ytUnitsFixed: true };
       await SETTINGS_REF().set({ collect: d.collect }, { merge: true });
     }
+    // 인스타그램 카테고리가 없으면 가비지 앞에 한 번 추가
+    if (Array.isArray(d.categories) && !d.igCatAdded && !d.categories.some((c) => (c.channels || []).includes("instagram"))) {
+      const gi = d.categories.findIndex((c) => c.id === "garbage");
+      const cat = DEFAULT_SETTINGS.categories.find((c) => c.id === "instagram");
+      d.categories.splice(gi < 0 ? d.categories.length : gi, 0, cat);
+      d.igCatAdded = true;
+      await SETTINGS_REF().set({ categories: d.categories, igCatAdded: true }, { merge: true });
+    }
     // 새 버전에서 추가된 설정 항목은 기본값으로 채움
     cache = {
       ...DEFAULT_SETTINGS,
@@ -33,6 +41,7 @@ export async function getSettings(fresh = false) {
       collect: { ...DEFAULT_SETTINGS.collect, ...(d.collect || {}), naver: { ...DEFAULT_SETTINGS.collect.naver, ...(d.collect?.naver || {}) } },
       alert: { ...DEFAULT_SETTINGS.alert, ...(d.alert || {}) },
       ai: { ...DEFAULT_SETTINGS.ai, ...(d.ai || {}) },
+      instagram: { ...DEFAULT_SETTINGS.instagram, ...(d.instagram || {}) },
     };
   }
   cacheAt = Date.now();

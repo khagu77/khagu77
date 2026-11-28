@@ -73,6 +73,7 @@ export async function createBackend() {
     kakaoConnect: (code, redirectUri) => call("kakaoConnect", { code, redirectUri }),
     kakaoTest: () => call("kakaoTest"),
     makeIngestToken: () => call("makeIngestToken"),
+    instagramConnect: (code, redirectUri) => call("instagramConnect", { code, redirectUri }),
     kakaoUnlink: () => call("kakaoUnlink"),
   };
 }

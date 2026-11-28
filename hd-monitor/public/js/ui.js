@@ -9,8 +9,9 @@ export const CH = {
   bobae: { name: "보배드림", short: "보", color: "--s2" },
   clien: { name: "클리앙", short: "C", color: "--s7" },
   ppomppu: { name: "뽐뿌", short: "뽐", color: "--s5" },
+  instagram: { name: "인스타그램", short: "IG", color: "--s5" },
 };
-export const CH_ORDER = ["news", "cafe", "blog", "youtube", "bobae", "clien", "ppomppu", "post"];
+export const CH_ORDER = ["news", "cafe", "blog", "youtube", "bobae", "clien", "ppomppu", "instagram", "post"];
 export const SENT = {
   pos: { name: "긍정", cls: "b-pos", color: "--pos" },
   neu: { name: "중립", cls: "b-neu", color: "--neu" },
@@ -53,7 +54,7 @@ export const chIcon = (ch, small = false, p = null) => {
   return `<span class="ch-ico ch-${esc(ch)} logo"${size} title="${title}">${esc(CH[ch]?.short || "?")}<img alt="" loading="lazy" data-site="${esc(site)}" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(site)}&sz=64" onload="window.__logoCheck(this)" onerror="window.__logoFail(this)"></span>`;
 };
 // 제목 앞 매체명 상자 (언론·동호회·유튜브·자동차 커뮤니티)
-const PILL_CH = new Set(["news", "cafe", "youtube", "bobae", "clien", "ppomppu"]);
+const PILL_CH = new Set(["news", "cafe", "youtube", "bobae", "clien", "ppomppu", "instagram"]);
 let cafeNames = new Map();
 export const setCafeNames = (list) => { cafeNames = new Map((list || []).map((c) => [String(c.id).toLowerCase(), c.name])); };
 const clubFromUrl = (u) => (String(u || "").match(/cafe\.naver\.com\/(?!f-e\/|ca-fe\/)([\w-]+)\/\d+/) || [])[1] || "";

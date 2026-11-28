@@ -283,3 +283,11 @@ test("알림: 3시간 넘은 글(처음 수집 때 들어온 하루치)은 보�
   await sendAlerts([{ id: "old", channel: "news", fav: false, alert: true, dupOf: null, title: "현대차 리콜", time: { toMillis: () => Date.now() - 5 * 3600e3 } }], ctx2, {}, log);
   assert.deepEqual(log, []);
 });
+
+import { parseHashtags } from "../src/collectors/instagram.js";
+test("인스타그램 해시태그 목록 정리 (최대 30개)", () => {
+  assert.deepEqual(parseHashtags("#현대차, 팰리세이드 + #GV80\n현대차"), ["현대차", "팰리세이드", "gv80"]);
+  assert.equal(parseHashtags(Array.from({ length: 40 }, (_, i) => `t${i}`).join(" ")).length, 30);
+  const c = classify({ channel: "instagram", title: "팰리세이드 출고 후기", desc: "" }, buildContext(DEFAULT_SETTINGS));
+  assert.ok(c.cats.includes("all"));
+});

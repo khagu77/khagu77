@@ -4,6 +4,7 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
 import crypto from "node:crypto";
 import { ingestFromExtension, extensionConfig } from "./src/external.js";
+import { igConnect } from "./src/collectors/instagram.js";
 import { getAuth } from "firebase-admin/auth";
 import { db, FieldValue, getSettings, getSecrets, SECRETS_REF, SETTINGS_REF } from "./src/db.js";
 import { DEFAULT_SETTINGS } from "./src/defaults.js";
@@ -110,7 +111,7 @@ export const adminDeleteUser = onCall(wrap(async (req) => {
 }));
 
 // ── API 키 (서버 전용 저장소) ─────────────────────────────────
-const SECRET_KEYS = ["naverKeys", "youtubeKeys", "geminiKey", "claudeKey", "kakaoRestKey", "kakaoSecret"];
+const SECRET_KEYS = ["naverKeys", "youtubeKeys", "geminiKey", "claudeKey", "kakaoRestKey", "kakaoSecret", "metaAppId", "metaAppSecret"];
 export const saveSecrets = onCall(wrap(async (req) => {
   await requireUser(req, "admin");
   const patch = {};
@@ -121,6 +122,10 @@ export const saveSecrets = onCall(wrap(async (req) => {
   if ("kakaoRestKey" in patch || site) {
     await SETTINGS_REF().set({ ...("kakaoRestKey" in patch ? { kakaoClientId: patch.kakaoRestKey } : {}), ...(site ? { siteUrl: site } : {}) }, { merge: true });
   }
+  // Meta 앱 ID 도 로그인 주소에 보이는 공개 값이라 화면에서 쓸 수 있게
+  if ("metaAppId" in patch) {
+    await SETTINGS_REF().set({ metaAppId: patch.metaAppId }, { merge: true });
+  }
   return secretsInfo(await getSecrets());
 }));
 function secretsInfo(s) {
@@ -129,6 +134,8 @@ function secretsInfo(s) {
   return {
     naverKeys: lines(s.naverKeys), youtubeKeys: words(s.youtubeKeys), geminiKey: !!s.geminiKey, claudeKey: !!s.claudeKey,
     kakaoRestKey: !!s.kakaoRestKey, kakaoSecret: !!s.kakaoSecret, ingestToken: !!s.ingestToken,
+    metaAppId: !!s.metaAppId, metaAppSecret: !!s.metaAppSecret,
+    instagram: s.igToken ? { username: s.igUsername || "", page: s.igPage || "", expiresAt: s.igTokenExp || null } : null,
   };
 }
 export const secretsStatus = onCall(wrap(async (req) => {
@@ -234,4 +241,12 @@ export const makeIngestToken = onCall(wrap(async (req) => {
   const token = crypto.randomBytes(24).toString("hex");
   await SECRETS_REF().set({ ingestToken: token }, { merge: true });
   return { token };
+}));
+
+// 인스타그램 연결 (관리자): 페이스북 로그인 코드 → 서버가 토큰 보관
+export const instagramConnect = onCall(wrap(async (req) => {
+  await requireUser(req, "admin");
+  const { code, redirectUri } = req.data || {};
+  if (!code || !redirectUri) throw new HttpsError("invalid-argument", "페이스북 로그인 코드가 없습니다");
+  return igConnect(code, redirectUri, await getSecrets());
 }));
