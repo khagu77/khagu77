@@ -719,3 +719,17 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
   .dash-actions .now-clock b { margin-left: 5px; }
 }
 @media (max-width: 379px) { .dash-actions .now-clock { position: static; } }
+
+/* KPI 숫자: 큰 숫자가 위에서 뚝뚝 떨어져 제자리에 */
+.dd-wrap { display: inline-flex; align-items: baseline; }
+.dd, .dd-sep { display: inline-block; font-variant-numeric: tabular-nums; }
+.dd.drop { animation: ddrop .62s cubic-bezier(.2, .9, .25, 1.15) both; animation-delay: var(--dl, 0ms); will-change: transform, opacity; }
+@keyframes ddrop {
+  0% { opacity: 0; transform: translate(var(--dx, 0), -140%) scale(var(--sc, 3)) rotate(var(--rot, 0deg)); filter: blur(2px); }
+  55% { opacity: 1; transform: translate(0, 8%) scale(.9) rotate(0); filter: blur(0); }
+  75% { transform: translate(0, -6%) scale(1.06); }
+  100% { opacity: 1; transform: none; }
+}
+.kpi.thud { animation: kthud .32s ease-out; }
+@keyframes kthud { 0% { transform: translateY(0); } 35% { transform: translateY(3px); } 100% { transform: translateY(0); } }
+.kpi .k-val { overflow: visible; }

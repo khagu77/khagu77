@@ -147,6 +147,36 @@ export async function render(root, store) {
     root.querySelectorAll(".top-sub").forEach((e) => (e.textContent = `${period === 1 ? "오늘" : `최근 ${period}일`} · 이슈 글`));
   }
 
+  // KPI 숫자: 바뀐 자릿수만 아주 큰 숫자가 무작위 순서로 위에서 '뚝' 떨어져 제자리에 앉음 (처음엔 모든 자릿수)
+  function dropDigits(el, to) {
+    if (!el) return;
+    const next = fmtNum(to);
+    const prev = el.dataset.s ?? "";
+    if (prev === next && el.children.length) return;
+    el.dataset.s = next;
+    el.dataset.v = to;
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const pad = Math.max(prev.length, next.length);
+    const a = prev.padStart(pad, " "), b = next.padStart(pad, " ");
+    const changed = [...b].map((c, i) => !prev || c !== a[i]);
+    const order = changed.map((c, i) => (c ? i : -1)).filter((i) => i >= 0).sort(() => Math.random() - 0.5);
+    const delayOf = new Map(order.map((i, n) => [i, n * 90 + Math.random() * 60]));
+    el.classList.add("dd-wrap");
+    el.innerHTML = [...b].map((c, i) => {
+      if (c === " ") return "";
+      if (!/\d/.test(c)) return `<span class="dd-sep">${c}</span>`;
+      if (!changed[i] || reduce) return `<span class="dd">${c}</span>`;
+      const rot = Math.round((Math.random() - 0.5) * 50), sc = (2.4 + Math.random() * 1.8).toFixed(2), dx = Math.round((Math.random() - 0.5) * 60);
+      return `<span class="dd drop" style="--dl:${Math.round(delayOf.get(i))}ms;--rot:${rot}deg;--sc:${sc};--dx:${dx}px">${c}</span>`;
+    }).join("");
+    // 떨어진 뒤 카드가 살짝 '쿵' 흔들림
+    if (!reduce && order.length) {
+      const card = el.closest(".kpi");
+      const last = Math.max(...order.map((i) => delayOf.get(i))) + 520;
+      setTimeout(() => { card?.classList.remove("thud"); void card?.offsetWidth; card?.classList.add("thud"); }, last);
+    }
+  }
+
   // 성향별 목록으로 (대시보드에서 보던 기간 그대로, 이슈 게시물 기준)
   // 대시보드 숫자와 같은 기준(수집일)으로 목록 열기
   const sentHref = (sent) => `#/posts/all?sent=${sent}&issue=1&sort=collectedAt&period=${period === 1 ? "today" : period === 30 ? "30d" : "7d"}`;
@@ -172,7 +202,7 @@ export async function render(root, store) {
         <div class="k-delta" data-d="${i}"></div>${sparkline(k.sp.slice(-Math.max(period, 7)), k.color)}</a>`).join("");
     }
     kpis.forEach((k, i) => {
-      countUp(kEl.querySelector(`[data-k="${i}"]`), k.v);
+      dropDigits(kEl.querySelector(`[data-k="${i}"]`), k.v);
       const d = kEl.querySelector(`[data-d="${i}"]`);
       const diff = k.v - k.p;
       const pct = k.p ? Math.round((diff / k.p) * 100) : null;
