@@ -1,5 +1,5 @@
 // 대시보드: KPI 카운트업 · 채널별 추이 · 성향 도넛 · 부정 비율 · 시간대 히트맵 · 키워드 순위 · 실시간 피드
-import { h, esc, countUp, dayKey, fmtNum, CH, CH_ORDER, SENT, SENT_ORDER, chIcon, sentBadge, srcPill, sourceName, ago, segmented, toast, busy, fmtTime } from "../ui.js";
+import { isShorts, h, esc, countUp, dayKey, fmtNum, CH, CH_ORDER, SENT, SENT_ORDER, chIcon, sentBadge, srcPill, sourceName, ago, segmented, toast, busy, fmtTime } from "../ui.js";
 import { stackedBars, lineChart, donut, sparkline, heat } from "../charts.js";
 
 const sum = (o) => Object.values(o || {}).reduce((a, b) => a + (+b || 0), 0);
@@ -55,24 +55,24 @@ export async function render(root, store) {
   }
 
   function agg(list) {
-    const a = { total: 0, issue: 0, garbage: 0, ch: {}, chIssue: {}, sent: {}, sentIssue: {}, hour: {}, kw: {}, cat: {}, favCafe: {}, favYt: {}, shortCat: {} };
+    const a = { total: 0, issue: 0, garbage: 0, ch: {}, chIssue: {}, sent: {}, sentIssue: {}, hour: {}, kw: {}, cat: {}, favCafe: {}, favYt: {}, shortCat: {}, favYtShort: {} };
     for (const k of list) {
       const s = data.by[k];
       if (!s) continue;
       a.total += s.total || 0; a.issue += s.issue || 0; a.garbage += s.garbage || 0;
-      for (const f of ["ch", "chIssue", "sent", "sentIssue", "hour", "kw", "cat", "favCafe", "favYt", "shortCat"]) add(a[f], s[f]);
+      for (const f of ["ch", "chIssue", "sent", "sentIssue", "hour", "kw", "cat", "favCafe", "favYt", "shortCat", "favYtShort"]) add(a[f], s[f]);
     }
     return a;
   }
 
   const favCache = (() => { try { return JSON.parse(localStorage.getItem("hdmon-favtop") || "{}"); } catch { return {}; } })();
   const favFetchedAt = {};
-  function favTop(key, catId, statMap, nameOf, rank) {
+  function favTop(key, catId, statMap, nameOf, rank, shortMap = null) {
     const el = $q(`#${key}`);
     const ck = `${key}:${period}`;
     // 누르면 그 동호회·채널 글만 (보던 기간 그대로)
     const show = (entries) => rank(el, entries.slice(0, 7), (k) => k, (k) => `#/posts/${catId}?src=${encodeURIComponent(k)}&period=${period === 1 ? "today" : period === 30 ? "30d" : "7d"}`);
-    const fromStats = Object.entries(statMap || {}).map(([k, v]) => [nameOf(k), v]).sort((a, b) => b[1] - a[1]);
+    const fromStats = Object.entries(statMap || {}).map(([k, v]) => [nameOf(k), v, ...(shortMap ? [shortMap[k] || 0] : [])]).sort((a, b) => b[1] - a[1]);
     if (fromStats.length) { favCache[ck] = fromStats.slice(0, 7); save(); return show(fromStats); }
     if (favCache[ck]?.length) show(favCache[ck]); // 새로 셀 동안 마지막 순위 그대로
     else if (!el.dataset.html) el.innerHTML = `<div class="skeleton" style="height:120px"></div>`;
@@ -82,8 +82,14 @@ export async function render(root, store) {
     const from = new Date(new Date().setHours(0, 0, 0, 0) - (period - 1) * 86400e3);
     store.be.listPosts({ cat: catId, from, pageSize: 1000 }).then(({ items }) => {
       const cnt = new Map();
-      for (const p of items) { const n = sourceName(p) || p.source || "기타"; cnt.set(n, (cnt.get(n) || 0) + 1); }
-      const entries = [...cnt].sort((a, b) => b[1] - a[1]);
+      for (const p of items) {
+        const n = sourceName(p) || p.source || "기타";
+        const c = cnt.get(n) || [n, 0, ...(shortMap ? [0] : [])];
+        c[1]++;
+        if (shortMap && isShorts(p)) c[2]++;
+        cnt.set(n, c);
+      }
+      const entries = [...cnt.values()].sort((a, b) => b[1] - a[1]);
       if (entries.length || !favCache[ck]?.length) { favCache[ck] = entries.slice(0, 7); save(); show(entries); }
     }).catch(() => {});
     function save() { try { localStorage.setItem("hdmon-favtop", JSON.stringify(favCache)); } catch {} }
@@ -162,7 +168,7 @@ export async function render(root, store) {
     // 채널·관심
     const rank = (el, entries, nameOf, hrefOf, icon) => {
       const max = entries[0]?.[1] || 1;
-      const html = entries.length ? entries.map(([k, v], i) => `<a class="r" href="${hrefOf(k)}"><span class="n">${icon ? icon(k) : i + 1}</span><span class="name">${esc(nameOf(k))}</span><b>${fmtNum(v)}</b><span class="track"><div style="width:${(v / max) * 100}%;animation-delay:${i * 70}ms"></div></span></a>`).join("") : `<div class="hint">아직 데이터가 없습니다</div>`;
+      const html = entries.length ? entries.map(([k, v, sh], i) => `<a class="r" href="${hrefOf(k)}"><span class="n">${icon ? icon(k) : i + 1}</span><span class="name">${esc(nameOf(k))}</span><b>${sh != null ? `<small class="r-sh">숏츠 ${fmtNum(sh)} · 제외 ${fmtNum(Math.max(0, v - sh))}</small>` : ""}${fmtNum(v)}</b><span class="track"><div style="width:${(v / max) * 100}%;animation-delay:${i * 70}ms"></div></span></a>`).join("") : `<div class="hint">아직 데이터가 없습니다</div>`;
       // 내용이 그대로면 다시 그리지 않음 (깜빡임 방지)
       if (el.dataset.html !== html) { el.dataset.html = html; el.innerHTML = html; }
     };
@@ -174,7 +180,7 @@ export async function render(root, store) {
     // 기준 설명: 선택한 기간에 수집된 관심 동호회·채널 게시물 수, 많은 순 7곳
     root.querySelectorAll(".fav-sub").forEach((e) => (e.textContent = `${period === 1 ? "오늘" : `최근 ${period}일`} 수집된 게시물 수 · 많은 순 7곳 · 누르면 해당 글`));
     favTop("favCafe", "cafe_fav", A.favCafe, (k) => cafeName[k.toLowerCase()] || k, rank);
-    favTop("favYt", "youtube_fav", A.favYt, (k) => ytName[k] || k, rank);
+    favTop("favYt", "youtube_fav", A.favYt, (k) => ytName[k] || k, rank, A.favYtShort || {});
     drawStatus();
   }
 

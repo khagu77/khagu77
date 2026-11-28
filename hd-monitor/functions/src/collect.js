@@ -91,7 +91,7 @@ async function fixCommunityDatesOnce(log) {
 
 // 이미 저장된 유튜브 영상의 숏츠 여부를 5분마다 조금씩 확인 → 다 끝나면 날짜별 숏츠 수를 실제 글로 다시 셈 (한 번)
 async function backfillShorts(log) {
-  const st = await getState("shorts_backfill2");
+  const st = await getState("shorts_backfill3");
   if (st.done) return;
   const { isShort } = await import("./collectors/youtube.js");
   const { kstParts, pool } = await import("./util.js");
@@ -109,19 +109,21 @@ async function backfillShorts(log) {
     n++;
   });
   if (n) log.push(`저장된 유튜브 숏츠 확인: ${n}건`);
-  if (todo.length) { await setState("shorts_backfill2", { skip: skip.slice(-500), checked: (st.checked || 0) + n }); return; }
+  if (todo.length) { await setState("shorts_backfill3", { skip: skip.slice(-500), checked: (st.checked || 0) + n }); return; }
   // 다 확인함 → 날짜(수집일)별 · 카테고리별 숏츠 수를 실제 글로 다시 세어 통계에 덮어씀
   const again = await db.collection("posts").where("channel", "==", "youtube").where("short", "==", true).get();
   const byDay = {};
+  const favDay = {};
   for (const d of again.docs) {
     const p = d.data();
     if (!p.collectedAt) continue;
     const day = kstParts(p.collectedAt.toDate()).day;
     for (const c of p.cats || []) ((byDay[day] ||= {})[c] = (byDay[day][c] || 0) + 1);
+    if (p.fav) { const k = String(p.sourceId || p.source || "기타").replace(/[.~*/[\]]/g, " ").trim().slice(0, 100) || "기타"; ((favDay[day] ||= {})[k] = (favDay[day][k] || 0) + 1); }
   }
   const w = db.bulkWriter();
-  for (const [day, m] of Object.entries(byDay)) w.update(db.doc(`stats/${day}`), { shortCat: m });
+  for (const [day, m] of Object.entries(byDay)) w.update(db.doc(`stats/${day}`), { shortCat: m, favYtShort: favDay[day] || {} });
   await w.close().catch((e) => log.push(`숏츠 통계 다시 세기 일부 실패: ${e.message}`));
-  await setState("shorts_backfill2", { ...st, done: true, days: Object.keys(byDay).length });
+  await setState("shorts_backfill3", { ...st, done: true, days: Object.keys(byDay).length });
   log.push(`숏츠 통계 다시 셈: ${Object.keys(byDay).length}일`);
 }

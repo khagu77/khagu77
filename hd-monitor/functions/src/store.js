@@ -95,7 +95,7 @@ export async function ingest(items, ctx, log) {
 
 export function statsDelta(posts) {
   const inc = (o, k, n = 1) => { o[k] = (o[k] || 0) + n; };
-  const d = { total: 0, issue: 0, garbage: 0, ch: {}, cat: {}, sent: {}, hour: {}, kw: {}, grp: {}, favCafe: {}, favYt: {}, chIssue: {}, sentIssue: {}, shortCat: {} };
+  const d = { total: 0, issue: 0, garbage: 0, ch: {}, cat: {}, sent: {}, hour: {}, kw: {}, grp: {}, favCafe: {}, favYt: {}, chIssue: {}, sentIssue: {}, shortCat: {}, favYtShort: {} };
   for (const p of posts) {
     const hr = String(kstParts(p.collectedAt?.toDate ? p.collectedAt.toDate() : new Date()).hour).padStart(2, "0");
     d.total++;
@@ -115,6 +115,7 @@ export function statsDelta(posts) {
     const favKey = (x) => String(x.sourceId || x.source || "기타").replace(/[.~*/[\]]/g, " ").trim().slice(0, 100) || "기타";
     if (p.fav && p.channel === "cafe") inc(d.favCafe, favKey(p));
     if (p.fav && p.channel === "youtube") inc(d.favYt, favKey(p));
+    if (p.fav && p.channel === "youtube" && p.short) inc(d.favYtShort, favKey(p)); // 관심 유튜브 TOP 의 채널별 숏츠 수
   }
   return d;
 }
