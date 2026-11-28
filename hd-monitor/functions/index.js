@@ -289,6 +289,15 @@ export const moveToGarbage = onCall({ timeoutSeconds: 120 }, wrap(async (req) =>
   return { moved: n };
 }));
 
+// '글 직접 추가'에서 주소만 넣으면 제목 · 작성 일시 · 요약 자동 입력
+export const previewPostUrl = onCall({ timeoutSeconds: 30 }, wrap(async (req) => {
+  await requireUser(req, "editor");
+  const url = String(req.data?.url || "").trim();
+  if (!/^https?:\/\//.test(url)) throw new HttpsError("invalid-argument", "주소(http…)를 넣어 주세요");
+  const { previewUrl } = await import("./src/preview.js");
+  return previewUrl(url, await getSecrets());
+}));
+
 // 담당자가 글을 직접 추가 (수집이 놓친 글): 주소로 채널을 정하고 다른 글과 같게 분류 · 저장
 export const addPostManual = onCall({ timeoutSeconds: 60 }, wrap(async (req) => {
   const u = await requireUser(req, "editor");

@@ -486,12 +486,40 @@ export async function render(root, store, { arg, qs }) {
     apply();
   });
   $q("#addPost")?.addEventListener("click", async (e) => {
+    setTimeout(() => {
+      const box = [...document.querySelectorAll(".modal-back .mbody")].pop();
+      const u = box?.querySelector("#apUrl");
+      if (!u) return;
+      let last = "";
+      const localStr = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60e3).toISOString().slice(0, 16);
+      const go = async () => {
+        const v = u.value.trim();
+        if (!/^https?:\/\//.test(v) || v === last) return;
+        last = v;
+        const st = box.querySelector("#apStatus");
+        st.textContent = "글 정보를 읽는 중…";
+        try {
+          const r = await store.be.previewPostUrl(v);
+          if (u.value.trim() !== v) return;
+          if (!r.ok) { st.innerHTML = `⚠️ 자동으로 못 읽음 (${esc(r.reason || "")}) — 제목을 직접 넣어 주세요`; box.querySelector("#apTitle").focus(); return; }
+          const t = box.querySelector("#apTitle"), d = box.querySelector("#apDate"), ds = box.querySelector("#apDesc");
+          if (r.title) t.value = r.title;
+          if (r.postedAt) d.value = localStr(new Date(r.postedAt));
+          if (r.desc && !ds.value) ds.value = r.desc;
+          st.textContent = `✓ 자동으로 채웠습니다${r.postedAt ? "" : " (작성 일시는 못 찾음)"} — 필요하면 고쳐서 추가하세요`;
+        } catch (err) { st.textContent = `⚠️ 자동으로 못 읽음 (${err.message}) — 직접 넣어 주세요`; }
+      };
+      u.addEventListener("paste", () => setTimeout(go, 50));
+      u.addEventListener("change", go);
+      u.addEventListener("blur", go);
+    }, 0);
     const body = await modal("글 직접 추가", `<div style="display:flex;flex-direction:column;gap:10px">
-      <label class="field">글 주소 (URL)<input class="input" id="apUrl" placeholder="https://www.ppomppu.co.kr/zboard/view.php?id=car&no=…"></label>
+      <label class="field">글 주소 (URL) — 넣으면 제목·작성 일시가 자동으로 채워집니다<input class="input" id="apUrl" placeholder="https://…"></label>
+      <div class="hint" id="apStatus" style="margin-top:-4px"></div>
       <label class="field">제목<input class="input" id="apTitle"></label>
       <label class="field">작성 일시 (모르면 비워 두기 → 지금 시각)<input class="input" id="apDate" type="datetime-local"></label>
       <label class="field">내용 요약 (선택 · 키워드·성향 판단에 씀)<textarea class="input" id="apDesc" rows="3"></textarea></label>
-      <p class="hint" style="margin:0">채널은 주소로 자동으로 정합니다 (뽐뿌·보배드림·클리앙·네이버 카페·블로그·유튜브 등, 그 밖은 언론). 키워드가 없어도 저장하며, 이슈 키워드가 있으면 이슈로 분류됩니다.</p></div>`, { ok: "추가" });
+      <p class="hint" style="margin:0">뽐뿌처럼 서버 접속을 막는 사이트나 로그인이 필요한 카페 글은 자동으로 못 읽으니 제목을 직접 넣어 주세요. 채널은 주소로 자동으로 정합니다 (뽐뿌·보배드림·클리앙·네이버 카페·블로그·유튜브 등, 그 밖은 언론). 키워드가 없어도 저장하며, 이슈 키워드가 있으면 이슈로 분류됩니다.</p></div>`, { ok: "추가" });
     if (!body) return;
     const data = { url: body.querySelector("#apUrl").value.trim(), title: body.querySelector("#apTitle").value.trim(), postedAt: body.querySelector("#apDate").value ? new Date(body.querySelector("#apDate").value).toISOString() : null, desc: body.querySelector("#apDesc").value.trim() };
     try {
