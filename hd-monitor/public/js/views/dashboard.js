@@ -1,6 +1,6 @@
 // 대시보드: KPI 카운트업 · 채널별 추이 · 성향 도넛 · 부정 비율 · 시간대 히트맵 · 키워드 순위 · 실시간 피드
 import { isShorts, h, esc, countUp, dayKey, fmtNum, CH, CH_ORDER, SENT, SENT_ORDER, chIcon, sentBadge, srcPill, sourceName, ago, segmented, toast, busy, fmtTime } from "../ui.js";
-import { stackedBars, lineChart, donut, sparkline, heat, negGauge, radialHours } from "../charts.js";
+import { stackedBars, lineChart, donut, sparkline, heat, negGauge, radialHours, showTip, hideTip } from "../charts.js";
 
 const sum = (o) => Object.values(o || {}).reduce((a, b) => a + (+b || 0), 0);
 const add = (into, o) => { for (const [k, v] of Object.entries(o || {})) into[k] = (into[k] || 0) + v; return into; };
@@ -21,7 +21,7 @@ export async function render(root, store) {
     <div class="dash-grid stagger" id="grid">
       <div class="card span-8" style="--i:1"><h3>📈 채널별 이슈 게시물 <span class="sub" id="trendSub"></span></h3><div id="trend" style="min-height:260px"></div><div class="legend" id="trendLegend"></div></div>
       <div class="card span-4 feed-card" style="--i:2;grid-row:span 2"><h3><span class="dot"></span> 실시간 수집 피드 <span class="sub">새 글이 들어오면 바로 표시</span></h3><div class="feed-wrap"><div class="feed" id="feed"></div></div></div>
-      <div class="card span-4" style="--i:3"><h3>🎭 성향 분포 <span class="sub basis-sub" data-what="이슈 게시물"></span></h3><div class="donut-wrap"><div id="donut"></div><div class="dlegend" id="dlegend"></div></div></div>
+      <div class="card span-4" style="--i:3"><h3>🎭 성향 분포 <span class="sub basis-sub" data-what="이슈 게시물"></span></h3><div class="donut-wrap"><div id="donut"></div><div class="dlegend" id="dlegend"></div></div><div class="sent-trend" id="sentTrend"></div></div>
       <div class="card span-4" style="--i:4"><h3>🔑 많이 걸린 키워드 <span class="sub basis-sub" data-what="이슈 게시물"></span></h3><div class="rank" id="kw"></div></div>
       <div class="card span-3" style="--i:5"><h3>📉 부정·단순비난 비율 <span class="sub basis-sub" data-what="이슈 게시물 중"></span></h3><div id="negline"></div></div>
       <div class="card span-3" style="--i:6"><h3>🕒 시간대별 수집량 <span class="sub" id="heatSub"></span></h3><div id="heat" style="padding-top:4px"></div><div id="garbage"></div></div>
@@ -199,6 +199,23 @@ export async function render(root, store) {
     const parts = SENT_ORDER.map((k) => ({ name: SENT[k].name, value: A.sentIssue[k] || 0, color: SENT[k].color }));
     const tot = parts.reduce((a, p) => a + p.value, 0);
     donut($q("#donut"), { parts, center: fmtNum(tot), sub: "이슈 게시물", onClick: (i) => (location.hash = sentHref(SENT_ORDER[i])) });
+    // 날짜별 성향 추이: 하루 이슈 게시물의 성향 비율을 쌓은 막대 (오늘 보기면 최근 7일)
+    {
+      const days = period === 1 ? data.cur.slice(-7) : data.inPeriod;
+      const dense = days.length > 10;
+      $q("#sentTrend").innerHTML = `<div class="st-head">날짜별 성향 비율 <span>${period === 1 ? "최근 7일" : `최근 ${period}일`} 수집 · 이슈 게시물</span></div>
+        <div class="st-bars ${dense ? "dense" : ""}">${days.map((k, i) => {
+          const s = data.by[k]?.sentIssue || {};
+          const t = SENT_ORDER.reduce((a, x) => a + (s[x] || 0), 0);
+          const segs = SENT_ORDER.map((x) => (t && s[x] ? `<i style="height:${(s[x] / t) * 100}%;background:var(${SENT[x].color})"></i>` : "")).join("");
+          const tip = esc(`<b>${k.slice(5).replace("-", "/")}</b>${SENT_ORDER.map((x) => `${SENT[x].name} ${fmtNum(s[x] || 0)}`).join(" · ")}`);
+          return `<div class="st-col" style="--i:${i}" data-tip="${tip}"><div class="st-stack">${segs || `<i class="empty"></i>`}</div><small>${dense && i % 5 && i !== days.length - 1 ? "" : k.slice(5).replace("-", "/")}</small></div>`;
+        }).join("")}</div>`;
+      $q("#sentTrend").querySelectorAll("[data-tip]").forEach((c) => {
+        c.addEventListener("mousemove", (e) => showTip(e, c.dataset.tip));
+        c.addEventListener("mouseleave", hideTip);
+      });
+    }
     $q("#dlegend").innerHTML = parts.map((p, i) => `<a class="dl-link" href="${sentHref(SENT_ORDER[i])}" title="${p.name} 게시물 보기"><div class="r"><span class="badge ${SENT[SENT_ORDER[i]].cls}">${p.name}</span><b>${fmtNum(p.value)}</b><span class="hint">${tot ? Math.round((p.value / tot) * 100) : 0}%</span></div>
       <div class="bar-bg"><div style="width:${tot ? (p.value / tot) * 100 : 0}%;background:var(${p.color});animation-delay:${i * 120}ms"></div></div></a>`).join("");
 

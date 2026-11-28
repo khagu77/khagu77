@@ -688,3 +688,18 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 /* 카드 숫자 기준 (작게 · 자간 좁게) */
 .k-basis { display: block; margin-top: 2px; font-size: 10.5px; font-weight: 600; letter-spacing: -.04em; color: var(--text-3); white-space: nowrap; }
 .basis-sub { letter-spacing: -.04em; font-size: 11px; }
+
+/* 성향 분포 카드 아래: 날짜별 성향 비율 (카드 남는 높이를 채움) */
+.card:has(#sentTrend) { display: flex; flex-direction: column; }
+.sent-trend { flex: 1; display: flex; flex-direction: column; min-height: 130px; margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line-2); }
+.st-head { font-size: 12px; font-weight: 700; color: var(--text-2); margin-bottom: 8px; }
+.st-head span { margin-left: 6px; font-weight: 500; font-size: 11px; letter-spacing: -.04em; color: var(--text-3); }
+.st-bars { flex: 1; display: flex; align-items: stretch; gap: 8px; min-height: 100px; }
+.st-bars.dense { gap: 2px; }
+.st-col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: default; }
+.st-stack { flex: 1; width: 100%; max-width: 30px; display: flex; flex-direction: column-reverse; border-radius: 6px; overflow: hidden; background: var(--line); transform-origin: bottom; animation: growy .8s var(--ease, ease) both; animation-delay: calc(var(--i) * 50ms); }
+.st-stack i { display: block; width: 100%; }
+.st-stack i.empty { flex: 1; background: transparent; }
+.st-col:hover .st-stack { filter: brightness(1.2); }
+.st-col small { font-size: 10px; color: var(--text-3); height: 12px; white-space: nowrap; }
+.calm .st-stack { animation: none; }
