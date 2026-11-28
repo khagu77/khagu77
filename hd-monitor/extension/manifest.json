@@ -1,19 +1,22 @@
 {
   "manifest_version": 3,
   "name": "현대차 이슈 모니터링 수집 도우미",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "description": "서버 접속을 막는 곳(네이버 검색·뽐뿌)을 이 PC의 크롬이 사람이 보는 속도로 읽어 현대차 온라인 이슈 모니터링 시스템으로 보냅니다.",
   "permissions": [
     "storage",
     "alarms",
-    "offscreen"
+    "offscreen",
+    "scripting",
+    "tabs"
   ],
   "host_permissions": [
     "https://www.ppomppu.co.kr/*",
     "https://search.naver.com/*",
     "https://cafe.naver.com/*",
     "https://apis.naver.com/*",
-    "https://hd-issue-monitor.web.app/*"
+    "https://hd-issue-monitor.web.app/*",
+    "https://n.news.naver.com/*"
   ],
   "background": {
     "service_worker": "bg.js"

@@ -44,6 +44,10 @@ export async function ingestFromExtension(body, secrets) {
   const settings = ctx.settings;
   const created = items.length ? await ingest(items, ctx, log) : [];
   if (created.length) await (await import("./topStats.js")).updateTop(created).catch(() => {});
+  if (created.length) {
+    try { const n = await (await import("./newsComments.js")).queueNews(created); if (n) log.push(`뉴스 댓글 대기열 +${n}`); }
+    catch (e) { log.push(`뉴스 댓글 대기열 오류: ${e.message}`.slice(0, 140)); }
+  }
   // 수집 도우미가 알아 온 네이버 뉴스 댓글 수
   if (body.newsComments && typeof body.newsComments === "object") {
     const n = await (await import("./newsComments.js")).applyNewsComments(body.newsComments);
@@ -75,6 +79,6 @@ export async function extensionConfig(secrets) {
     },
     favCafes: (settings.favCafes || []).map((c) => ({ id: c.id, name: c.name })),
     cafeLookup: await (await import("./cafeNames.js")).unknownCafes(15), // 이름을 알아 와 줄 카페
-    newsComments: [], // 네이버가 댓글 수 요청을 거절해서 끔
+    newsComments: await (await import("./newsComments.js")).dueNews(6), // 수집 도우미가 기사를 실제로 열어 댓글 수를 읽음
   };
 }

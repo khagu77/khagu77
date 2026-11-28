@@ -152,30 +152,63 @@ async function collectNaver(cfg, items, status, names) {
   status.naver ||= `네이버 검색 ${done}회 (전체 ${calls.length}개 중), 새 글 ${got}건`;
 }
 
-// ── 네이버 뉴스 댓글 수 (시스템이 물어본 이슈 기사만 · 블로그/카페는 하지 않음) ──
-// 평범한 요청만 보냄 (출처를 바꾸지 않음) — 네이버가 거절하면 상태에 표시하고 넘어감
-async function newsCommentCount(oid, aid) {
-  const u = `https://apis.naver.com/commentBox/cbox/web_naver_list_jsonp.json?${new URLSearchParams({
-    ticket: "news", templateId: "default_society", pool: "cbox5", lang: "ko", country: "KR", objectId: `news${oid},${aid}`,
-    pageSize: "1", indexSize: "10", page: "1", sort: "FAVORITE", initialize: "true", _callback: "cb",
-  })}`;
-  const r = await fetch(u, { credentials: "include", cache: "no-store" });
-  if (!r.ok) throw new Error(`응답 ${r.status}`);
-  const t = await r.text();
-  const m = t.match(/"count"\s*:\s*\{[^}]*"comment"\s*:\s*(\d+)/);
-  if (!m) throw new Error(/"success"\s*:\s*false/.test(t) ? "네이버가 거절" : "댓글 수 없음");
-  return +m[1];
+// ── 네이버 뉴스 댓글 수: 시스템이 물어본 이슈 기사를 최소화된 창에서 실제로 열어, 화면에 표시된 댓글 수를 읽음 ──
+// (사람이 기사를 여는 것과 같음 · 블로그/카페는 하지 않음)
+function readCommentCount() {
+  const pick = (el) => { const m = String(el?.textContent || "").replace(/,/g, "").match(/\d+/); return m ? +m[0] : null; };
+  const sels = ["#comment_count", ".media_end_head_cmtcount_button", "[class*='cmtcount'] [class*='count']", "[class*='cmtcount']", ".u_cbox_count", "[data-comment-count]"];
+  for (const s of sels) {
+    const el = document.querySelector(s);
+    if (!el) continue;
+    if (el.dataset?.commentCount && /^\d+$/.test(el.dataset.commentCount)) return +el.dataset.commentCount;
+    const n = pick(el);
+    if (n !== null) return n;
+    if (/댓글/.test(el.textContent || "")) return 0; // '댓글' 만 있고 숫자가 없으면 0개
+  }
+  return null;
+}
+async function waitTabLoaded(tabId, ms = 15000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) {
+    const t = await chrome.tabs.get(tabId).catch(() => null);
+    if (!t) return false;
+    if (t.status === "complete") return true;
+    await sleep(400);
+  }
+  return false;
 }
 async function collectNewsComments(cfg, out, status) {
-  const list = (cfg.newsComments || []).slice(0, 30);
+  const list = (cfg.newsComments || []).slice(0, 6);
   if (!list.length) return;
-  let ok = 0, fail = 0, lastErr = "";
-  for (const a of list) {
-    try { out[a.id] = await newsCommentCount(a.oid, a.aid); ok++; }
-    catch (e) { fail++; lastErr = e.message; if (fail >= 3 && !ok) break; } // 처음부터 계속 실패하면 이번엔 멈춤
-    await sleep(700 + Math.random() * 900);
+  let win = null, ok = 0, fail = 0, lastErr = "";
+  try {
+    for (const a of list) {
+      const url = `https://n.news.naver.com/mnews/article/${a.oid}/${a.aid}`;
+      try {
+        let tabId;
+        if (!win) {
+          win = await chrome.windows.create({ url, state: "minimized", focused: false });
+          tabId = win.tabs[0].id;
+        } else {
+          tabId = win.tabs[0].id;
+          await chrome.tabs.update(tabId, { url });
+        }
+        await waitTabLoaded(tabId);
+        let n = null;
+        for (let k = 0; k < 8 && n === null; k++) { // 댓글 수는 화면이 뜬 뒤 조금 늦게 채워짐
+          await sleep(700);
+          const [r] = await chrome.scripting.executeScript({ target: { tabId }, func: readCommentCount });
+          n = r?.result ?? null;
+        }
+        if (n === null) throw new Error("화면에서 댓글 수를 못 찾음");
+        out[a.id] = n; ok++;
+      } catch (e) { fail++; lastErr = e.message; }
+      await sleep(800 + Math.random() * 1200);
+    }
+  } finally {
+    if (win) await chrome.windows.remove(win.id).catch(() => {});
   }
-  status.news = `뉴스 댓글수 ${ok}건${fail ? ` (실패 ${fail}: ${lastErr})` : ""}`;
+  status.news = `뉴스 댓글수 ${ok}건${fail ? ` (못 읽음 ${fail}: ${lastErr})` : ""}`;
 }
 
 let running = false;
@@ -198,6 +231,7 @@ async function run() {
     } catch (e) {
       status.naver = `네이버 오류: ${e.message || e}`;
     }
+    try { await collectNewsComments(rcfg, newsComments, status); } catch (e) { status.news = `뉴스 댓글수 오류: ${e.message || e}`; }
     const before = items.length;
     let boardsRead = 0;
     for (const b of boardsOf(c.boards)) {
