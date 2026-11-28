@@ -1,6 +1,7 @@
 // 알림: 알림 그룹 키워드가 걸린 새 글 → 제목 유사도 80% 이상이면 대표 1건만 → 알림 켠 담당자 모두에게 카카오톡
 import { db, getState, setState } from "./db.js";
-import { CHANNELS } from "./defaults.js";
+import { CHANNELS, DEFAULT_SETTINGS } from "./defaults.js";
+import { parseRules, matchRules, norm } from "./keywords.js";
 import { kakaoSend } from "./kakao.js";
 import { findSimilar } from "./similarity.js";
 
@@ -20,7 +21,8 @@ export function formatAlert(p) {
 export async function sendAlerts(created, ctx, secrets, log) {
   // 동호회·유튜브는 관심 목록(관심 동호회 51곳 · 관심 유튜브)에서 나온 글만 알림 (설정에서 끌 수 있음)
   const favOnly = { cafe: true, youtube: true, ...(ctx.settings.alert?.favOnly || {}) };
-  const cand = created.filter((p) => p.alert && !p.dupOf && !(favOnly[p.channel] && !p.fav)).sort((a, b) => a.time.toMillis() - b.time.toMillis());
+  const skipRules = parseRules(ctx.settings.alert?.excludeTitle ?? DEFAULT_SETTINGS.alert.excludeTitle);
+  const cand = created.filter((p) => p.alert && !p.dupOf && !(favOnly[p.channel] && !p.fav) && !matchRules(norm(p.title), skipRules).length).sort((a, b) => a.time.toMillis() - b.time.toMillis());
   if (!cand.length) return;
   if (!secrets.kakaoRestKey) { log.push("알림: 카카오 키 없음"); return; }
   const cfg = ctx.settings.alert || {};

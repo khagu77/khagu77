@@ -257,6 +257,8 @@ export const DEFAULT_SETTINGS = {
     dupHours: 24,
     maxPerRun: 15,                 // 한 번 수집에 한 사람에게 보내는 최대 알림 수 (넘으면 요약 1건)
     favOnly: { cafe: true, youtube: true }, // 동호회·유튜브는 관심 동호회·관심 유튜브 글만 알림
+    // 제목에 이 단어가 있으면 카톡 알림을 보내지 않음 (글은 목록에 그대로 저장)
+    excludeTitle: "가입인사 + 가입 인사 + 가입했습니다 + 가입 했습니다 + 등업 + 등업신청 + 등업 신청 + 출석체크 + 출석 체크 + 자기소개 + 첫인사 + 첫 인사 + 인사드립니다 + 인사 드립니다",
   },
   ai: {
     geminiModel: "gemini-2.5-flash",

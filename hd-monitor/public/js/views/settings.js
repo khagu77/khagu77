@@ -261,6 +261,7 @@ export async function render(root, store, { arg }) {
         <label class="field">알림 제목 유사도 기준 (이 이상 비슷하면 대표 1건만)<input class="input" type="number" step="0.05" min="0.5" max="1" data-a="dupThreshold" value="${draft.alert.dupThreshold}"></label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-fav="cafe" ${draft.alert.favOnly?.cafe !== false ? "checked" : ""}><span></span></span>동호회는 <b>관심 동호회</b> 글만 알림</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" data-fav="youtube" ${draft.alert.favOnly?.youtube !== false ? "checked" : ""}><span></span></span>유튜브는 <b>관심 유튜브</b> 영상만 알림</label>
+        <label class="field">알림 보내지 않을 제목 단어 (가입인사·등업 신청 등 · 글은 목록에 그대로 저장)<textarea class="input" data-a="excludeTitle" rows="3">${esc(draft.alert.excludeTitle ?? "")}</textarea></label>
         <label class="field">유사 알림을 막는 시간 (시간)<input class="input" type="number" data-a="dupHours" value="${draft.alert.dupHours}"></label>
         <label class="field">한 번 수집에 한 사람에게 보낼 최대 알림 (넘으면 요약 1통)<input class="input" type="number" data-a="maxPerRun" value="${draft.alert.maxPerRun}"></label>
         <p class="hint">어떤 키워드에 알림을 보낼지는 '키워드' 탭의 그룹별 <b>카톡 알림</b> 스위치로 정합니다. 받는 사람은 각자 '내 알림'에서 카카오톡을 연결합니다.</p>

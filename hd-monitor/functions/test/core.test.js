@@ -264,3 +264,14 @@ test("뽐뿌 RSS 읽기", () => {
   assert.equal(it.title, "그랜저 누수 문의");
   assert.equal(it.url, "https://www.ppomppu.co.kr/zboard/view.php?id=car&no=12345");
 });
+
+test("알림: 가입인사·등업 신청 글은 보내지 않음", async () => {
+  const { sendAlerts } = await import("../src/alerts.js");
+  const ctx2 = { settings: { ...DEFAULT_SETTINGS } };
+  const mk = (title) => ({ id: title, channel: "cafe", fav: true, alert: true, dupOf: null, title, time: { toMillis: () => 0 } });
+  const log = [];
+  await sendAlerts([mk("[가입인사] 팰리세이드 출고했습니다"), mk("등업 신청합니다 LX3 리콜")], ctx2, {}, log);
+  assert.deepEqual(log, []); // 후보가 없어 아무 것도 안 함
+  await sendAlerts([mk("팰리세이드 시트 끼임 사고")], ctx2, {}, log);
+  assert.deepEqual(log, ["알림: 카카오 키 없음"]);
+});
