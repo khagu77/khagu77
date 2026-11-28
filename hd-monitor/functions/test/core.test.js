@@ -291,3 +291,12 @@ test("인스타그램 해시태그 목록 정리 (최대 30개)", () => {
   const c = classify({ channel: "instagram", title: "팰리세이드 출고 후기", desc: "" }, buildContext(DEFAULT_SETTINGS));
   assert.ok(c.cats.includes("all"));
 });
+
+import { pickForFeed } from "../src/store.js";
+test("실시간 피드: 많이 들어온 채널이 다른 채널을 밀어내지 않음", () => {
+  const t = (ms) => ({ toMillis: () => ms });
+  const created = [...Array.from({ length: 100 }, (_, i) => ({ id: `b${i}`, channel: "blog", time: t(1000 + i) })), { id: "ig1", channel: "instagram", time: t(1) }, { id: "n1", channel: "news", time: t(2) }];
+  const ids = pickForFeed(created, 40).map((p) => p.id);
+  assert.equal(ids.length, 40);
+  assert.ok(ids.includes("ig1") && ids.includes("n1"));
+});

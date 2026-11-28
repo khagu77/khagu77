@@ -118,6 +118,18 @@ const asInc = (o) => {
   return r;
 };
 
+// 실시간 피드: 한 번에 많이 들어오는 채널(블로그 등)이 다른 채널을 밀어내지 않도록 채널별로 번갈아 고름 (이슈 글 먼저 · 최신순)
+export function pickForFeed(created, n) {
+  const by = new Map();
+  for (const p of [...created].sort((a, b) => Number(!!(b.isIssue || b.must)) - Number(!!(a.isIssue || a.must)) || b.time.toMillis() - a.time.toMillis())) {
+    if (!by.has(p.channel)) by.set(p.channel, []);
+    by.get(p.channel).push(p);
+  }
+  const out = [];
+  while (out.length < n && [...by.values()].some((l) => l.length)) for (const l of by.values()) if (l.length && out.length < n) out.push(l.shift());
+  return out.sort((a, b) => b.time.toMillis() - a.time.toMillis());
+}
+
 async function updateStats(created, now) {
   const { day } = kstParts(now);
   await db.doc(`stats/${day}`).set({ day, ...asInc(statsDelta(created)), updatedAt: Timestamp.fromDate(now) }, { merge: true });
@@ -125,9 +137,7 @@ async function updateStats(created, now) {
   const liveRef = db.doc("status/live");
   const snap = await liveRef.get();
   const prev = snap.exists ? snap.data().items || [] : [];
-  const next = created
-    .sort((a, b) => b.time.toMillis() - a.time.toMillis())
-    .slice(0, 40)
+  const next = pickForFeed(created, 40)
     .map((p) => ({ id: p.id, site: p.site || null, sourceId: p.sourceId || "", title: p.title, channel: p.channel, source: p.source, url: p.url, time: p.time, sentiment: p.sentiment, isIssue: !!(p.isIssue || p.must), kw: (p.kw || []).slice(0, 3) }));
   await liveRef.set({ items: [...next, ...prev].slice(0, 40), at: Timestamp.fromDate(now) });
 }
