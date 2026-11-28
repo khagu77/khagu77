@@ -23,7 +23,7 @@ export async function runCollection({ force = false, parts = null } = {}) {
 
   const jobs = [];
   // 네이버: 검색 API 키가 있으면 API, 없으면 검색 결과 화면을 직접 읽음
-  if (want("naver")) jobs.push(parseKeys(secrets.naverKeys).length ? collectNaver({ queries, settings, secrets, log }) : collectNaverWeb({ queries, settings, log }));
+  if (want("naver")) jobs.push(parseKeys(secrets.naverKeys).length ? collectNaver({ queries, settings, secrets, log }) : collectNaverWeb({ queries, settings, log, force }));
   if (want("rss") && settings.collect.youtubeRss && (force || tick % 2 === 0)) jobs.push(collectYoutubeRss({ settings, log }));
   if (want("ytsearch") && settings.collect.youtubeSearch) jobs.push(collectYoutubeSearch({ queries: targetQueries, settings, secrets, log }));
   if (want("community") && settings.collect.community) jobs.push(collectCommunity({ settings, log }));

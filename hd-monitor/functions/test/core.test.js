@@ -189,3 +189,10 @@ test("알림: 동호회·유튜브는 관심 목록 글만", async () => {
   await sendAlerts([mk("cafe", true)], ctx2, {}, log);
   assert.deepEqual(log, ["알림: 카카오 키 없음"]);
 });
+
+import { isBlockedPage } from "../src/collectors/naverweb.js";
+test("네이버 차단 판단: 스크립트 속 captcha 글자는 무시", () => {
+  assert.equal(isBlockedPage('<html><script>var captcha="x"</script><div>현대차 리콜</div></html>', 200), false);
+  assert.equal(isBlockedPage("<html><div>자동입력 방지 문자를 입력해 주세요</div></html>", 200), true);
+  assert.equal(isBlockedPage("", 403), true);
+});

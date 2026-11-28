@@ -141,16 +141,19 @@ export function parseSearchPage(html, kind) {
 }
 
 export function isBlockedPage(html, status) {
-  return status === 403 || status === 429 || /자동입력\s*방지|비정상적인\s*접근|captcha/i.test(String(html).slice(0, 20000));
+  if (status === 403 || status === 429) return true;
+  // 스크립트 속 'captcha' 같은 글자에 속지 않도록 화면에 보이는 글자만 본다
+  const visible = String(html).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ");
+  return /자동입력\s*방지|비정상적인\s*(접근|트래픽)|보안\s*문자를\s*입력/.test(visible);
 }
 
 // 이번 5분 차례의 검색만 실행
-export async function collectNaverWeb({ queries, settings, log }) {
+export async function collectNaverWeb({ queries, settings, log, force = false }) {
   const kinds = ["news", "blog", "cafe"].filter((k) => settings.collect.naver?.[k]);
   if (!kinds.length || !queries.length) return [];
   const st = await getState("naverweb");
   const now = Date.now();
-  if (st.blockedUntil > now) { log.push(`네이버 검색 화면: 잠시 쉬는 중 (${Math.ceil((st.blockedUntil - now) / 60000)}분 뒤 다시)`); return []; }
+  if (st.blockedUntil > now && !force) { log.push(`네이버 검색 화면: 잠시 쉬는 중 (${Math.ceil((st.blockedUntil - now) / 60000)}분 뒤 다시)`); return []; }
   const calls = [];
   for (const q of queries) for (const k of kinds) calls.push({ q, k });
   const perTick = Math.max(6, Number(settings.collect.naverWebPerTick) || 36);
@@ -161,6 +164,8 @@ export async function collectNaverWeb({ queries, settings, log }) {
   const out = [];
   let used = 0;
   let blocked = false;
+  let blockInfo = "";
+  let parsedZero = 0;
   let fail = 0;
   const work = async ({ q, k }) => {
     const sk = `${k}|${q}`;
@@ -174,9 +179,18 @@ export async function collectNaverWeb({ queries, settings, log }) {
         status = r.status;
         html = await r.text();
       } catch (e) { fail++; if (fail <= 2) log.push(`네이버 ${k} "${q}": ${e.message}`); return; }
-      if (isBlockedPage(html, status)) { blocked = true; return; }
+      if (isBlockedPage(html, status)) {
+        blocked = true;
+        const title = (String(html).match(/<title[^>]*>([^<]*)/i) || [])[1] || "";
+        blockInfo ||= `HTTP ${status} · 제목 "${decodeHtml(title).slice(0, 40)}"`;
+        return;
+      }
       if (status >= 400) { fail++; return; }
       const rows = parseSearchPage(html, k);
+      if (!rows.length && page === 1 && ++parsedZero === 1) {
+        const title = (String(html).match(/<title[^>]*>([^<]*)/i) || [])[1] || "";
+        log.push(`네이버 ${k} "${q}": 결과를 못 읽음 (HTTP ${status} · ${String(html).length}자 · 제목 "${decodeHtml(title).slice(0, 40)}")`);
+      }
       let fresh = 0;
       for (const r of rows) {
         const h = hash(r.url, 10);
@@ -200,7 +214,7 @@ export async function collectNaverWeb({ queries, settings, log }) {
   if (blocked) {
     st.blocks = (st.blocks || 0) + 1;
     st.blockedUntil = now + Math.min(120, 15 * st.blocks) * 60e3; // 막히면 15분 → 30분 … 최대 2시간 쉼
-    log.push(`네이버 검색 화면: 접근 제한 감지 → ${Math.min(120, 15 * st.blocks)}분 쉼`);
+    log.push(`네이버 검색 화면: 접근 제한 감지 (${blockInfo}) → ${Math.min(120, 15 * st.blocks)}분 쉼`);
   } else st.blocks = 0;
   st.i = i;
   st.day = kstParts().day;
