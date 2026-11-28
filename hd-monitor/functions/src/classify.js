@@ -52,8 +52,8 @@ export function classify(item, ctx) {
     fav = !!y;
     must = !!(y && y.must);
   }
-  // 제외어: 카페·블로그 잡글 거르기용 — 뉴스와 관심 유튜브 채널·관심 동호회 글에는 적용하지 않음
-  const exempt = fav || item.channel === "news";
+  // 제외어: 카페·블로그 잡글 거르기용 — 뉴스 · 관심 유튜브 채널 · 관심 동호회 · 자동차 커뮤니티(보배·클리앙·뽐뿌) 글에는 적용하지 않음
+  const exempt = fav || ["news", "bobae", "clien", "ppomppu"].includes(item.channel);
   if (!exempt && matchRules(text, compiled.exclude).length) return null;
 
   const targets = matchRules(text, compiled.target);
