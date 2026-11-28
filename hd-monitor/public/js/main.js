@@ -123,9 +123,11 @@ function updateNavAlert() {
   const a = $("#navAlert");
   if (!a) return;
   const n = badLogCount(store.status?.lastRun);
-  a.hidden = !n;
-  a.textContent = n;
-  a.closest("a").href = n ? "#/settings/status" : "#/settings";
+  a.hidden = false;
+  a.classList.toggle("ok", !n);
+  a.textContent = n ? `수집 문제 ${n}` : "수집 정상";
+  a.title = n ? `최근 수집에서 문제 ${n}건 — 누르면 수집 현황` : "최근 수집 정상 — 누르면 수집 현황";
+  a.closest("a").href = "#/settings/status";
 }
 function updateLiveDot() {
   updateNavAlert();
@@ -194,11 +196,12 @@ function buildNav() {
     }
   }
   html += `<div class="nav-sec">관리</div>`;
-  if (store.isAdmin()) html += `<a href="#/settings" data-route="settings"><span class="ico">⚙</span>설정<span class="nav-alert" id="navAlert" hidden title="최근 수집에 문제가 있습니다 (설정 → 수집 현황)">!</span></a><a href="#/users" data-route="users"><span class="ico">👥</span>사용자 관리</a>`;
+  if (store.isAdmin()) html += `<a href="#/settings" data-route="settings"><span class="ico">⚙</span>설정<span class="nav-alert ok" id="navAlert" title="최근 수집 상태 (누르면 설정 → 수집 현황)">수집 정상</span></a><a href="#/users" data-route="users"><span class="ico">👥</span>사용자 관리</a>`;
   html += `<a href="#/me" data-route="me"><span class="ico">🔔</span>내 알림 · 정보</a><a href="#" id="logout"><span class="ico">⎋</span>로그아웃</a>`;
   nav.innerHTML = html;
   $("#logout").onclick = (e) => { e.preventDefault(); store.be.signOut(); };
   markNav();
+  updateNavAlert();
 }
 
 function markNav() {
