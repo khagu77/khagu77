@@ -69,7 +69,7 @@ async function startShell() {
     <div class="main">
       <header class="topbar">
         <button class="btn sm menu-btn" id="menuBtn">☰</button>
-        <form class="gsearch" id="gsearch"><input name="q" placeholder="전체 게시물 검색 (제목·내용, 여러 단어 · -제외어)" autocomplete="off"/><kbd>/</kbd></form>
+        <form class="gsearch" id="gsearch"><input name="q" placeholder="전체 게시물 검색 (쉼표로 여러 개 = 하나라도 · -제외어)" autocomplete="off"/><kbd>/</kbd></form>
         <div class="top-right">
           <span class="hint" id="whoami"></span>
           <div class="avatar" id="avatar" title="내 정보">${esc((store.me.name || store.me.email || "?").slice(0, 1))}</div>

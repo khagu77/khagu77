@@ -116,7 +116,7 @@ export async function render(root, store, { arg, qs }) {
   let qt;
   // 3단계 검색: 1차 검색 → 그 결과 안에서 2차 → 다시 그 안에서 3차
   st.qs = [st.q || ""];
-  const Q_PH = ["제목·내용·매체명 (여러 단어는 모두 포함, -단어 는 제외)", "1차 결과 안에서 다시 검색", "2차 결과 안에서 다시 검색"];
+  const Q_PH = ["제목·내용·매체명 (쉼표, = 하나라도 · 띄어쓰기 = 모두 포함 · -단어 = 제외)", "1차 결과 안에서 다시 검색", "2차 결과 안에서 다시 검색"];
   function drawQ() {
     $q("#qsteps").innerHTML = st.qs.map((v, i) => `${i ? `<span class="qarrow">›</span>` : ""}<div class="qstep" data-lv="${i}"><span class="qlv">${i + 1}차</span><input class="input" data-q="${i}" placeholder="${Q_PH[i]}" value="${esc(v)}">${i ? `<button type="button" class="qx" data-qx="${i}" title="이 단계 지우기">✕</button>` : ""}<span class="qcnt" data-qc="${i}"></span></div>`).join("")
       + (st.qs.length < 3 ? `<button type="button" class="btn sm" id="qAdd" ${st.qs[st.qs.length - 1].trim() ? "" : "disabled"} title="지금 결과 안에서 한 번 더 검색">＋ 결과 내 검색</button>` : "");
@@ -173,14 +173,24 @@ export async function render(root, store, { arg, qs }) {
     while (!done && view.length < 60 && all.length < 3000) await fetchMore();
   }
 
+  // 검색어: 쉼표(,)로 나누면 '하나라도 포함'(OR) · 띄어쓰기는 '모두 포함'(AND) · -단어 는 제외
+  // 예) 블루핸즈, 하이테크센터, 파란손, 멍든손  →  넷 중 하나라도 들어간 글
+  //     블루핸즈 불친절, 파란손 -광고          →  (블루핸즈 그리고 불친절) 또는 파란손, 광고 들어간 글은 뺌
   function parseQ(q) {
-    const inc = [], exc = [];
-    for (const w of String(q).trim().split(/\s+/).filter(Boolean)) (w.startsWith("-") && w.length > 1 ? exc : inc).push(norm(w.slice(w.startsWith("-") ? 1 : 0)));
-    return { inc, exc };
+    const groups = [], exc = [];
+    for (const part of String(q).split(/[,，]/)) {
+      const g = [];
+      for (const w of part.trim().split(/\s+/).filter(Boolean)) {
+        if (w.startsWith("-") && w.length > 1) exc.push(norm(w.slice(1)));
+        else g.push(norm(w));
+      }
+      if (g.length) groups.push(g);
+    }
+    return { groups, exc, inc: groups.flat() };
   }
-  const hit = (p, { inc, exc }) => {
+  const hit = (p, { groups, exc }) => {
     const t = norm(`${p.title} ${p.desc} ${p.source}`);
-    return inc.every((w) => t.includes(w)) && !exc.some((w) => t.includes(w));
+    return (!groups.length || groups.some((g) => g.every((w) => t.includes(w)))) && !exc.some((w) => t.includes(w));
   };
   function apply() {
     view = all.filter((p) => {
@@ -200,7 +210,7 @@ export async function render(root, store, { arg, qs }) {
     // 검색 단계마다 앞 단계 결과 안에서 다시 거름 · 단계별 남은 건수 표시
     st.qs.forEach((q, i) => {
       const pq = parseQ(q);
-      if (pq.inc.length || pq.exc.length) view = view.filter((p) => hit(p, pq));
+      if (pq.groups.length || pq.exc.length) view = view.filter((p) => hit(p, pq));
       const c = $q(`[data-qc="${i}"]`);
       if (c) c.textContent = q.trim() ? `${fmtNum(view.length)}건` : "";
     });
