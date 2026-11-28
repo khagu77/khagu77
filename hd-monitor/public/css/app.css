@@ -757,5 +757,5 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 .nav .nav-sec:not(:nth-child(2)) { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 @media (max-height: 820px) { .nav .nav-sec:not(:nth-child(2)) { margin-top: 6px; padding-top: 6px; } }
 /* 부정 KPI 비율: 빨간 둥근 상자 · 흰 글자 */
-.kpi .k-val small.kpi-pct { display: inline-block; vertical-align: middle; position: relative; top: -4px; padding: 2px 9px; border-radius: 99px; background: linear-gradient(135deg, #ff4d4f, #d9262b); color: #fff; font-weight: 800; font-size: 13px; line-height: 18px; box-shadow: 0 2px 8px rgba(217, 38, 43, .35); }
-@media (max-width: 900px) { .kpi .k-val small.kpi-pct { font-size: 11px; padding: 1px 7px; top: -2px; } }
+.kpi .k-val small.kpi-pct { display: inline-block; vertical-align: baseline; position: relative; top: -3px; padding: 2px 9px; border-radius: 99px; background: linear-gradient(135deg, #ff4d4f, #d9262b); color: #fff; font-weight: 800; font-size: 13px; line-height: 18px; box-shadow: 0 2px 8px rgba(217, 38, 43, .35); }
+@media (max-width: 900px) { .kpi .k-val small.kpi-pct { font-size: 11px; padding: 1px 7px; } }
