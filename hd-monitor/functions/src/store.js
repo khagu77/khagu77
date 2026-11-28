@@ -12,6 +12,7 @@ const toTs = (d) => (d instanceof Date && !isNaN(d) ? Timestamp.fromDate(d) : nu
 export function buildPost(item, cls, now) {
   let posted = item.postedAt instanceof Date && !isNaN(item.postedAt) ? item.postedAt : null;
   if (posted && posted.getTime() > now.getTime() + 10 * 60e3) posted = null; // 미래 시각(잘못 읽은 날짜)은 버림
+  if (posted && item.via === "community" && now.getTime() - posted.getTime() > 3 * 86400e3) posted = null; // 게시판 최신 목록인데 오래된 날짜 = 잘못 읽음
   return {
     channel: item.channel,
     title: String(item.title || "").slice(0, 300),

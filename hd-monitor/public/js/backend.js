@@ -24,7 +24,7 @@ export async function createBackend() {
       throw new Error(e.message?.replace(/^.*?:\s*/, "") || String(e));
     }
   };
-  const { collection, doc, getDoc, getDocs, setDoc, updateDoc, query, where, orderBy, limit, startAfter, onSnapshot, Timestamp, serverTimestamp } = F;
+  const { collection, doc, getDoc, getDocs, setDoc, updateDoc, query, where, orderBy, limit, startAfter, onSnapshot, Timestamp, serverTimestamp, getCountFromServer } = F;
 
   return {
     demo: false,
@@ -49,6 +49,13 @@ export async function createBackend() {
       if (cursor) cons.push(startAfter(cursor));
       const snap = await getDocs(query(collection(db, "posts"), ...cons));
       return { items: snap.docs.map((d) => ({ id: d.id, ...d.data() })), cursor: snap.docs[snap.docs.length - 1] || null, done: snap.size < pageSize };
+    },
+    // 기간 안의 글 수 (글을 다 불러오지 않고 서버에서 셈)
+    async countPosts({ cat = "all", from, to, sort = "time" }) {
+      const cons = [where("cats", "array-contains", cat)];
+      if (from) cons.push(where(sort, ">=", Timestamp.fromDate(from)));
+      if (to) cons.push(where(sort, "<", Timestamp.fromDate(to)));
+      return (await getCountFromServer(query(collection(db, "posts"), ...cons))).data().count;
     },
     updatePost: (id, patch) => updateDoc(doc(db, "posts", id), patch),
     watchLive: (cb) => onSnapshot(doc(db, "status/live"), (s) => cb(s.data() || { items: [] })),

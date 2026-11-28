@@ -138,7 +138,9 @@ export async function render(root, store) {
     // 채널·관심
     const rank = (el, entries, nameOf, hrefOf, icon) => {
       const max = entries[0]?.[1] || 1;
-      el.innerHTML = entries.length ? entries.map(([k, v], i) => `<a class="r" href="${hrefOf(k)}"><span class="n">${icon ? icon(k) : i + 1}</span><span class="name">${esc(nameOf(k))}</span><b>${fmtNum(v)}</b><span class="track"><div style="width:${(v / max) * 100}%;animation-delay:${i * 70}ms"></div></span></a>`).join("") : `<div class="hint">아직 데이터가 없습니다</div>`;
+      const html = entries.length ? entries.map(([k, v], i) => `<a class="r" href="${hrefOf(k)}"><span class="n">${icon ? icon(k) : i + 1}</span><span class="name">${esc(nameOf(k))}</span><b>${fmtNum(v)}</b><span class="track"><div style="width:${(v / max) * 100}%;animation-delay:${i * 70}ms"></div></span></a>`).join("") : `<div class="hint">아직 데이터가 없습니다</div>`;
+      // 내용이 그대로면 다시 그리지 않음 (깜빡임 방지)
+      if (el.dataset.html !== html) { el.dataset.html = html; el.innerHTML = html; }
     };
     const catOf = { news: "news", cafe: "cafe", blog: "blog", post: "blog", youtube: "youtube", bobae: "community", clien: "community", ppomppu: "community", instagram: "instagram" };
     rank($q("#chs"), Object.entries(A.chIssue).sort((a, b) => b[1] - a[1]), (k) => CH[k]?.name || k, (k) => `#/posts/${catOf[k] || "all"}`, (k) => chIcon(k, true));

@@ -300,3 +300,8 @@ test("실시간 피드: 많이 들어온 채널이 다른 채널을 밀어내지
   assert.equal(ids.length, 40);
   assert.ok(ids.includes("ig1") && ids.includes("n1"));
 });
+
+test("게시판 날짜: 조회수 '1.2k' 같은 숫자를 날짜로 읽지 않음", () => {
+  const now = new Date("2026-11-28T00:00:00Z");
+  assert.equal(rowDate("그랜저 누수 조회 1.2 k 추천 3", now), null);
+});

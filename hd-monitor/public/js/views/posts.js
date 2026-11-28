@@ -110,7 +110,11 @@ export async function render(root, store, { arg, qs }) {
   $q("#q").oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => { st.q = e.target.value; apply(); ensureEnough(); }, 220); };
   for (const k of ["dedupe", "star", "showHidden", "alertedOnly", "issueOnly"]) $q(`#${k}`).onchange = (e) => { st[k] = e.target.checked; apply(); };
 
+  let totalCount = null;
   async function reload() {
+    totalCount = null;
+    const [cf, ct] = rangeOf(st.period, st.from, st.to);
+    store.be.countPosts?.({ cat: cat.id, from: cf, to: ct, sort: st.sort }).then((n) => { totalCount = n; apply(); }).catch(() => {});
     all = []; cursor = null; done = false; sel.clear(); newestMs = 0;
     $q("#banner").innerHTML = "";
     $q("#list").innerHTML = Array.from({ length: 8 }, () => `<div class="post"><span></span><div class="skeleton" style="width:30px;height:30px"></div><div><div class="skeleton" style="height:14px;width:70%"></div><div class="skeleton" style="height:10px;width:40%;margin-top:8px"></div></div><div class="skeleton" style="height:12px"></div><div class="skeleton" style="height:12px"></div></div>`).join("");
@@ -165,8 +169,9 @@ export async function render(root, store, { arg, qs }) {
     shown = 0;
     $q("#list").innerHTML = "";
     renderMore();
-    $q("#count").innerHTML = `<b>${fmtNum(view.length)}</b>건${done ? "" : "+"}`;
-    $q("#loaded").textContent = `불러온 글 ${fmtNum(all.length)}건${done ? " (기간 전체)" : ""}`;
+    const filtered = view.length !== all.length;
+    $q("#count").innerHTML = done || filtered ? `<b>${fmtNum(view.length)}</b>건${done ? "" : " (불러온 글 중)"}` : `<b>${fmtNum(totalCount ?? view.length)}</b>건`;
+    $q("#loaded").textContent = `${totalCount != null ? `기간 안 전체 ${fmtNum(totalCount)}건 · ` : ""}불러온 글 ${fmtNum(all.length)}건${done ? "" : " (아래로 내리면 더 불러옴)"}${st.dedupe ? " · 유사 기사 묶음" : ""}`;
     updateBulk();
   }
 

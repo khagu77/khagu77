@@ -121,6 +121,7 @@ export function createDemoBackend() {
     watchSettings: (cb) => { cb(settings); return () => {}; },
     saveSettings: async (patch) => { Object.assign(settings, patch); await delay(); },
     resetSettings: async (key) => { settings[key] = structuredClone(DEFAULT_SETTINGS[key]); },
+    async countPosts({ cat = "all", from, to, sort = "time" }) { return posts.filter((p) => p.cats.includes(cat) && (!from || p[sort] >= from) && (!to || p[sort] < to)).length; },
     async listPosts({ cat = "all", from, to, sort = "time", pageSize = 200, cursor = null }) {
       await delay(350);
       let list = posts.filter((p) => p.cats.includes(cat) && (!from || p[sort] >= from) && (!to || p[sort] < to)).sort((a, b) => b[sort] - a[sort]);

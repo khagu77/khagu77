@@ -45,6 +45,7 @@ export async function runCollection({ force = false, parts = null } = {}) {
   if (want("daum")) jobs.push(collectDaumBlog({ queries, settings, secrets, log }));
   if (want("ppomppu") && (force || tick % 2 === 0)) jobs.push(collectPpomppuRss({ settings, log }));
 
+  jobs.push(fixCommunityDatesOnce(log).then(() => []));
   const results = await Promise.allSettled(jobs);
   const items = [];
   for (const r of results) {
@@ -67,4 +68,22 @@ export async function runCollection({ force = false, parts = null } = {}) {
     db.doc("status/main").set({ lastRun: run, queries: queries.length }, { merge: true }),
   ]);
   return run;
+}
+
+// 1회: 날짜를 잘못 읽어(조회수 '1.2' 등) 오래된 글로 저장된 최근 게시판 글의 작성 시각을 수집 시각으로
+async function fixCommunityDatesOnce(log) {
+  const st = await getState("fixes");
+  if (st.communityDates1) return;
+  const since = new Date(Date.now() - 4 * 86400e3);
+  const snap = await db.collection("posts").where("collectedAt", ">=", since).get();
+  const w = db.bulkWriter();
+  let n = 0;
+  for (const d of snap.docs) {
+    const p = d.data();
+    if (p.via !== "community" || !p.time || !p.collectedAt) continue;
+    if (p.collectedAt.toMillis() - p.time.toMillis() > 3 * 86400e3) { w.update(d.ref, { time: p.collectedAt, postedAt: null }); n++; }
+  }
+  await w.close();
+  await setState("fixes", { ...st, communityDates1: true });
+  log.push(`게시판 글 작성 시각 바로잡음: ${n}건`);
 }

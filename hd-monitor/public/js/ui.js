@@ -44,11 +44,11 @@ window.__logoCheck = (img) => {
 const SITE_LOGO = { bobae: "bobaedream.co.kr", clien: "clien.net", ppomppu: "ppomppu.co.kr" };
 export const logoSite = (ch, p) => SITE_LOGO[ch] || (ch === "news" && p ? p.site || siteOf({ channel: "news", url: p.url, extUrl: p.extUrl }) : null);
 // 카페·블로그는 정해 준 아이콘 그림
-export const CH_IMG = { cafe: "/img/ch-cafe.png", blog: "/img/ch-blog.png", instagram: "/img/ch-instagram.png", youtube: "/img/ch-youtube.png" };
+export const CH_IMG = { cafe: "/img/ch-cafe.png", blog: "/img/ch-blog.png", instagram: "/img/ch-instagram.png", youtube: "/img/ch-youtube.png", post: "/img/ch-post.png", news: "/img/ch-news.png" };
 export const chIcon = (ch, small = false, p = null) => {
   const site = logoSite(ch, p);
   const size = small ? ' style="width:22px;height:22px;font-size:10px;border-radius:6px"' : "";
-  if (CH_IMG[ch]) return `<span class="ch-ico ch-imgicon"${size} title="${esc(CH[ch].name)}"><img alt="${esc(CH[ch].name)}" src="${CH_IMG[ch]}"></span>`;
+  if (CH_IMG[ch] && !site) return `<span class="ch-ico ch-imgicon"${size} title="${esc(CH[ch].name)}"><img alt="${esc(CH[ch].name)}" src="${CH_IMG[ch]}"></span>`;
   const title = esc(ch === "news" && p?.source ? p.source : CH[ch]?.name || ch);
   if (!site) return `<span class="ch-ico ch-${esc(ch)}"${size} title="${title}">${esc(CH[ch]?.short || "?")}</span>`;
   return `<span class="ch-ico ch-${esc(ch)} logo"${size} title="${title}">${esc(CH[ch]?.short || "?")}<img alt="" loading="lazy" data-site="${esc(site)}" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(site)}&sz=64" onload="window.__logoCheck(this)" onerror="window.__logoFail(this)"></span>`;

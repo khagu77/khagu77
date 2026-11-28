@@ -65,7 +65,7 @@ export function rowDate(text, now = new Date()) {
   }
   m = t.match(/(20\d{2})[-./](\d{1,2})[-./](\d{1,2})/) || t.match(/(?<!\d)(\d{2})[./](\d{1,2})[./](\d{1,2})(?!\d)/);
   if (m) return mk(m[1].length === 2 ? 2000 + +m[1] : +m[1], +m[2], +m[3]);
-  m = t.match(/(?<![\d.])(\d{1,2})[/.](\d{1,2})(?![\d.])/);
+  m = t.match(/(?<![\d./])(\d{1,2})\/(\d{1,2})(?![\d./])/);
   if (m && +m[1] <= 12) { const d = mk(Y, +m[1], +m[2]); return d > now ? mk(Y - 1, +m[1], +m[2]) : d; }
   return null;
 }

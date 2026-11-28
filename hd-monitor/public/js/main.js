@@ -138,7 +138,7 @@ async function refreshToday(bump = false) {
   }
 }
 
-const CAT_ICO = { all: "🗂", news: "📰", community: "🚗", garbage: "🗑" };
+const CAT_ICO = { all: "🗂", community: "🚗", garbage: "🗑" };
 // 사이드바 카테고리 아이콘: 채널 하나짜리 카테고리는 그 채널 아이콘(언론사·카페·블로그·유튜브·인스타그램), 나머지는 기호
 function catIcon(c) {
   if (CAT_ICO[c.id]) return CAT_ICO[c.id];
