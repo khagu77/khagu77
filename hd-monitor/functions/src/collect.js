@@ -8,6 +8,7 @@ import { collectYoutubeRss, collectYoutubeSearch } from "./collectors/youtube.js
 import { collectCommunity } from "./collectors/community.js";
 import { ingest } from "./store.js";
 import { sendAlerts } from "./alerts.js";
+import { autoAnalyze } from "./ai.js";
 
 export async function runCollection({ force = false, parts = null } = {}) {
   const started = Date.now();
@@ -37,6 +38,7 @@ export async function runCollection({ force = false, parts = null } = {}) {
   let created = [];
   try {
     created = await ingest(items, ctx, log);
+    await autoAnalyze(created, settings, secrets, log);
     await sendAlerts(created, ctx, secrets, log);
   } catch (e) {
     log.push(`저장/알림 오류: ${e.message}`);

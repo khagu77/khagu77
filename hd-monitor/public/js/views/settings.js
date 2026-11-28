@@ -263,6 +263,8 @@ export async function render(root, store, { arg }) {
         <label class="field">Gemini 모델 (먼저 사용 · 무료 한도)<input class="input" data-ai="geminiModel" value="${esc(draft.ai.geminiModel)}"></label>
         <label class="field">Claude 모델 (Gemini 한도 초과·오류 시)<input class="input" data-ai="claudeModel" value="${esc(draft.ai.claudeModel)}"></label>
         <label class="field">Claude 생각 깊이 (low 가 가장 빠르고 저렴)<select class="input" data-ai="claudeEffort">${["low", "medium", "high"].map((x) => `<option ${draft.ai.claudeEffort === x ? "selected" : ""}>${x}</option>`).join("")}</select></label>
+        <div class="field">새 글 자동 AI 성향 분석 (Gemini 무료 한도로만 · 한도가 차면 건너뛰고 규칙 성향 유지)</div>
+        <div class="chips" id="autoCh">${CH_ORDER.map((ch) => `<button class="chip ${(draft.ai.autoChannels || ["ppomppu"]).includes(ch) ? "on" : ""}" data-ch="${ch}">${CH[ch].name}</button>`).join("")}</div>
         <p class="hint">Claude 비용을 더 줄이려면 모델을 <code>claude-haiku-5-5</code> 로 바꿀 수 있어요.</p>
       </div></div></div>`;
     const est = () => {
@@ -273,6 +275,15 @@ export async function render(root, store, { arg }) {
     };
     void srcN;
     est();
+    v.querySelector("#autoCh").addEventListener("click", (e) => {
+      const b = e.target.closest(".chip");
+      if (!b) return;
+      const s = new Set(draft.ai.autoChannels || ["ppomppu"]);
+      s.has(b.dataset.ch) ? s.delete(b.dataset.ch) : s.add(b.dataset.ch);
+      draft.ai.autoChannels = [...s];
+      b.classList.toggle("on");
+      mark("ai");
+    });
     v.addEventListener("input", (e) => {
       const t = e.target;
       const val = t.type === "checkbox" ? t.checked : t.type === "number" || t.dataset.c === "garbageRetentionDays" ? Number(t.value) : t.value;

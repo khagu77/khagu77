@@ -69,7 +69,7 @@ async function claude(posts, key, model, effort) {
 }
 
 // posts: [{id, channel, title, desc}] → [{id, sentiment, reason, by}]
-export async function analyzePosts(posts, settings, secrets, log = []) {
+export async function analyzePosts(posts, settings, secrets, log = [], { geminiOnly = false } = {}) {
   const ai = settings.ai || {};
   const st = await getState("ai");
   const out = [];
@@ -88,7 +88,7 @@ export async function analyzePosts(posts, settings, secrets, log = []) {
         if (e.quota) { st.geminiBlockedUntil = Date.now() + 30 * 60e3; await setState("ai", st); }
       }
     }
-    if (!res && secrets.claudeKey) {
+    if (!res && secrets.claudeKey && !geminiOnly) {
       try {
         res = await claude(chunk, secrets.claudeKey, ai.claudeModel || "claude-opus-5-5", ai.claudeEffort || "low");
         by = "claude";
@@ -101,4 +101,43 @@ export async function analyzePosts(posts, settings, secrets, log = []) {
     for (const r of res) if (ids.has(r.id) && LABELS.includes(r.sentiment)) out.push({ ...r, reason: String(r.reason || "").slice(0, 80), by });
   }
   return out;
+}
+
+// 새 글 자동 AI 성향 분석 (설정의 채널만 · 비용이 들지 않도록 Gemini 무료 한도로만)
+export async function autoAnalyze(created, settings, secrets, log) {
+  const chans = new Set(settings.ai?.autoChannels || ["ppomppu"]);
+  const targets = created.filter((p) => chans.has(p.channel) && p.sentimentBy === "rule").slice(0, 50);
+  if (!targets.length || !secrets.geminiKey) return;
+  const { db, FieldValue } = await import("./db.js");
+  const { kstParts } = await import("./util.js");
+  let res;
+  try {
+    res = await analyzePosts(targets, settings, secrets, [], { geminiOnly: true });
+  } catch (e) {
+    log.push(`자동 AI 분석 건너뜀: ${String(e.message).slice(0, 80)}`);
+    return;
+  }
+  const byId = new Map(targets.map((p) => [p.id, p]));
+  const batch = db.batch();
+  const inc = {};
+  const bump = (day, f, k, n) => { ((inc[day] ||= {})[f] ||= {})[k] = (inc[day][f][k] || 0) + n; };
+  for (const r of res) {
+    const p = byId.get(r.id);
+    if (!p) continue;
+    batch.update(db.doc(`posts/${r.id}`), { sentiment: r.sentiment, sentimentBy: r.by, sentimentReason: r.reason, analyzedAt: FieldValue.serverTimestamp() });
+    if (r.sentiment !== p.sentiment) {
+      // 일별 통계의 성향 건수도 옮김
+      const day = kstParts(p.collectedAt.toDate()).day;
+      bump(day, "sent", p.sentiment, -1); bump(day, "sent", r.sentiment, 1);
+      if (p.isIssue || p.must) { bump(day, "sentIssue", p.sentiment, -1); bump(day, "sentIssue", r.sentiment, 1); }
+    }
+    Object.assign(p, { sentiment: r.sentiment, sentimentBy: r.by, sentimentReason: r.reason });
+  }
+  for (const [day, fields] of Object.entries(inc)) {
+    const data = {};
+    for (const [f, m] of Object.entries(fields)) { data[f] = {}; for (const [k, n] of Object.entries(m)) data[f][k] = FieldValue.increment(n); }
+    batch.set(db.doc(`stats/${day}`), data, { merge: true });
+  }
+  await batch.commit();
+  log.push(`자동 AI 성향 분석: ${res.length}건`);
 }

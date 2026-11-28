@@ -3,6 +3,7 @@ import { db, getSettings, getState, setState, Timestamp } from "./db.js";
 import { buildContext } from "./classify.js";
 import { ingest } from "./store.js";
 import { sendAlerts } from "./alerts.js";
+import { autoAnalyze } from "./ai.js";
 
 const ALLOWED = new Set(["ppomppu", "bobae", "clien", "cafe", "news", "blog"]);
 
@@ -28,7 +29,9 @@ export async function ingestFromExtension(body, secrets) {
   const log = [];
   const items = normalizeExternal(body);
   const ctx = buildContext(await getSettings());
+  const settings = ctx.settings;
   const created = items.length ? await ingest(items, ctx, log) : [];
+  if (created.length) await autoAnalyze(created, settings, secrets, log);
   if (created.length) await sendAlerts(created, ctx, secrets, log);
   const run = { at: Timestamp.now(), received: items.length, created: created.length, client: String(body.client || "").slice(0, 60), log };
   const prev = await getState("ext_runs");
