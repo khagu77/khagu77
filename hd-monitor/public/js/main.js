@@ -175,7 +175,7 @@ function buildNav() {
   if (!nav) return;
   const cats = store.settings.categories || [];
   const top = cats.filter((c) => !c.parent);
-  let html = `<span class="nav-indicator"></span><div class="nav-sec">메뉴</div><a href="#/dashboard" data-route="dashboard"><span class="ico">◎</span>대시보드</a><div class="nav-sec">카테고리 <span style="float:right;text-transform:none;letter-spacing:0" title="오늘 작성된 글 수 (누르면 같은 기준의 목록)">오늘</span></div>`;
+  let html = `<span class="nav-indicator"></span><div class="nav-sec">메뉴</div><a href="#/dashboard" data-route="dashboard"><span class="ico">◎</span>대시보드</a><div class="nav-sec">카테고리 <span style="float:right;text-transform:none;letter-spacing:0" title="오늘 작성된 글 수 (예전에 쓰였지만 오늘 처음 수집된 글은 빠짐) · 누르면 같은 기준의 목록">오늘 작성 ⓘ</span></div>`;
   for (const c of top) {
     html += `<a href="#/posts/${esc(c.id)}?period=today" data-cat="${esc(c.id)}"><span class="ico">${catIcon(c)}</span>${esc(c.name)}${ytCat(c) ? nsBadge(c.id) : ""}<span class="cnt">${store.today?.cat?.[c.id] || 0}</span></a>`;
     for (const ch of cats.filter((x) => x.parent === c.id)) {

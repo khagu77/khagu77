@@ -16,6 +16,7 @@ export async function render(root, store) {
         ${store.isAdmin() ? `<button class="btn" id="runNow">⚡ 지금 수집</button>` : ""}
       </div>
     </div>
+    <div class="basis-note" id="basisNote"></div>
     <div class="kpis stagger" id="kpis"></div>
     <div class="dash-grid stagger" id="grid">
       <div class="card span-8" style="--i:1"><h3>📈 채널별 이슈 게시물 <span class="sub" id="trendSub"></span></h3><div id="trend" style="min-height:260px"></div><div class="legend" id="trendLegend"></div></div>
@@ -155,7 +156,7 @@ export async function render(root, store) {
     const series = (f) => data.cur.map((k) => f(data.by[k] || {}));
     const neg = (s) => (s.sentIssue?.neg || 0) + (s.sentIssue?.abuse || 0);
     const kpis = [
-      { label: "전체 수집", icon: "🗂", v: A.total, p: P.total, sp: series((s) => s.total || 0), color: "--s1", href: "#/posts/all" },
+      { label: "전체 수집 (수집일)", icon: "🗂", v: A.total, p: P.total, sp: series((s) => s.total || 0), color: "--s1", href: "#/posts/all" },
       { label: "이슈 게시물", icon: "🚨", v: A.issue, p: P.issue, sp: series((s) => s.issue || 0), color: "--s2", href: "#/posts/news" },
       { label: "부정·단순비난", icon: "😠", v: neg(A), p: neg(P), sp: series(neg), color: "--s8", href: sentHref("neg,abuse"), suffix: A.issue ? `<small>${Math.round((neg(A) / A.issue) * 100)}%</small>` : "" },
       { label: "가비지", icon: "🗑", v: A.garbage, p: P.garbage, sp: series((s) => s.garbage || 0), color: "--s7", href: "#/posts/garbage", good: true },
@@ -214,7 +215,8 @@ export async function render(root, store) {
 
     // 히트맵
     radialHours($q("#heat"), Array.from({ length: 24 }, (_, i) => A.hour[String(i).padStart(2, "0")] || 0));
-    $q("#heatSub").textContent = period === 1 ? "오늘" : `최근 ${period}일 합계`;
+    $q("#heatSub").textContent = period === 1 ? "오늘 수집" : `최근 ${period}일 수집 합계`;
+    $q("#basisNote").innerHTML = `ⓘ <b>숫자 기준</b> 위 카드·그래프 = ${period === 1 ? "오늘" : `최근 ${period}일`} <b>수집된</b> 글 (예전에 쓰였지만 이번에 처음 수집된 글 포함) <span>·</span> 조회수·댓글수 TOP·관심 유튜브 TOP = <b>작성일</b> 기준 <span>·</span> 사이드바·게시물 목록 = <b>작성일</b> 기준`;
     const issueN = A.total - A.garbage, gp = A.total ? (A.garbage / A.total) * 100 : 0;
     $q("#garbage").innerHTML = `<div class="ig-bar"><i style="width:${100 - gp}%;background:var(--grad)"></i><i style="width:${gp}%;background:var(--s7);opacity:.55;animation-delay:.3s"></i></div>
       <div class="ig-legend"><span>전체 <b>${fmtNum(A.total)}</b></span><span style="color:var(--brand)">이슈 <b style="color:var(--brand)">${fmtNum(issueN)}</b></span><span>가비지 <b>${fmtNum(A.garbage)}</b> (${Math.round(gp)}%)</span></div>`;

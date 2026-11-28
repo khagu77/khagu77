@@ -255,7 +255,9 @@ export async function render(root, store, { arg, qs }) {
     // 왼쪽: 기간 안 전체 건수(서버 집계) · 조건으로 거른 경우 그 건수 / 오른쪽: 불러온 글 수
     const total = totalCount ?? (done ? all.length : null);
     const filtered = view.length !== all.length;
-    $q("#count").innerHTML = `<b>${total != null ? fmtNum(total) : `${fmtNum(all.length)}+`}</b>건${filtered ? ` <span class="hint">· 조건에 맞는 글 ${fmtNum(view.length)}건${done ? "" : " (불러온 글 중)"}</span>` : ""}`;
+    const pName = st.period === "custom" ? "고른 기간에" : `${PERIODS.find(([v]) => v === st.period)?.[1] || ""}${st.period === "today" ? "" : " 동안"}`;
+    const basis = `<span class="basis" title="${st.sort === "time" ? "글이 실제로 쓰인 날짜 기준입니다. 예전에 쓰였지만 오늘 처음 수집된 글은 그 글이 쓰인 날짜에 들어갑니다." : "시스템이 수집한 날짜 기준입니다. 예전에 쓰인 글도 이번에 처음 수집됐으면 들어갑니다."}">ⓘ ${pName} ${st.sort === "time" ? "작성된" : "수집된"} 글</span>`;
+    $q("#count").innerHTML = `${basis}<b>${total != null ? fmtNum(total) : `${fmtNum(all.length)}+`}</b>건${filtered ? ` <span class="hint">· 조건에 맞는 글 ${fmtNum(view.length)}건${done ? "" : " (불러온 글 중)"}</span>` : ""}`;
     $q("#loaded").textContent = `불러온 글 ${fmtNum(all.length)}건${done ? "" : " · 아래로 내리면 더 불러옴"}`;
     updateBulk();
   }
