@@ -26,6 +26,8 @@ export function parseRss(xml, fallbackChannelId) {
       postedAt: isNaN(d) ? null : d,
       thumb: `https://i.ytimg.com/vi/${vid}/mqdefault.jpg`,
       vid,
+      // RSS 는 쇼츠(릴스) 영상의 링크를 /shorts/ 주소로 줌
+      short: /\/shorts\//.test(el.find("link").attr("href") || ""),
     });
   });
   return out;
@@ -93,7 +95,7 @@ export async function collectYoutubeSearch({ queries, settings, secrets, log }) 
         out.push({
           channel: "youtube", title: decodeHtml(sn.title), desc: decodeHtml(sn.description), url: `https://www.youtube.com/watch?v=${vid}`,
           source: decodeHtml(sn.channelTitle), sourceId: sn.channelId, postedAt: sn.publishedAt ? new Date(sn.publishedAt) : null,
-          thumb: `https://i.ytimg.com/vi/${vid}/mqdefault.jpg`, via: "yt:search", query: q,
+          thumb: `https://i.ytimg.com/vi/${vid}/mqdefault.jpg`, vid, via: "yt:search", query: q,
         });
       }
     } catch (e) {
@@ -101,7 +103,23 @@ export async function collectYoutubeSearch({ queries, settings, secrets, log }) 
     }
   }
   st.i = i;
+  await markShorts(out);
   await setState("yt_search", st);
   log.push(`유튜브 검색 ${n}회, 받은 영상 ${out.length}건`);
   return out;
+}
+
+// 쇼츠(릴스) 여부: youtube.com/shorts/ID 가 그대로 열리면(200) 쇼츠, 일반 영상이면 보통 영상 주소로 넘김(303)
+export async function isShort(vid) {
+  try {
+    const r = await fetchWithTimeout(`https://www.youtube.com/shorts/${encodeURIComponent(vid)}`, { method: "HEAD", redirect: "manual" }, 8000);
+    if (r.status === 200) return true;
+    if (r.status >= 300 && r.status < 400) return false;
+  } catch {}
+  return null; // 모름
+}
+
+export async function markShorts(items) {
+  const todo = items.filter((it) => it.channel === "youtube" && it.short === undefined && it.vid).slice(0, 60);
+  await pool(todo, 5, async (it) => { const v = await isShort(it.vid); if (v !== null) it.short = v; });
 }

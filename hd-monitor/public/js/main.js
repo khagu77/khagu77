@@ -131,6 +131,8 @@ async function refreshToday(bump = false) {
   for (const a of $$("#nav a[data-cat]")) {
     const c = a.querySelector(".cnt");
     const v = store.today.cat?.[a.dataset.cat] || 0;
+    const ns = a.querySelector(".cnt-ns");
+    if (ns) ns.textContent = `숏츠 제외 ${Math.max(0, v - (store.today.shortCat?.[a.dataset.cat] || 0))}`;
     if (c.textContent !== String(v)) {
       c.textContent = v;
       if (bump && v > (prev[a.dataset.cat] || 0)) { c.classList.remove("bump"); void c.offsetWidth; c.classList.add("bump"); }
@@ -140,6 +142,9 @@ async function refreshToday(bump = false) {
 
 const CAT_ICO = { all: "🗂", community: "🚗", garbage: "🗑" };
 // 사이드바 카테고리 아이콘: 채널 하나짜리 카테고리는 그 채널 아이콘(언론사·카페·블로그·유튜브·인스타그램), 나머지는 기호
+// 유튜브 카테고리: 오늘 건수 옆에 '숏츠 제외' 건수
+const ytCat = (c) => (c.channels || []).length === 1 && c.channels[0] === "youtube";
+const nsBadge = (id) => `<span class="cnt-ns">숏츠 제외 ${Math.max(0, (store.today?.cat?.[id] || 0) - (store.today?.shortCat?.[id] || 0))}</span>`;
 function catIcon(c) {
   if (CAT_ICO[c.id]) return CAT_ICO[c.id];
   const chs = (c.channels || []).filter((x) => x !== "*" && x !== "post");
@@ -153,9 +158,9 @@ function buildNav() {
   const top = cats.filter((c) => !c.parent);
   let html = `<span class="nav-indicator"></span><div class="nav-sec">메뉴</div><a href="#/dashboard" data-route="dashboard"><span class="ico">◎</span>대시보드</a><div class="nav-sec">카테고리 <span style="float:right;text-transform:none;letter-spacing:0">오늘</span></div>`;
   for (const c of top) {
-    html += `<a href="#/posts/${esc(c.id)}" data-cat="${esc(c.id)}"><span class="ico">${catIcon(c)}</span>${esc(c.name)}<span class="cnt">${store.today?.cat?.[c.id] || 0}</span></a>`;
+    html += `<a href="#/posts/${esc(c.id)}" data-cat="${esc(c.id)}"><span class="ico">${catIcon(c)}</span>${esc(c.name)}${ytCat(c) ? nsBadge(c.id) : ""}<span class="cnt">${store.today?.cat?.[c.id] || 0}</span></a>`;
     for (const ch of cats.filter((x) => x.parent === c.id)) {
-      html += `<a class="child" href="#/posts/${esc(ch.id)}" data-cat="${esc(ch.id)}">${ch.fav ? "⚠️ " : ""}${esc(ch.name)}<span class="cnt">${store.today?.cat?.[ch.id] || 0}</span></a>`;
+      html += `<a class="child" href="#/posts/${esc(ch.id)}" data-cat="${esc(ch.id)}">${ch.fav ? "⚠️ " : ""}${esc(ch.name)}${ytCat(ch) ? nsBadge(ch.id) : ""}<span class="cnt">${store.today?.cat?.[ch.id] || 0}</span></a>`;
     }
   }
   html += `<div class="nav-sec">관리</div>`;

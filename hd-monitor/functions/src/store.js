@@ -17,7 +17,7 @@ export function buildPost(item, cls, now) {
     channel: item.channel,
     title: String(item.title || "").slice(0, 300),
     desc: String(item.desc || "").slice(0, 400),
-    url: item.url,
+    url: item.channel === "youtube" && item.short && item.vid ? `https://www.youtube.com/shorts/${item.vid}` : item.url,
     source: String(item.source || "").slice(0, 80),
     sourceId: String(item.sourceId || "").slice(0, 120),
     postedAt: toTs(posted),
@@ -25,6 +25,7 @@ export function buildPost(item, cls, now) {
     collectedAt: Timestamp.fromDate(now),
     time: Timestamp.fromDate(posted || now),
     thumb: item.thumb || null,
+    ...(item.channel === "youtube" && typeof item.short === "boolean" ? { short: item.short } : {}),
     site: item.site || siteOf(item),
     via: item.via || "",
     query: item.query || "",
@@ -91,13 +92,14 @@ export async function ingest(items, ctx, log) {
 
 export function statsDelta(posts) {
   const inc = (o, k, n = 1) => { o[k] = (o[k] || 0) + n; };
-  const d = { total: 0, issue: 0, garbage: 0, ch: {}, cat: {}, sent: {}, hour: {}, kw: {}, grp: {}, favCafe: {}, favYt: {}, chIssue: {}, sentIssue: {} };
+  const d = { total: 0, issue: 0, garbage: 0, ch: {}, cat: {}, sent: {}, hour: {}, kw: {}, grp: {}, favCafe: {}, favYt: {}, chIssue: {}, sentIssue: {}, shortCat: {} };
   for (const p of posts) {
     const hr = String(kstParts(p.collectedAt?.toDate ? p.collectedAt.toDate() : new Date()).hour).padStart(2, "0");
     d.total++;
     inc(d.ch, p.channel);
     inc(d.sent, p.sentiment);
     inc(d.hour, hr);
+    if (p.channel === "youtube" && p.short) for (const c of p.cats || []) inc(d.shortCat, c); // 카테고리별 쇼츠(릴스) 수 → 릴스 제외 건수
     for (const c of p.cats || []) inc(d.cat, c);
     if (p.isIssue || p.must) {
       d.issue++;

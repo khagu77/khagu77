@@ -46,6 +46,7 @@ export async function runCollection({ force = false, parts = null } = {}) {
   if (want("ppomppu") && (force || tick % 2 === 0)) jobs.push(collectPpomppuRss({ settings, log }));
 
   jobs.push(fixCommunityDatesOnce(log).then(() => []));
+  jobs.push(backfillShorts(log).then(() => []));
   const results = await Promise.allSettled(jobs);
   const items = [];
   for (const r of results) {
@@ -86,4 +87,38 @@ async function fixCommunityDatesOnce(log) {
   await w.close();
   await setState("fixes", { ...st, communityDates1: true });
   log.push(`게시판 글 작성 시각 바로잡음: ${n}건`);
+}
+
+// 이미 저장된 유튜브 영상의 숏츠 여부를 5분마다 조금씩 확인 (끝나면 멈춤) — 통계의 숏츠 수도 함께
+async function backfillShorts(log) {
+  const st = await getState("shorts_backfill");
+  if (st.done) return;
+  const { isShort } = await import("./collectors/youtube.js");
+  let q = db.collection("posts").where("channel", "==", "youtube").limit(200);
+  if (st.last) q = q.startAfter(await db.doc(`posts/${st.last}`).get());
+  const snap = await q.get();
+  if (snap.empty) { await setState("shorts_backfill", { ...st, done: true }); return; }
+  const { kstParts, pool } = await import("./util.js");
+  const { FieldValue } = await import("./db.js");
+  const todo = snap.docs.filter((d) => typeof d.data().short !== "boolean").slice(0, 60);
+  let n = 0;
+  await pool(todo, 5, async (d) => {
+    const p = d.data();
+    const vid = (String(p.url).match(/[?&]v=([\w-]{6,})/) || String(p.url).match(/shorts\/([\w-]{6,})/) || [])[1];
+    if (!vid) return;
+    const v = await isShort(vid);
+    if (v === null) return;
+    await d.ref.update(v ? { short: true, url: `https://www.youtube.com/shorts/${vid}` } : { short: false });
+    if (v && p.collectedAt) {
+      const day = kstParts(p.collectedAt.toDate()).day;
+      const inc = {};
+      for (const c of p.cats || []) inc[c] = FieldValue.increment(1);
+      await db.doc(`stats/${day}`).set({ shortCat: inc }, { merge: true });
+    }
+    n++;
+  });
+  // 이번 묶음을 다 확인했으면 다음 묶음으로
+  const allChecked = todo.length === 0 || n === todo.length;
+  await setState("shorts_backfill", { ...st, last: allChecked ? snap.docs[snap.docs.length - 1].id : st.last || null, checked: (st.checked || 0) + n });
+  if (n) log.push(`저장된 유튜브 숏츠 확인: ${n}건`);
 }

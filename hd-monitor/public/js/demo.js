@@ -55,7 +55,8 @@ function makePost(t) {
   const id = `d${++n}`;
   const url = ch === "youtube" ? `https://www.youtube.com/watch?v=demo${n}` : ch === "cafe" ? `https://cafe.naver.com/${sourceId}/${1000 + n}` : `https://example.com/${ch}/${n}`;
   const alerted = !!(cls.alert && rnd() < 0.35);
-  return { id, ...item, url, site: ch === "news" ? pick(["yna.co.kr", "hankyung.com", "mk.co.kr", "motorgraph.com", "newsis.com", "chosun.com"]) : null, alerted, alertedAt: alerted ? t : null, alertedTo: alerted ? ["관리자", "김담당"] : [], ...cls, time: t, collectedAt: t, postedAt: t, dupOf: null, dupCount: ch === "news" && rnd() < 0.2 ? Math.ceil(rnd() * 6) : 0, memo: "", star: rnd() < 0.05, hidden: false,
+  const short = ch === "youtube" && rnd() < 0.4;
+  return { id, ...item, url, site: ch === "news" ? pick(["yna.co.kr", "hankyung.com", "mk.co.kr", "motorgraph.com", "newsis.com", "chosun.com"]) : null, alerted, short, alertedAt: alerted ? t : null, alertedTo: alerted ? ["관리자", "김담당"] : [], ...cls, time: t, collectedAt: t, postedAt: t, dupOf: null, dupCount: ch === "news" && rnd() < 0.2 ? Math.ceil(rnd() * 6) : 0, memo: "", star: rnd() < 0.05, hidden: false,
     thumb: ch === "youtube" ? null : null };
 }
 
@@ -76,7 +77,7 @@ function stats() {
     const s = (by[k] ||= { day: k, total: 0, issue: 0, garbage: 0, ch: {}, cat: {}, sent: {}, hour: {}, kw: {}, grp: {}, favCafe: {}, favYt: {}, chIssue: {}, sentIssue: {} });
     const inc = (o, key) => { o[key] = (o[key] || 0) + 1; };
     s.total++; inc(s.ch, p.channel); inc(s.sent, p.sentiment); inc(s.hour, String(p.collectedAt.getHours()).padStart(2, "0"));
-    for (const c of p.cats) inc(s.cat, c);
+    for (const c of p.cats) { inc(s.cat, c); if (p.short) inc((s.shortCat ||= {}), c); }
     if (p.isIssue || p.must) { s.issue++; inc(s.chIssue, p.channel); inc(s.sentIssue, p.sentiment); } else s.garbage++;
     for (const w of p.kw) inc(s.kw, w);
     for (const g of p.kwGroups) inc(s.grp, g);

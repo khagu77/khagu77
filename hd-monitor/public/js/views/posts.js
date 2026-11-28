@@ -1,5 +1,5 @@
 // 게시물 목록: 카테고리별 · 기간/채널/성향/키워드/검색 필터 · 체크 → 엑셀 · AI 재분석 · 성향 지정 · 메모
-import { h, esc, CH, CH_ORDER, SENT, SENT_ORDER, chIcon, sentBadge, srcPill, sourceName, fmtTime, ago, toast, busy, segmented, highlight, cafeSearchUrl, fmtNum, toDate, modal } from "../ui.js";
+import { h, esc, CH, CH_ORDER, SENT, SENT_ORDER, chIcon, sentBadge, srcPill, sourceName, isShorts, fmtTime, ago, toast, busy, segmented, highlight, cafeSearchUrl, fmtNum, toDate, modal } from "../ui.js";
 import { exportExcel } from "../excel.js";
 
 const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, "");
@@ -23,10 +23,12 @@ export async function render(root, store, { arg, qs }) {
   const cat = cats.find((c) => c.id === catId) || cats[0] || { id: "all", name: "전체", channels: ["*"] };
   const chList = cat.channels?.includes("*") ? CH_ORDER : CH_ORDER.filter((c) => cat.channels.includes(c));
   const groups = (store.settings.keywordGroups || []).filter((g) => g.role === "issue");
+  const hasYt = (cat.channels || []).includes("youtube") || (cat.channels || []).includes("*");
   const st = {
     period: PERIODS.some(([v]) => v === qs.get("period")) ? qs.get("period") : qs.get("q") ? "30d" : "3d", from: "", to: "", sort: "time", q: qs.get("q") || "", alertedOnly: false,
     issueOnly: qs.get("issue") === "1",
     src: qs.get("src") || "",
+    noShorts: (() => { try { return localStorage.getItem("hdmon-noshorts") === "1"; } catch { return false; } })(),
     ch: new Set(), sent: new Set((qs.get("sent") || "").split(",").filter((s) => SENT[s])), grp: "", dedupe: catId === "news" || catId === "all", star: false, showHidden: false,
   };
   let all = [];
@@ -57,6 +59,7 @@ export async function render(root, store, { arg, qs }) {
         <input class="input" id="q" style="flex:1;min-width:200px" placeholder="제목·내용·매체명 (여러 단어는 모두 포함, -단어 는 제외)" value="${esc(st.q)}">
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="dedupe" ${st.dedupe ? "checked" : ""}><span></span></span>유사 기사 묶기</label>
         ${st.src ? `<button class="chip on" id="srcChip" title="눌러서 매체 조건 지우기">${esc(st.src)} ✕</button>` : ""}
+        ${hasYt ? `<label class="toggle-row"><span class="switch"><input type="checkbox" id="noShorts" ${st.noShorts ? "checked" : ""}><span></span></span>숏츠 제외</label>` : ""}
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="issueOnly" ${st.issueOnly ? "checked" : ""}><span></span></span>이슈 글만</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="alertedOnly"><span></span></span>💬 카톡 발송만</label>
         <label class="toggle-row"><span class="switch"><input type="checkbox" id="star"><span></span></span>중요만</label>
@@ -110,6 +113,7 @@ export async function render(root, store, { arg, qs }) {
   $q("#grp").onchange = (e) => { st.grp = e.target.value; apply(); };
   let qt;
   $q("#q").oninput = (e) => { clearTimeout(qt); qt = setTimeout(() => { st.q = e.target.value; apply(); ensureEnough(); }, 220); };
+  $q("#noShorts")?.addEventListener("change", (e) => { st.noShorts = e.target.checked; try { localStorage.setItem("hdmon-noshorts", st.noShorts ? "1" : "0"); } catch {} apply(); });
   $q("#srcChip")?.addEventListener("click", () => { location.hash = `#/posts/${cat.id}`; });
   for (const k of ["dedupe", "star", "showHidden", "alertedOnly", "issueOnly"]) $q(`#${k}`).onchange = (e) => { st[k] = e.target.checked; apply(); };
 
@@ -158,6 +162,7 @@ export async function render(root, store, { arg, qs }) {
       if (!st.showHidden && p.hidden) return false;
       if (st.star && !p.star) return false;
       if (st.issueOnly && !(p.isIssue || p.must)) return false;
+      if (st.noShorts && isShorts(p)) return false;
       if (st.src && (sourceName(p) || p.source) !== st.src && p.source !== st.src) return false;
       if (st.alertedOnly && !p.alerted) return false;
       if (st.dedupe && p.dupOf) return false;
@@ -188,6 +193,7 @@ export async function render(root, store, { arg, qs }) {
     const badges = [
       p.alerted ? `<span class="badge b-kakao" title="${esc(`카톡 발송 ${fmtTime(p.alertedAt)} · ${(p.alertedTo || []).join(", ")}`)}">💬 카톡 발송</span>` : "",
       sentBadge(p.sentiment, p.sentimentBy),
+      isShorts(p) ? `<span class="badge b-shorts">숏츠</span>` : "",
       p.must ? `<span class="badge b-info">필수 수집</span>` : "",
       p.fav ? `<span class="badge b-info">⭐ 관심</span>` : "",
       p.dupCount ? `<span class="badge b-warn">유사 ${p.dupCount}건</span>` : "",

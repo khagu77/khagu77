@@ -70,6 +70,8 @@ export const srcPill = (p) => {
   const name = String(sourceName(p) || CH[p.channel]?.name || "").replace(/\s*(국산차|자동차당|자동차포럼|자유게시판|새로운소식|모두의공원)$/, "") || CH[p.channel]?.name;
   return `<span class="src-pill ch-${esc(p.channel)}" title="${esc(p.source || "")}">${esc(name)}</span>`;
 };
+// 숏츠: 저장할 때 표시했거나 주소에 /shorts/ 가 있으면
+export const isShorts = (p) => p.channel === "youtube" && (p.short === true || /\/shorts\//.test(String(p.url || "")));
 export const sentBadge = (s, by) => {
   const m = SENT[s] || SENT.neu;
   return `<span class="badge ${m.cls}">${m.name}${by && by !== "rule" && by !== "manual" ? " · AI" : ""}</span>`;

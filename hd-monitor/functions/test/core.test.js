@@ -305,3 +305,12 @@ test("게시판 날짜: 조회수 '1.2k' 같은 숫자를 날짜로 읽지 않�
   const now = new Date("2026-11-28T00:00:00Z");
   assert.equal(rowDate("그랜저 누수 조회 1.2 k 추천 3", now), null);
 });
+
+test("유튜브 RSS: 숏츠 링크 구분", () => {
+  const xml = `<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom"><author><name>c</name></author>
+  <entry><yt:videoId>s1</yt:videoId><link rel="alternate" href="https://www.youtube.com/shorts/s1"/><title>a</title><published>2026-11-27T10:00:00+00:00</published></entry>
+  <entry><yt:videoId>v1</yt:videoId><link rel="alternate" href="https://www.youtube.com/watch?v=v1"/><title>b</title><published>2026-11-27T10:00:00+00:00</published></entry></feed>`;
+  const [a, b] = parseRss(xml, "c");
+  assert.equal(a.short, true);
+  assert.equal(b.short, false);
+});
