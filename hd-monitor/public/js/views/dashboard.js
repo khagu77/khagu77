@@ -67,20 +67,21 @@ export async function render(root, store) {
 
   const favCache = (() => { try { return JSON.parse(localStorage.getItem("hdmon-favtop") || "{}"); } catch { return {}; } })();
   const favFetchedAt = {};
-  function favTop(key, catId, statMap, nameOf, rank, shortMap = null) {
+  // byPosted: 수집일이 아니라 작성일(실제로 올라온 날) 기준으로 게시물에서 직접 셈 (유튜브: 지난 영상이 한꺼번에 수집돼 순위가 틀어지던 문제)
+  function favTop(key, catId, statMap, nameOf, rank, shortMap = null, byPosted = false) {
     const el = $q(`#${key}`);
-    const ck = `${key}:${period}`;
+    const ck = `${key}${byPosted ? ":posted" : ""}:${period}`;
     // 누르면 그 동호회·채널 글만 (보던 기간 그대로)
     const show = (entries) => rank(el, entries.slice(0, 7), (k) => k, (k) => `#/posts/${catId}?src=${encodeURIComponent(k)}&period=${period === 1 ? "today" : period === 30 ? "30d" : "7d"}`);
     const fromStats = Object.entries(statMap || {}).map(([k, v]) => [nameOf(k), v, ...(shortMap ? [shortMap[k] || 0] : [])]).sort((a, b) => b[1] - a[1]);
-    if (fromStats.length) { favCache[ck] = fromStats.slice(0, 7); save(); return show(fromStats); }
+    if (fromStats.length && !byPosted) { favCache[ck] = fromStats.slice(0, 7); save(); return show(fromStats); }
     if (favCache[ck]?.length) show(favCache[ck]); // 새로 셀 동안 마지막 순위 그대로
     else if (!el.dataset.html) el.innerHTML = `<div class="skeleton" style="height:120px"></div>`;
     // 통계가 비어 있으면 그 기간의 관심 게시물에서 직접 셈 (10분에 한 번까지)
-    if (Date.now() - (favFetchedAt[ck] || 0) < 10 * 60e3) return;
+    if (Date.now() - (favFetchedAt[ck] || 0) < (byPosted ? 3 : 10) * 60e3) return;
     favFetchedAt[ck] = Date.now();
     const from = new Date(new Date().setHours(0, 0, 0, 0) - (period - 1) * 86400e3);
-    store.be.listPosts({ cat: catId, from, pageSize: 1000 }).then(({ items }) => {
+    store.be.listPosts({ cat: catId, from, sort: "time", pageSize: 1000 }).then(({ items }) => {
       const cnt = new Map();
       for (const p of items) {
         const n = sourceName(p) || p.source || "기타";
@@ -180,7 +181,8 @@ export async function render(root, store) {
     // 기준 설명: 선택한 기간에 수집된 관심 동호회·채널 게시물 수, 많은 순 7곳
     root.querySelectorAll(".fav-sub").forEach((e) => (e.textContent = `${period === 1 ? "오늘" : `최근 ${period}일`} 수집된 게시물 수 · 많은 순 7곳 · 누르면 해당 글`));
     favTop("favCafe", "cafe_fav", A.favCafe, (k) => cafeName[k.toLowerCase()] || k, rank);
-    favTop("favYt", "youtube_fav", A.favYt, (k) => ytName[k] || k, rank, A.favYtShort || {});
+    favTop("favYt", "youtube_fav", A.favYt, (k) => ytName[k] || k, rank, A.favYtShort || {}, true);
+    $q("#favYt").parentElement.querySelector(".fav-sub").textContent = `${period === 1 ? "오늘" : `최근 ${period}일`} 실제로 올라온 영상 수(작성일 기준) · 많은 순 7곳 · 누르면 해당 글`;
     drawStatus();
   }
 
