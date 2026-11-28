@@ -27,3 +27,4 @@ for (const s of samples.slice(0, 3)) {
 }
 const run = (await db.doc("status/main").get()).data()?.lastRun;
 console.log("마지막 수집:", (run?.log || []).join(" / "));
+// 2026-11-28T04:59:44Z 재점검
