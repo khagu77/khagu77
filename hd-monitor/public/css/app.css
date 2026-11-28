@@ -712,3 +712,10 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 .dash-btns { display: flex; gap: 8px; align-items: center; }
 .dash-actions .now-clock { margin-top: 0; width: auto !important; }
 @media (max-width: 900px) { .dash-actions { align-items: flex-start !important; } }
+/* 모바일: 날짜·시각을 작게 해서 '모니터링 대시보드' 제목 줄 오른쪽에 */
+@media (max-width: 900px) {
+  .page-head:has(.dash-actions) { position: relative; }
+  .dash-actions .now-clock { position: absolute; right: 0; top: 6px; font-size: 10.5px; padding: 2px 9px; box-shadow: 0 3px 10px rgba(31, 95, 214, .2); }
+  .dash-actions .now-clock b { margin-left: 5px; }
+}
+@media (max-width: 379px) { .dash-actions .now-clock { position: static; } }
