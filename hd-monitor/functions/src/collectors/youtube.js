@@ -170,12 +170,12 @@ export async function videoStats(vids, secrets) {
     const chunk = ids.slice(i, i + 50);
     for (const key of keys) {
       try {
-        const r = await fetchWithTimeout(`https://www.googleapis.com/youtube/v3/videos?${new URLSearchParams({ part: "statistics", id: chunk.join(","), key })}`);
+        const r = await fetchWithTimeout(`https://www.googleapis.com/youtube/v3/videos?${new URLSearchParams({ part: "statistics,snippet", id: chunk.join(","), key })}`);
         const j = await r.json().catch(() => ({}));
         if (!r.ok) { videoStats.lastError = `${r.status} ${j.error?.message || ""}`.slice(0, 120); continue; }
         for (const it of j.items || []) {
           const s = it.statistics || {};
-          out.set(it.id, { views: s.viewCount ?? null, likes: s.likeCount ?? null, comments: s.commentCount ?? null });
+          out.set(it.id, { views: s.viewCount ?? null, likes: s.likeCount ?? null, comments: s.commentCount ?? null, desc: String(it.snippet?.description || "") });
         }
         break;
       } catch (e) { videoStats.lastError = e.message; }
@@ -189,6 +189,12 @@ export async function addVideoStats(items, secrets) {
   const yt = items.filter((it) => it && it.channel === "youtube" && it.vid);
   if (!yt.length) return 0;
   const m = await videoStats(yt.map((it) => it.vid), secrets);
-  for (const it of yt) { const s = m.get(it.vid); if (s) Object.assign(it, s); }
+  for (const it of yt) {
+    const s = m.get(it.vid);
+    if (!s) continue;
+    const { desc, ...nums } = s;
+    Object.assign(it, nums);
+    if (desc && desc.length > String(it.desc || "").length) it.desc = decodeHtml(desc).slice(0, 500); // 검색 결과의 짧은 설명 대신 전체 설명으로 분류
+  }
   return m.size;
 }

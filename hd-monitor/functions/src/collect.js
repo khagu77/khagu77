@@ -47,7 +47,7 @@ export async function runCollection({ force = false, parts = null } = {}) {
 
   jobs.push(fixCommunityDatesOnce(log).then(() => []));
   jobs.push(backfillShorts(log).then(() => []));
-  if (force || tick % 6 === 0) jobs.push(refreshYoutubeStats(secrets, log).then(() => [])); // 30분마다 최근 영상 숫자 새로
+  if (force || tick % 6 === 0) jobs.push(refreshYoutubeStats(secrets, log, ctx).then(() => [])); // 30분마다 최근 영상 숫자 새로
   // 게시판(보배드림·클리앙) 조회수·댓글수: 처음 한 번은 10쪽(기존 글 채우기), 그 뒤 30분마다 3쪽
   if (want("community") && settings.collect.community) jobs.push((async () => {
     const st = await getState("community_counts");
@@ -143,12 +143,12 @@ async function backfillShorts(log) {
 }
 
 // 최근 3일 유튜브 영상의 조회수 · 좋아요 · 댓글수를 새로 받아 둠 (영상 50개당 할당량 1단위)
-async function refreshYoutubeStats(secrets, log) {
+async function refreshYoutubeStats(secrets, log, ctx) {
   if (!secrets.youtubeKeys) return;
   const { videoStats } = await import("./collectors/youtube.js");
   const since = Date.now() - 3 * 86400e3;
   // 유튜브 글만 읽음 (전체 채널 최근 3일 수만 건을 읽다 실패하던 문제)
-  const snap = await db.collection("posts").where("channel", "==", "youtube").select("url", "views", "likes", "comments", "collectedAt", "title", "channel", "source", "sourceId", "time", "short", "isIssue", "must").get();
+  const snap = await db.collection("posts").where("channel", "==", "youtube").select("url", "views", "likes", "comments", "collectedAt", "title", "channel", "source", "sourceId", "time", "short", "isIssue", "must", "desc", "manualGarbage", "postedAt").get();
   const docs = snap.docs.filter((d) => (d.data().collectedAt?.toMillis?.() || 0) >= since).slice(0, 1500);
   const vidOf = (u) => (String(u).match(/[?&]v=([\w-]{6,})/) || String(u).match(/shorts\/([\w-]{6,})/) || [])[1];
   const m = await videoStats(docs.map((d) => vidOf(d.data().url)), secrets);
@@ -166,5 +166,12 @@ async function refreshYoutubeStats(secrets, log) {
   }
   await w.close();
   await (await import("./topStats.js")).updateTop(changedPosts).catch(() => {});
+  // 가비지로 저장된 영상: 전체 설명으로 다시 분류해 이슈면 올림 (검색 결과의 짧은 설명 때문에 놓친 영상)
+  if (ctx) {
+    const { ingest } = await import("./store.js");
+    const recheck = docs.filter((d) => { const p = d.data(); const s = m.get(vidOf(p.url)); return !(p.isIssue || p.must) && !p.manualGarbage && s?.desc && s.desc.length > String(p.desc || "").length; })
+      .map((d) => { const p = d.data(); return { channel: "youtube", url: p.url, title: p.title, desc: m.get(vidOf(p.url)).desc.slice(0, 500), source: p.source, sourceId: p.sourceId, postedAt: p.postedAt?.toDate?.() || null, requireMatch: true, via: "yt:recheck" }; });
+    if (recheck.length) await ingest(recheck, ctx, log);
+  }
   if (n) log.push(`유튜브 조회수·댓글수 새로 고침: ${n}건`);
 }

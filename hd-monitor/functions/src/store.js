@@ -71,14 +71,53 @@ export async function ingest(items, ctx, log) {
   }
 
   const created = [];
+  const upgraded = [];
   await pool(docs, 12, async ({ id, data }) => {
     try {
       await db.doc(`posts/${id}`).create(data);
       created.push({ id, ...data });
     } catch (e) {
       if (e.code !== 6) throw e; // 6 = 이미 있음 (다른 검색어로 이미 저장된 글)
+      // 이미 가비지로 저장된 글이 이번엔 이슈로 판단되면 이슈로 올림
+      // (예: 유튜브 검색 결과의 짧은 설명으로는 키워드가 없었는데, 관심 채널 RSS 의 전체 설명에는 있음)
+      if (data.isIssue || data.must) {
+        const ref = db.doc(`posts/${id}`);
+        const old = (await ref.get()).data();
+        if (old && !(old.isIssue || old.must) && !old.manualGarbage) {
+          const patch = { targets: data.targets, kw: data.kw, kwGroups: data.kwGroups, isIssue: data.isIssue, must: data.must, alert: data.alert, fav: data.fav, cats: data.cats };
+          if (String(data.desc || "").length > String(old.desc || "").length) patch.desc = data.desc;
+          if (old.sentimentBy === "rule") patch.sentiment = data.sentiment;
+          await ref.update(patch);
+          upgraded.push({ old, next: { ...old, ...patch } });
+        }
+      }
     }
   });
+  if (upgraded.length) {
+    // 일별 통계도 가비지 → 이슈로 옮김 (수집한 날 기준)
+    const inc = {};
+    const bump = (day, f, k, n) => { ((inc[day] ||= {})[f] ||= {})[k] = (inc[day][f][k] || 0) + n; };
+    for (const { old, next } of upgraded) {
+      if (!old.collectedAt) continue;
+      const day = kstParts(old.collectedAt.toDate()).day;
+      for (const c of old.cats || []) if (!next.cats.includes(c)) bump(day, "cat", c, -1);
+      for (const c of next.cats) if (!(old.cats || []).includes(c)) bump(day, "cat", c, 1);
+      bump(day, "_", "issue", 1); bump(day, "_", "garbage", -1);
+      bump(day, "chIssue", old.channel, 1);
+      if (old.sentiment !== next.sentiment) { bump(day, "sent", old.sentiment, -1); bump(day, "sent", next.sentiment, 1); }
+      bump(day, "sentIssue", next.sentiment, 1);
+    }
+    await Promise.all(Object.entries(inc).map(([day, fields]) => {
+      const data = {};
+      for (const [f, m] of Object.entries(fields)) {
+        if (f === "_") { for (const [k, n] of Object.entries(m)) data[k] = FieldValue.increment(n); continue; }
+        data[f] = {};
+        for (const [k, n] of Object.entries(m)) if (n && k) data[f][k] = FieldValue.increment(n);
+      }
+      return db.doc(`stats/${day}`).set(data, { merge: true });
+    }));
+    log.push(`가비지 → 이슈로 올림: ${upgraded.length}건`);
+  }
 
   // 새로 저장된 언론 기사만 유사도 기준 목록에 추가 · 대표 기사의 '유사 n건' 올리기
   const repInc = new Map();
