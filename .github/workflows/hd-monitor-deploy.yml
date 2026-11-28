@@ -44,7 +44,23 @@ jobs:
             exit 1
           fi
           printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          # 키 내용 점검 (비밀 값은 출력하지 않고 종류·계정 이메일·프로젝트만)
+          node -e '
+            const fs = require("fs");
+            let j;
+            try { j = JSON.parse(fs.readFileSync(process.argv[1], "utf8")); }
+            catch (e) { console.log("::error::시크릿 내용이 JSON 이 아닙니다. 내려받은 .json 파일을 메모장으로 열어 { 부터 } 까지 전체를 붙여넣어 주세요 (" + e.message + ")"); process.exit(1); }
+            console.log("키 종류:", j.type, "/ 계정:", j.client_email, "/ 프로젝트:", j.project_id);
+            if (j.type !== "service_account" || !j.private_key || !j.client_email) { console.log("::error::서비스 계정 키(JSON)가 아닙니다. Google Cloud → 서비스 계정 → 키 → 새 키 만들기 → JSON 으로 받은 파일을 넣어 주세요"); process.exit(1); }
+            if (j.project_id !== process.env.PROJECT) console.log("::warning::키의 프로젝트(" + j.project_id + ")가 " + process.env.PROJECT + " 가 아닙니다");
+          ' "$RUNNER_TEMP/sa.json"
           echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/sa.json" >> "$GITHUB_ENV"
+
+      - name: 서비스 계정 키로 Google 로그인 확인
+        run: |
+          gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS" --quiet
+          gcloud auth print-access-token >/dev/null && echo "Google 로그인 성공"
+          gcloud projects describe "$PROJECT" --format="value(projectId)" || echo "::warning::프로젝트 정보를 읽지 못했습니다 (서비스 계정 역할 확인)"
 
       - name: 서버 패키지 설치 · 테스트
         working-directory: hd-monitor/functions
