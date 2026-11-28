@@ -742,3 +742,13 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 .nav-alert { font-size: 10.5px; letter-spacing: -.03em; }
 .nav-alert.ok { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent); animation: none; }
 .nav-alert.seen { background: var(--panel-2); color: var(--text-3); border: 1px solid var(--line-2); animation: none; }
+/* KPI 카드 제목: 줄 바뀌지 않게(자간 좁게), 기준(최근 n일 수집)은 아래 줄로 */
+.kpi .k-label { flex-wrap: wrap; row-gap: 1px; white-space: nowrap; letter-spacing: -.03em; }
+.kpi .k-label .k-basis { flex-basis: 100%; margin: 0; }
+@media (max-width: 900px) { .kpi .k-label { letter-spacing: -.06em; font-size: 11.5px; } }
+@media (max-width: 900px) {
+  .kpi .k-val { white-space: nowrap; }
+  .kpi .k-val small.kpi-ns { margin-left: 6px; font-size: 11px; letter-spacing: -.05em; }
+  .kpi .k-delta { white-space: nowrap; letter-spacing: -.05em; font-size: 12px; }
+  .kpi .k-delta small { display: block; font-size: 10.5px; margin: 1px 0 0; }
+}
