@@ -42,6 +42,13 @@ export const chIcon = (ch, small = false, p = null) => {
   if (!site) return `<span class="ch-ico ch-${esc(ch)}"${size} title="${title}">${esc(CH[ch]?.short || "?")}</span>`;
   return `<span class="ch-ico ch-${esc(ch)} logo"${size} title="${title}">${esc(CH[ch]?.short || "?")}<img alt="" loading="lazy" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(site)}&sz=64" onerror="this.remove()"></span>`;
 };
+// 제목 앞 매체명 상자 (언론·동호회·유튜브·자동차 커뮤니티)
+const PILL_CH = new Set(["news", "cafe", "youtube", "bobae", "clien", "ppomppu"]);
+export const srcPill = (p) => {
+  if (!PILL_CH.has(p.channel)) return "";
+  const name = String(p.source || CH[p.channel]?.name || "").replace(/\s*(국산차|자동차당|자동차포럼|자유게시판|새로운소식|모두의공원)$/, "") || CH[p.channel]?.name;
+  return `<span class="src-pill ch-${esc(p.channel)}" title="${esc(p.source || "")}">${esc(name)}</span>`;
+};
 export const sentBadge = (s, by) => {
   const m = SENT[s] || SENT.neu;
   return `<span class="badge ${m.cls}">${m.name}${by && by !== "rule" && by !== "manual" ? " · AI" : ""}</span>`;

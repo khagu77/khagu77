@@ -1,5 +1,5 @@
 // 대시보드: KPI 카운트업 · 채널별 추이 · 성향 도넛 · 부정 비율 · 시간대 히트맵 · 키워드 순위 · 실시간 피드
-import { h, esc, countUp, dayKey, fmtNum, CH, CH_ORDER, SENT, SENT_ORDER, chIcon, sentBadge, ago, segmented, toast, busy, fmtTime } from "../ui.js";
+import { h, esc, countUp, dayKey, fmtNum, CH, CH_ORDER, SENT, SENT_ORDER, chIcon, sentBadge, srcPill, ago, segmented, toast, busy, fmtTime } from "../ui.js";
 import { stackedBars, lineChart, donut, sparkline, heat } from "../charts.js";
 
 const sum = (o) => Object.values(o || {}).reduce((a, b) => a + (+b || 0), 0);
@@ -149,7 +149,7 @@ export async function render(root, store) {
   function drawFeed(animateNew) {
     const items = store.live?.items || [];
     $q("#feed").innerHTML = items.length ? items.slice(0, 30).map((p) => `<a class="feed-item ${animateNew && !shown.has(p.id) ? "new" : ""}" href="${esc(p.url)}" target="_blank" rel="noopener">
-      ${chIcon(p.channel, false, p)}<div style="min-width:0"><div class="t">${esc(p.title)}</div><div class="m">${sentBadge(p.sentiment)}${p.isIssue ? `<span class="badge b-warn">이슈</span>` : ""}<span>${esc(p.source || "")}</span><span>· ${ago(p.time)}</span></div></div></a>`).join("")
+      ${chIcon(p.channel, false, p)}<div style="min-width:0"><div class="t">${srcPill(p)}${esc(p.title)}</div><div class="m">${sentBadge(p.sentiment)}${p.isIssue ? `<span class="badge b-warn">이슈</span>` : ""}<span>${esc(p.source || "")}</span><span>· ${ago(p.time)}</span></div></div></a>`).join("")
       : `<div class="empty"><div class="big">📡</div>수집을 기다리는 중…</div>`;
     items.forEach((p) => shown.add(p.id));
   }

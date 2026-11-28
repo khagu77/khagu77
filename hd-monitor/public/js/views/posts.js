@@ -1,5 +1,5 @@
 // 게시물 목록: 카테고리별 · 기간/채널/성향/키워드/검색 필터 · 체크 → 엑셀 · AI 재분석 · 성향 지정 · 메모
-import { h, esc, CH, CH_ORDER, SENT, SENT_ORDER, chIcon, sentBadge, fmtTime, ago, toast, busy, segmented, highlight, cafeSearchUrl, fmtNum, toDate, modal } from "../ui.js";
+import { h, esc, CH, CH_ORDER, SENT, SENT_ORDER, chIcon, sentBadge, srcPill, fmtTime, ago, toast, busy, segmented, highlight, cafeSearchUrl, fmtNum, toDate, modal } from "../ui.js";
 import { exportExcel } from "../excel.js";
 
 const norm = (s) => String(s || "").toLowerCase().replace(/\s+/g, "");
@@ -189,7 +189,7 @@ export async function render(root, store, { arg, qs }) {
     return `<div class="post ${sel.has(p.id) ? "sel" : ""} ${p.hidden ? "hid" : ""} ${p.alerted ? "alerted" : ""}" data-id="${esc(p.id)}" style="--i:${i}">
       <input type="checkbox" class="cbx" ${sel.has(p.id) ? "checked" : ""}>
       ${chIcon(p.channel, false, p)}
-      <div style="min-width:0">${p.thumb ? `<img class="thumb" loading="lazy" src="${esc(p.thumb)}" alt="">` : ""}<a class="title" href="${esc(p.url)}" target="_blank" rel="noopener">${highlight(p.title, w)}</a>
+      <div style="min-width:0">${p.thumb ? `<img class="thumb" loading="lazy" src="${esc(p.thumb)}" alt="">` : ""}${srcPill(p)}<a class="title" href="${esc(p.url)}" target="_blank" rel="noopener">${highlight(p.title, w)}</a>
         ${p.desc ? `<div class="desc">${highlight(p.desc, w)}</div>` : ""}<div class="meta">${badges}</div></div>
       <div class="src">${esc(p.source || CH[p.channel]?.name || "")}<small>${esc(CH[p.channel]?.name || "")}</small></div>
       <div class="tm">${esc(tm)}<small>${ago(p.collectedAt)} 수집</small></div>
