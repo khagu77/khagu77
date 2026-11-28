@@ -15,10 +15,10 @@
   --brand-2: #2f7bff;
   --brand-ink: #041018;
   --grad: linear-gradient(135deg, #00aad2 0%, #2f7bff 55%, #7a5cff 100%);
-  --pos: #338ced;
-  --neu: #8b93ab;
-  --neg: #f0743a;
-  --abuse: #eb6263;
+  --pos: #338ced;   /* 긍정: 파랑 */
+  --neu: #1fb46b;   /* 중립: 녹색 */
+  --neg: #ef4a4a;   /* 부정: 빨강 */
+  --abuse: #d9a106; /* 단순비난: 진한 노랑 */
   --ok: #19c37d;
   --warn: #f2a600;
   --danger: #ff5d6c;
@@ -45,7 +45,7 @@
   --text-3: #7d89a6;
   --brand: #0088b0;
   --brand-2: #1f5fd6;
-  --pos: #257de0; --neu: #8a90a2; --neg: #e2601f; --abuse: #d93a3b;
+  --pos: #257de0; --neu: #158a50; --neg: #d93a3b; --abuse: #b8860b;
   --s1: #257de0; --s2: #f47230; --s3: #00b894; --s4: #f2a600; --s5: #ee7fac; --s6: #008a17; --s7: #6a4ce2; --s8: #ec4647;
   --shadow: 0 10px 30px rgba(20, 40, 90, 0.10);
   --glow: 0 0 0 1px rgba(0, 136, 176, 0.25), 0 8px 24px rgba(31, 95, 214, 0.12);
