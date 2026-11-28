@@ -1,19 +1,24 @@
-// 점검(읽기 전용): 5분 수집 함수 최근 로그(경고·오류) · 저장된 마지막 수집
+// 점검(읽기 전용): 5분 수집 예약(Cloud Scheduler) 상태 · 최근 수집 함수 호출 로그
 import { initializeApp, applicationDefault } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
-import { canonicalUrl, hash } from "./src/util.js";
 const db = getFirestore(initializeApp(), "hdmon");
 const kst = (d) => new Date(new Date(d).getTime() + 9 * 3600e3).toISOString().slice(5, 19).replace("T", " ");
-const runs = (await db.doc("state/runs").get()).data()?.items || [];
-console.log("지금", kst(Date.now()), "| 저장된 마지막 수집:", runs.slice(0, 3).map((r) => kst(r.at.toDate())).join(", "));
-const v = (await db.doc(`posts/${hash(canonicalUrl("https://www.youtube.com/watch?v=cbQAELeJ9rc"))}`).get()).data() || {};
-console.log("우파푸른하늘 영상:", v.cats, v.isIssue);
+const P = process.env.GCLOUD_PROJECT;
 const { access_token } = await applicationDefault().getAccessToken();
-const since = new Date(Date.now() - 40 * 60e3).toISOString();
-const filter = `timestamp>="${since}" AND (resource.labels.service_name="collecttick" OR resource.labels.function_name="collectTick") AND severity>=DEFAULT`;
-const r = await fetch("https://logging.googleapis.com/v2/entries:list", { method: "POST", headers: { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" },
-  body: JSON.stringify({ resourceNames: [`projects/${process.env.GCLOUD_PROJECT}`], filter, orderBy: "timestamp desc", pageSize: 40 }) });
+const H = { Authorization: `Bearer ${access_token}`, "Content-Type": "application/json" };
+const runs = (await db.doc("state/runs").get()).data()?.items || [];
+console.log("지금", kst(Date.now()), "| 저장된 마지막 수집:", runs.slice(0, 2).map((r) => kst(r.at.toDate())).join(", "));
+const r = await fetch(`https://cloudscheduler.googleapis.com/v1/projects/${P}/locations/asia-northeast3/jobs`, { headers: H });
 const j = await r.json();
-if (!r.ok) console.log("로그 읽기 실패", r.status, j.error?.message?.slice(0, 200));
-for (const e of j.entries || []) console.log(kst(e.timestamp), e.severity, e.httpRequest ? `HTTP ${e.httpRequest.status} ${e.httpRequest.latency || ""}` : "", String(e.textPayload || e.jsonPayload?.message || e.protoPayload?.status?.message || "").replace(/\s+/g, " ").slice(0, 260));
-if (r.ok && !(j.entries || []).length) console.log("최근 40분 collectTick 로그 없음 (함수가 실행되지 않음)");
+if (!r.ok) console.log("예약 목록 읽기 실패", r.status, j.error?.message?.slice(0, 200));
+for (const x of j.jobs || []) if (/collect|hdmon/i.test(x.name)) console.log("예약:", x.name.split("/").pop(), "| 상태", x.state, "| 주기", x.schedule, x.timeZone, "| 마지막 시도", x.lastAttemptTime ? kst(x.lastAttemptTime) : "-", "| 결과", JSON.stringify(x.status || {}), "| 다음", x.scheduleTime ? kst(x.scheduleTime) : "-");
+const since = new Date(Date.now() - 45 * 60e3).toISOString();
+const filter = `timestamp>="${since}" AND resource.labels.service_name="collecttick" AND httpRequest.requestMethod="POST"`;
+const lr = await fetch("https://logging.googleapis.com/v2/entries:list", { method: "POST", headers: H, body: JSON.stringify({ resourceNames: [`projects/${P}`], filter, orderBy: "timestamp desc", pageSize: 20 }) });
+const lj = await lr.json();
+for (const e of lj.entries || []) console.log("호출", kst(e.timestamp), e.httpRequest.status, e.httpRequest.latency || "");
+if (!(lj.entries || []).length) console.log("최근 45분 수집 함수 호출 없음", lr.status, lj.error?.message?.slice(0, 120) || "");
+const sf = `timestamp>="${since}" AND resource.type="cloud_scheduler_job"`;
+const sr = await fetch("https://logging.googleapis.com/v2/entries:list", { method: "POST", headers: H, body: JSON.stringify({ resourceNames: [`projects/${P}`], filter: sf, orderBy: "timestamp desc", pageSize: 10 }) });
+const sj = await sr.json();
+for (const e of sj.entries || []) console.log("예약 로그", kst(e.timestamp), e.severity, JSON.stringify(e.jsonPayload || {}).slice(0, 220));
