@@ -161,7 +161,7 @@ export async function render(root, store) {
     const changed = [...b].map((c, i) => !prev || c !== a[i]);
     const order = changed.map((c, i) => (c ? i : -1)).filter((i) => i >= 0).sort(() => Math.random() - 0.5);
     let acc = base;
-    const delayOf = new Map(order.map((i) => { const d = acc; acc += 150 + Math.random() * 150; return [i, d]; }));
+    const delayOf = new Map(order.map((i) => { const d = acc; acc += 100 + Math.random() * 100; return [i, d]; }));
     el.classList.add("dd-wrap");
     el.innerHTML = [...b].map((c, i) => {
       if (c === " ") return "";
@@ -176,7 +176,7 @@ export async function render(root, store) {
     // 떨어진 뒤 카드가 살짝 '쿵' 흔들림
     if (!reduce && order.length) {
       const card = el.closest(".kpi");
-      const last = Math.max(...order.map((i) => delayOf.get(i))) + 950;
+      const last = Math.max(...order.map((i) => delayOf.get(i))) + 800;
       setTimeout(() => { card?.classList.remove("thud"); void card?.offsetWidth; card?.classList.add("thud"); }, last);
     }
   }
@@ -207,7 +207,7 @@ export async function render(root, store) {
     }
     // 카드마다 무작위 순서로 차례차례 (동시에 떨어지지 않게)
     const cardOrder = kpis.map((_, i) => i).sort(() => Math.random() - 0.5);
-    const cardDelay = new Map(cardOrder.map((ci, n) => [ci, n * 350 + Math.random() * 180]));
+    const cardDelay = new Map(cardOrder.map((ci, n) => [ci, n * 230 + Math.random() * 120]));
     kpis.forEach((k, i) => {
       dropDigits(kEl.querySelector(`[data-k="${i}"]`), k.v, cardDelay.get(i));
       const d = kEl.querySelector(`[data-d="${i}"]`);

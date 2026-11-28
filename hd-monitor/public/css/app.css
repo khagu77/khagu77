@@ -723,7 +723,7 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 /* KPI 숫자: 큰 숫자가 위에서 뚝뚝 떨어져 제자리에 */
 .dd-wrap { display: inline-flex; align-items: baseline; }
 .dd, .dd-sep { display: inline-block; font-variant-numeric: tabular-nums; }
-.dd.drop { animation: ddrop 1.1s cubic-bezier(.22, .85, .3, 1.12) both; animation-delay: var(--dl, 0ms); will-change: transform, opacity; }
+.dd.drop { animation: ddrop .85s cubic-bezier(.22, .85, .3, 1.12) both; animation-delay: var(--dl, 0ms); will-change: transform, opacity; }
 @keyframes ddrop {
   0% { opacity: 0; transform: translate(var(--dx, 0), var(--dy, -140%)) scale(var(--sc, 3)) rotate(var(--rot, 0deg)); filter: blur(3px); }
   60% { opacity: 1; transform: translate(0, var(--bo, 8%)) scale(.9) rotate(0); filter: blur(0); }
