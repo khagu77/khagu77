@@ -1,10 +1,20 @@
 <!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>이동 중…</title>
-<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#070b16;color:#a6b2d4;font-family:-apple-system,"Malgun Gothic",sans-serif}a{color:#00aad2}</style></head>
-<body><p id="m">원문으로 이동 중…</p>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>원문 열기</title>
+<style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#070b16;color:#a6b2d4;font-family:-apple-system,"Malgun Gothic",sans-serif;padding:20px;box-sizing:border-box}
+.box{max-width:520px;text-align:center}.u{word-break:break-all;color:#eef2ff;margin:12px 0 20px;font-size:14px}
+a.btn{display:inline-block;padding:12px 22px;border-radius:12px;background:#2f7bff;color:#fff;text-decoration:none;font-weight:700}</style></head>
+<body><div class="box"><p id="m">카카오톡 알림의 게시물 원문</p><div class="u" id="u"></div><p id="b"></p></div>
 <script>
-  // 카카오톡 알림의 '게시물 보기' 버튼 → 원문 주소로 이동 (http/https 주소만)
+  // 카카오톡 알림 '게시물 보기' → 원문. 모니터링 대상 사이트만 바로 이동하고, 그 밖의 주소는 확인 후 직접 누르게 함 (아무 주소로나 넘기지 않음)
+  const ALLOW = /(^|\.)(naver\.com|naver\.me|youtube\.com|youtu\.be|bobaedream\.co\.kr|clien\.net|ppomppu\.co\.kr|instagram\.com|daum\.net|tistory\.com|news\.google\.com)$/i;
   const u = new URLSearchParams(location.search).get("u") || "";
-  if (/^https?:\/\//i.test(u)) location.replace(u);
-  else document.getElementById("m").innerHTML = '주소가 올바르지 않습니다. <a href="/">모니터링 시스템 열기</a>';
+  let url = null;
+  try { url = /^https?:\/\//i.test(u) ? new URL(u) : null; } catch {}
+  if (!url) document.getElementById("m").innerHTML = '주소가 올바르지 않습니다. <a href="/">모니터링 시스템 열기</a>';
+  else if (ALLOW.test(url.hostname)) location.replace(url.href);
+  else {
+    document.getElementById("u").textContent = url.href;
+    const a = document.createElement("a"); a.className = "btn"; a.href = url.href; a.rel = "noopener noreferrer"; a.textContent = `${url.hostname} 에서 열기`;
+    document.getElementById("b").append(a);
+  }
 </script></body></html>
