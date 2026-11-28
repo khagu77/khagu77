@@ -199,3 +199,17 @@ export const cafeSearchUrl = (title) => `https://search.naver.com/search.naver?s
 // 수집 기록 한 줄이 실패·오류·차단인지 (빨간 굵은 글씨 · 메뉴 알림 표시용)
 export const isBadLog = (l) => /실패|오류|못 읽|못 엶|막음|막힘|막아|거절|쉬는 중|\d+분\s*쉼|\b(401|403|404|429|5\d\d)\b|만료|비어 있음|초과|timeout|error|exceeded|no longer available/i.test(String(l || "")) && !/실패 0\b/.test(String(l || ""));
 export const badLogCount = (run) => (run?.log || []).filter(isBadLog).length;
+// 문제 종류 서명 (숫자를 빼고 비교 — 같은 문제가 계속되면 '확인함' 유지, 새 종류면 다시 알림)
+export const badLogSig = (run) => (run?.log || []).filter(isBadLog).map((l) => String(l).replace(/[\d,.:]+/g, "#").replace(/\s+/g, " ").trim()).sort().join("|");
+const ACK = "hdmon-status-ack";
+export const ackStatus = (run) => { try { localStorage.setItem(ACK, badLogSig(run)); } catch {} };
+export const statusState = (run) => {
+  const n = badLogCount(run);
+  if (!n) return { n, state: "ok" };
+  let seen = "";
+  try { seen = localStorage.getItem(ACK) || ""; } catch {}
+  const now = badLogSig(run).split("|");
+  const old = new Set(seen.split("|"));
+  const fresh = now.filter((x) => !old.has(x)).length; // 확인한 뒤 새로 생긴 종류
+  return { n, fresh, state: fresh ? "new" : "seen" };
+};

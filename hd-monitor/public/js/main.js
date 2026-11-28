@@ -1,6 +1,6 @@
 // 앱 뼈대: 로그인 확인 → 사이드바·상단바 → 화면 전환(#/주소)
 import { createBackend, IS_DEMO } from "./backend.js";
-import { $, $$, h, esc, toast, dayKey, ROLE, setCafeNames, setCafeBook, chIcon, CH_IMG, badLogCount } from "./ui.js";
+import { $, $$, h, esc, toast, dayKey, ROLE, setCafeNames, setCafeBook, chIcon, CH_IMG, badLogCount, statusState } from "./ui.js";
 import { renderLogin, renderPending } from "./views/login.js";
 
 const store = { be: null, me: null, settings: null, live: { items: [] }, status: {}, today: null, listeners: new Set() };
@@ -109,6 +109,9 @@ async function startShell() {
     else if (prevTop && sig(l) !== prevSig) store.emit({ type: "liveEdit", live: l }); // 성향만 바뀜 → 피드 배지만 다시 그림
   }));
   shellSubs.push(store.be.watchStatus((s) => { store.status = s; updateLiveDot(); store.emit({ type: "status" }); }));
+  const onAck = (ev) => { if (ev.type === "statusAck") updateNavAlert(); };
+  store.listeners.add(onAck);
+  shellSubs.push(() => store.listeners.delete(onAck));
   const dotTimer = setInterval(updateLiveDot, 30000);
   shellSubs.push(() => clearInterval(dotTimer));
   buildNav();
@@ -122,11 +125,11 @@ async function startShell() {
 function updateNavAlert() {
   const a = $("#navAlert");
   if (!a) return;
-  const n = badLogCount(store.status?.lastRun);
+  const { n, fresh, state } = statusState(store.status?.lastRun);
   a.hidden = false;
-  a.classList.toggle("ok", !n);
-  a.textContent = n ? `수집 문제 ${n}` : "수집 정상";
-  a.title = n ? `최근 수집에서 문제 ${n}건 — 누르면 수집 현황` : "최근 수집 정상 — 누르면 수집 현황";
+  a.className = `nav-alert ${state}`;
+  a.textContent = state === "ok" ? "수집 정상" : state === "new" ? `수집 문제 ${fresh}` : "확인함";
+  a.title = state === "ok" ? "최근 수집 정상 — 누르면 수집 현황" : state === "new" ? `새 수집 문제 ${fresh}건 — 누르면 수집 현황 (열면 확인함으로 바뀜)` : `확인한 문제 ${n}건이 계속되는 중 — 새 종류의 문제가 생기면 다시 알림`;
   a.closest("a").href = "#/settings/status";
 }
 function updateLiveDot() {

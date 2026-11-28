@@ -1,5 +1,5 @@
 // 설정 (관리자): 키워드 그룹 · 카테고리 · 관심 동호회/유튜브 · 커뮤니티 게시판 · 성향 사전 · 수집/알림 · API 키 · 수집 현황
-import { isBadLog, badLogCount, h, esc, toast, busy, tabsIndicator, confirmBox, CH, CH_ORDER, SENT, sentBadge, fmtTime, fmtNum } from "../ui.js";
+import { isBadLog, badLogCount, ackStatus, statusState, h, esc, toast, busy, tabsIndicator, confirmBox, CH, CH_ORDER, SENT, sentBadge, fmtTime, fmtNum } from "../ui.js";
 import { parseRules, compileGroups, collectQueries } from "../shared/keywords.js";
 import { buildContext, classify } from "../shared/classify.js";
 
@@ -27,6 +27,7 @@ export async function render(root, store, { arg }) {
     const b = e.target.closest("button");
     if (!b) return;
     tab = b.dataset.t;
+    if (tab === "status") setTimeout(() => markStatus(), 0);
     tabs.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
     tabsIndicator(tabs);
     history.replaceState(null, "", `#/settings/${tab}`);
@@ -396,12 +397,14 @@ export async function render(root, store, { arg }) {
   draw();
   // '🛰 수집 현황' 탭: 최근 수집에 실패·오류가 있으면 빨간 표시와 건수
   const markStatus = () => {
-    const n = badLogCount(store.status?.lastRun);
+    // 수집 현황 탭을 보고 있으면 지금 문제들을 '확인함'으로
+    if (tab === "status") { ackStatus(store.status?.lastRun); store.emit({ type: "statusAck" }); }
+    const { fresh, state } = statusState(store.status?.lastRun);
     const el = root.querySelector("#statusAlert");
     if (!el) return;
-    el.hidden = !n;
-    el.textContent = n;
-    el.title = n ? `최근 수집에 문제 ${n}건` : "";
+    el.hidden = state !== "new";
+    el.textContent = fresh || "";
+    el.title = state === "new" ? `새 수집 문제 ${fresh}건` : "";
   };
   markStatus();
   if (!store._naverKeys) store.be.secretsStatus().then((s) => (store._naverKeys = s.naverKeys)).catch(() => {});
