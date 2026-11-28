@@ -176,3 +176,61 @@ export function heat(el, values, color = "--brand") {
 }
 
 export const color = cssVar;
+
+// ── 좁은 카드용 ─────────────────────────────────────────────
+const arcPath = (cx, cy, r, a0, a1) => {
+  const p = (a) => [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  const [x0, y0] = p(a0), [x1, y1] = p(a1);
+  return `M${x0.toFixed(2)} ${y0.toFixed(2)} A${r} ${r} 0 ${a1 - a0 > Math.PI ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+};
+
+// 반원 게이지 (부정 · 단순비난 비율) + 날짜별 막대
+export function negGauge(el, { neg = 0, abuse = 0, issue = 0, prevPct = null, days = [] }) {
+  const pct = issue ? ((neg + abuse) / issue) * 100 : 0;
+  const pn = issue ? (neg / issue) * 100 : 0;
+  const R = 78, cx = 100, cy = 92, A0 = Math.PI, span = Math.PI;
+  const at = (p) => A0 + (span * Math.min(100, p)) / 100;
+  const delta = prevPct == null ? "" : (() => { const d = pct - prevPct; return `<span class="g-delta ${d > 0.5 ? "up" : d < -0.5 ? "down" : ""}">${d > 0.5 ? "▲" : d < -0.5 ? "▼" : "–"} ${Math.abs(d).toFixed(1)}%p</span>`; })();
+  const maxDay = Math.max(10, ...days.map((d) => d.pct));
+  const showLbl = days.length <= 10;
+  el.innerHTML = `<div class="gauge">
+      <svg viewBox="0 0 200 104" class="g-svg">
+        <path d="${arcPath(cx, cy, R, A0, A0 + span)}" class="g-bg"/>
+        ${pn > 0 ? `<path d="${arcPath(cx, cy, R, A0, at(pn))}" class="g-arc" style="stroke:var(--neg)" pathLength="1"/>` : ""}
+        ${pct - pn > 0 ? `<path d="${arcPath(cx, cy, R, at(pn), at(pct))}" class="g-arc g2" style="stroke:var(--abuse)" pathLength="1"/>` : ""}
+        ${[0, 25, 50, 75, 100].map((t) => { const a = at(t); return `<line x1="${cx + (R - 13) * Math.cos(a)}" y1="${cy + (R - 13) * Math.sin(a)}" x2="${cx + (R - 9) * Math.cos(a)}" y2="${cy + (R - 9) * Math.sin(a)}" class="g-tick"/>`; }).join("")}
+      </svg>
+      <div class="g-center"><b data-g="${pct.toFixed(1)}">${pct.toFixed(1)}</b><i>%</i>${delta}</div>
+      <div class="g-legend"><span><i style="background:var(--neg)"></i>부정 ${fmtNum(neg)}</span><span><i style="background:var(--abuse)"></i>단순비난 ${fmtNum(abuse)}</span><span class="hint">이슈 ${fmtNum(issue)}건 중</span></div>
+    </div>
+    <div class="g-days ${showLbl ? "" : "dense"}">${days.map((d, i) => `<div class="g-day" style="--i:${i}" data-tip="${esc(`<b>${d.label}</b>부정·비난 ${d.pct.toFixed(1)}% (${fmtNum(d.n)}/${fmtNum(d.issue)})`)}">
+        ${showLbl ? `<em>${d.issue ? Math.round(d.pct) : "-"}</em>` : ""}<span class="g-col"><span style="height:${d.issue ? Math.max(4, (d.pct / maxDay) * 100) : 0}%"></span></span>${showLbl || i % 5 === 0 || i === days.length - 1 ? `<small>${d.label}</small>` : "<small></small>"}</div>`).join("")}</div>`;
+  el.querySelectorAll("[data-tip]").forEach((c) => {
+    c.addEventListener("mousemove", (e) => showTip(e, c.dataset.tip));
+    c.addEventListener("mouseleave", hideTip);
+  });
+}
+
+// 24시간 원형 막대 (시계 모양)
+export function radialHours(el, values) {
+  const max = Math.max(1, ...values);
+  const total = values.reduce((a, b) => a + b, 0);
+  const peak = values.indexOf(Math.max(...values));
+  const cx = 120, cy = 120, r0 = 44, len = 52;
+  const bars = values.map((v, i) => {
+    const a = (i / 24) * Math.PI * 2 - Math.PI / 2 + Math.PI / 24;
+    const r1 = r0 + 3 + (v / max) * len;
+    const k = v / max;
+    return `<line x1="${(cx + r0 * Math.cos(a)).toFixed(1)}" y1="${(cy + r0 * Math.sin(a)).toFixed(1)}" x2="${(cx + r1 * Math.cos(a)).toFixed(1)}" y2="${(cy + r1 * Math.sin(a)).toFixed(1)}" pathLength="1" class="rh-bar ${i === peak && v ? "peak" : ""}" style="--i:${i};stroke:color-mix(in srgb, var(--brand) ${Math.round(25 + k * 75)}%, var(--brand-2))" data-h="${i}" data-v="${v}"/>`;
+  }).join("");
+  const lbl = [0, 6, 12, 18].map((hh) => { const a = (hh / 24) * Math.PI * 2 - Math.PI / 2; const rr = r0 + len + 15; return `<text x="${(cx + rr * Math.cos(a)).toFixed(1)}" y="${(cy + rr * Math.sin(a) + 4).toFixed(1)}" class="rh-lbl">${hh}시</text>`; }).join("");
+  el.innerHTML = `<svg viewBox="0 0 240 240" class="rh-svg">
+      <circle cx="${cx}" cy="${cy}" r="${r0 + len + 3}" class="rh-ring"/><circle cx="${cx}" cy="${cy}" r="${r0 - 4}" class="rh-core"/>
+      ${bars}${lbl}
+      <text x="${cx}" y="${cy - 4}" class="rh-big">${total ? `${peak}시` : "-"}</text><text x="${cx}" y="${cy + 14}" class="rh-sub">${total ? "가장 많음" : "기록 없음"}</text>
+    </svg>`;
+  el.querySelectorAll("[data-h]").forEach((c) => {
+    c.addEventListener("mousemove", (e) => showTip(e, `<b>${c.dataset.h}시</b>${fmtNum(c.dataset.v)}건 (${total ? Math.round((c.dataset.v / total) * 100) : 0}%)`));
+    c.addEventListener("mouseleave", hideTip);
+  });
+}

@@ -1,6 +1,6 @@
 // 대시보드: KPI 카운트업 · 채널별 추이 · 성향 도넛 · 부정 비율 · 시간대 히트맵 · 키워드 순위 · 실시간 피드
 import { isShorts, h, esc, countUp, dayKey, fmtNum, CH, CH_ORDER, SENT, SENT_ORDER, chIcon, sentBadge, srcPill, sourceName, ago, segmented, toast, busy, fmtTime } from "../ui.js";
-import { stackedBars, lineChart, donut, sparkline, heat } from "../charts.js";
+import { stackedBars, lineChart, donut, sparkline, heat, negGauge, radialHours } from "../charts.js";
 
 const sum = (o) => Object.values(o || {}).reduce((a, b) => a + (+b || 0), 0);
 const add = (into, o) => { for (const [k, v] of Object.entries(o || {})) into[k] = (into[k] || 0) + v; return into; };
@@ -23,7 +23,7 @@ export async function render(root, store) {
       <div class="card span-4" style="--i:3"><h3>🎭 성향 분포 <span class="sub">이슈 게시물</span></h3><div class="donut-wrap"><div id="donut"></div><div class="dlegend" id="dlegend"></div></div></div>
       <div class="card span-4" style="--i:4"><h3>🔑 많이 걸린 키워드</h3><div class="rank" id="kw"></div></div>
       <div class="card span-3" style="--i:5"><h3>📉 부정·단순비난 비율 <span class="sub">이슈 게시물 중</span></h3><div id="negline"></div></div>
-      <div class="card span-3" style="--i:6"><h3>🕒 시간대별 수집량 <span class="sub" id="heatSub"></span></h3><div id="heat" style="padding-top:8px"></div><div class="legend" id="garbage" style="margin-top:18px"></div></div>
+      <div class="card span-3" style="--i:6"><h3>🕒 시간대별 수집량 <span class="sub" id="heatSub"></span></h3><div id="heat" style="padding-top:4px"></div><div id="garbage"></div></div>
       <div class="card span-3 top-card" style="--i:6"><h3>👁 조회수 TOP <span class="sub top-sub"></span></h3><div class="top-tabs" id="topViewsTabs"></div><div class="top-list" id="topViews"></div></div>
       <div class="card span-3 top-card" style="--i:6"><h3>💬 댓글수 TOP <span class="sub top-sub"></span></h3><div class="top-tabs" id="topCommentsTabs"></div><div class="top-list" id="topComments"></div></div>
       <div class="card span-4" style="--i:7"><h3>📡 채널별 이슈</h3><div class="rank" id="chs"></div></div>
@@ -208,12 +208,16 @@ export async function render(root, store) {
     // 부정 비율
     const labels = data.inPeriod.map((k) => k.slice(5).replace("-", "/"));
     const ratio = data.inPeriod.map((k) => { const s = data.by[k] || {}; return s.issue ? (neg(s) / s.issue) * 100 : 0; });
-    lineChart($q("#negline"), { labels: period === 1 ? data.cur.slice(-7).map((k) => k.slice(5).replace("-", "/")) : labels, series: [{ name: "부정·비난 비율", color: "--neg", values: period === 1 ? data.cur.slice(-7).map((k) => { const s = data.by[k] || {}; return s.issue ? (neg(s) / s.issue) * 100 : 0; }) : ratio }], unit: "%", max: 100 });
+    // 부정·단순비난: 기간 전체 비율 게이지 + 날짜별 막대 (오늘이면 최근 7일)
+    const gDays = (period === 1 ? data.cur.slice(-7) : data.inPeriod).map((k) => { const s = data.by[k] || {}; const n = neg(s); return { label: k.slice(5).replace("-", "/"), pct: s.issue ? (n / s.issue) * 100 : 0, n, issue: s.issue || 0 }; });
+    negGauge($q("#negline"), { neg: A.sentIssue?.neg || 0, abuse: A.sentIssue?.abuse || 0, issue: A.issue || 0, prevPct: P.issue ? (neg(P) / P.issue) * 100 : null, days: gDays });
 
     // 히트맵
-    heat($q("#heat"), Array.from({ length: 24 }, (_, i) => A.hour[String(i).padStart(2, "0")] || 0));
+    radialHours($q("#heat"), Array.from({ length: 24 }, (_, i) => A.hour[String(i).padStart(2, "0")] || 0));
     $q("#heatSub").textContent = period === 1 ? "오늘" : `최근 ${period}일 합계`;
-    $q("#garbage").innerHTML = `<span>전체 <b>${fmtNum(A.total)}</b></span><span>− 가비지 <b>${fmtNum(A.garbage)}</b></span><span>= 이슈 <b style="color:var(--brand)">${fmtNum(A.total - A.garbage)}</b></span><span class="hint">가비지 비율 ${A.total ? Math.round((A.garbage / A.total) * 100) : 0}%</span>`;
+    const issueN = A.total - A.garbage, gp = A.total ? (A.garbage / A.total) * 100 : 0;
+    $q("#garbage").innerHTML = `<div class="ig-bar"><i style="width:${100 - gp}%;background:var(--grad)"></i><i style="width:${gp}%;background:var(--s7);opacity:.55;animation-delay:.3s"></i></div>
+      <div class="ig-legend"><span>전체 <b>${fmtNum(A.total)}</b></span><span style="color:var(--brand)">이슈 <b style="color:var(--brand)">${fmtNum(issueN)}</b></span><span>가비지 <b>${fmtNum(A.garbage)}</b> (${Math.round(gp)}%)</span></div>`;
 
     // 채널·관심
     const rank = (el, entries, nameOf, hrefOf, icon) => {

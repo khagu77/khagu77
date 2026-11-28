@@ -622,3 +622,46 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 .top-list.anim .tp-bar i { transform-origin: left; animation: growx 1.1s var(--ease, ease) both; animation-delay: calc(var(--i) * 70ms + 150ms); }
 .top-card h3 { white-space: nowrap; }
 .top-card h3 .sub { overflow: hidden; text-overflow: ellipsis; }
+
+/* 부정·단순비난 게이지 */
+.gauge { position: relative; display: flex; flex-direction: column; align-items: center; }
+.g-svg { width: 100%; max-width: 260px; overflow: visible; }
+.g-bg { fill: none; stroke: var(--line-2); stroke-width: 14; stroke-linecap: round; }
+.g-arc { fill: none; stroke-width: 14; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; animation: gdraw 1.2s var(--ease, ease) forwards; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--neg) 45%, transparent)); }
+.g-arc.g2 { animation-delay: .9s; filter: none; }
+.g-tick { stroke: var(--text-3); stroke-width: 1.2; opacity: .6; }
+@keyframes gdraw { to { stroke-dashoffset: 0; } }
+.g-center { position: absolute; top: 46%; left: 0; right: 0; text-align: center; line-height: 1; }
+.g-center b { font-size: 30px; font-weight: 800; letter-spacing: -.02em; }
+.g-center i { font-style: normal; font-size: 14px; color: var(--text-2); margin-left: 2px; }
+.g-delta { display: block; margin-top: 6px; font-size: 11.5px; font-weight: 700; color: var(--text-3); }
+.g-delta.up { color: var(--neg); } .g-delta.down { color: var(--ok); }
+.g-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 12px; margin-top: 10px; font-size: 11.5px; color: var(--text-2); }
+.g-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+.g-days { display: flex; align-items: flex-end; gap: 6px; height: 118px; margin-top: 16px; padding-top: 6px; border-top: 1px dashed var(--line-2); }
+.g-days.dense { gap: 2px; }
+.g-day { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; cursor: default; }
+.g-day em { font-style: normal; font-size: 10.5px; font-weight: 700; color: var(--text-2); }
+.g-day small { font-size: 10px; color: var(--text-3); white-space: nowrap; height: 12px; }
+.g-col { flex: 1; width: 100%; max-width: 22px; display: flex; align-items: flex-end; border-radius: 5px; background: color-mix(in srgb, var(--neg) 7%, transparent); }
+.g-col span { display: block; width: 100%; border-radius: 5px; background: linear-gradient(180deg, var(--neg), color-mix(in srgb, var(--neg) 45%, var(--abuse))); transform-origin: bottom; animation: growy .8s var(--ease, ease) both; animation-delay: calc(var(--i) * 45ms + .3s); }
+.g-day:hover .g-col span { filter: brightness(1.25); }
+@keyframes growy { from { transform: scaleY(0); } }
+
+/* 24시간 원형 막대 */
+.rh-svg { display: block; width: 100%; max-width: 270px; margin: 0 auto 4px; overflow: visible; }
+.rh-ring { fill: none; stroke: var(--line); stroke-dasharray: 2 4; }
+.rh-core { fill: color-mix(in srgb, var(--brand) 8%, transparent); stroke: var(--line-2); }
+.rh-bar { stroke-width: 7; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; animation: gdraw .9s var(--ease, ease) forwards; animation-delay: calc(var(--i) * 30ms); cursor: default; transition: stroke-width .2s; }
+.rh-bar:hover { stroke-width: 10; }
+.rh-bar.peak { filter: drop-shadow(0 0 6px var(--brand)); }
+.rh-lbl { font-size: 10px; fill: var(--text-3); text-anchor: middle; }
+.rh-big { font-size: 22px; font-weight: 800; fill: var(--text); text-anchor: middle; }
+.rh-sub { font-size: 10px; fill: var(--text-3); text-anchor: middle; }
+.calm .g-arc, .calm .rh-bar { animation: none; stroke-dashoffset: 0; }
+.calm .g-col span { animation: none; }
+/* 전체 = 이슈 + 가비지 막대 */
+.ig-bar { display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: var(--line); margin: 14px 0 8px; }
+.ig-bar i { display: block; height: 100%; transform-origin: left; animation: growx 1s var(--ease, ease) both; }
+.ig-legend { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 10px; font-size: 11.5px; color: var(--text-2); }
+.ig-legend b { color: var(--text); }
