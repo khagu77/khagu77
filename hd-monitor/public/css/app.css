@@ -571,3 +571,4 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 /* 카톡 발송 버튼 (카카오 노랑) */
 .btn.kakao { background: #fee500; color: #191600; border-color: #e6cf00; font-weight: 700; }
 .btn.kakao:hover { background: #ffeb3b; box-shadow: 0 6px 18px rgba(254, 229, 0, .35); }
+.kpi .k-val small.kpi-ns { margin-left: 12px; }

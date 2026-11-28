@@ -104,7 +104,7 @@ export async function render(root, store) {
       { label: "부정·단순비난", icon: "😠", v: neg(A), p: neg(P), sp: series(neg), color: "--s8", href: sentHref("neg,abuse"), suffix: A.issue ? `<small>${Math.round((neg(A) / A.issue) * 100)}%</small>` : "" },
       { label: "가비지", icon: "🗑", v: A.garbage, p: P.garbage, sp: series((s) => s.garbage || 0), color: "--s7", href: "#/posts/garbage", good: true },
       { label: "관심 동호회 이슈", icon: "⭐", v: A.cat.cafe_fav || 0, p: P.cat.cafe_fav || 0, sp: series((s) => s.cat?.cafe_fav || 0), color: "--s6", href: "#/posts/cafe_fav" },
-      { label: "관심 유튜브", icon: "▶️", suffix: `<small>숏츠 제외 ${fmtNum(Math.max(0, (A.cat.youtube_fav || 0) - (A.shortCat?.youtube_fav || 0)))}</small>`, v: A.cat.youtube_fav || 0, p: P.cat.youtube_fav || 0, sp: series((s) => s.cat?.youtube_fav || 0), color: "--s5", href: "#/posts/youtube_fav" },
+      { label: "관심 유튜브", icon: "▶️", suffix: `<small class="kpi-ns">숏츠 제외 ${fmtNum(Math.max(0, (A.cat.youtube_fav || 0) - (A.shortCat?.youtube_fav || 0)))}</small>`, v: A.cat.youtube_fav || 0, p: P.cat.youtube_fav || 0, sp: series((s) => s.cat?.youtube_fav || 0), color: "--s5", href: "#/posts/youtube_fav" },
     ];
     const kEl = $q("#kpis");
     if (first || kEl.children.length !== kpis.length || kEl.querySelector(".skeleton")) {
