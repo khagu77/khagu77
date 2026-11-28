@@ -56,7 +56,7 @@ function makePost(t) {
   const url = ch === "youtube" ? `https://www.youtube.com/watch?v=demo${n}` : ch === "cafe" ? `https://cafe.naver.com/${sourceId}/${1000 + n}` : `https://example.com/${ch}/${n}`;
   const alerted = !!(cls.alert && rnd() < 0.35);
   const short = ch === "youtube" && rnd() < 0.4;
-  return { id, ...item, url, site: ch === "news" ? pick(["yna.co.kr", "hankyung.com", "mk.co.kr", "motorgraph.com", "newsis.com", "chosun.com"]) : null, alerted, short, alertedAt: alerted ? t : null, alertedTo: alerted ? ["관리자", "김담당"] : [], ...cls, time: t, collectedAt: t, postedAt: t, dupOf: null, dupCount: ch === "news" && rnd() < 0.2 ? Math.ceil(rnd() * 6) : 0, memo: "", star: rnd() < 0.05, hidden: false,
+  return { id, ...item, url, site: ch === "news" ? pick(["yna.co.kr", "hankyung.com", "mk.co.kr", "motorgraph.com", "newsis.com", "chosun.com"]) : null, alerted, short, alertedAt: alerted ? t : null, alertedTo: alerted ? ["관리자", "김담당"] : [], ...cls, time: t, collectedAt: t, postedAt: t, dupOf: null, dupCount: ch === "news" && rnd() < 0.2 ? Math.ceil(rnd() * 6) : 0, ...(ch === "youtube" ? { views: Math.floor(rnd() * 250000), likes: Math.floor(rnd() * 4000), comments: Math.floor(rnd() * 600) } : ["bobae", "clien", "cafe"].includes(ch) ? { comments: Math.floor(rnd() * 40) } : {}), memo: "", star: rnd() < 0.05, hidden: false,
     thumb: ch === "youtube" ? null : null };
 }
 

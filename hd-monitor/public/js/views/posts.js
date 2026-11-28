@@ -264,6 +264,16 @@ export async function render(root, store, { arg, qs }) {
     const inc = st.qs.flatMap((q) => parseQ(q).inc);
     return [...(p.kw || []).flatMap((k) => k.split("*")), ...inc];
   }
+  // 조회수 · 좋아요 · 댓글수 (수집한 곳에서 보이는 숫자만 · 1만 이상은 '1.2만')
+  const IC = {
+    views: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5C6.5 5 2.7 9.3 1.5 12c1.2 2.7 5 7 10.5 7s9.3-4.3 10.5-7C21.3 9.3 17.5 5 12 5Zm0 11.2A4.2 4.2 0 1 1 12 7.8a4.2 4.2 0 0 1 0 8.4Zm0-6.4a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4Z"/></svg>`,
+    comments: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm3 6.2a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm5 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Zm5 0a1.3 1.3 0 1 0 0 2.6 1.3 1.3 0 0 0 0-2.6Z"/></svg>`,
+    likes: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7.5-4.6-9.6-9.3C1 8.4 3 5 6.4 5c2 0 3.4 1.1 4.1 2.3h3C14.2 6.1 15.6 5 17.6 5 21 5 23 8.4 21.6 11.7 19.5 16.4 12 21 12 21Z"/></svg>`,
+  };
+  const compact = (n) => (n >= 1e8 ? `${(n / 1e8).toFixed(n >= 1e9 ? 0 : 1)}억` : n >= 1e4 ? `${(n / 1e4).toFixed(n >= 1e5 ? 0 : 1)}만` : fmtNum(n)).replace(".0", "");
+  const statsHtml = (p) => [["views", "조회수"], ["likes", "좋아요"], ["comments", "댓글수"]]
+    .filter(([k]) => typeof p[k] === "number")
+    .map(([k, t]) => `<span class="pstat ps-${k}" title="${t} ${fmtNum(p[k])}">${IC[k]}${compact(p[k])}</span>`).join("");
   function rowHtml(p, i) {
     const cafeJoined = p.channel === "cafe" && (store.settings.favCafes || []).some((c) => c.id.toLowerCase() === String(p.sourceId).toLowerCase() && c.joined);
     const badges = [
@@ -284,7 +294,7 @@ export async function render(root, store, { arg, qs }) {
       <input type="checkbox" class="cbx" ${sel.has(p.id) ? "checked" : ""}>
       ${chIcon(p.channel, false, p)}
       <div style="min-width:0">${p.thumb ? `<img class="thumb" loading="lazy" src="${esc(p.thumb)}" alt="">` : ""}${srcPill(p)}<a class="title" href="${esc(p.url)}" target="_blank" rel="noopener">${highlight(p.title, w)}</a>
-        ${p.desc ? `<div class="desc">${highlight(p.desc, w)}</div>` : ""}<div class="meta">${badges}</div></div>
+        ${p.desc ? `<div class="desc">${highlight(p.desc, w)}</div>` : ""}<div class="meta">${statsHtml(p)}${badges}</div></div>
       <div class="src">${esc(sourceName(p) || CH[p.channel]?.name || "")}<small>${esc(CH[p.channel]?.name || "")}</small></div>
       <div class="tm">${esc(tm)}<small>${ago(p.collectedAt)} 수집</small></div>
       <div class="more"></div>

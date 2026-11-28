@@ -126,3 +126,36 @@ export async function markShorts(items) {
   const todo = items.filter((it) => it.channel === "youtube" && it.short === undefined && it.vid).slice(0, 60);
   await pool(todo, 5, async (it) => { const v = await isShort(it.vid); if (v !== null) it.short = v; });
 }
+
+// 영상 통계 (조회수 · 좋아요 · 댓글수): videos.list 한 번에 50개 = 할당량 1단위
+export async function videoStats(vids, secrets) {
+  const keys = String(secrets.youtubeKeys || "").split(/\s+/).map((s) => s.trim()).filter(Boolean);
+  const out = new Map();
+  if (!keys.length) return out;
+  const ids = [...new Set(vids.filter(Boolean))];
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50);
+    for (const key of keys) {
+      try {
+        const r = await fetchWithTimeout(`https://www.googleapis.com/youtube/v3/videos?${new URLSearchParams({ part: "statistics", id: chunk.join(","), key })}`);
+        if (!r.ok) continue;
+        const j = await r.json();
+        for (const it of j.items || []) {
+          const s = it.statistics || {};
+          out.set(it.id, { views: s.viewCount ?? null, likes: s.likeCount ?? null, comments: s.commentCount ?? null });
+        }
+        break;
+      } catch {}
+    }
+  }
+  return out;
+}
+
+// 새로 수집한 영상에 통계 붙이기
+export async function addVideoStats(items, secrets) {
+  const yt = items.filter((it) => it && it.channel === "youtube" && it.vid);
+  if (!yt.length) return 0;
+  const m = await videoStats(yt.map((it) => it.vid), secrets);
+  for (const it of yt) { const s = m.get(it.vid); if (s) Object.assign(it, s); }
+  return m.size;
+}

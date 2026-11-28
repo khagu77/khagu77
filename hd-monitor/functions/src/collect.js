@@ -47,12 +47,15 @@ export async function runCollection({ force = false, parts = null } = {}) {
 
   jobs.push(fixCommunityDatesOnce(log).then(() => []));
   jobs.push(backfillShorts(log).then(() => []));
+  if (force || tick % 6 === 0) jobs.push(refreshYoutubeStats(secrets, log).then(() => [])); // 30분마다 최근 영상 숫자 새로
   const results = await Promise.allSettled(jobs);
   const items = [];
   for (const r of results) {
     if (r.status === "fulfilled") items.push(...r.value);
     else log.push(`오류: ${r.reason?.message || r.reason}`);
   }
+  // 유튜브 영상: 조회수 · 좋아요 · 댓글수
+  try { const { addVideoStats } = await import("./collectors/youtube.js"); await addVideoStats(items, secrets); } catch (e) { log.push(`유튜브 통계: ${e.message}`.slice(0, 100)); }
   let created = [];
   try {
     created = await ingest(items, ctx, log);
@@ -126,4 +129,28 @@ async function backfillShorts(log) {
   await w.close().catch((e) => log.push(`숏츠 통계 다시 세기 일부 실패: ${e.message}`));
   await setState("shorts_backfill3", { ...st, done: true, days: Object.keys(byDay).length });
   log.push(`숏츠 통계 다시 셈: ${Object.keys(byDay).length}일`);
+}
+
+// 최근 3일 유튜브 영상의 조회수 · 좋아요 · 댓글수를 새로 받아 둠 (영상 50개당 할당량 1단위)
+async function refreshYoutubeStats(secrets, log) {
+  if (!secrets.youtubeKeys) return;
+  const { videoStats } = await import("./collectors/youtube.js");
+  const since = new Date(Date.now() - 3 * 86400e3);
+  const snap = await db.collection("posts").where("collectedAt", ">=", since).get();
+  const docs = snap.docs.filter((d) => d.data().channel === "youtube").slice(0, 1000);
+  const vidOf = (u) => (String(u).match(/[?&]v=([\w-]{6,})/) || String(u).match(/shorts\/([\w-]{6,})/) || [])[1];
+  const m = await videoStats(docs.map((d) => vidOf(d.data().url)), secrets);
+  if (!m.size) return;
+  const w = db.bulkWriter();
+  let n = 0;
+  const num = (v) => (v == null || !Number.isFinite(+v) ? null : +v);
+  for (const d of docs) {
+    const s = m.get(vidOf(d.data().url));
+    if (!s) continue;
+    const patch = {};
+    for (const k of ["views", "likes", "comments"]) if (num(s[k]) !== null && num(s[k]) !== d.data()[k]) patch[k] = num(s[k]);
+    if (Object.keys(patch).length) { w.update(d.ref, patch); n++; }
+  }
+  await w.close();
+  if (n) log.push(`유튜브 조회수·댓글수 새로 고침: ${n}건`);
 }
