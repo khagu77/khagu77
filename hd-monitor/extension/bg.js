@@ -60,13 +60,27 @@ function remember(dict, club, num, name) {
   if (e.club) dict[e.club.toLowerCase()] = { ...(dict[e.club.toLowerCase()] || {}), ...Object.fromEntries(Object.entries(e).filter(([, v]) => v)) };
   if (e.num) dict[`#${e.num}`] = { ...(dict[`#${e.num}`] || {}), ...Object.fromEntries(Object.entries(e).filter(([, v]) => v)) };
 }
+// 카페 이름 찾기: ① 네이버 카페 안내 정보(JSON) ② 카페 첫 화면 제목 · og:title
 async function lookupCafe(dict, club) {
-  const r = await fetch(`https://cafe.naver.com/${encodeURIComponent(club)}`, { credentials: "include", cache: "no-store" });
-  if (!r.ok) return;
-  const html = await r.text();
-  const name = (html.match(/<title>\s*([^<]+?)\s*:\s*네이버\s*카페\s*<\/title>/i) || [])[1] || "";
-  const num = (html.match(/g_sClubId\s*=\s*["'](\d+)["']/) || html.match(/["']?clubid["']?\s*[:=]\s*["']?(\d{4,})/i) || [])[1] || "";
-  remember(dict, club, num, name.trim());
+  let name = "", num = "";
+  try {
+    const r = await fetch(`https://apis.naver.com/cafe-web/cafe2/CafeGateInfo.json?cluburl=${encodeURIComponent(club)}`, { credentials: "include", cache: "no-store" });
+    if (r.ok) {
+      const t = await r.text();
+      name = (t.match(/"cafeName"\s*:\s*"([^"]{1,80})"/) || t.match(/"clubName"\s*:\s*"([^"]{1,80})"/) || [])[1] || "";
+      num = (t.match(/"(?:cafeId|clubId|clubid)"\s*:\s*"?(\d{3,})/) || [])[1] || "";
+      if (name) name = JSON.parse(`"${name}"`);
+    }
+  } catch {}
+  if (!name) {
+    const r = await fetch(`https://cafe.naver.com/${encodeURIComponent(club)}`, { credentials: "include", cache: "no-store" });
+    if (!r.ok) return;
+    const html = await r.text();
+    name = (html.match(/<title>\s*([^<]+?)\s*:\s*네이버\s*카페\s*<\/title>/i) || html.match(/property=["']og:title["']\s+content=["']([^"']+)["']/i) || html.match(/content=["']([^"']+)["']\s+property=["']og:title["']/i) || [])[1] || "";
+    if (/^네이버\s*카페$/.test(name.trim())) name = "";
+    num ||= (html.match(/g_sClubId\s*=\s*["'](\d+)["']/) || html.match(/["']?clubid["']?\s*[:=]\s*["']?(\d{4,})/i) || [])[1] || "";
+  }
+  remember(dict, club, num, name.replace(/\s*:\s*네이버\s*카페$/, "").trim());
 }
 
 async function collectNaver(cfg, items, status, names) {

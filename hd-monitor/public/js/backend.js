@@ -56,6 +56,8 @@ export async function createBackend() {
       if (short !== null) cons.push(where("short", "==", short));
       if (from) cons.push(where(sort, ">=", Timestamp.fromDate(from)));
       if (to) cons.push(where(sort, "<", Timestamp.fromDate(to)));
+      // 목록과 같은 정렬(최신순)을 붙여야 이미 있는 색인(카테고리 + 시각 내림차순)을 씀 — 없으면 세기가 실패해 '300+' 로 나왔음
+      cons.push(orderBy(sort, "desc"));
       return (await getCountFromServer(query(collection(db, "posts"), ...cons))).data().count;
     },
     updatePost: (id, patch) => updateDoc(doc(db, "posts", id), patch),
