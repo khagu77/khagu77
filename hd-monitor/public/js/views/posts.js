@@ -56,8 +56,7 @@ export async function render(root, store, { arg, qs }) {
       <div class="frow"><span class="lbl">성향</span><div class="chips" id="sents"><button class="chip ${st.sent.size ? "" : "on"}" data-all>전체</button>${SENT_ORDER.map((s) => `<button class="chip ${st.sent.has(s) ? "on" : ""}" data-v="${s}">${SENT[s].name}</button>`).join("")}</div>
         <select class="input" id="grp" style="margin-left:8px"><option value="">키워드 그룹 전체</option>${groups.map((g) => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join("")}</select>
       </div>
-      <div class="frow"><span class="lbl">검색</span>
-        <div class="qsteps" id="qsteps"></div>
+      <div class="frow"><div class="qline"><span class="lbl">검색</span><div class="qsteps" id="qsteps"></div></div>
         <div class="qhelp">💡 <b>검색 방법</b>
           <span><kbd>,</kbd> 쉼표 = 하나라도 <em>블루핸즈, 하이테크센터, 파란손</em></span>
           <span><kbd>␣</kbd> 띄어쓰기 = 모두 포함 <em>블루핸즈 불친절</em></span>

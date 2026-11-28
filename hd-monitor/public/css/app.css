@@ -584,3 +584,7 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 .qhelp span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .qhelp kbd { min-width: 20px; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--panel-2); font: 700 12px/1.4 inherit; text-align: center; color: var(--text); }
 .qhelp em { font-style: normal; color: var(--text-3); }
+/* '검색' 글자와 검색창은 화면 폭과 관계없이 늘 한 줄 */
+.qline { display: flex; align-items: flex-start; gap: 10px; flex: 1 1 100%; min-width: 0; flex-wrap: nowrap; }
+.qline > .lbl { flex: none; min-width: 46px !important; line-height: 36px; }
+.qline > .qsteps { flex: 1 1 auto; }
