@@ -752,3 +752,7 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
   .kpi .k-delta { white-space: nowrap; letter-spacing: -.05em; font-size: 12px; }
   .kpi .k-delta small { display: block; font-size: 10.5px; margin: 1px 0 0; }
 }
+
+/* 사이드바: 메뉴 · 카테고리 · 관리 구역 사이 띄우기 (첫 구역 제외) */
+.nav .nav-sec:not(:nth-child(2)) { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+@media (max-height: 820px) { .nav .nav-sec:not(:nth-child(2)) { margin-top: 6px; padding-top: 6px; } }
