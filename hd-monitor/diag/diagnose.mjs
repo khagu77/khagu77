@@ -14,3 +14,4 @@ for (const ch of ["bobae", "clien"]) {
   const s = await db.collection("posts").where("channel", "==", ch).select("views", "comments").get();
   console.log(ch, "전체", s.size, "| 조회수 있음", s.docs.filter((d) => typeof d.data().views === "number").length, "| 댓글수 있음", s.docs.filter((d) => typeof d.data().comments === "number").length);
 }
+// 2026-11-28T07:06:52Z 재점검
