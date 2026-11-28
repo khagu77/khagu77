@@ -66,6 +66,7 @@ export async function createBackend() {
       return snap.docs.map((d) => d.data());
     },
     getCafeBook: async () => (await getDoc(doc(db, "status/cafeNames"))).data()?.names || {},
+    getTop: async () => (await getDoc(doc(db, "status/top"))).data()?.items || [],
     getRuns: async () => (await getDoc(doc(db, "state/runs"))).data()?.items || [],
     analyze: (ids) => call("analyze", { ids }),
     kakaoShare: (ids, to) => call("kakaoShare", { ids, to }),

@@ -22,8 +22,10 @@ export async function render(root, store) {
       <div class="card span-4 feed-card" style="--i:2;grid-row:span 2"><h3><span class="dot"></span> 실시간 수집 피드 <span class="sub">새 글이 들어오면 바로 표시</span></h3><div class="feed-wrap"><div class="feed" id="feed"></div></div></div>
       <div class="card span-4" style="--i:3"><h3>🎭 성향 분포 <span class="sub">이슈 게시물</span></h3><div class="donut-wrap"><div id="donut"></div><div class="dlegend" id="dlegend"></div></div></div>
       <div class="card span-4" style="--i:4"><h3>🔑 많이 걸린 키워드</h3><div class="rank" id="kw"></div></div>
-      <div class="card span-6" style="--i:5"><h3>📉 부정·단순비난 비율 <span class="sub">이슈 게시물 중</span></h3><div id="negline"></div></div>
-      <div class="card span-6" style="--i:6"><h3>🕒 시간대별 수집량 <span class="sub" id="heatSub"></span></h3><div id="heat" style="padding-top:8px"></div><div class="legend" id="garbage" style="margin-top:18px"></div></div>
+      <div class="card span-3" style="--i:5"><h3>📉 부정·단순비난 비율 <span class="sub">이슈 게시물 중</span></h3><div id="negline"></div></div>
+      <div class="card span-3" style="--i:6"><h3>🕒 시간대별 수집량 <span class="sub" id="heatSub"></span></h3><div id="heat" style="padding-top:8px"></div><div class="legend" id="garbage" style="margin-top:18px"></div></div>
+      <div class="card span-3 top-card" style="--i:6"><h3>👁 조회수 TOP <span class="sub top-sub"></span></h3><div class="top-tabs" id="topViewsTabs"></div><div class="top-list" id="topViews"></div></div>
+      <div class="card span-3 top-card" style="--i:6"><h3>💬 댓글수 TOP <span class="sub top-sub"></span></h3><div class="top-tabs" id="topCommentsTabs"></div><div class="top-list" id="topComments"></div></div>
       <div class="card span-4" style="--i:7"><h3>📡 채널별 이슈</h3><div class="rank" id="chs"></div></div>
       <div class="card span-4" style="--i:8"><h3>☕ 관심 동호회 TOP <span class="sub fav-sub"></span></h3><div class="rank" id="favCafe"></div></div>
       <div class="card span-4" style="--i:9"><h3>▶️ 관심 유튜브 TOP <span class="sub fav-sub"></span></h3><div class="rank" id="favYt"></div></div>
@@ -94,6 +96,53 @@ export async function render(root, store) {
       if (entries.length || !favCache[ck]?.length) { favCache[ck] = entries.slice(0, 7); save(); show(entries); }
     }).catch(() => {});
     function save() { try { localStorage.setItem("hdmon-favtop", JSON.stringify(favCache)); } catch {} }
+  }
+
+  // ── 조회수 TOP · 댓글수 TOP (카테고리 탭) ─────────────────────────
+  const TOP_GROUP = { youtube: "youtube", cafe: "cafe", bobae: "community", clien: "community", ppomppu: "community", instagram: "instagram", news: "news", blog: "blog", post: "blog" };
+  const TOP_NAME = { all: "전체", youtube: "유튜브", cafe: "동호회", community: "자동차 커뮤니티", instagram: "인스타그램", news: "언론", blog: "블로그" };
+  const TOP_ICON = { views: "👁", comments: "💬" };
+  const topTab = (() => { try { return JSON.parse(localStorage.getItem("hdmon-toptab") || "{}"); } catch { return {}; } })();
+  let topItems = [];
+  async function loadTop() {
+    try { topItems = (await store.be.getTop?.()) || []; } catch { topItems = []; }
+    drawTop("views", true); drawTop("comments", true);
+  }
+  function drawTop(kind, anim = false) {
+    const list = $q(kind === "views" ? "#topViews" : "#topComments");
+    const tabsEl = $q(kind === "views" ? "#topViewsTabs" : "#topCommentsTabs");
+    if (!list) return;
+    const since = period === 1 ? new Date().setHours(0, 0, 0, 0) : Date.now() - period * 86400e3;
+    const rows = topItems.filter((x) => typeof x[kind] === "number" && x[kind] > 0 && x.time >= since).sort((a, b) => b[kind] - a[kind]);
+    const groups = ["all", ...["youtube", "cafe", "community", "instagram", "news", "blog"].filter((g) => rows.some((x) => TOP_GROUP[x.channel] === g))];
+    let tab = groups.includes(topTab[kind]) ? topTab[kind] : "all";
+    const tabsHtml = groups.map((g) => `<button data-g="${g}" class="${g === tab ? "on" : ""}">${TOP_NAME[g]}</button>`).join("");
+    if (tabsEl.dataset.html !== tabsHtml) {
+      tabsEl.dataset.html = tabsHtml;
+      tabsEl.innerHTML = tabsHtml;
+      tabsEl.onclick = (e) => {
+        const b = e.target.closest("button[data-g]");
+        if (!b) return;
+        topTab[kind] = b.dataset.g;
+        try { localStorage.setItem("hdmon-toptab", JSON.stringify(topTab)); } catch {}
+        drawTop(kind, true);
+      };
+    }
+    tabsEl.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b.dataset.g === tab));
+    const shown = rows.filter((x) => tab === "all" || TOP_GROUP[x.channel] === tab).slice(0, 6);
+    const max = shown[0]?.[kind] || 1;
+    const html = shown.length ? shown.map((x, i) => `<a class="tp" href="${esc(x.url)}" target="_blank" rel="noopener" style="--i:${i}" title="${esc(x.title)}">
+        <span class="tp-n">${i + 1}</span>${chIcon(x.channel, true)}
+        <span class="tp-t"><b>${esc(x.title)}</b><small>${esc(x.source || CH[x.channel]?.name || "")}${x.short ? " · 숏츠" : ""}</small></span>
+        <span class="tp-v ${kind}">${TOP_ICON[kind]} <em data-to="${x[kind]}">${fmtNum(x[kind])}</em></span>
+        <span class="tp-bar ${kind}"><i style="width:${Math.max(3, (x[kind] / max) * 100)}%"></i></span></a>`).join("")
+      : `<div class="hint" style="padding:14px 2px">${topItems.length ? "이 기간·카테고리에 숫자가 있는 글이 없습니다" : "조회수·댓글수를 모으는 중입니다 (유튜브는 30분마다 갱신)"}</div>`;
+    if (list.dataset.html === html && !anim) return;
+    list.dataset.html = html;
+    list.innerHTML = html;
+    list.classList.toggle("anim", anim);
+    if (anim) list.querySelectorAll("em[data-to]").forEach((e) => countUp(e, +e.dataset.to, { dur: 900 }));
+    root.querySelectorAll(".top-sub").forEach((e) => (e.textContent = `${period === 1 ? "오늘" : `최근 ${period}일`} · 이슈 글`));
   }
 
   // 성향별 목록으로 (대시보드에서 보던 기간 그대로, 이슈 게시물 기준)
@@ -181,6 +230,7 @@ export async function render(root, store) {
     // 기준 설명: 선택한 기간에 수집된 관심 동호회·채널 게시물 수, 많은 순 7곳
     root.querySelectorAll(".fav-sub").forEach((e) => (e.textContent = `${period === 1 ? "오늘" : `최근 ${period}일`} 수집된 게시물 수 · 많은 순 7곳 · 누르면 해당 글`));
     favTop("favCafe", "cafe_fav", A.favCafe, (k) => cafeName[k.toLowerCase()] || k, rank);
+    drawTop("views", first); drawTop("comments", first);
     favTop("favYt", "youtube_fav", A.favYt, (k) => ytName[k] || k, rank, A.favYtShort || {}, true);
     $q("#favYt").parentElement.querySelector(".fav-sub").textContent = `${period === 1 ? "오늘" : `최근 ${period}일`} 실제로 올라온 영상 수(작성일 기준) · 많은 순 7곳 · 누르면 해당 글`;
     drawStatus();
@@ -205,6 +255,7 @@ export async function render(root, store) {
     items.forEach((p) => shown.add(p.id));
   }
   drawFeed(false);
+  loadTop();
 
   segmented($q("#period"), (v) => { period = +v; load(); });
   $q("#runNow")?.addEventListener("click", (e) => busy(e.currentTarget, async () => {
@@ -212,7 +263,7 @@ export async function render(root, store) {
   }));
 
   const onEv = (ev) => {
-    if (ev.type === "live") { drawFeed(true); load(false); }
+    if (ev.type === "live") { drawFeed(true); load(false); loadTop(); }
     if (ev.type === "liveEdit") { drawFeed(false); load(false); }
     if (ev.type === "status") drawStatus();
     if (ev.type === "theme") { root.classList.add("calm"); draw(); }

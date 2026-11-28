@@ -59,6 +59,7 @@ export async function runCollection({ force = false, parts = null } = {}) {
   let created = [];
   try {
     created = await ingest(items, ctx, log);
+    await (await import("./topStats.js")).updateTop(created).catch((e) => log.push(`조회수 TOP: ${e.message}`.slice(0, 100)));
     await autoAnalyze(created, settings, secrets, log);
     await sendAlerts(created, ctx, secrets, log);
   } catch (e) {
@@ -143,14 +144,16 @@ async function refreshYoutubeStats(secrets, log) {
   if (!m.size) return;
   const w = db.bulkWriter();
   let n = 0;
+  const changedPosts = [];
   const num = (v) => (v == null || !Number.isFinite(+v) ? null : +v);
   for (const d of docs) {
     const s = m.get(vidOf(d.data().url));
     if (!s) continue;
     const patch = {};
     for (const k of ["views", "likes", "comments"]) if (num(s[k]) !== null && num(s[k]) !== d.data()[k]) patch[k] = num(s[k]);
-    if (Object.keys(patch).length) { w.update(d.ref, patch); n++; }
+    if (Object.keys(patch).length) { w.update(d.ref, patch); n++; changedPosts.push({ id: d.id, ...d.data(), ...patch }); }
   }
   await w.close();
+  await (await import("./topStats.js")).updateTop(changedPosts).catch(() => {});
   if (n) log.push(`유튜브 조회수·댓글수 새로 고침: ${n}건`);
 }

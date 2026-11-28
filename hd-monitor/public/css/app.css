@@ -597,3 +597,28 @@ label.field { display: flex; flex-direction: column; gap: 6px; font-size: 12px; 
 .pstat.ps-views svg { color: var(--brand); }
 .pstat.ps-comments svg { color: #8fa4ff; }
 .pstat.ps-likes svg { color: #ff6b8b; }
+
+/* 조회수 TOP · 댓글수 TOP */
+.top-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin: -2px 0 10px; }
+.top-tabs button { border: 1px solid var(--line); background: transparent; color: var(--text-3); font: 600 11.5px/1 inherit; padding: 5px 9px; border-radius: 999px; cursor: pointer; transition: all .25s var(--ease, ease); }
+.top-tabs button:hover { color: var(--text); border-color: var(--line-2); }
+.top-tabs button.on { color: #fff; background: var(--grad); border-color: transparent; box-shadow: 0 4px 14px rgba(47, 123, 255, .35); }
+.top-list { display: flex; flex-direction: column; gap: 8px; }
+.tp { display: grid; grid-template-columns: 16px 22px minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; text-decoration: none; color: inherit; padding: 4px 2px; border-radius: 10px; transition: background .2s; }
+.tp:hover { background: var(--panel-2); }
+.tp-n { font-size: 12px; font-weight: 800; color: var(--text-3); text-align: center; }
+.tp:nth-child(1) .tp-n { color: #ffd34d; } .tp:nth-child(2) .tp-n { color: #cfd8ea; } .tp:nth-child(3) .tp-n { color: #e8a26a; }
+.tp .ch-ico, .tp img { width: 20px; height: 20px; }
+.tp-t { min-width: 0; display: flex; flex-direction: column; }
+.tp-t b { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-t small { font-size: 11px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tp-v { font-size: 12.5px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tp-v em { font-style: normal; }
+.tp-v.views { color: var(--brand); } .tp-v.comments { color: #8fa4ff; }
+.tp-bar { grid-column: 3 / 5; height: 4px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: -2px; }
+.tp-bar i { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, #00aad2, #2f7bff); }
+.tp-bar.comments i { background: linear-gradient(90deg, #7a5cff, #e24d8b); }
+.top-list.anim .tp { animation: rowIn .5s var(--ease, ease) both; animation-delay: calc(var(--i) * 70ms); }
+.top-list.anim .tp-bar i { transform-origin: left; animation: growx 1.1s var(--ease, ease) both; animation-delay: calc(var(--i) * 70ms + 150ms); }
+.top-card h3 { white-space: nowrap; }
+.top-card h3 .sub { overflow: hidden; text-overflow: ellipsis; }

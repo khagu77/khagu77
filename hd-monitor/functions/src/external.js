@@ -42,6 +42,7 @@ export async function ingestFromExtension(body, secrets) {
   const ctx = buildContext(await getSettings());
   const settings = ctx.settings;
   const created = items.length ? await ingest(items, ctx, log) : [];
+  if (created.length) await (await import("./topStats.js")).updateTop(created).catch(() => {});
   if (created.length) await autoAnalyze(created, settings, secrets, log);
   if (created.length) await sendAlerts(created, ctx, secrets, log);
   if (body.naver) log.unshift(String(body.naver).slice(0, 120));
