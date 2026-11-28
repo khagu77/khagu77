@@ -2,8 +2,18 @@
 import { esc, fmtNum, cssVar, h } from "./ui.js";
 
 let tipEl;
+let tipTimer;
 function tip() {
-  if (!tipEl) { tipEl = h(`<div class="tip"></div>`); document.body.append(tipEl); }
+  if (!tipEl) {
+    tipEl = h(`<div class="tip"></div>`);
+    document.body.append(tipEl);
+    // 설명창이 남지 않게: 스크롤 · 다른 곳 누르기 · 화면 전환 · 창 크기 바뀜 때 닫음 (모바일은 '마우스 벗어남' 신호가 없음)
+    const close = () => hideTip();
+    window.addEventListener("scroll", close, { passive: true, capture: true });
+    window.addEventListener("resize", close);
+    window.addEventListener("hashchange", close);
+    document.addEventListener("pointerdown", (e) => { if (!e.target.closest?.("[data-tip], [data-h], [data-k], .chart, .heat, .rh-svg, .g-days, .st-bars")) close(); }, { capture: true });
+  }
   return tipEl;
 }
 export function showTip(e, html) {
@@ -17,8 +27,11 @@ export function showTip(e, html) {
   if (y + r.height > innerHeight - 8) y = e.clientY - r.height - 14;
   t.style.left = `${x}px`;
   t.style.top = `${y}px`;
+  // 손가락으로 누른 경우 등 '벗어남' 신호가 안 오면 잠시 뒤 저절로 닫힘 (마우스를 움직이는 동안은 계속 보임)
+  clearTimeout(tipTimer);
+  tipTimer = setTimeout(hideTip, e.pointerType === "touch" || e.type?.startsWith("touch") ? 2500 : 4000);
 }
-export const hideTip = () => tip().classList.remove("on");
+export const hideTip = () => { clearTimeout(tipTimer); tipEl?.classList.remove("on"); };
 
 const niceMax = (v) => {
   if (v <= 5) return 5;
