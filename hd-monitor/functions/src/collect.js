@@ -48,6 +48,16 @@ export async function runCollection({ force = false, parts = null } = {}) {
   jobs.push(fixCommunityDatesOnce(log).then(() => []));
   jobs.push(backfillShorts(log).then(() => []));
   if (force || tick % 6 === 0) jobs.push(refreshYoutubeStats(secrets, log).then(() => [])); // 30분마다 최근 영상 숫자 새로
+  // 게시판(보배드림·클리앙) 조회수·댓글수: 처음 한 번은 10쪽(기존 글 채우기), 그 뒤 30분마다 3쪽
+  if (want("community") && settings.collect.community) jobs.push((async () => {
+    const st = await getState("community_counts");
+    const first = !st.filled;
+    if (!first && !(force || tick % 6 === 3)) return [];
+    const { refreshCommunityCounts } = await import("./collectors/community.js");
+    await refreshCommunityCounts({ settings, log, pages: first ? 10 : 3 });
+    if (first) await setState("community_counts", { filled: true });
+    return [];
+  })());
   const results = await Promise.allSettled(jobs);
   const items = [];
   for (const r of results) {

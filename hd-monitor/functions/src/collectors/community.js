@@ -129,3 +129,40 @@ export async function collectCommunity({ settings, log }) {
   log.push(`커뮤니티 게시판 ${boards.length}곳, 새 글 ${out.length}건${fail ? `, 실패 ${fail}` : ""}`);
   return out;
 }
+
+// 이미 저장된 게시판 글의 조회수 · 댓글수 채우기/새로 고치기 (목록 몇 쪽을 다시 읽어 글 주소로 찾음)
+export async function refreshCommunityCounts({ settings, log, pages = 3 }) {
+  const { db } = await import("../db.js");
+  const { canonicalUrl, hash } = await import("../util.js");
+  const boards = (settings.boards || []).map((b) => ({ ...b, ad: boardAdapter(b.url) })).filter((b) => b.ad && b.ad.channel !== "ppomppu");
+  let found = 0, changed = 0;
+  const touched = [];
+  for (const b of boards) {
+    for (let p = 1; p <= pages; p++) {
+      let rows;
+      try { rows = parseBoardList(await fetchHtml(b.ad.listUrl(p), { Referer: b.ad.listUrl(1) }), b.ad); } catch { break; }
+      if (!rows.length) break;
+      const withNum = rows.filter((r) => r.comments != null || r.views != null);
+      const refs = withNum.map((r) => ({ r, ref: db.doc(`posts/${hash(canonicalUrl(b.ad.articleUrl(r.id)))}`) }));
+      if (refs.length) {
+        const snaps = await db.getAll(...refs.map((x) => x.ref));
+        const batch = db.batch();
+        let n = 0;
+        snaps.forEach((s, i) => {
+          if (!s.exists) return;
+          found++;
+          const { r } = refs[i];
+          const d = s.data();
+          const patch = {};
+          if (r.comments != null && d.comments !== r.comments) patch.comments = r.comments;
+          if (r.views != null && d.views !== r.views) patch.views = r.views;
+          if (Object.keys(patch).length) { batch.update(s.ref, patch); n++; touched.push({ id: s.id, ...d, ...patch }); }
+        });
+        if (n) { await batch.commit(); changed += n; }
+      }
+      await sleep(700 + Math.random() * 900);
+    }
+  }
+  if (touched.length) await (await import("../topStats.js")).updateTop(touched).catch(() => {});
+  log.push(`게시판 조회수·댓글수: 저장된 글 ${found}건 확인, ${changed}건 새로 고침`);
+}
