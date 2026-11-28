@@ -106,8 +106,10 @@ export function statsDelta(posts) {
     } else d.garbage++;
     for (const k of p.kw || []) inc(d.kw, k.replace(/[.~*/[\]]/g, " ").trim() || "기타");
     for (const g of p.kwGroups || []) inc(d.grp, g);
-    if (p.fav && p.channel === "cafe") inc(d.favCafe, p.sourceId);
-    if (p.fav && p.channel === "youtube") inc(d.favYt, p.sourceId);
+    // 카페 주소 ID·채널 ID 를 모르면 이름으로 (빈 이름표는 통계에서 빠지던 문제)
+    const favKey = (x) => String(x.sourceId || x.source || "기타").replace(/[.~*/[\]]/g, " ").trim().slice(0, 100) || "기타";
+    if (p.fav && p.channel === "cafe") inc(d.favCafe, favKey(p));
+    if (p.fav && p.channel === "youtube") inc(d.favYt, favKey(p));
   }
   return d;
 }
