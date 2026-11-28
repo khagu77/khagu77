@@ -100,7 +100,7 @@ export async function render(root, store) {
 
   // ── 조회수 TOP · 댓글수 TOP (카테고리 탭) ─────────────────────────
   const TOP_GROUP = { youtube: "youtube", cafe: "cafe", bobae: "community", clien: "community", ppomppu: "community", instagram: "instagram", news: "news", blog: "blog", post: "blog" };
-  const TOP_NAME = { all: "전체", youtube: "유튜브", cafe: "동호회", community: "자동차 커뮤니티", instagram: "인스타그램", news: "언론", blog: "블로그" };
+  const TOP_NAME = { all: "전체", youtube: "유튜브", cafe: "동호회", community: "커뮤니티", instagram: "인스타그램", news: "언론", blog: "블로그" };
   const TOP_ICON = { views: "👁", comments: "💬" };
   const topTab = (() => { try { return JSON.parse(localStorage.getItem("hdmon-toptab") || "{}"); } catch { return {}; } })();
   let topItems = [];
